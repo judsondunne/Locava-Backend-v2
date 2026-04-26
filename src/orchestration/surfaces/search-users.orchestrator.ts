@@ -1,0 +1,75 @@
+import { globalCache } from "../../cache/global-cache.js";
+import { buildCacheKey } from "../../cache/types.js";
+import type { SearchUsersResponse } from "../../contracts/surfaces/search-users.contract.js";
+import { excludeKey } from "../../lib/user-discovery-exclude.js";
+import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
+import type { SearchUsersService } from "../../services/surfaces/search-users.service.js";
+
+export class SearchUsersOrchestrator {
+  constructor(private readonly service: SearchUsersService) {}
+
+  async run(input: {
+    viewerId: string;
+    query: string;
+    cursor: string | null;
+    limit: number;
+    excludeUserIds: string[];
+  }): Promise<SearchUsersResponse> {
+    const { viewerId, query, cursor, limit, excludeUserIds } = input;
+    const normalized = query.trim().toLowerCase();
+    const cursorPart = cursor ?? "start";
+    const cacheKey = buildCacheKey("list", [
+      "search-users-v2",
+      viewerId,
+      normalized,
+      cursorPart,
+      String(limit),
+      excludeKey(excludeUserIds)
+    ]);
+    const cached = await globalCache.get<SearchUsersResponse>(cacheKey);
+    if (cached) {
+      recordCacheHit();
+      return cached;
+    }
+    recordCacheMiss();
+
+    const page = await this.service.loadUsersPage({
+      viewerId,
+      query: normalized,
+      cursor,
+      limit,
+      excludeUserIds
+    });
+    const requestKey = `${viewerId}:${normalized}:${cursorPart}:${limit}:${excludeKey(excludeUserIds)}`;
+    const following = new Set(page.followingUserIds);
+    const isSuggested = page.mode === "suggested";
+    const response: SearchUsersResponse = {
+      routeName: "search.users.get",
+      requestKey,
+      queryEcho: normalized,
+      page: {
+        cursorIn: cursor,
+        limit,
+        count: page.items.length,
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
+        sort: "search_users_relevance_v1"
+      },
+      items: page.items.map((row) => ({
+        userId: row.userId,
+        handle: row.handle,
+        displayName: row.name,
+        profilePic: row.pic,
+        isFollowing: following.has(row.userId),
+        isSuggested
+      })),
+      viewer: {
+        followingUserIds: page.followingUserIds
+      },
+      degraded: false,
+      fallbacks: []
+    };
+    await globalCache.set(cacheKey, response, 8_000);
+    return response;
+  }
+}

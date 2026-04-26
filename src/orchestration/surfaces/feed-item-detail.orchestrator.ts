@@ -1,0 +1,82 @@
+import { globalCache } from "../../cache/global-cache.js";
+import { buildCacheKey } from "../../cache/types.js";
+import type { FeedItemDetailResponse } from "../../contracts/surfaces/feed-item-detail.contract.js";
+import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
+import type { FeedService } from "../../services/surfaces/feed.service.js";
+
+export class FeedItemDetailOrchestrator {
+  constructor(private readonly service: FeedService) {}
+
+  async run(input: {
+    viewerId: string;
+    postId: string;
+    debugSlowDeferredMs: number;
+  }): Promise<FeedItemDetailResponse> {
+    const { viewerId, postId } = input;
+    const enableDetailCache = input.debugSlowDeferredMs === 0;
+    const cacheKey = buildCacheKey("entity", ["feed-item-detail-v1", viewerId, postId]);
+    if (enableDetailCache) {
+      const cached = await globalCache.get<FeedItemDetailResponse>(cacheKey);
+      if (cached) {
+        recordCacheHit();
+        return cached;
+      }
+    }
+    recordCacheMiss();
+
+    const [cardSummary, post] = await Promise.all([
+      this.service.loadPostCardSummary(viewerId, postId),
+      this.service.loadPostDetail(postId, viewerId)
+    ]);
+    const author = cardSummary.author;
+    const social = cardSummary.social;
+    const viewer = cardSummary.viewer;
+
+    const response: FeedItemDetailResponse = {
+      routeName: "feed.itemdetail.get",
+      firstRender: {
+        post: {
+          postId: post.postId,
+          userId: post.userId,
+          caption: post.caption,
+          createdAtMs: post.createdAtMs,
+          mediaType: post.mediaType,
+          thumbUrl: post.thumbUrl,
+          assets: post.assets,
+          cardSummary: {
+            ...cardSummary,
+            rankToken: `rank-${viewerId.slice(0, 6)}-detail-${postId}`,
+            captionPreview: post.caption,
+            media: {
+              type: post.mediaType,
+              posterUrl: post.thumbUrl,
+              aspectRatio: 9 / 16,
+              startupHint: post.mediaType === "video" ? "poster_then_preview" : "poster_only"
+            },
+            author,
+            social,
+            viewer,
+            updatedAtMs: post.createdAtMs
+          }
+        },
+        author,
+        social,
+        viewer
+      },
+      deferred: {
+        commentsPreview: null
+      },
+      background: {
+        prefetchHints: ["feed:item:comments:next", "feed:item:social:refresh"]
+      },
+      degraded: false,
+      fallbacks: []
+    };
+
+    if (enableDetailCache) {
+      await globalCache.set(cacheKey, response, 8_000);
+    }
+
+    return response;
+  }
+}

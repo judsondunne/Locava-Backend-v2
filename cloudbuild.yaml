@@ -1,0 +1,39 @@
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        'build',
+        '-t',
+        'us-central1-docker.pkg.dev/$PROJECT_ID/locava-backend-v2/locava-backend-v2:$COMMIT_SHA',
+        '.'
+      ]
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      [
+        'push',
+        'us-central1-docker.pkg.dev/$PROJECT_ID/locava-backend-v2/locava-backend-v2:$COMMIT_SHA'
+      ]
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      [
+        'run',
+        'deploy',
+        'locava-backend-v2',
+        '--image',
+        'us-central1-docker.pkg.dev/$PROJECT_ID/locava-backend-v2/locava-backend-v2:$COMMIT_SHA',
+        '--region',
+        'us-central1',
+        '--platform',
+        'managed',
+        '--allow-unauthenticated',
+        '--port',
+        '8080',
+        '--set-env-vars',
+        'NODE_ENV=production,SERVICE_NAME=locava-backend-v2,SERVICE_VERSION=$COMMIT_SHA'
+      ]
+
+images:
+  - us-central1-docker.pkg.dev/$PROJECT_ID/locava-backend-v2/locava-backend-v2:$COMMIT_SHA

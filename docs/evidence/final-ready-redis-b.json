@@ -1,0 +1,1 @@
+{"ok":true,"data":{"status":"ready","coherence":{"mode":"redis","processLocalOnly":false,"redisConfigured":true,"warning":null}},"meta":{"requestId":"9756f47e-79a2-47f3-b9f1-b5d1ef1448bc","db":{"reads":0,"writes":0,"queries":0}}}

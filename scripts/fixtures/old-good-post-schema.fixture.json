@@ -1,0 +1,31 @@
+{
+  "requiredTopLevelFields": [
+    "postId",
+    "userId",
+    "title",
+    "content",
+    "activities",
+    "lat",
+    "long",
+    "address",
+    "privacy",
+    "assets",
+    "assetsReady",
+    "displayPhotoLink",
+    "photoLink",
+    "photoLinks2",
+    "photoLinks3",
+    "cityRegionId",
+    "countryRegionId",
+    "geohash",
+    "geoData",
+    "time",
+    "time-created",
+    "createdAt",
+    "lastUpdated"
+  ],
+  "requiredGeoDataFields": ["country", "state", "city"],
+  "disallowedAssetUrlSubstringsWhenReady": ["postSessionStaging/"],
+  "requiredAssetFields": ["id", "type", "original", "variants"],
+  "requiredImageVariantFields": ["thumb", "sm", "md", "lg"]
+}

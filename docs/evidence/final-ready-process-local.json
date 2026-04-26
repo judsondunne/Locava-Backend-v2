@@ -1,0 +1,1 @@
+{"ok":true,"data":{"status":"ready","coherence":{"mode":"process_local","processLocalOnly":true,"redisConfigured":false,"warning":"Process-local cache/dedupe/lock/invalidation assumptions remain. Use single-instance or implement external coordinator."}},"meta":{"requestId":"8734d208-ca2b-4fc0-b6fd-b65399f1ca9f","db":{"reads":0,"writes":0,"queries":0}}}

@@ -1,0 +1,837 @@
+import { randomUUID } from "node:crypto";
+import { FieldPath, FieldValue, Timestamp, type DocumentData } from "firebase-admin/firestore";
+import type { NotificationSummary } from "../../contracts/entities/notification-entities.contract.js";
+import { entityCacheKeys } from "../../cache/entity-cache.js";
+import { globalCache } from "../../cache/global-cache.js";
+import { decodeCursor, encodeCursor } from "../../lib/pagination.js";
+import { incrementDbOps, recordEntityCacheHit, recordFallback, recordSurfaceTimings } from "../../observability/request-context.js";
+import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
+import { SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
+
+type NotificationRecord = NotificationSummary & { viewerId: string };
+type CachedNotificationReadState = {
+  exists: boolean;
+  read: boolean;
+};
+
+type RawNotificationDoc = {
+  type?: unknown;
+  senderUserId?: unknown;
+  message?: unknown;
+  timestamp?: unknown;
+  createdAt?: unknown;
+  read?: unknown;
+  postId?: unknown;
+  targetId?: unknown;
+  targetUserId?: unknown;
+  collectionId?: unknown;
+  commentId?: unknown;
+  conversationId?: unknown;
+  chatId?: unknown;
+  senderName?: unknown;
+  senderProfilePic?: unknown;
+  metadata?: unknown;
+};
+
+export class NotificationsRepositoryError extends Error {
+  constructor(public readonly code: "invalid_cursor", message: string) {
+    super(message);
+  }
+}
+
+const KNOWN_NOTIFICATION_TYPES = new Set([
+  "like",
+  "comment",
+  "follow",
+  "post",
+  "mention",
+  "invite",
+  "group_invite",
+  "group_joined",
+  "collection_shared",
+  "contact_joined",
+  "place_follow",
+  "audio_like",
+  "system",
+  "chat",
+  "achievement_leaderboard",
+  "leaderboard_rank_up",
+  "leaderboard_rank_down",
+  "leaderboard_passed",
+  "post_discovery"
+] as const);
+
+function normalizeType(input: unknown): NotificationSummary["type"] {
+  const v = String(input ?? "").toLowerCase() as NotificationSummary["type"];
+  if (KNOWN_NOTIFICATION_TYPES.has(v)) return v;
+  return "post";
+}
+
+function sanitizeProfilePic(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const value = input.trim();
+  if (!value) return null;
+  if (/via\.placeholder\.com/i.test(value) || /placeholder/i.test(value)) return null;
+  return value;
+}
+
+function toMillis(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value > 1e12 ? Math.floor(value) : Math.floor(value * 1000);
+  if (value && typeof (value as { toMillis?: () => number }).toMillis === "function") {
+    return Math.floor((value as { toMillis: () => number }).toMillis());
+  }
+  if (value && typeof value === "object") {
+    const row = value as { seconds?: unknown; _seconds?: unknown };
+    const sec = typeof row.seconds === "number" ? row.seconds : typeof row._seconds === "number" ? row._seconds : null;
+    if (sec != null) return Math.floor(sec * 1000);
+  }
+  return Date.now();
+}
+
+function defaultPreviewText(type: NotificationSummary["type"]): string {
+  if (type === "follow") return "started following you";
+  if (type === "comment") return "commented on your post";
+  if (type === "like") return "liked your post";
+  if (type === "mention") return "mentioned you in a post";
+  if (type === "chat") return "sent you a message";
+  if (type === "invite") return "invited you to collaborate";
+  if (type === "collection_shared") return "shared a collection with you";
+  return "interacted with your content";
+}
+
+function pickUnreadCountFromUserDoc(data: Record<string, unknown> | null | undefined): number | null {
+  if (!data) return null;
+  for (const key of ["unreadCount", "unreadNotificationCount", "notificationUnreadCount", "notifUnread"]) {
+    const value = data[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return Math.floor(value);
+    }
+  }
+  return null;
+}
+
+function pickReadAllAtMsFromUserDoc(data: Record<string, unknown> | null | undefined): number | null {
+  if (!data) return null;
+  for (const key of ["notificationsReadAllAtMs", "notificationsMarkedReadThroughMs"]) {
+    const value = data[key];
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+      return Math.floor(value);
+    }
+  }
+  return null;
+}
+
+function buildNotificationMetadata(row: RawNotificationDoc): Record<string, unknown> | undefined {
+  const base = row.metadata && typeof row.metadata === "object" ? { ...(row.metadata as Record<string, unknown>) } : {};
+  const deepLinkFields: Array<[string, unknown]> = [
+    ["commentId", row.commentId],
+    ["collectionId", row.collectionId],
+    ["conversationId", row.conversationId],
+    ["chatId", row.chatId],
+    ["postId", row.postId],
+    ["targetId", row.targetId],
+    ["targetUserId", row.targetUserId]
+  ];
+  for (const [key, value] of deepLinkFields) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      base[key] = value.trim();
+    }
+  }
+  return Object.keys(base).length > 0 ? base : undefined;
+}
+
+type SeededNotificationDoc = RawNotificationDoc & { id: string };
+
+/** Test-only in-memory post author hints when Firestore is disabled (NODE_ENV=test). */
+const SEEDED_POST_AUTHOR_FOR_TESTS: Record<string, string> = {
+  "internal-viewer-feed-post-1": "internal-viewer"
+};
+
+export class NotificationsRepository {
+  private readonly db = getFirestoreSourceClient();
+  private readonly seededNotificationsByViewer = new Map<string, SeededNotificationDoc[]>();
+
+  private notificationReadStateCacheKey(viewerId: string, notificationId: string): string {
+    return `notification:${viewerId}:${notificationId}:read-state`;
+  }
+
+  private useSeededNotifications(): boolean {
+    return process.env.NODE_ENV === "test" && this.db === null;
+  }
+
+  private ensureDb(): NonNullable<ReturnType<typeof getFirestoreSourceClient>> {
+    if (!this.db) throw new SourceOfTruthRequiredError("notifications_firestore_unavailable");
+    return this.db;
+  }
+
+  private ensureSeededViewer(viewerId: string): SeededNotificationDoc[] {
+    if (this.seededNotificationsByViewer.has(viewerId)) {
+      return this.seededNotificationsByViewer.get(viewerId)!;
+    }
+    const rows: SeededNotificationDoc[] = Array.from({ length: 25 }, (_, i) => {
+      const slot = i + 1;
+      const id = `seed_${viewerId.slice(0, 4)}_n_${String(slot).padStart(3, "0")}`;
+      const sender = `sender_${(slot % 5) + 1}`;
+      const t = slot % 4;
+      const type: RawNotificationDoc["type"] = t === 0 ? "follow" : t === 1 ? "like" : t === 2 ? "comment" : "post";
+      const createdAtMs = Date.now() - slot * 60_000;
+      return {
+        id,
+        type,
+        senderUserId: sender,
+        message: defaultPreviewText(normalizeType(type)),
+        read: slot > 3,
+        timestamp: createdAtMs,
+        postId: type === "follow" ? null : `post_seed_${slot}`,
+        targetUserId: type === "follow" ? viewerId : null,
+        metadata: { postThumbUrl: "https://example.com/thumb.jpg" }
+      };
+    });
+    this.seededNotificationsByViewer.set(viewerId, rows);
+    return rows;
+  }
+
+  private mapSeededDocsToRecords(allRaw: SeededNotificationDoc[], viewerId: string): NotificationRecord[] {
+    return allRaw.map((row) => {
+      const actorId = String(row.senderUserId ?? "system");
+      const type = normalizeType(row.type);
+      const createdAtMs = typeof row.timestamp === "number" ? row.timestamp : toMillis(row.timestamp ?? row.createdAt);
+      const metadata = row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : {};
+      const handle = `hdl_${actorId.replace(/[^a-z0-9]+/gi, "").slice(0, 8)}`;
+      const name = `User ${actorId.slice(-4)}`;
+      const rawTarget = String(row.postId ?? row.targetId ?? row.targetUserId ?? row.collectionId ?? row.id);
+      const targetId = type === "follow" ? actorId : rawTarget;
+      const metaOut = buildNotificationMetadata(row);
+      return {
+        notificationId: row.id,
+        type,
+        actorId,
+        actor: { userId: actorId, handle, name, pic: null },
+        targetId,
+        createdAtMs,
+        readState: Boolean(row.read) ? "read" : "unread",
+        preview: {
+          text: String(row.message ?? metadata.postTitle ?? defaultPreviewText(type)),
+          thumbUrl: typeof metadata.postThumbUrl === "string" ? metadata.postThumbUrl : null
+        },
+        ...(metaOut ? { metadata: metaOut } : {}),
+        viewerId
+      };
+    });
+  }
+
+  private listNotificationsSeeded(input: {
+    viewerId: string;
+    cursor: string | null;
+    limit: number;
+  }): {
+    cursorIn: string | null;
+    items: NotificationRecord[];
+    hasMore: boolean;
+    nextCursor: string | null;
+    unreadCount: number;
+  } {
+    recordFallback("notifications_seeded_list");
+    const safeLimit = Math.max(1, Math.min(50, input.limit));
+    const all = this.ensureSeededViewer(input.viewerId)
+      .slice()
+      .sort((a, b) => {
+        const ta = typeof a.timestamp === "number" ? a.timestamp : toMillis(a.timestamp);
+        const tb = typeof b.timestamp === "number" ? b.timestamp : toMillis(b.timestamp);
+        if (tb !== ta) return tb - ta;
+        return a.id < b.id ? 1 : -1;
+      });
+    let start = 0;
+    if (input.cursor) {
+      try {
+        const parsed = decodeCursor(input.cursor);
+        const idx = all.findIndex((row) => {
+          const t = typeof row.timestamp === "number" ? row.timestamp : toMillis(row.timestamp);
+          return t < parsed.createdAtMs || (t === parsed.createdAtMs && row.id < parsed.id);
+        });
+        start = idx < 0 ? all.length : idx;
+      } catch {
+        throw new NotificationsRepositoryError("invalid_cursor", "Notifications cursor is invalid.");
+      }
+    }
+    const pageRows = all.slice(start, start + safeLimit + 1);
+    const hasMore = pageRows.length > safeLimit;
+    const slice = pageRows.slice(0, safeLimit);
+    incrementDbOps("queries", 1);
+    incrementDbOps("reads", slice.length);
+    const items = this.mapSeededDocsToRecords(slice, input.viewerId);
+    const unreadCount = all.filter((r) => !r.read).length;
+    const tail = items[items.length - 1];
+    const nextCursor = hasMore && tail ? encodeCursor({ id: tail.notificationId, createdAtMs: tail.createdAtMs }) : null;
+    return { cursorIn: input.cursor, items, hasMore, nextCursor, unreadCount };
+  }
+
+  private async loadUsersById(userIds: string[]): Promise<Map<string, DocumentData>> {
+    const db = this.ensureDb();
+    const unique = [...new Set(userIds.filter((v) => v.length > 0 && v !== "system"))];
+    const result = new Map<string, DocumentData>();
+    const ttlMs = 25_000;
+    const cachedPairs = await Promise.all(
+      unique.map(async (id) => ({ id, row: await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id)) }))
+    );
+    const missing: string[] = [];
+    for (const { id, row } of cachedPairs) {
+      if (row !== undefined) {
+        recordEntityCacheHit();
+        result.set(id, row);
+      } else missing.push(id);
+    }
+    if (missing.length === 0) return result;
+
+    const chunks: string[][] = [];
+    for (let i = 0; i < missing.length; i += 10) chunks.push(missing.slice(i, i + 10));
+    incrementDbOps("queries", chunks.length);
+    const snaps = await Promise.all(
+      chunks.map((chunk) => db.collection("users").where(FieldPath.documentId(), "in", chunk).get())
+    );
+    for (const snap of snaps) {
+      incrementDbOps("reads", snap.docs.length);
+      for (const doc of snap.docs) {
+        const data = doc.data();
+        result.set(doc.id, data);
+        void globalCache.set(entityCacheKeys.userFirestoreDoc(doc.id), data, ttlMs);
+      }
+    }
+    return result;
+  }
+
+  private async loadCachedUsersById(userIds: string[]): Promise<Map<string, DocumentData>> {
+    const unique = [...new Set(userIds.filter((v) => v.length > 0 && v !== "system"))];
+    const result = new Map<string, DocumentData>();
+    const cachedPairs = await Promise.all(
+      unique.map(async (id) => ({ id, row: await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id)) }))
+    );
+    for (const { id, row } of cachedPairs) {
+      if (row !== undefined) {
+        recordEntityCacheHit();
+        result.set(id, row);
+      }
+    }
+    return result;
+  }
+
+  private async readCachedUnreadCount(viewerId: string): Promise<number | null> {
+    const cached = await globalCache.get<number>(entityCacheKeys.notificationsUnreadCount(viewerId));
+    if (typeof cached === "number" && Number.isFinite(cached) && cached >= 0) {
+      recordEntityCacheHit();
+      return Math.floor(cached);
+    }
+    const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
+    const fromUserDoc = pickUnreadCountFromUserDoc(cachedUserDoc);
+    if (fromUserDoc != null) {
+      recordEntityCacheHit();
+      await globalCache.set(entityCacheKeys.notificationsUnreadCount(viewerId), fromUserDoc, 25_000);
+      return fromUserDoc;
+    }
+    return null;
+  }
+
+  private async readCachedReadAllAtMs(viewerId: string): Promise<{ value: number; known: boolean }> {
+    const cached = await globalCache.get<number>(entityCacheKeys.notificationsReadAllAt(viewerId));
+    if (typeof cached === "number" && Number.isFinite(cached) && cached >= 0) {
+      recordEntityCacheHit();
+      return { value: Math.floor(cached), known: true };
+    }
+    const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
+    if (cachedUserDoc !== undefined) {
+      recordEntityCacheHit();
+      const fromUserDoc = pickReadAllAtMsFromUserDoc(cachedUserDoc) ?? 0;
+      await globalCache.set(entityCacheKeys.notificationsReadAllAt(viewerId), fromUserDoc, 25_000);
+      return { value: fromUserDoc, known: true };
+    }
+    return { value: 0, known: false };
+  }
+
+  private async writeUnreadCountCaches(viewerId: string, unreadCount: number): Promise<void> {
+    const safeUnread = Math.max(0, Math.floor(unreadCount));
+    await globalCache.set(entityCacheKeys.notificationsUnreadCount(viewerId), safeUnread, 25_000);
+    const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
+    if (cachedUserDoc !== undefined) {
+      await globalCache.set(
+        entityCacheKeys.userFirestoreDoc(viewerId),
+        {
+          ...cachedUserDoc,
+          unreadCount: safeUnread,
+          unreadNotificationCount: safeUnread,
+          notificationUnreadCount: safeUnread,
+          notifUnread: safeUnread
+        },
+        25_000
+      );
+    }
+  }
+
+  private async cacheNotificationReadStates(viewerId: string, states: Array<{ notificationId: string; read: boolean }>): Promise<void> {
+    await Promise.all(
+      states.map((state) =>
+        globalCache.set<CachedNotificationReadState>(
+          this.notificationReadStateCacheKey(viewerId, state.notificationId),
+          {
+            exists: true,
+            read: state.read
+          },
+          25_000
+        )
+      )
+    );
+  }
+
+  private async writeReadAllAtCaches(viewerId: string, readAllAtMs: number): Promise<void> {
+    const safeReadAllAt = Math.max(0, Math.floor(readAllAtMs));
+    await globalCache.set(entityCacheKeys.notificationsReadAllAt(viewerId), safeReadAllAt, 25_000);
+    const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
+    if (cachedUserDoc !== undefined) {
+      await globalCache.set(
+        entityCacheKeys.userFirestoreDoc(viewerId),
+        {
+          ...cachedUserDoc,
+          notificationsReadAllAtMs: safeReadAllAt,
+          notificationsMarkedReadThroughMs: safeReadAllAt
+        },
+        25_000
+      );
+    }
+  }
+
+  private async writeUnreadCountFirestore(viewerId: string, unreadCount: number): Promise<void> {
+    const safeUnread = Math.max(0, Math.floor(unreadCount));
+    const db = this.ensureDb();
+    await db.collection("users").doc(viewerId).set(
+      {
+        unreadCount: safeUnread,
+        unreadNotificationCount: safeUnread,
+        notificationUnreadCount: safeUnread,
+        notifUnread: safeUnread
+      },
+      { merge: true }
+    );
+    incrementDbOps("writes", 1);
+  }
+
+  private async adjustUnreadCountFirestore(viewerId: string, delta: number): Promise<number> {
+    const db = this.ensureDb();
+    const userRef = db.collection("users").doc(viewerId);
+    const nextUnread = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(userRef);
+      incrementDbOps("reads", 1);
+      const base = pickUnreadCountFromUserDoc((snap.data() ?? null) as Record<string, unknown> | null) ?? 0;
+      const next = Math.max(0, base + delta);
+      tx.set(
+        userRef,
+        {
+          unreadCount: next,
+          unreadNotificationCount: next,
+          notificationUnreadCount: next,
+          notifUnread: next
+        },
+        { merge: true }
+      );
+      return next;
+    });
+    incrementDbOps("queries", 1);
+    incrementDbOps("writes", 1);
+    await this.writeUnreadCountCaches(viewerId, nextUnread);
+    return nextUnread;
+  }
+
+  async listNotifications(input: {
+    viewerId: string;
+    cursor: string | null;
+    limit: number;
+  }): Promise<{
+    cursorIn: string | null;
+    items: NotificationRecord[];
+    hasMore: boolean;
+    nextCursor: string | null;
+    unreadCount: number;
+  }> {
+    if (this.useSeededNotifications()) {
+      return this.listNotificationsSeeded(input);
+    }
+    const db = this.ensureDb();
+    const safeLimit = Math.max(1, Math.min(50, input.limit));
+    let parsedCursor: { id: string; createdAtMs: number } | null = null;
+    if (input.cursor) {
+      try {
+        parsedCursor = decodeCursor(input.cursor);
+      } catch {
+        throw new NotificationsRepositoryError("invalid_cursor", "Notifications cursor is invalid.");
+      }
+    }
+
+    const coll = db.collection("users").doc(input.viewerId).collection("notifications");
+    let pageQuery = coll
+      .orderBy("timestamp", "desc")
+      .orderBy(FieldPath.documentId(), "desc")
+      .select(
+        "type",
+        "senderUserId",
+        "message",
+        "timestamp",
+        "createdAt",
+        "read",
+        "postId",
+        "targetId",
+        "targetUserId",
+        "collectionId",
+        "commentId",
+        "conversationId",
+        "chatId",
+        "senderName",
+        "senderProfilePic",
+        "metadata"
+      )
+      .limit(safeLimit + 1);
+    if (parsedCursor) {
+      pageQuery = pageQuery.startAfter(Timestamp.fromMillis(parsedCursor.createdAtMs), parsedCursor.id);
+    }
+    const cachedUnreadCount = await this.readCachedUnreadCount(input.viewerId);
+    const cachedReadAll = await this.readCachedReadAllAtMs(input.viewerId);
+    const shouldReadUserDoc = cachedUnreadCount == null || !cachedReadAll.known;
+    const userDocPromise = shouldReadUserDoc ? db.collection("users").doc(input.viewerId).get() : Promise.resolve(null);
+
+    incrementDbOps("queries", shouldReadUserDoc ? 2 : 1);
+    const tParallel0 = performance.now();
+    const [snapshot, userDoc] = await Promise.all([pageQuery.get(), userDocPromise]);
+    const tParallel1 = performance.now();
+    incrementDbOps("reads", snapshot.docs.length);
+    if (userDoc?.exists) {
+      incrementDbOps("reads", 1);
+    }
+
+    let unreadCount = cachedUnreadCount;
+    const userDocData = userDoc ? ((userDoc.data() ?? null) as Record<string, unknown> | null) : null;
+    const userDocUnread = pickUnreadCountFromUserDoc(userDocData);
+    const readAllAtMs = shouldReadUserDoc ? pickReadAllAtMsFromUserDoc(userDocData) ?? 0 : cachedReadAll.value;
+    if (unreadCount == null && userDocUnread != null) {
+      unreadCount = userDocUnread;
+      await this.writeUnreadCountCaches(input.viewerId, unreadCount);
+    }
+    if (shouldReadUserDoc) {
+      await this.writeReadAllAtCaches(input.viewerId, readAllAtMs);
+    }
+    if (unreadCount == null) {
+      incrementDbOps("queries", 1);
+      const unreadAgg = await coll.where("read", "==", false).count().get();
+      unreadCount = Math.max(0, Math.floor(Number(unreadAgg.data().count ?? 0)));
+      await Promise.all([
+        this.writeUnreadCountCaches(input.viewerId, unreadCount),
+        this.writeUnreadCountFirestore(input.viewerId, unreadCount)
+      ]);
+    }
+
+    const pageDocs = snapshot.docs.slice(0, safeLimit);
+    const hasMore = snapshot.docs.length > safeLimit;
+    const allRaw = pageDocs.map((doc) => ({ id: doc.id, ...(doc.data() as RawNotificationDoc) }));
+    const tHydr0 = performance.now();
+    const senderMap = await this.loadCachedUsersById(allRaw.map((row) => String(row.senderUserId ?? "")));
+    const tHydr1 = performance.now();
+    const tMap0 = performance.now();
+    const items: NotificationRecord[] = allRaw.map((row) => {
+      const actorId = String(row.senderUserId ?? "system");
+      const type = normalizeType(row.type);
+      const sender = senderMap.get(actorId);
+      const createdAtMs = toMillis(row.timestamp ?? row.createdAt);
+      const metadata = row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : {};
+      const handle = String(sender?.handle ?? "").replace(/^@+/, "");
+      const name = String(sender?.name ?? sender?.displayName ?? row.senderName ?? (actorId === "system" ? "Locava" : "")).trim();
+      const pic = sanitizeProfilePic(sender?.profilePic ?? sender?.profilePicture ?? sender?.photo ?? row.senderProfilePic);
+      const rawTarget = String(row.postId ?? row.targetId ?? row.targetUserId ?? row.collectionId ?? row.id);
+      const targetId = type === "follow" ? actorId : rawTarget;
+      const readState: "read" | "unread" =
+        Boolean(row.read) || (readAllAtMs > 0 && createdAtMs <= readAllAtMs) ? "read" : "unread";
+      const metaOut = buildNotificationMetadata(row);
+      return {
+        notificationId: row.id,
+        type,
+        actorId,
+        actor: {
+          userId: actorId,
+          handle,
+          name,
+          pic
+        },
+        targetId,
+        createdAtMs,
+        readState,
+        preview: {
+          text: String(row.message ?? metadata.postTitle ?? defaultPreviewText(type)),
+          thumbUrl: typeof metadata.postThumbUrl === "string" ? metadata.postThumbUrl : null
+        },
+        ...(metaOut ? { metadata: metaOut } : {}),
+        viewerId: input.viewerId
+      };
+    });
+    const tMap1 = performance.now();
+    recordSurfaceTimings({
+      notifications_firestore_parallel_ms: tParallel1 - tParallel0,
+      notifications_user_batch_ms: tHydr1 - tHydr0,
+      notifications_map_ms: tMap1 - tMap0
+    });
+
+    const tail = items[items.length - 1];
+    const nextCursor = hasMore && tail ? encodeCursor({ id: tail.notificationId, createdAtMs: tail.createdAtMs }) : null;
+    await this.cacheNotificationReadStates(
+      input.viewerId,
+      items.map((item) => ({
+        notificationId: item.notificationId,
+        read: item.readState === "read"
+      }))
+    );
+    return { cursorIn: input.cursor, items, hasMore, nextCursor, unreadCount: unreadCount ?? 0 };
+  }
+
+  async markRead(input: { viewerId: string; notificationIds: readonly string[] }): Promise<{
+    requestedCount: number;
+    markedCount: number;
+    unreadCount: number;
+    idempotent: boolean;
+  }> {
+    const requested = [...new Set(input.notificationIds.filter((id) => typeof id === "string" && id.length > 0))];
+    if (requested.length === 0) {
+      return { requestedCount: 0, markedCount: 0, unreadCount: 0, idempotent: true };
+    }
+    if (this.useSeededNotifications()) {
+      recordFallback("notifications_seeded_mark_read");
+      const rows = this.ensureSeededViewer(input.viewerId);
+      let markedCount = 0;
+      for (const id of requested) {
+        const row = rows.find((r) => r.id === id);
+        if (row && !row.read) {
+          row.read = true;
+          markedCount += 1;
+          incrementDbOps("writes", 1);
+        }
+      }
+      const unreadCount = rows.filter((r) => !r.read).length;
+      return {
+        requestedCount: requested.length,
+        markedCount,
+        unreadCount,
+        idempotent: markedCount === 0
+      };
+    }
+    const db = this.ensureDb();
+    const coll = db.collection("users").doc(input.viewerId).collection("notifications");
+    const [cachedUnreadCount, cachedReadStates] = await Promise.all([
+      this.readCachedUnreadCount(input.viewerId),
+      Promise.all(
+        requested.map((id) =>
+          globalCache.get<CachedNotificationReadState>(this.notificationReadStateCacheKey(input.viewerId, id))
+        )
+      )
+    ]);
+    const docsById = new Map<string, { exists: boolean; read: boolean }>();
+    const unresolvedIds: string[] = [];
+    requested.forEach((id, index) => {
+      const cached = cachedReadStates[index];
+      if (cached && typeof cached.exists === "boolean" && typeof cached.read === "boolean") {
+        docsById.set(id, cached);
+      } else {
+        unresolvedIds.push(id);
+      }
+    });
+    if (unresolvedIds.length > 0) {
+      incrementDbOps("queries", 1);
+      const unresolvedRefs = unresolvedIds.map((id) => coll.doc(id));
+      const snaps = await db.getAll(...unresolvedRefs);
+      incrementDbOps("reads", snaps.filter((s) => s.exists).length);
+      await Promise.all(
+        snaps.map((snap, index) => {
+          const notificationId = unresolvedIds[index];
+          if (!notificationId) return Promise.resolve();
+          const state: CachedNotificationReadState = {
+            exists: snap.exists,
+            read: snap.exists ? Boolean((snap.data() as RawNotificationDoc).read) : false
+          };
+          docsById.set(notificationId, state);
+          return globalCache.set(this.notificationReadStateCacheKey(input.viewerId, notificationId), state, 25_000);
+        })
+      );
+    }
+
+    let markedCount = 0;
+    const batch = db.batch();
+    const markedIds: string[] = [];
+    for (const id of requested) {
+      const doc = docsById.get(id);
+      if (!doc?.exists || doc.read) continue;
+      batch.update(coll.doc(id), { read: true, readAt: Timestamp.now() });
+      markedCount += 1;
+      markedIds.push(id);
+    }
+    let unreadCount = cachedUnreadCount ?? 0;
+    if (markedCount > 0) {
+      await batch.commit();
+      incrementDbOps("writes", markedCount);
+      await this.cacheNotificationReadStates(
+        input.viewerId,
+        markedIds.map((notificationId) => ({ notificationId, read: true }))
+      );
+      if (cachedUnreadCount != null) {
+        unreadCount = Math.max(0, cachedUnreadCount - markedCount);
+        await Promise.all([this.writeUnreadCountCaches(input.viewerId, unreadCount), this.writeUnreadCountFirestore(input.viewerId, unreadCount)]);
+      } else {
+        unreadCount = await this.adjustUnreadCountFirestore(input.viewerId, -markedCount);
+      }
+    } else {
+      unreadCount = Math.max(0, unreadCount);
+    }
+    return {
+      requestedCount: requested.length,
+      markedCount,
+      unreadCount,
+      idempotent: markedCount === 0
+    };
+  }
+
+  async markAllRead(input: { viewerId: string }): Promise<{ markedCount: number; unreadCount: number; idempotent: boolean }> {
+    if (this.useSeededNotifications()) {
+      recordFallback("notifications_seeded_mark_all_read");
+      const rows = this.ensureSeededViewer(input.viewerId);
+      let markedCount = 0;
+      for (const row of rows) {
+        if (!row.read) {
+          row.read = true;
+          markedCount += 1;
+        }
+      }
+      incrementDbOps("writes", markedCount);
+      return { markedCount, unreadCount: 0, idempotent: markedCount === 0 };
+    }
+    const db = this.ensureDb();
+    const cachedUnread = await this.readCachedUnreadCount(input.viewerId);
+    const userRef = db.collection("users").doc(input.viewerId);
+    let totalMarked = cachedUnread ?? 0;
+    if (cachedUnread == null) {
+      incrementDbOps("queries", 1);
+      const unreadAgg = await userRef.collection("notifications").where("read", "==", false).count().get();
+      totalMarked = Math.max(0, Math.floor(Number(unreadAgg.data().count ?? 0)));
+    }
+    if (totalMarked === 0) {
+      await this.writeUnreadCountCaches(input.viewerId, 0);
+      await this.writeReadAllAtCaches(input.viewerId, 0);
+      return { markedCount: 0, unreadCount: 0, idempotent: true };
+    }
+    const markedReadThroughMs = Date.now();
+    await db.collection("users").doc(input.viewerId).set(
+      {
+        unreadCount: 0,
+        unreadNotificationCount: 0,
+        notificationUnreadCount: 0,
+        notifUnread: 0,
+        notificationsReadAllAtMs: markedReadThroughMs,
+        notificationsMarkedReadThroughMs: markedReadThroughMs
+      },
+      { merge: true }
+    );
+    incrementDbOps("writes", 1);
+    await Promise.all([
+      this.writeUnreadCountCaches(input.viewerId, 0),
+      this.writeReadAllAtCaches(input.viewerId, markedReadThroughMs)
+    ]);
+    return { markedCount: totalMarked, unreadCount: 0, idempotent: false };
+  }
+
+  async createFromMutation(input: {
+    type: "like" | "comment" | "follow" | "mention" | "chat" | "invite" | "collection_shared" | "group_invite" | "group_joined" | "contact_joined" | "place_follow" | "audio_like" | "system" | "achievement_leaderboard" | "leaderboard_rank_up" | "leaderboard_rank_down" | "leaderboard_passed" | "post_discovery";
+    actorId: string;
+    targetId: string;
+    recipientUserId?: string | null;
+    message?: string | null;
+    commentId?: string | null;
+    metadata?: Record<string, unknown>;
+    createdAtMs?: number;
+  }): Promise<{ created: boolean; notificationId: string | null; viewerId: string | null }> {
+    const nowMs = input.createdAtMs ?? Date.now();
+    const metadata: Record<string, unknown> = { ...(input.metadata ?? {}) };
+    if (input.commentId) metadata.commentId = input.commentId;
+
+    let viewerId: string | null = null;
+    let postData: Record<string, unknown> | null = null;
+
+    if (input.recipientUserId && input.recipientUserId.trim().length > 0) {
+      viewerId = input.recipientUserId.trim();
+    } else if (input.type === "follow") {
+      viewerId = input.targetId;
+    } else if (this.useSeededNotifications()) {
+      viewerId = SEEDED_POST_AUTHOR_FOR_TESTS[input.targetId] ?? null;
+    } else {
+      const db = this.ensureDb();
+      const postDoc = await db.collection("posts").doc(input.targetId).get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", 1);
+      if (postDoc.exists) {
+        postData = postDoc.data() as Record<string, unknown>;
+        viewerId = String(postData.userId ?? "");
+      }
+    }
+
+    if (!viewerId || viewerId === input.actorId) {
+      return { created: false, notificationId: null, viewerId: null };
+    }
+
+    if (postData && input.type !== "follow") {
+      const thumb =
+        typeof postData.displayPhotoLink === "string"
+          ? postData.displayPhotoLink
+          : typeof postData.photoLink === "string"
+            ? postData.photoLink
+            : typeof postData.image === "string"
+              ? postData.image
+              : null;
+      if (typeof thumb === "string" && thumb.startsWith("http")) metadata.postThumbUrl = thumb;
+    }
+
+    const notificationId = `n_${randomUUID().slice(0, 12)}`;
+
+    if (this.useSeededNotifications()) {
+      recordFallback("notifications_seeded_create");
+      const rows = this.ensureSeededViewer(viewerId);
+      rows.unshift({
+        id: notificationId,
+        type: input.type,
+        senderUserId: input.actorId,
+        message: input.message ?? defaultPreviewText(input.type),
+        read: false,
+        timestamp: nowMs,
+        postId: input.type === "follow" ? null : input.targetId,
+        targetUserId: input.type === "follow" ? input.targetId : null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : { postThumbUrl: "https://example.com/thumb.jpg" }
+      });
+      incrementDbOps("writes", 1);
+    } else {
+      const db = this.ensureDb();
+      await Promise.all([
+        db
+          .collection("users")
+          .doc(viewerId)
+          .collection("notifications")
+          .doc(notificationId)
+          .set({
+            type: input.type,
+            senderUserId: input.actorId,
+            message: input.message ?? defaultPreviewText(input.type),
+            read: false,
+            timestamp: Timestamp.fromMillis(nowMs),
+            postId: input.type === "follow" ? null : input.targetId,
+            targetUserId: input.type === "follow" ? input.targetId : null,
+            ...(Object.keys(metadata).length > 0 ? { metadata } : {})
+          }),
+        this.adjustUnreadCountFirestore(viewerId, 1)
+      ]);
+      incrementDbOps("writes", 1);
+      return { created: true, notificationId, viewerId };
+    }
+    const priorUnread = (await this.readCachedUnreadCount(viewerId)) ?? 0;
+    await this.writeUnreadCountCaches(viewerId, priorUnread + 1);
+    return { created: true, notificationId, viewerId };
+  }
+}
+
+export const notificationsRepository = new NotificationsRepository();

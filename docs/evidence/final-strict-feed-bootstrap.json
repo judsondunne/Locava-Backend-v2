@@ -1,0 +1,1 @@
+{"ok":false,"error":{"code":"source_of_truth_required","message":"source_of_truth_required:feed_candidates_firestore","details":{"source":"feed_candidates_firestore"}},"meta":{"requestId":"af6ba3c6-daeb-4603-a244-8bda631e1879","db":{"reads":0,"writes":0,"queries":0}}}
