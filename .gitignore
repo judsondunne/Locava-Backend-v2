@@ -7,3 +7,4 @@ coverage
 logs
 tmp
 state
+src/data/geonames-places.json
