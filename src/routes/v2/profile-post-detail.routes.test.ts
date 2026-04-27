@@ -85,10 +85,14 @@ describe("v2 profile post detail route", () => {
     });
 
     const diagnostics = await app.inject({ method: "GET", url: "/diagnostics?limit=15" });
-    const rows = diagnostics.json().data.recentRequests;
-    const routeRow = rows.find((row: { routeName?: string }) => row.routeName === "profile.postdetail.get");
-    expect(routeRow).toBeTruthy();
-    expect(routeRow.dbOps.reads).toBeGreaterThan(0);
-    expect(typeof routeRow.cache.hits).toBe("number");
+    const rows = diagnostics.json().data.recentRequests as Array<{
+      routeName?: string;
+      dbOps: { reads: number };
+      cache: { hits: number };
+    }>;
+    const routeRows = rows.filter((row) => row.routeName === "profile.postdetail.get");
+    expect(routeRows.length).toBeGreaterThan(0);
+    expect(routeRows.some((row) => row.dbOps.reads > 0)).toBe(true);
+    expect(typeof routeRows[0]?.cache.hits).toBe("number");
   });
 });

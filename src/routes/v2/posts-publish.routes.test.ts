@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../../app/createApp.js";
 
 describe("v2 canonical posts publish routes", () => {
-  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_SOURCE_ENABLED: false });
   const viewerHeaders = {
     "x-viewer-id": "internal-viewer",
     "x-viewer-roles": "internal"

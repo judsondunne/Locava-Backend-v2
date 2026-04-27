@@ -8,6 +8,7 @@ export const CommentsCreateParamsSchema = z.object({
 
 export const CommentsCreateBodySchema = z.object({
   text: z.string().trim().min(1).max(400),
+  replyingTo: z.string().min(6).nullable().optional(),
   clientMutationKey: z.string().min(8).max(128).optional()
 });
 

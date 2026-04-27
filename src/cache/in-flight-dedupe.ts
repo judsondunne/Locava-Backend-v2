@@ -26,6 +26,10 @@ export async function dedupeInFlight<T>(key: string, work: () => Promise<T>): Pr
   return promise;
 }
 
+export function resetInFlightDedupeForTests(): void {
+  inFlight.clear();
+}
+
 async function runWithOptionalDistributedDedupe<T>(key: string, work: () => Promise<T>): Promise<T> {
   const provider = getCoherenceProvider();
   if (!provider.isDistributed) {

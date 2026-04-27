@@ -8,6 +8,12 @@ export type DbOperationCounts = {
   queries: number;
 };
 
+export type AuditRequestContext = {
+  auditRunId?: string;
+  auditSpecId?: string;
+  auditSpecName?: string;
+};
+
 export type RequestContext = {
   requestId: string;
   route: string;
@@ -50,6 +56,7 @@ export type RequestContext = {
   timeouts: string[];
   /** Milliseconds spent in named repository/service stages (for Server-Timing / profiling). */
   surfaceTimings: Record<string, number>;
+  audit?: AuditRequestContext;
 };
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -60,6 +67,14 @@ export function runWithRequestContext<T>(ctx: RequestContext, fn: () => T): T {
 
 export function getRequestContext(): RequestContext | undefined {
   return storage.getStore();
+}
+
+export function getAuditRequestContext(): AuditRequestContext | undefined {
+  return storage.getStore()?.audit;
+}
+
+export function runOutsideRequestContext<T>(fn: () => T): T {
+  return storage.exit(fn);
 }
 
 export function incrementDbOps(kind: keyof DbOperationCounts, count = 1): void {

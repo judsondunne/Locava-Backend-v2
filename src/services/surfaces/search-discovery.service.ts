@@ -86,7 +86,6 @@ const DISCOVERY_POST_SELECT_FIELDS = [
   "displayPhotoLink",
   "photoLink",
   "mediaType",
-  "assets",
   "likesCount",
   "likeCount",
   "commentsCount",
@@ -160,6 +159,13 @@ export class SearchDiscoveryService {
   private static recentPostsCache: { key: string; expiresAtMs: number; value: DiscoveryPost[] } | null = null;
   private static suggestedUsersCache: { key: string; expiresAtMs: number; value: Array<Record<string, unknown>> } | null = null;
   private static locationSuggestionsCache = new Map<string, { expiresAtMs: number; value: SuggestLocationRow[] }>();
+
+  static resetCachesForTests(): void {
+    SearchDiscoveryService.topActivitiesCache = null;
+    SearchDiscoveryService.recentPostsCache = null;
+    SearchDiscoveryService.suggestedUsersCache = null;
+    SearchDiscoveryService.locationSuggestionsCache.clear();
+  }
 
   private requireDb() {
     if (!this.db) throw new SourceOfTruthRequiredError("search_discovery_firestore_unavailable");
@@ -533,7 +539,9 @@ export class SearchDiscoveryService {
         : Math.max(36, Math.min(96, (opts.limit ?? 16) * 3));
     const posts = await this.loadCandidatePostsForIntent(intent, scanLimit, opts.lat, opts.lng);
     const ranked = this.rankPosts(posts, intent.activity, intent.location, intent.residualTokens, opts.lat, opts.lng, intent.nearMe);
-    const desiredCount = Math.max(1, Math.min(60, opts.limit ?? 16));
+    // Mix generation may legitimately request larger pools for pagination.
+    // Keep a hard ceiling to protect latency/reads.
+    const desiredCount = Math.max(1, Math.min(600, opts.limit ?? 16));
     if (
       intent.location?.cityRegionId &&
       intent.location.place?.lat != null &&
@@ -564,6 +572,7 @@ export class SearchDiscoveryService {
     routeName: "search.bootstrap.get";
     posts: Array<Record<string, unknown>>;
     rails: Array<{ id: string; title: string; posts: Array<Record<string, unknown>> }>;
+    collections: Array<Record<string, unknown>>;
     suggestedUsers: Array<Record<string, unknown>>;
     popularActivities: string[];
     parsedSummary: { activity: string | null; nearMe: boolean; genericDiscovery: boolean };
@@ -587,6 +596,7 @@ export class SearchDiscoveryService {
         routeName: "search.bootstrap.get",
         posts: recentPosts.slice(0, input.limit).map((post) => this.postToSearchRow(post)),
         rails,
+        collections: [],
         suggestedUsers,
         popularActivities: topActivities,
         parsedSummary: { activity: null, nearMe: false, genericDiscovery: true },
@@ -600,10 +610,51 @@ export class SearchDiscoveryService {
         lng: input.lng,
       })
     ).map((post) => this.postToSearchRow(post));
+
+    // Provide a larger set of "Collections" for the committed-results screen.
+    // The autofill surface stays small/fast (3 max), but the results page can
+    // show ~10 generated mixes for exploration.
+    const activity = intent.activity?.canonical ? String(intent.activity.canonical).trim().toLowerCase() : null;
+    const locationText = intent.location?.displayText ? String(intent.location.displayText).trim() : "";
+    const related = (intent.activity?.relatedActivities ?? []).map((a) => String(a ?? "").trim().toLowerCase()).filter(Boolean);
+    const activityList = activity ? [activity, ...related.filter((r) => r !== activity).slice(0, 9)] : [];
+    const collections: Array<Record<string, unknown>> = [];
+    for (const a of activityList.slice(0, 10)) {
+      const mixId = locationText ? `location_activity:${locationText}:${a}` : `activity:${a}`;
+      const title = locationText ? `${a} in ${locationText}` : `${a} near you`;
+      const subtitle = locationText ? `Top ${a} posts in ${locationText}` : `Top ${a} posts near you`;
+      collections.push({
+        text: title.charAt(0).toUpperCase() + title.slice(1),
+        type: "mix",
+        suggestionType: "template",
+        badge: "Mix",
+        data: {
+          mixSpecV1: {
+            kind: "mix_spec_v1",
+            id: `mix_${a}${locationText ? `_${locationText}` : ""}`.replace(/[^a-z0-9_]+/gi, "_").toLowerCase(),
+            type: "activity_mix",
+            specVersion: 1,
+            seeds: { primaryActivityId: a },
+            title: title.charAt(0).toUpperCase() + title.slice(1),
+            subtitle,
+            coverSpec: { kind: "thumb_collage", maxTiles: 4 },
+            geoMode: "viewer",
+            personalizationMode: "taste_blended_v1",
+            rankingMode: "mix_v1",
+            geoBucketKey: "global",
+            heroQuery: locationText ? `${a} in ${locationText}` : a,
+            cacheKeyVersion: 1,
+            v2MixId: mixId,
+          },
+        },
+        confidence: 0.93,
+      });
+    }
     return {
       routeName: "search.bootstrap.get",
       posts,
       rails: [],
+      collections,
       suggestedUsers: [],
       popularActivities: intent.activity ? intent.activity.queryActivities.slice(0, 4) : [],
       parsedSummary: {
@@ -916,6 +967,7 @@ export class SearchDiscoveryService {
     lng?: number | null,
   ): Promise<DiscoveryPost[]> {
     const desired = Math.max(12, Math.min(96, limit));
+    const isGeneric = !intent.activity && !intent.location && !intent.nearMe;
     const candidates = new Map<string, DiscoveryPost>();
     const addRows = (rows: DiscoveryPost[]): void => {
       for (const row of rows) {
@@ -925,7 +977,7 @@ export class SearchDiscoveryService {
       }
     };
 
-    const targetQueryLimit = Math.max(12, Math.min(36, Math.ceil(desired / 2)));
+    const targetQueryLimit = Math.max(8, Math.min(24, Math.ceil(desired / 2)));
     const fetches: Array<Promise<DiscoveryPost[]>> = [];
 
     if (intent.activity) {
@@ -976,10 +1028,15 @@ export class SearchDiscoveryService {
       }
     }
 
-    if (candidates.size === 0 || (!intent.activity && !intent.location && !intent.nearMe)) {
+    if (isGeneric) {
       addRows(await this.loadRecentPosts(Math.max(36, desired)));
     } else if (intent.nearMe && candidates.size < Math.min(8, desired)) {
       addRows(await this.loadRecentPosts(Math.max(160, desired * 3)));
+    } else if (candidates.size === 0) {
+      const cachedRecentPosts = SearchDiscoveryService.recentPostsCache;
+      if (cachedRecentPosts && cachedRecentPosts.expiresAtMs > Date.now()) {
+        addRows(cachedRecentPosts.value.slice(0, Math.max(12, Math.min(24, desired))));
+      }
     }
 
     return [...candidates.values()];
@@ -1005,11 +1062,8 @@ export class SearchDiscoveryService {
   private mapDiscoveryPost(postId: string, data: Record<string, unknown>): DiscoveryPost {
     const activities = Array.isArray(data.activities) ? data.activities.map((a) => String(a)).filter(Boolean) : [];
     const thumb = String(data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? "").trim();
-    const firstAsset = Array.isArray(data.assets) && data.assets.length > 0 && typeof data.assets[0] === "object"
-      ? (data.assets[0] as Record<string, unknown>)
-      : null;
     const mediaType =
-      String(data.mediaType ?? firstAsset?.type ?? "").toLowerCase() === "video"
+      String(data.mediaType ?? "").toLowerCase() === "video"
         ? "video"
         : "image";
     const updatedAtMs = Number(data.updatedAtMs ?? data.createdAtMs ?? 0);

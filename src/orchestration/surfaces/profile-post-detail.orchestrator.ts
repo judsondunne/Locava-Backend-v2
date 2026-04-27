@@ -32,17 +32,19 @@ export class ProfilePostDetailOrchestrator {
     }
     recordCacheMiss();
 
+    const commentsPreviewPromise = withTimeout(
+      this.service.loadCommentsPreview(postId, debugSlowDeferredMs),
+      90,
+      "profile.post_detail.comments_preview"
+    );
+    void commentsPreviewPromise.catch(() => undefined);
     const detail = await this.service.loadPostDetail(userId, postId, viewerId);
 
     const fallbacks: string[] = [];
     let commentsPreview: Array<{ commentId: string; userId: string; text: string; createdAtMs: number }> | null = null;
 
     try {
-      commentsPreview = await withTimeout(
-        this.service.loadCommentsPreview(postId, debugSlowDeferredMs),
-        90,
-        "profile.post_detail.comments_preview"
-      );
+      commentsPreview = await commentsPreviewPromise;
     } catch (error) {
       if (error instanceof TimeoutError) {
         fallbacks.push("comments_preview_timeout");

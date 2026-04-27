@@ -5,7 +5,6 @@ import { recordFallback } from "../../observability/request-context.js";
 import { recordTimeout } from "../../observability/request-context.js";
 import { mutationStateRepository } from "../mutations/mutation-state.repository.js";
 import { logFirestoreDebug } from "../source-of-truth/firestore-debug.js";
-import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { SearchUsersFirestoreAdapter, type FirestoreUserSearchRecord } from "../source-of-truth/search-users-firestore.adapter.js";
 import {
   enforceSourceOfTruthStrictness,
@@ -29,14 +28,7 @@ export class SearchUsersRepository {
   private async loadViewerDoc(viewerId: string): Promise<Record<string, unknown> | null> {
     const cached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
     if (cached !== undefined) return cached;
-    const db = getFirestoreSourceClient();
-    if (!db) return null;
-    const snap = await db.collection("users").doc(viewerId).get();
-    incrementDbOps("queries", 1);
-    incrementDbOps("reads", snap.exists ? 1 : 0);
-    const data = (snap.data() as Record<string, unknown> | undefined) ?? {};
-    await globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 25_000);
-    return data;
+    return null;
   }
 
   async loadViewerFollowingIds(viewerId: string): Promise<string[] | null> {
@@ -213,22 +205,6 @@ export class SearchUsersRepository {
       );
       const shadowFollowing = unique.filter((userId) => mutationStateRepository.isFollowing(viewerId, userId));
       return [...new Set(unique.filter((userId) => following.has(userId)).concat(shadowFollowing))];
-    }
-    if (this.firestoreAdapter.isEnabled()) {
-      try {
-        const firestoreFollowing = await this.firestoreAdapter.getViewerFollowingUserIds(viewerId, unique);
-        incrementDbOps("queries", firestoreFollowing.queryCount);
-        incrementDbOps("reads", firestoreFollowing.readCount);
-        const shadowFollowing = unique.filter((userId) => mutationStateRepository.isFollowing(viewerId, userId));
-        return [...new Set([...firestoreFollowing.userIds, ...shadowFollowing])];
-      } catch (error) {
-        if (error instanceof Error && error.message.includes("_timeout")) {
-          recordTimeout("search_users_following_firestore");
-        }
-        recordFallback("search_users_following_firestore_fallback");
-        enforceSourceOfTruthStrictness("search_users_following_firestore");
-        return unique.filter((userId) => mutationStateRepository.isFollowing(viewerId, userId));
-      }
     }
     return unique.filter((userId) => mutationStateRepository.isFollowing(viewerId, userId));
   }

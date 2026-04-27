@@ -5,15 +5,9 @@ const SaveSheetCollectionItemSchema = z.object({
   id: z.string().trim().min(1),
   ownerId: z.string().trim().min(1),
   name: z.string().trim().min(1),
-  description: z.string().optional(),
   privacy: z.enum(["private", "friends", "public"]),
   coverUri: z.string().url().optional(),
-  collaborators: z.array(z.string().trim().min(1)),
-  items: z.array(z.string().trim().min(1)),
   itemsCount: z.number().int().nonnegative(),
-  createdAt: z.string().trim().min(1),
-  updatedAt: z.string().trim().min(1),
-  kind: z.literal("backend"),
   containsPost: z.boolean(),
 });
 

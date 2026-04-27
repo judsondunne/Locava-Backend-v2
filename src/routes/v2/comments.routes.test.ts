@@ -91,6 +91,37 @@ describe("v2 comments routes", () => {
     expect(bodyA.idempotency.replayed || bodyB.idempotency.replayed).toBe(true);
   });
 
+  it("creates a reply comment and exposes replyingTo in list payload", async () => {
+    const createParent = await app.inject({
+      method: "POST",
+      url: `/v2/posts/${encodeURIComponent(postId)}/comments`,
+      headers: viewerHeaders,
+      payload: { text: "Parent", clientMutationKey: `parent-${Date.now()}` }
+    });
+    expect(createParent.statusCode).toBe(200);
+    const parentId = createParent.json().data.comment.commentId as string;
+
+    const createReply = await app.inject({
+      method: "POST",
+      url: `/v2/posts/${encodeURIComponent(postId)}/comments`,
+      headers: viewerHeaders,
+      payload: { text: "Reply", replyingTo: parentId, clientMutationKey: `reply-${Date.now()}` }
+    });
+    expect(createReply.statusCode).toBe(200);
+    expect(createReply.json().data.comment.replyingTo).toBe(parentId);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/v2/posts/${encodeURIComponent(postId)}/comments?limit=10`,
+      headers: viewerHeaders
+    });
+    expect(list.statusCode).toBe(200);
+    const items = list.json().data.items as Array<{ commentId: string; replyingTo?: string | null }>;
+    const replyRow = items.find((c) => c.commentId === createReply.json().data.comment.commentId);
+    expect(replyRow).toBeTruthy();
+    expect(replyRow?.replyingTo).toBe(parentId);
+  });
+
   it("deletes comment safely and repeated delete is idempotent", async () => {
     const create = await app.inject({
       method: "POST",

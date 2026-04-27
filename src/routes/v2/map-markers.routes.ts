@@ -13,8 +13,12 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
   app.get(mapMarkersContract.path, async (request, reply) => {
     setRouteName(mapMarkersContract.routeName);
     const query = mapMarkersContract.query.parse(request.query);
-    const limit = Math.max(20, Math.min(400, Number(query.limit ?? 240) || 240));
-    const cacheKey = `map:markers:v2:${limit}`;
+    const maxDocs = Math.min(env.MAP_MARKERS_MAX_DOCS, 10_000);
+    const hasExplicitLimit = query.limit != null;
+    const limit = hasExplicitLimit
+      ? Math.max(20, Math.min(maxDocs, Number(query.limit) || maxDocs))
+      : maxDocs;
+    const cacheKey = !hasExplicitLimit || limit >= maxDocs ? "map:markers:v2:all" : `map:markers:v2:${limit}`;
     const ifNoneMatch = request.headers["if-none-match"];
     const cached = await globalCache.get<MapMarkersResponse>(cacheKey);
     if (cached) {
@@ -30,7 +34,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     }
     recordCacheMiss();
     try {
-      const dataset = await adapter.fetchAll({ maxDocs: Math.min(env.MAP_MARKERS_MAX_DOCS, limit) });
+      const dataset = await adapter.fetchAll({ maxDocs: limit });
       const payload: MapMarkersResponse = {
         routeName: "map.markers.get",
         markers: dataset.markers,

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SearchUsersRepository } from "./search-users.repository.js";
 import { getRequestContext, runWithRequestContext, type RequestContext } from "../../observability/request-context.js";
+import { SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
 
 function withRequestContext<T>(fn: () => Promise<T>): Promise<T> {
   const ctx: RequestContext = {
@@ -49,14 +50,14 @@ describe("search users repository", () => {
       const page = await repository.getSearchUsersPage({ query: "jo", cursor: null, limit: 8, excludeUserIds: [] });
       expect(page.users.map((u) => u.userId)).toEqual(["u-1", "u-2"]);
       const following = await repository.getViewerFollowingUserIds("viewer-1", ["u-1", "u-2"]);
-      expect(following).toEqual(["u-2"]);
+      expect(following).toEqual([]);
       const ctx = getRequestContext();
-      expect(ctx?.dbOps.queries).toBe(3);
-      expect(ctx?.dbOps.reads).toBe(7);
+      expect(ctx?.dbOps.queries).toBe(2);
+      expect(ctx?.dbOps.reads).toBe(5);
     });
   });
 
-  it("returns empty page when firestore adapter fails (no fabricated users)", async () => {
+  it("fails closed when firestore search cannot provide source-of-truth users", async () => {
     const repository = new SearchUsersRepository({
       isEnabled: () => true,
       searchUsersPage: async () => {
@@ -68,13 +69,11 @@ describe("search users repository", () => {
     } as never);
 
     await withRequestContext(async () => {
-      const page = await repository.getSearchUsersPage({ query: "creator", cursor: null, limit: 5, excludeUserIds: [] });
-      expect(page.users).toEqual([]);
-      const following = await repository.getViewerFollowingUserIds("viewer-1", page.users.map((u) => u.userId));
-      expect(following).toEqual([]);
+      await expect(
+        repository.getSearchUsersPage({ query: "creator", cursor: null, limit: 5, excludeUserIds: [] })
+      ).rejects.toBeInstanceOf(SourceOfTruthRequiredError);
       const ctx = getRequestContext();
       expect(ctx?.fallbacks).toContain("search_users_firestore_fallback");
-      expect(ctx?.fallbacks).toContain("search_users_following_firestore_fallback");
     });
   });
 });

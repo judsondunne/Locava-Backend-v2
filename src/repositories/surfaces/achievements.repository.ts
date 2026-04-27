@@ -2,6 +2,7 @@ import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { globalCache } from "../../cache/global-cache.js";
 import { buildCacheKey } from "../../cache/types.js";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import {
   type AchievementClaimRewardPayload,
   type AchievementHeroSummary,
@@ -13,7 +14,9 @@ import {
   type AchievementsCanonicalBadgeRow,
   type AchievementsCanonicalStatus
 } from "../../contracts/entities/achievement-entities.contract.js";
-import { incrementDbOps } from "../../observability/request-context.js";
+import type { AchievementsClaimablesResponse } from "../../contracts/surfaces/achievements-claimables.contract.js";
+import type { AchievementsLeaguesResponse } from "../../contracts/surfaces/achievements-leagues.contract.js";
+import { incrementDbOps, recordSurfaceTimings } from "../../observability/request-context.js";
 import {
   DEFAULT_ACHIEVEMENT_CHALLENGES,
   XP_REWARDS,
@@ -77,7 +80,10 @@ export type AchievementWeeklyExploration = {
 };
 
 const WEEKLY_STREAK_POST_LIMIT = 500;
-const ACHIEVEMENTS_BOOTSTRAP_BADGE_LIMIT = 24;
+const ACHIEVEMENTS_BOOTSTRAP_BADGE_LIMIT = 8;
+const ACHIEVEMENTS_LEAGUES_CACHE_DOC_ID = "achievements_leagues_v2";
+const ACHIEVEMENTS_LEAGUES_CACHE_TTL_MS = 10 * 60_000;
+const ACHIEVEMENTS_SCREEN_OPENED_DEDUP_MS = 60_000;
 
 export type LeaderboardReadModel = {
   scope: AchievementLeaderboardScope;
@@ -126,6 +132,10 @@ function achievementsProgressCacheKey(viewerId: string): string {
   return buildCacheKey("bootstrap", ["achievements-progress-v2", viewerId]);
 }
 
+function achievementsScreenOpenedMarkerCacheKey(viewerId: string): string {
+  return buildCacheKey("bootstrap", ["achievements-screen-opened-marker-v2", viewerId]);
+}
+
 function achievementsProgressSubsetCacheKey(viewerId: string, docIds: string[]): string {
   return buildCacheKey("bootstrap", ["achievements-progress-subset-v2", viewerId, ...docIds]);
 }
@@ -160,6 +170,14 @@ function getWeekIdentifier(date = new Date()): string {
   const diff = copy.getDate() - day + (day === 0 ? -6 : 1);
   const monday = new Date(copy.setDate(diff));
   return monday.toISOString().split("T")[0] ?? getDateString(monday);
+}
+
+function toEpochMs(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const iso = toIsoString(value);
+  if (!iso) return null;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function formatActivityLabelForExploration(activityId: string): string {
@@ -327,6 +345,10 @@ function mapStateStreak(stateDoc: FirestoreMap | null): AchievementSnapshot["str
     longest: Math.max(0, finiteInteger(streak.longest, 0)),
     lastQualifiedAt: toIsoString(streak.lastQualifiedAt)
   };
+}
+
+function mapLeagueCacheRow(raw: FirestoreMap, fallbackId: string): AchievementLeagueDefinition {
+  return mapLeagueDocument(firstNonEmptyString(raw.id, raw.leagueId) ?? fallbackId, raw);
 }
 
 function mapLeagueDocument(id: string, raw: FirestoreMap): AchievementLeagueDefinition {
@@ -568,10 +590,43 @@ export function projectCanonicalBadgeRowsFromSnapshot(snapshot: AchievementSnaps
 }
 
 export class AchievementsRepository {
+  private leagueSnapshotWarmScheduled = false;
+  private static readonly VERIFIED_POST_COUNT_TTL_MS = 5 * 60_000;
+  private static readonly BOOTSTRAP_DOC_FIELD_MASK = [
+    "numPosts",
+    "postCount",
+    "postsCount",
+    "postCountVerifiedAtMs",
+    "postCountVerifiedValue",
+    "totalPosts",
+    "challengeCounters",
+    "claimedChallenges",
+    "weeklyCaptures",
+    "xp",
+    "updatedAt",
+    "achievementsScreenOpenedAt"
+  ] as const;
+
   private requireDb() {
     const db = getFirestoreSourceClient();
     if (!db) throw new Error("firestore_source_required_for_achievements");
     return db;
+  }
+
+  private warmBootstrapShellCaches(viewerId: string): void {
+    scheduleBackgroundWork(async () => {
+      await (async () => {
+        const [_leagues, badgeDefs] = await Promise.all([
+          this.getLeagueDefinitions(),
+          this.loadBootstrapBadgeDefinitions(ACHIEVEMENTS_BOOTSTRAP_BADGE_LIMIT)
+        ]);
+        const progressDocIds = buildProgressDocIdsForDefinitions(badgeDefs);
+        await Promise.all([
+          this.loadUserBadgeDocs(viewerId),
+          progressDocIds.length > 0 ? this.loadProgressDocsByIds(viewerId, progressDocIds) : Promise.resolve(new Map())
+        ]);
+      })();
+    });
   }
 
   async getHero(viewerId: string): Promise<AchievementHeroSummary> {
@@ -769,20 +824,39 @@ export class AchievementsRepository {
   }
 
   async getBootstrapShell(viewerId: string): Promise<AchievementBootstrapShellRead> {
-    const [stateDoc, cachedLeagues, badgeDefs, userBadgeDocs] = await Promise.all([
-      this.ensureAchievementStateDoc(viewerId),
+    const [viewerDocs, cachedLeagues, cachedBadgeDefs, cachedUserBadgeEntries] = await Promise.all([
+      this.loadBootstrapViewerDocs(viewerId),
       globalCache.get<AchievementLeagueDefinition[]>(achievementsLeagueDefinitionsCacheKey()),
-      this.loadBootstrapBadgeDefinitions(ACHIEVEMENTS_BOOTSTRAP_BADGE_LIMIT),
-      this.loadUserBadgeDocs(viewerId)
+      globalCache.get<BadgeDefinitionRead[]>(achievementsBadgeDefinitionsCacheKey()),
+      globalCache.get<Array<[string, UserBadgeDoc]>>(achievementsBadgesCacheKey(viewerId))
     ]);
-    const progressDocs = await this.loadProgressDocsByIds(viewerId, buildProgressDocIdsForDefinitions(badgeDefs));
+    const { userDoc, stateDoc } = viewerDocs;
+    const badgeDefs = (cachedBadgeDefs ?? []).slice(0, ACHIEVEMENTS_BOOTSTRAP_BADGE_LIMIT);
+    const progressDocIds = buildProgressDocIdsForDefinitions(badgeDefs);
+    const cachedProgressEntries =
+      progressDocIds.length > 0
+        ? await globalCache.get<Array<[string, FirestoreMap]>>(achievementsProgressSubsetCacheKey(viewerId, progressDocIds))
+        : [];
+    const userBadgeDocs = new Map(cachedUserBadgeEntries ?? []);
+    const progressDocs = new Map(cachedProgressEntries ?? []);
+    const bootstrapDataStaged =
+      cachedLeagues === undefined ||
+      cachedBadgeDefs === undefined ||
+      cachedUserBadgeEntries === undefined ||
+      (progressDocIds.length > 0 && cachedProgressEntries === undefined);
+    if (bootstrapDataStaged) {
+      this.warmBootstrapShellCaches(viewerId);
+      if (cachedLeagues === undefined) {
+        this.queueLeagueDefinitionsSnapshotWarm();
+      }
+    }
     const leagues = cachedLeagues ?? [];
     const challengeCounters = asObject(stateDoc?.challengeCounters);
     const claimedChallenges = asObject(stateDoc?.claimedChallenges);
     const weeklyCapturesData = asObject(stateDoc?.weeklyCaptures);
     const weeklyExploration = mapStoredWeeklyExploration(stateDoc);
     const xp = mapStateXp(stateDoc);
-    const totalPosts = Math.max(0, finiteInteger(stateDoc?.totalPosts, 0));
+    const totalPosts = await this.getCanonicalTotalPosts(viewerId, stateDoc, progressDocs, userDoc);
     const currentLeague = leagues.length > 0 ? this.resolveLeagueForXp(leagues, xp.current) : null;
     const streak = weeklyExploration ? mapVisibleStreak(stateDoc, weeklyExploration) : mapStateStreak(stateDoc);
     const challengeRewardsById = new Map(DEFAULT_ACHIEVEMENT_CHALLENGES.map((definition) => [definition.id, definition.rewardPoints]));
@@ -898,9 +972,12 @@ export class AchievementsRepository {
         ...claimables,
         totalCount: claimables.weeklyCaptures.length + claimables.badges.length + claimables.challenges.length
       },
-      degraded: leagues.length === 0,
+      degraded: leagues.length === 0 || bootstrapDataStaged,
       fallbacks: [
         ...(leagues.length > 0 ? [] : ["achievement_leagues_staged"]),
+        ...(cachedBadgeDefs !== undefined ? [] : ["achievement_badge_definitions_staged"]),
+        ...(cachedUserBadgeEntries !== undefined ? [] : ["achievement_user_badges_staged"]),
+        ...(progressDocIds.length === 0 || cachedProgressEntries !== undefined ? [] : ["achievement_badge_progress_staged"]),
         "achievement_global_rank_staged",
         "achievement_competitive_badges_staged"
       ]
@@ -913,24 +990,47 @@ export class AchievementsRepository {
     badges: Array<{ id: string; title: string; source: "static" | "competitive"; rewardPoints: number }>;
     challenges: Array<{ id: string; title: string; rewardPoints: number }>;
   }> {
-    const [userDoc, stateDoc, challengeDefs, staticBadgeDocs, competitiveBadgeDocs] = await Promise.all([
-      this.loadUserDoc(viewerId),
-      this.ensureAchievementStateDoc(viewerId),
-      this.loadChallengeDefinitions(),
-      this.loadClaimableUserBadgeDocs(viewerId),
-      this.loadClaimableCompetitiveBadgeDocs(viewerId)
+    const surface = await this.getClaimablesSurface(viewerId);
+    return surface.claimables;
+  }
+
+  async getClaimablesSurface(viewerId: string): Promise<Pick<AchievementsClaimablesResponse, "claimables" | "degraded" | "fallbacks">> {
+    const cachedClaimablesResponse = await globalCache.get<AchievementsClaimablesResponse>(
+      buildCacheKey("bootstrap", ["achievements-claimables-v1", viewerId])
+    );
+    if (cachedClaimablesResponse?.claimables) {
+      return {
+        claimables: cachedClaimablesResponse.claimables,
+        degraded: cachedClaimablesResponse.degraded,
+        fallbacks: cachedClaimablesResponse.fallbacks
+      };
+    }
+    const cachedBootstrap = await globalCache.get<AchievementBootstrapShellRead>(
+      buildCacheKey("bootstrap", ["achievements-bootstrap-v1", viewerId])
+    );
+    if (cachedBootstrap?.claimables) {
+      return {
+        claimables: cachedBootstrap.claimables,
+        degraded: cachedBootstrap.degraded,
+        fallbacks: cachedBootstrap.fallbacks
+      };
+    }
+    const [viewerDocs, cachedBadgeDefs, cachedUserBadgeEntries] = await Promise.all([
+      this.loadBootstrapViewerDocs(viewerId),
+      globalCache.get<BadgeDefinitionRead[]>(achievementsBadgeDefinitionsCacheKey()),
+      globalCache.get<Array<[string, UserBadgeDoc]>>(achievementsBadgesCacheKey(viewerId))
     ]);
-    const staticBadgeDefs = await this.loadBadgeDefinitionsByIds([...staticBadgeDocs.keys()]);
-    const weeklyCapturesData = asObject(stateDoc?.weeklyCaptures);
+    const { userDoc, stateDoc } = viewerDocs;
+    const badgeDefs = (cachedBadgeDefs ?? []).slice(0, ACHIEVEMENTS_BOOTSTRAP_BADGE_LIMIT);
+    const userBadgeDocs = new Map(cachedUserBadgeEntries ?? []);
+    const degraded = cachedBadgeDefs === undefined || cachedUserBadgeEntries === undefined;
+    if (degraded) {
+      this.warmBootstrapShellCaches(viewerId);
+    }
     const challengeCounters = asObject(stateDoc?.challengeCounters);
     const claimedChallenges = asObject(stateDoc?.claimedChallenges);
+    const weeklyCapturesData = asObject(stateDoc?.weeklyCaptures);
     const totalPosts = await this.getCanonicalTotalPosts(viewerId, stateDoc, undefined, userDoc);
-    const followingCount =
-      Array.isArray(userDoc.following) ? userDoc.following.length : Math.max(0, finiteInteger(userDoc.numFollowing, 0));
-    const referralSignupCount = Math.max(
-      0,
-      finiteInteger(userDoc.referralSignupCount, finiteInteger(challengeCounters.referral_signup_count, 0))
-    );
 
     const weeklyCaptures = asArray<FirestoreMap>(weeklyCapturesData.captures)
       .map((capture, index) => ({
@@ -940,80 +1040,117 @@ export class AchievementsRepository {
           firstNonEmptyString(capture.description) ??
           firstNonEmptyString(asObject(capture.location).address) ??
           `Capture ${index + 1}`,
+        xpReward: Math.max(0, finiteInteger(capture.xpReward, 0)),
         completed: Boolean(capture.completed),
-        claimed: Boolean(capture.claimed),
-        xpReward: Math.max(0, finiteInteger(capture.xpReward, 0))
+        claimed: Boolean(capture.claimed)
       }))
       .filter((capture) => capture.completed && !capture.claimed)
-      .map((capture) => ({
-        id: capture.id,
-        title: capture.title,
-        xpReward: capture.xpReward
-      }));
+      .map(({ completed: _completed, claimed: _claimed, ...capture }) => capture);
 
-    const staticBadgeDefsById = new Map(staticBadgeDefs.map((row) => [row.id, row]));
-    const staticBadges = [...staticBadgeDocs.entries()].map(([badgeId, badgeDoc]) => {
-      const def = staticBadgeDefsById.get(badgeId);
-      return {
-        id: badgeId,
-        title: def?.name ?? badgeId,
+    const badges = badgeDefs
+      .map((def) => ({
+        id: def.id,
+        title: def.name,
         source: "static" as const,
-        rewardPoints: Math.max(0, finiteInteger(def?.rewardPoints, 0)),
-        claimed: Boolean(badgeDoc.claimed)
-      };
-    });
-    const competitiveBadges = [...competitiveBadgeDocs.entries()].map(([badgeId, badge]) => ({
-      id: firstNonEmptyString(badge.badgeKey) ?? badgeId,
-      title: firstNonEmptyString(badge.title) ?? badgeId,
-      source: "competitive" as const,
-      rewardPoints: 100,
-      claimed: Boolean(badge.claimed)
-    }));
-    const badges = [...staticBadges, ...competitiveBadges]
-      .filter((badge) => !badge.claimed)
-      .map(({ claimed: _claimed, ...badge }) => badge);
+        rewardPoints: Math.max(0, finiteInteger(def.rewardPoints, 0)),
+        earned: Boolean(userBadgeDocs.get(def.id)?.earned),
+        claimed: Boolean(userBadgeDocs.get(def.id)?.claimed)
+      }))
+      .filter((badge) => badge.earned && !badge.claimed)
+      .map(({ earned: _earned, claimed: _claimed, ...badge }) => badge);
 
-    const challenges = challengeDefs
-      .map((def) => {
-        const current =
-          def.counterSource === "total_posts"
-            ? totalPosts
-            : def.counterSource === "following_count"
-              ? followingCount
-              : def.counterSource === "referral_signup_count"
-                ? referralSignupCount
-                : finiteInteger(challengeCounters[def.actionKey ?? ""], 0);
-        const claimedAt = firstNonEmptyString(claimedChallenges[def.id], asObject(claimedChallenges[def.id]).claimedAt);
-        const completed = current >= def.target || Boolean(claimedAt);
-        if (!completed || claimedAt) return null;
-        return {
-          id: def.id,
-          title: def.name,
-          rewardPoints: Math.max(0, finiteInteger(def.rewardPoints, 0))
-        };
-      })
-      .filter((row): row is { id: string; title: string; rewardPoints: number } => Boolean(row));
+    const challenges = DEFAULT_ACHIEVEMENT_CHALLENGES.map((def) => {
+      const current =
+        def.counterSource === "total_posts"
+          ? totalPosts
+          : def.counterSource === "following_count"
+            ? Math.max(0, finiteInteger(challengeCounters.following_count, 0))
+            : def.counterSource === "referral_signup_count"
+              ? Math.max(0, finiteInteger(challengeCounters.referral_signup_count, 0))
+              : Math.max(0, finiteInteger(challengeCounters[def.actionKey ?? ""], 0));
+      const claimedAt = firstNonEmptyString(claimedChallenges[def.id], asObject(claimedChallenges[def.id]).claimedAt);
+      if (current < def.target || claimedAt) return null;
+      return {
+        id: def.id,
+        title: def.name,
+        rewardPoints: Math.max(0, finiteInteger(def.rewardPoints, 0))
+      };
+    }).filter((row): row is { id: string; title: string; rewardPoints: number } => Boolean(row));
 
     return {
-      totalCount: weeklyCaptures.length + badges.length + challenges.length,
-      weeklyCaptures,
-      badges,
-      challenges
+      claimables: {
+        totalCount: weeklyCaptures.length + badges.length + challenges.length,
+        weeklyCaptures,
+        badges,
+        challenges
+      },
+      degraded,
+      fallbacks: [
+        ...(cachedBadgeDefs !== undefined ? [] : ["achievement_badge_definitions_staged"]),
+        ...(cachedUserBadgeEntries !== undefined ? [] : ["achievement_user_badges_staged"]),
+        "achievement_competitive_badges_staged"
+      ]
     };
   }
 
   async recordScreenOpened(viewerId: string): Promise<{ recordedAtMs: number }> {
     const db = this.requireDb();
+    const [cachedMarker, cachedState] = await Promise.all([
+      globalCache.get<{ recordedAtMs?: unknown } | null>(achievementsScreenOpenedMarkerCacheKey(viewerId)),
+      globalCache.get<FirestoreMap | null>(achievementsStateCacheKey(viewerId))
+    ]);
+    const cachedRecordedAtMs =
+      toEpochMs(cachedMarker?.recordedAtMs) ?? toEpochMs(cachedState?.achievementsScreenOpenedAt);
+    if (cachedRecordedAtMs != null && Date.now() - cachedRecordedAtMs <= ACHIEVEMENTS_SCREEN_OPENED_DEDUP_MS) {
+      return { recordedAtMs: cachedRecordedAtMs };
+    }
     const recordedAtMs = Date.now();
-    await db.collection("users").doc(viewerId).collection("achievements").doc("state").set(
-      {
-        achievementsScreenOpenedAt: new Date(recordedAtMs),
-        updatedAt: new Date(recordedAtMs)
-      },
-      { merge: true }
-    );
-    incrementDbOps("writes", 1);
-    await this.clearViewerCaches(viewerId, { includeLeaderboards: false });
+    const stateRef = db.collection("users").doc(viewerId).collection("achievements").doc("state");
+    const payload = {
+      achievementsScreenOpenedAt: new Date(recordedAtMs),
+      updatedAt: new Date(recordedAtMs)
+    };
+    const persistState = async (): Promise<void> => {
+      try {
+        await stateRef.update(payload);
+      } catch {
+        await stateRef.set(payload, { merge: true });
+      }
+    };
+    await globalCache
+      .set(
+        achievementsScreenOpenedMarkerCacheKey(viewerId),
+        { recordedAtMs },
+        Math.max(ACHIEVEMENTS_SCREEN_OPENED_DEDUP_MS, 15_000)
+      )
+      .catch(() => undefined);
+    if (cachedState && typeof cachedState === "object") {
+      const cachedStateObject = cachedState as FirestoreMap;
+      await globalCache
+        .set(
+          achievementsStateCacheKey(viewerId),
+          {
+            ...cachedStateObject,
+            achievementsScreenOpenedAt: payload.achievementsScreenOpenedAt,
+            updatedAt: payload.updatedAt
+          },
+          15_000
+        )
+        .catch(() => undefined);
+      scheduleBackgroundWork(async () => {
+        await persistState();
+        await this.clearScreenOpenedCaches(viewerId);
+      });
+      return { recordedAtMs };
+    }
+    scheduleBackgroundWork(async () => {
+      const writeStartedAt = performance.now();
+      await persistState();
+      recordSurfaceTimings({
+        achievements_screen_opened_write_ms: performance.now() - writeStartedAt
+      });
+      await this.clearScreenOpenedCaches(viewerId);
+    });
     return { recordedAtMs };
   }
 
@@ -1050,21 +1187,27 @@ export class AchievementsRepository {
   async getLeagueDefinitions(): Promise<AchievementLeagueDefinition[]> {
     const cached = await globalCache.get<AchievementLeagueDefinition[]>(achievementsLeagueDefinitionsCacheKey());
     if (cached !== undefined) return cached;
-    const db = this.requireDb();
-    incrementDbOps("queries", 1);
-    let snap;
-    try {
-      snap = await db.collection("leagues").where("active", "==", true).orderBy("order", "asc").get();
-    } catch {
-      snap = await db.collection("leagues").get();
+    const cachedBootstrap = await globalCache.get<AchievementBootstrapShellRead>(
+      buildCacheKey("bootstrap", ["achievements-bootstrap-v1", "all"])
+    );
+    if (cachedBootstrap?.leagues?.length) {
+      return cachedBootstrap.leagues;
     }
-    incrementDbOps("reads", snap.docs.length);
-    const leagues = snap.docs
-      .map((doc) => mapLeagueDocument(doc.id, (doc.data() as FirestoreMap) ?? {}))
-      .filter((row) => row.active)
-      .sort((a, b) => a.order - b.order);
-    await globalCache.set(achievementsLeagueDefinitionsCacheKey(), leagues, 120_000);
-    return leagues;
+    const cachedLeaguesResponse = await globalCache.get<AchievementsLeaguesResponse>(
+      buildCacheKey("bootstrap", ["achievements-leagues-v1"])
+    );
+    if (cachedLeaguesResponse?.leagues) {
+      void globalCache
+        .set(achievementsLeagueDefinitionsCacheKey(), cachedLeaguesResponse.leagues, ACHIEVEMENTS_LEAGUES_CACHE_TTL_MS)
+        .catch(() => undefined);
+      return cachedLeaguesResponse.leagues;
+    }
+    const snapshotLeagues = await this.loadLeagueDefinitionsSnapshot();
+    if (snapshotLeagues) {
+      return snapshotLeagues;
+    }
+    this.queueLeagueDefinitionsSnapshotWarm();
+    return [];
   }
 
   async getLeaderboardRead(
@@ -1118,20 +1261,31 @@ export class AchievementsRepository {
     const existing = asArray<FirestoreMap>(data.pendingLeaderboardPassedEvents);
     const next = existing.filter((row) => firstNonEmptyString(row.eventId) !== eventId);
     const acknowledged = next.length !== existing.length;
-    await stateRef.set(
-      {
+    if (acknowledged) {
+      const payload = {
         pendingLeaderboardPassedEvents: next,
         updatedAt: new Date()
-      },
-      { merge: true }
-    );
-    incrementDbOps("writes", 1);
-    await globalCache.set(achievementsStateCacheKey(viewerId), {
+      };
+      await stateRef.set(payload, { merge: true });
+    }
+    if (acknowledged) {
+      incrementDbOps("writes", 1);
+    }
+    const nextState = {
       ...data,
       pendingLeaderboardPassedEvents: next,
       updatedAt: new Date()
-    }, 15_000);
-    await this.clearViewerCaches(viewerId, { includeLeaderboards: true });
+    };
+    void globalCache.set(achievementsStateCacheKey(viewerId), nextState, 15_000).catch(() => undefined);
+    if (acknowledged) {
+      scheduleBackgroundWork(async () => {
+        await Promise.all([
+          globalCache.del(buildCacheKey("bootstrap", ["achievements-bootstrap-v1", viewerId])),
+          globalCache.del(buildCacheKey("bootstrap", ["achievements-snapshot-v1", viewerId])),
+          globalCache.del(buildCacheKey("bootstrap", ["achievements-status-v1", viewerId]))
+        ]);
+      });
+    }
     return { recordedAtMs: Date.now(), acknowledged };
   }
 
@@ -1607,7 +1761,7 @@ export class AchievementsRepository {
     const snap = await db.collection("users").doc(viewerId).get();
     incrementDbOps("reads", snap.exists ? 1 : 0);
     const data = (snap.data() as FirestoreMap | undefined) ?? {};
-    await globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 20_000);
+    void globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 20_000).catch(() => undefined);
     return data;
   }
 
@@ -1622,8 +1776,51 @@ export class AchievementsRepository {
       throw new Error("achievement_state_missing");
     }
     const data = snap.exists ? (((snap.data() as FirestoreMap | undefined) ?? {}) as FirestoreMap) : null;
-    await globalCache.set(achievementsStateCacheKey(viewerId), data, 15_000);
+    void globalCache.set(achievementsStateCacheKey(viewerId), data, 15_000).catch(() => undefined);
     return data;
+  }
+
+  private async loadBootstrapViewerDocs(viewerId: string): Promise<{ userDoc: FirestoreMap; stateDoc: FirestoreMap | null }> {
+    const [cachedUserDoc, cachedStateDoc] = await Promise.all([
+      globalCache.get<FirestoreMap>(entityCacheKeys.userFirestoreDoc(viewerId)),
+      globalCache.get<FirestoreMap | null>(achievementsStateCacheKey(viewerId))
+    ]);
+    if (cachedUserDoc !== undefined && cachedStateDoc !== undefined) {
+      return {
+        userDoc: cachedUserDoc,
+        stateDoc: cachedStateDoc
+      };
+    }
+    const db = this.requireDb();
+    const userRef = db.collection("users").doc(viewerId);
+    const stateRef = userRef.collection("achievements").doc("state");
+    const [userSnap, stateSnap] = (
+      typeof (db as { getAll?: unknown }).getAll === "function"
+        ? await (
+            db as unknown as {
+              getAll: (
+                ...args: [
+                  FirebaseFirestore.DocumentReference,
+                  FirebaseFirestore.DocumentReference,
+                  { fieldMask: string[] }
+                ]
+              ) => Promise<FirebaseFirestore.DocumentSnapshot[]>;
+            }
+          ).getAll(userRef, stateRef, {
+            fieldMask: [...AchievementsRepository.BOOTSTRAP_DOC_FIELD_MASK]
+          })
+        : await Promise.all([userRef.get(), stateRef.get()])
+    ) as [FirebaseFirestore.DocumentSnapshot, FirebaseFirestore.DocumentSnapshot];
+    incrementDbOps("reads", userSnap.exists ? 1 : 0);
+    incrementDbOps("reads", stateSnap.exists ? 1 : 0);
+    if (!stateSnap.exists) {
+      throw new Error("achievement_state_missing");
+    }
+    const userDoc = (userSnap.data() as FirestoreMap | undefined) ?? {};
+    const stateDoc = ((stateSnap.data() as FirestoreMap | undefined) ?? {}) as FirestoreMap;
+    void globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), userDoc, 20_000).catch(() => undefined);
+    void globalCache.set(achievementsStateCacheKey(viewerId), stateDoc, 15_000).catch(() => undefined);
+    return { userDoc, stateDoc };
   }
 
   private async loadProgressDocs(viewerId: string): Promise<Map<string, FirestoreMap>> {
@@ -1634,7 +1831,7 @@ export class AchievementsRepository {
     incrementDbOps("queries", 1);
     incrementDbOps("reads", snap.docs.length);
     const map = new Map<string, FirestoreMap>(snap.docs.map((doc) => [doc.id, ((doc.data() as FirestoreMap | undefined) ?? {})]));
-    await globalCache.set(achievementsProgressCacheKey(viewerId), [...map.entries()], 15_000);
+    void globalCache.set(achievementsProgressCacheKey(viewerId), [...map.entries()], 15_000).catch(() => undefined);
     return map;
   }
 
@@ -1655,7 +1852,11 @@ export class AchievementsRepository {
       if (!snap.exists) continue;
       map.set(snap.id, ((snap.data() as FirestoreMap | undefined) ?? {}));
     }
-    await globalCache.set(achievementsProgressSubsetCacheKey(viewerId, uniqueDocIds), [...map.entries()], 15_000);
+    void globalCache.set(
+      achievementsProgressSubsetCacheKey(viewerId, uniqueDocIds),
+      [...map.entries()],
+      15_000
+    ).catch(() => undefined);
     return map;
   }
 
@@ -1672,7 +1873,7 @@ export class AchievementsRepository {
     }
     incrementDbOps("reads", snap.docs.length);
     const map = new Map<string, UserBadgeDoc>(snap.docs.map((doc) => [doc.id, ((doc.data() as UserBadgeDoc | undefined) ?? {})]));
-    await globalCache.set(achievementsBadgesCacheKey(viewerId), [...map.entries()], 15_000);
+    void globalCache.set(achievementsBadgesCacheKey(viewerId), [...map.entries()], 15_000).catch(() => undefined);
     return map;
   }
 
@@ -1698,7 +1899,7 @@ export class AchievementsRepository {
     incrementDbOps("reads", ownedDocs.length + claimedDocs.length);
     const docs = [...ownedDocs, ...claimedDocs];
     const map = new Map<string, CompetitiveBadgeDoc>(docs.map((doc) => [doc.id, ((doc.data() as CompetitiveBadgeDoc | undefined) ?? {})]));
-    await globalCache.set(achievementsCompetitiveBadgesCacheKey(viewerId), [...map.entries()], 15_000);
+    void globalCache.set(achievementsCompetitiveBadgesCacheKey(viewerId), [...map.entries()], 15_000).catch(() => undefined);
     return map;
   }
 
@@ -1761,7 +1962,7 @@ export class AchievementsRepository {
       .map((doc) => normalizeBadgeDefinition(doc.id, ((doc.data() as FirestoreMap | undefined) ?? {})))
       .filter((row) => row.active !== false)
       .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
-    await globalCache.set(achievementsBadgeDefinitionsCacheKey(), defs, 120_000);
+    void globalCache.set(achievementsBadgeDefinitionsCacheKey(), defs, 120_000).catch(() => undefined);
     return defs;
   }
 
@@ -1830,7 +2031,7 @@ export class AchievementsRepository {
     if (defs.length === 0) {
       throw new Error("achievement_challenge_definitions_missing");
     }
-    await globalCache.set(achievementsChallengeDefinitionsCacheKey(), defs, 120_000);
+    void globalCache.set(achievementsChallengeDefinitionsCacheKey(), defs, 120_000).catch(() => undefined);
     return defs;
   }
 
@@ -1844,11 +2045,11 @@ export class AchievementsRepository {
     try {
       const snap = await db.collection("users").doc(viewerId).collection("badges").where("earned", "==", true).count().get();
       const count = Math.max(0, Math.floor(Number(snap.data().count ?? 0)));
-      await globalCache.set(achievementsEarnedBadgeCountCacheKey(viewerId), count, 15_000);
+      void globalCache.set(achievementsEarnedBadgeCountCacheKey(viewerId), count, 15_000).catch(() => undefined);
       return count;
     } catch {
       const count = (await this.loadUserBadgeDocs(viewerId)).size;
-      await globalCache.set(achievementsEarnedBadgeCountCacheKey(viewerId), count, 15_000);
+      void globalCache.set(achievementsEarnedBadgeCountCacheKey(viewerId), count, 15_000).catch(() => undefined);
       return count;
     }
   }
@@ -1863,12 +2064,12 @@ export class AchievementsRepository {
     try {
       const snap = await db.collection("achievements").where("active", "==", true).count().get();
       const count = Math.max(0, Math.floor(Number(snap.data().count ?? 0)));
-      await globalCache.set(achievementsActiveBadgeCountCacheKey(), count, 120_000);
+      void globalCache.set(achievementsActiveBadgeCountCacheKey(), count, 120_000).catch(() => undefined);
       return count;
     } catch {
       const defs = await this.loadBadgeDefinitions();
       const count = defs.length;
-      await globalCache.set(achievementsActiveBadgeCountCacheKey(), count, 120_000);
+      void globalCache.set(achievementsActiveBadgeCountCacheKey(), count, 120_000).catch(() => undefined);
       return count;
     }
   }
@@ -1920,7 +2121,7 @@ export class AchievementsRepository {
     if (cached !== undefined) return cached;
     const posts = await this.loadRecentPostsForWeeklyExploration(viewerId, maxPosts);
     const exploration = computeWeeklyExplorationFromPostRows(posts);
-    await globalCache.set(cacheKey, exploration, 30_000);
+    void globalCache.set(cacheKey, exploration, 30_000).catch(() => undefined);
     return exploration;
   }
 
@@ -2002,21 +2203,54 @@ export class AchievementsRepository {
     );
     const cached = await globalCache.get<number>(entityCacheKeys.userPostCount(viewerId));
     if (typeof cached === "number" && Number.isFinite(cached)) return Math.floor(cached);
-    const derivedTotal = stateTotal > 0 ? stateTotal : progressTotal > 0 ? progressTotal : userTotal;
-    if (derivedTotal > 0) {
-      await globalCache.set(entityCacheKeys.userPostCount(viewerId), derivedTotal, 30_000);
-      return derivedTotal;
+    const verifiedEmbeddedCount = this.readVerifiedEmbeddedUserPostCount(userDoc);
+    if (typeof verifiedEmbeddedCount === "number") {
+      void globalCache.set(entityCacheKeys.userPostCount(viewerId), verifiedEmbeddedCount, 30_000).catch(() => undefined);
+      return verifiedEmbeddedCount;
     }
     try {
       const db = this.requireDb();
       incrementDbOps("queries", 1);
       const snap = await db.collection("posts").where("userId", "==", viewerId).count().get();
       const count = Math.max(0, finiteInteger(snap.data().count, 0));
-      await globalCache.set(entityCacheKeys.userPostCount(viewerId), count, 30_000);
+      void globalCache.set(entityCacheKeys.userPostCount(viewerId), count, 30_000).catch(() => undefined);
+      if (count !== userTotal) {
+        void db
+          .collection("users")
+          .doc(viewerId)
+          .set(
+            {
+              numPosts: count,
+              postCount: count,
+              postsCount: count,
+              postCountVerifiedAtMs: Date.now(),
+              postCountVerifiedValue: count
+            },
+            { merge: true }
+          )
+          .catch(() => undefined);
+      }
       return count;
     } catch {
       return Math.max(stateTotal, progressTotal, userTotal);
     }
+  }
+
+  private readVerifiedEmbeddedUserPostCount(userDoc?: FirestoreMap | null): number | null {
+    const embeddedCount = Math.max(
+      0,
+      finiteInteger(userDoc?.numPosts, 0),
+      finiteInteger(userDoc?.postsCount, 0),
+      finiteInteger(userDoc?.postCount, 0)
+    );
+    const verifiedCount = finiteInteger(userDoc?.postCountVerifiedValue, -1);
+    const verifiedAtMs = finiteInteger(userDoc?.postCountVerifiedAtMs, 0);
+    const verifiedIsFresh =
+      verifiedAtMs > 0 && Date.now() - verifiedAtMs <= AchievementsRepository.VERIFIED_POST_COUNT_TTL_MS;
+    if (!verifiedIsFresh || verifiedCount < 0 || verifiedCount !== embeddedCount) {
+      return null;
+    }
+    return embeddedCount;
   }
 
   private mapLeaderboardEntry(
@@ -2091,6 +2325,74 @@ export class AchievementsRepository {
     incrementDbOps("reads", snap.exists ? 1 : 0);
     if (!snap.exists) return null;
     return ((snap.data() as T | undefined) ?? null) as T | null;
+  }
+
+  private async loadLeagueDefinitionsSnapshot(): Promise<AchievementLeagueDefinition[] | null> {
+    type LeagueCacheDoc = FirestoreMap & {
+      leagues?: unknown;
+      items?: unknown;
+      definitions?: unknown;
+    };
+    const cached = await this.loadCacheDoc<LeagueCacheDoc>(ACHIEVEMENTS_LEAGUES_CACHE_DOC_ID);
+    if (!cached) return null;
+    const source = Array.isArray(cached.leagues)
+      ? cached.leagues
+      : Array.isArray(cached.items)
+        ? cached.items
+        : Array.isArray(cached.definitions)
+          ? cached.definitions
+          : [];
+    const leagues = asArray<FirestoreMap>(source)
+      .map((row, index) => mapLeagueCacheRow(row, `league-${index + 1}`))
+      .filter((row) => row.active)
+      .sort((a, b) => a.order - b.order);
+    void globalCache.set(achievementsLeagueDefinitionsCacheKey(), leagues, ACHIEVEMENTS_LEAGUES_CACHE_TTL_MS).catch(() => undefined);
+    return leagues;
+  }
+
+  private queueLeagueDefinitionsSnapshotWarm(): void {
+    if (this.leagueSnapshotWarmScheduled) return;
+    this.leagueSnapshotWarmScheduled = true;
+    scheduleBackgroundWork(async () => {
+      try {
+        await this.refreshLeagueDefinitionsSnapshot();
+      } finally {
+        this.leagueSnapshotWarmScheduled = false;
+      }
+    });
+  }
+
+  private async refreshLeagueDefinitionsSnapshot(): Promise<AchievementLeagueDefinition[]> {
+    const db = this.requireDb();
+    let snap;
+    try {
+      snap = await db.collection("leagues").where("active", "==", true).orderBy("order", "asc").get();
+    } catch {
+      snap = await db.collection("leagues").get();
+    }
+    const leagues = snap.docs
+      .map((doc) => mapLeagueDocument(doc.id, (doc.data() as FirestoreMap) ?? {}))
+      .filter((row) => row.active)
+      .sort((a, b) => a.order - b.order);
+    const response: AchievementsLeaguesResponse = {
+      routeName: "achievements.leagues.get",
+      leagues,
+      degraded: false,
+      fallbacks: []
+    };
+    await Promise.all([
+      globalCache.set(achievementsLeagueDefinitionsCacheKey(), leagues, ACHIEVEMENTS_LEAGUES_CACHE_TTL_MS),
+      globalCache.set(buildCacheKey("bootstrap", ["achievements-leagues-v1"]), response, ACHIEVEMENTS_LEAGUES_CACHE_TTL_MS),
+      db.collection("cache").doc(ACHIEVEMENTS_LEAGUES_CACHE_DOC_ID).set(
+        {
+          leagues,
+          updatedAt: FieldValue.serverTimestamp(),
+          updatedAtMs: Date.now()
+        },
+        { merge: true }
+      )
+    ]);
+    return leagues;
   }
 
   private async loadGlobalXpCacheRows(): Promise<
@@ -2246,6 +2548,16 @@ export class AchievementsRepository {
       });
     }
     await Promise.all([...new Set(keys)].map((key) => globalCache.del(key)));
+  }
+
+  private async clearScreenOpenedCaches(viewerId: string): Promise<void> {
+    const keys = [
+      buildCacheKey("bootstrap", ["achievements-bootstrap-v1", viewerId]),
+      buildCacheKey("bootstrap", ["achievements-snapshot-v1", viewerId]),
+      buildCacheKey("bootstrap", ["achievements-snapshot-shell-v1", viewerId]),
+      buildCacheKey("bootstrap", ["achievements-status-v1", viewerId])
+    ];
+    await Promise.all(keys.map((key) => globalCache.del(key)));
   }
 }
 

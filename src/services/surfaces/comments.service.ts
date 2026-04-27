@@ -37,15 +37,15 @@ export class CommentsService {
     );
   }
 
-  async createComment(input: { viewerId: string; postId: string; text: string; clientMutationKey: string | null }) {
-    return dedupeInFlight(
-      `comments:create:${input.viewerId}:${input.postId}:${input.clientMutationKey ?? input.text.trim().toLowerCase()}`,
-      () =>
-        withConcurrencyLimit("comments-create-repo", 8, () =>
-          withMutationLock(`comments-create:${input.viewerId}:${input.postId}`, () =>
-            this.repository.createComment(input)
-          )
-        )
+  async createComment(input: {
+    viewerId: string;
+    postId: string;
+    text: string;
+    replyingTo: string | null;
+    clientMutationKey: string | null;
+  }) {
+    return withConcurrencyLimit("comments-create-repo", 8, () =>
+      withMutationLock(`comments-create:${input.viewerId}:${input.postId}`, () => this.repository.createComment(input))
     );
   }
 

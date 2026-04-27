@@ -9,6 +9,7 @@ export const MapMarkerRecordSchema = z.object({
   activity: z.string().nullable().optional(),
   activities: z.array(z.string()).default([]),
   createdAt: z.number().int().nullable().optional(),
+  updatedAt: z.number().int().nullable().optional(),
   visibility: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
   thumbnailUrl: z.string().nullable().optional(),
@@ -37,7 +38,7 @@ export const mapMarkersContract = defineContract({
   method: "GET",
   path: "/v2/map/markers",
   query: z.object({
-    limit: z.coerce.number().int().min(20).max(400).optional()
+    limit: z.coerce.number().int().min(20).max(10_000).optional()
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema

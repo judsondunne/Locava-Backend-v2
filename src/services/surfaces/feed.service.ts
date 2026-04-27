@@ -10,31 +10,6 @@ import type { FeedQueryContext } from "../../repositories/surfaces/feed.reposito
 export class FeedService {
   constructor(private readonly repository: FeedRepository) {}
 
-  private warmPostDetailCacheFromCandidate(candidate: FeedBootstrapCandidateRecord): void {
-    void getOrSetEntityCache(entityCacheKeys.postDetail(candidate.postId), 12_000, async () => ({
-      postId: candidate.postId,
-      userId: candidate.author.userId,
-      caption: candidate.captionPreview,
-      title: candidate.title ?? null,
-      description: candidate.description ?? null,
-      activities: candidate.activities,
-      address: candidate.address,
-      lat: candidate.geo.lat,
-      lng: candidate.geo.long,
-      tags: candidate.tags ?? [],
-      createdAtMs: candidate.createdAtMs,
-      mediaType: candidate.media.type,
-      thumbUrl: candidate.media.posterUrl,
-      assets: candidate.assets.map((asset) => ({
-        id: asset.id,
-        type: asset.type,
-        poster: asset.posterUrl,
-        thumbnail: asset.previewUrl,
-        variants: undefined
-      }))
-    })).catch(() => undefined);
-  }
-
   async loadBootstrapCandidates(viewerId: string, limit: number, context?: FeedQueryContext) {
     const tab = context?.tab ?? "explore";
     const geo = `${context?.lat ?? "_"}:${context?.lng ?? "_"}:${context?.radiusKm ?? "_"}`;
@@ -42,17 +17,7 @@ export class FeedService {
       const candidates = await withConcurrencyLimit("feed-bootstrap-candidates-repo", 4, () =>
         this.repository.getBootstrapCandidates(viewerId, limit, context)
       );
-      return Promise.all(
-        candidates.map((candidate) =>
-          getOrSetEntityCache(entityCacheKeys.postCard(candidate.postId), 20_000, async () => {
-            recordEntityConstructed("PostCardSummary");
-            return candidate;
-          })
-        )
-      ).then((items) => {
-        items.forEach((item) => this.warmPostDetailCacheFromCandidate(item));
-        return items;
-      });
+      return candidates;
     });
   }
 
@@ -70,17 +35,7 @@ export class FeedService {
     const geo = `${context?.lat ?? "_"}:${context?.lng ?? "_"}:${context?.radiusKm ?? "_"}`;
     return dedupeInFlight(`feed-page:${viewerId}:${cursorPart}:${limit}:${tab}:${geo}`, () =>
       withConcurrencyLimit("feed-page-repo", 4, async () => {
-        const page = await this.repository.getFeedPage(viewerId, cursor, limit, context);
-        const items = await Promise.all(
-          page.items.map((item) =>
-            getOrSetEntityCache(entityCacheKeys.postCard(item.postId), 20_000, async () => {
-              recordEntityConstructed("PostCardSummary");
-              return item;
-            })
-          )
-        );
-        items.forEach((item) => this.warmPostDetailCacheFromCandidate(item));
-        return { ...page, items };
+        return this.repository.getFeedPage(viewerId, cursor, limit, context);
       })
     );
   }

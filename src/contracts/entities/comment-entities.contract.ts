@@ -11,6 +11,8 @@ export const CommentSummarySchema = z.object({
   postId: z.string(),
   author: AuthorSummarySchema,
   text: z.string(),
+  /** Parent commentId when this is a reply. Null/undefined for top-level comments. */
+  replyingTo: z.string().nullable().optional(),
   createdAtMs: z.number().int().nonnegative(),
   likeCount: z.number().int().nonnegative().optional(),
   viewerState: CommentViewerStateSchema

@@ -71,3 +71,21 @@ export function getCoherenceProvider(): CoherenceProvider {
   };
   return singleton;
 }
+
+export async function primeCoherenceProvider(): Promise<void> {
+  const provider = getCoherenceProvider();
+  if (!provider.isDistributed) {
+    return;
+  }
+  const lease = await provider.tryAcquireLease("startup:warmup", 1_000);
+  if (lease.acquired) {
+    await provider.releaseLease("startup:warmup", lease.token);
+  }
+}
+
+export async function clearProcessLocalCacheForTests(): Promise<void> {
+  const provider = getCoherenceProvider();
+  if (typeof provider.cache.clear === "function") {
+    await provider.cache.clear();
+  }
+}

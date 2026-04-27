@@ -58,6 +58,20 @@ describe("v2 feed bootstrap route", () => {
     expect(invalid.statusCode).toBe(400);
   });
 
+  it("accepts tab=following query (no-op fallback is allowed)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/feed/bootstrap?tab=following&limit=5",
+      headers: {
+        "x-viewer-id": "internal-viewer",
+        "x-viewer-roles": "internal"
+      }
+    });
+    // Depending on whether Firestore source-of-truth is reachable in this environment,
+    // this may either succeed (200) or truthfully report unavailability (503).
+    expect([200, 503]).toContain(res.statusCode);
+  });
+
   it("never reports debugFeedSource fallback", async () => {
     const res = await app.inject({
       method: "GET",
@@ -98,6 +112,8 @@ describe("v2 feed bootstrap route", () => {
       expect(String(first.postId ?? "").length).toBeGreaterThan(0);
       expect(String(media.posterUrl ?? "").length).toBeGreaterThan(0);
       expect(String(author.userId ?? "").length).toBeGreaterThan(0);
+      expect(typeof first.createdAtMs).toBe("number");
+      expect((first.createdAtMs as number) > 0).toBe(true);
       expect(data.debugReturnedCount).toBeGreaterThan(0);
     } else {
       expect(data.debugFailureReason).toBeUndefined();

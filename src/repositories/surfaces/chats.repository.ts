@@ -100,6 +100,10 @@ function directPairKeyFor(viewerId: string, otherUserId: string): string {
   return [viewerId, otherUserId].sort().join(":");
 }
 
+function directPairRefKeyFor(pairKey: string): string {
+  return pairKey.replace(/[^\w.-]/g, "_");
+}
+
 function mapCachedUserDocToSummary(userId: string, userDoc: Record<string, unknown>): UserSummary {
   return {
     userId,
@@ -272,22 +276,17 @@ export class ChatsRepository {
         ...(viewerChatSummaryIndex ?? {}),
         ...fetchedForViewerIndex
       };
-      void this.db
-        .collection("users")
-        .doc(viewerIdForIndex)
-        .set({ chatUserSummaryIndex: nextIndex }, { merge: true })
-        .then(async () => {
-          const cachedUserDoc = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerIdForIndex))) ?? {};
-          await globalCache.set(
-            entityCacheKeys.userFirestoreDoc(viewerIdForIndex),
-            {
-              ...cachedUserDoc,
-              chatUserSummaryIndex: nextIndex
-            },
-            ttlMs
-          );
-        })
-        .catch(() => undefined);
+      void (async () => {
+        const cachedUserDoc = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerIdForIndex))) ?? {};
+        await globalCache.set(
+          entityCacheKeys.userFirestoreDoc(viewerIdForIndex),
+          {
+            ...cachedUserDoc,
+            chatUserSummaryIndex: nextIndex
+          },
+          ttlMs
+        );
+      })().catch(() => undefined);
     }
     return out;
   }
@@ -309,7 +308,7 @@ export class ChatsRepository {
     const data = (doc.data() ?? {}) as Record<string, unknown>;
     const participants = Array.isArray(data.participants) ? data.participants.filter((x): x is string => typeof x === "string") : [];
     if (!participants.includes(viewerId)) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
-    await globalCache.set(entityCacheKeys.chatConversationMembership(viewerId, conversationId), data, 25_000);
+    void globalCache.set(entityCacheKeys.chatConversationMembership(viewerId, conversationId), data, 25_000).catch(() => undefined);
     return data;
   }
 
@@ -409,6 +408,8 @@ export class ChatsRepository {
       }
     }
     const tHydr0 = performance.now();
+    // Inbox should show real peer names; cache-only hydration causes generic DM titles until user docs are cached.
+    // Keep scope tight: only hydrate direct peers (<= page size).
     const users = await this.loadUserSummaries([...participantIds], input.viewerId);
     const tHydr1 = performance.now();
 
@@ -428,21 +429,25 @@ export class ChatsRepository {
         Boolean(senderId) && senderId !== input.viewerId && !lastMessageSeenBy.includes(input.viewerId);
       const unreadCount = hasUnreadByFlag || (!Array.isArray(data.manualUnreadBy) && hasUnreadBySeenByFallback) ? 1 : 0;
       const lastType = normalizeConversationType(lastMessage?.type);
+      const directPeerId = !isGroup ? participants.find((id) => id !== input.viewerId) ?? null : null;
+      const directPeer = directPeerId ? users.get(directPeerId) : undefined;
+      const directPeerTitle = directPeer?.name ?? directPeer?.handle ?? (directPeerId ? `user_${directPeerId.slice(0, 8)}` : "Chat");
       const title =
         isGroup
           ? (typeof data.groupName === "string" ? data.groupName : participants.filter((id) => id !== input.viewerId).slice(0, 2).join(", ") || "Group chat")
-          : (users.get(participants.find((id) => id !== input.viewerId) ?? "")?.name ?? "Direct chat");
+          : directPeerTitle;
       const participantPreview = !isGroup
         ? participants
             .filter((id) => id !== input.viewerId)
             .slice(0, 1)
             .map((id) => {
-              const u = users.get(id) ?? fallbackAuthor(id);
-              return { userId: u.userId, handle: u.handle, name: u.name, pic: u.pic };
+              const u = users.get(id);
+              if (u) return { userId: u.userId, handle: u.handle, name: u.name, pic: u.pic };
+              // No fake fallback authors in production inbox rows; keep handle stable and name null.
+              return { userId: id, handle: `user_${id.slice(0, 8)}`, name: null, pic: null };
             })
         : [];
-      const directPeerId = !isGroup ? participants.find((id) => id !== input.viewerId) ?? null : null;
-      const directPeerPic = directPeerId ? (users.get(directPeerId)?.pic ?? fallbackAuthor(directPeerId).pic) : null;
+      const directPeerPic = directPeerId ? (directPeer?.pic ?? null) : null;
       return {
         viewerId: input.viewerId,
         conversationId: doc.id,
@@ -716,7 +721,11 @@ export class ChatsRepository {
       return { message: msg, idempotent: false };
     }
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
-    const conversationData = await this.assertViewerMembership(input.viewerId, input.conversationId);
+    const tMembership0 = performance.now();
+    const conversationPromise = this.assertViewerMembership(input.viewerId, input.conversationId);
+    const senderPromise = this.loadCachedUserSummary(input.viewerId).catch(() => null);
+    const [conversationData, prefetchedSender] = await Promise.all([conversationPromise, senderPromise]);
+    const tMembership1 = performance.now();
     const key = input.clientMessageId ? `${input.viewerId}:${input.conversationId}:${input.clientMessageId}` : null;
     if (key) {
       const existingId = this.clientMessageIndex.get(key);
@@ -764,10 +773,8 @@ export class ChatsRepository {
           : input.messageType === "post"
             ? input.text
             : input.text;
-    const sender =
-      (await this.loadCachedUserSummary(input.viewerId)) ??
-      fallbackAuthor(input.viewerId);
-    void this.loadUserSummaries([input.viewerId], input.viewerId).catch(() => undefined);
+    const sender = prefetchedSender ?? fallbackAuthor(input.viewerId);
+    const tSender1 = performance.now();
     const messagePayload: Record<string, unknown> = {
       type,
       senderId: input.viewerId,
@@ -793,27 +800,34 @@ export class ChatsRepository {
     const unreadTargets = participants.filter((participantId: string) => participantId !== input.viewerId);
 
     incrementDbOps("writes", 2);
-    await Promise.all([
-      messageRef.set(messagePayload),
-      this.db.collection("chats").doc(input.conversationId).update({
-        lastMessageTime: now,
-        lastMessage: {
-          type,
-          content:
-            type === "post"
-              ? typeof input.text === "string" && input.text.trim().length > 0
-                ? input.text
-                : "Shared a post"
-              : typeof content === "string"
-                ? content
-                : null,
-          senderId: input.viewerId,
-          timestamp: now,
-          seenBy: [input.viewerId]
-        },
-        manualUnreadBy: unreadTargets
-      })
-    ]);
+    const tWrite0 = performance.now();
+    const batch = this.db.batch();
+    batch.set(messageRef, messagePayload);
+    batch.update(this.db.collection("chats").doc(input.conversationId), {
+      lastMessageTime: now,
+      lastMessage: {
+        type,
+        content:
+          type === "post"
+            ? typeof input.text === "string" && input.text.trim().length > 0
+              ? input.text
+              : "Shared a post"
+            : typeof content === "string"
+              ? content
+              : null,
+        senderId: input.viewerId,
+        timestamp: now,
+        seenBy: [input.viewerId]
+      },
+      manualUnreadBy: unreadTargets
+    });
+    await batch.commit();
+    const tWrite1 = performance.now();
+    recordSurfaceTimings({
+      chats_send_membership_ms: tMembership1 - tMembership0,
+      chats_send_sender_ms: tSender1 - tMembership1,
+      chats_send_write_ms: tWrite1 - tWrite0
+    });
 
     if (key) this.clientMessageIndex.set(key, messageRef.id);
     const normalizedType = normalizeMessageType(type);
@@ -873,56 +887,57 @@ export class ChatsRepository {
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
     const pair = [input.viewerId, input.otherUserId].sort();
     const pairKey = directPairKeyFor(input.viewerId, input.otherUserId);
+    const pairRefKey = directPairRefKeyFor(pairKey);
     const cachedConversationId = await globalCache.get<string>(entityCacheKeys.chatDirectConversation(pairKey));
     if (cachedConversationId) {
       recordEntityCacheHit();
       return { conversationId: cachedConversationId, created: false };
     }
 
-    incrementDbOps("queries", 1);
-    let byPairKey;
-    try {
-      byPairKey = await this.db.collection("chats").where("directPairKey", "==", pairKey).limit(1).get();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("PERMISSION_DENIED")) throw new SourceOfTruthRequiredError("chats_create_direct_firestore_permission");
-      throw error;
-    }
-    incrementDbOps("reads", byPairKey.docs.length);
-    if (!byPairKey.empty) {
-      const conversationId = byPairKey.docs[0]!.id;
-      await globalCache.set(entityCacheKeys.chatDirectConversation(pairKey), conversationId, 60_000);
-      await globalCache.set(
-        entityCacheKeys.chatConversationMembership(input.viewerId, conversationId),
-        byPairKey.docs[0]!.data() as Record<string, unknown>,
-        25_000
-      );
-      return { conversationId, created: false };
-    }
+    const pairRef = this.db.collection("chat_direct_pairs").doc(pairRefKey);
     const now = Timestamp.now();
-    incrementDbOps("writes", 1);
-    const created = await this.db.collection("chats").add({
+    const db = this.db!;
+    const created = db.collection("chats").doc();
+    const createdData = {
       participants: pair,
       directPairKey: pairKey,
       isGroupChat: false,
       createdAt: now,
       manualUnreadBy: [],
       lastMessageTime: now
-    });
-    await globalCache.set(entityCacheKeys.chatDirectConversation(pairKey), created.id, 60_000);
-    await globalCache.set(
-      entityCacheKeys.chatConversationMembership(input.viewerId, created.id),
-      {
+    };
+    incrementDbOps("writes", 2);
+    try {
+      const batch = db.batch();
+      batch.create(created, createdData);
+      batch.create(pairRef, {
+        conversationId: created.id,
         participants: pair,
         directPairKey: pairKey,
-        isGroupChat: false,
         createdAt: now,
-        manualUnreadBy: [],
-        lastMessageTime: now
-      },
-      25_000
-    );
-    return { conversationId: created.id, created: true };
+        updatedAt: now
+      });
+      await batch.commit();
+      void globalCache.set(entityCacheKeys.chatDirectConversation(pairKey), created.id, 60_000).catch(() => undefined);
+      void globalCache.set(entityCacheKeys.chatConversationMembership(input.viewerId, created.id), createdData, 25_000).catch(() => undefined);
+      return { conversationId: created.id, created: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("PERMISSION_DENIED")) {
+        throw new SourceOfTruthRequiredError("chats_create_direct_firestore_permission");
+      }
+      if (message.includes("ALREADY_EXISTS")) {
+        const retrySnapshot = await pairRef.get();
+        incrementDbOps("reads", retrySnapshot.exists ? 1 : 0);
+        const retryData = retrySnapshot.data() as Record<string, unknown> | undefined;
+        const existingConversationId = typeof retryData?.conversationId === "string" ? retryData.conversationId : null;
+        if (existingConversationId) {
+          void globalCache.set(entityCacheKeys.chatDirectConversation(pairKey), existingConversationId, 60_000).catch(() => undefined);
+          return { conversationId: existingConversationId, created: false };
+        }
+      }
+      throw error;
+    }
   }
 
   async createGroupConversation(input: {
@@ -971,7 +986,7 @@ export class ChatsRepository {
       manualUnreadBy: [],
       lastMessageTime: now
     });
-    await globalCache.set(
+    void globalCache.set(
       entityCacheKeys.chatConversationMembership(input.viewerId, created.id),
       {
         participants,
@@ -982,7 +997,7 @@ export class ChatsRepository {
         lastMessageTime: now
       },
       25_000
-    );
+    ).catch(() => undefined);
     return { conversationId: created.id };
   }
 
@@ -1151,13 +1166,15 @@ export class ChatsRepository {
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
     await this.assertViewerMembership(input.viewerId, input.conversationId);
     const ref = this.db.collection("chats").doc(input.conversationId).collection("messages").doc(input.messageId);
-    incrementDbOps("queries", 1);
-    const doc = await ref.get();
-    incrementDbOps("reads", 1);
-    if (!doc.exists) return { messageId: input.messageId, deleted: false };
     incrementDbOps("writes", 1);
     await ref.delete();
     return { messageId: input.messageId, deleted: true };
+  }
+
+  resetForTests(): void {
+    this.clientMessageIndex.clear();
+    this.seededConversationsByViewer.clear();
+    this.seededMessagesByConversation.clear();
   }
 }
 

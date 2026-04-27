@@ -115,6 +115,12 @@ class MutationStateRepository {
       savedAtMs: state.savedAtMs
     }));
   }
+
+  resetForTests(): void {
+    this.postSocialState.clear();
+    this.followState.clear();
+    this.viewerSavedState.clear();
+  }
 }
 
 export const mutationStateRepository = new MutationStateRepository();

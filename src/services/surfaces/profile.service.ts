@@ -7,6 +7,19 @@ import { recordEntityConstructed } from "../../observability/request-context.js"
 export class ProfileService {
   constructor(private readonly repository: ProfileRepository) {}
 
+  private warmSharedCardCache(item: {
+    postId: string;
+    thumbUrl: string;
+    mediaType: "image" | "video";
+    aspectRatio?: number;
+    updatedAtMs: number;
+  }): void {
+    void getOrSetEntityCache(entityCacheKeys.postCard(item.postId), 20_000, async () => {
+      recordEntityConstructed("PostCardSummary");
+      return this.profileGridItemToSharedCard(item);
+    }).catch(() => undefined);
+  }
+
   private profileGridItemToSharedCard(item: {
     postId: string;
     thumbUrl: string;
@@ -56,14 +69,7 @@ export class ProfileService {
   async loadGridPreview(userId: string, limit: number) {
     return dedupeInFlight(`profile-grid-preview:${userId}:${limit}`, async () => {
       const preview = await this.repository.getGridPreview(userId, limit);
-      void Promise.all(
-        preview.items.map((item) =>
-          getOrSetEntityCache(entityCacheKeys.postCard(item.postId), 20_000, async () => {
-            recordEntityConstructed("PostCardSummary");
-            return this.profileGridItemToSharedCard(item);
-          })
-        )
-      );
+      preview.items.forEach((item) => this.warmSharedCardCache(item));
       return preview;
     });
   }
@@ -76,14 +82,7 @@ export class ProfileService {
     return dedupeInFlight(`profile-grid-page:${userId}:${cursor ?? "start"}:${limit}`, () =>
       withConcurrencyLimit("profile-grid-page-repo", 4, () =>
         this.repository.getGridPage({ userId, cursor, limit }).then(async (page) => {
-          await Promise.all(
-            page.items.map((item) =>
-              getOrSetEntityCache(entityCacheKeys.postCard(item.postId), 20_000, async () => {
-                recordEntityConstructed("PostCardSummary");
-                return this.profileGridItemToSharedCard(item);
-              })
-            )
-          );
+          page.items.forEach((item) => this.warmSharedCardCache(item));
           return page;
         })
       )

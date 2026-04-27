@@ -10,7 +10,13 @@ const notificationsService = new NotificationsService(notificationsRepository);
 export class CommentsCreateOrchestrator {
   constructor(private readonly service: CommentsService) {}
 
-  async run(input: { viewerId: string; postId: string; text: string; clientMutationKey: string | null }) {
+  async run(input: {
+    viewerId: string;
+    postId: string;
+    text: string;
+    replyingTo: string | null;
+    clientMutationKey: string | null;
+  }) {
     const serviceStartedAt = performance.now();
     const result = await this.service.createComment(input);
     const serviceMs = performance.now() - serviceStartedAt;

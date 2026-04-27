@@ -38,7 +38,10 @@ export class ProfileBootstrapOrchestrator {
     debugSlowDeferredMs: number;
   }): Promise<ProfileBootstrapResponse> {
     const { viewer, userId, gridLimit, debugSlowDeferredMs } = input;
-    const previewLimit = Math.min(gridLimit, 6);
+    // Native expects `gridLimit` items on first render so the grid is scrollable
+    // and can deterministically trigger pagination. Keep bootstrap payload lean
+    // by limiting each item to preview fields (handled in repository adapter).
+    const previewLimit = gridLimit;
 
     const enableBootstrapCache = debugSlowDeferredMs === 0;
     const bootstrapCacheKey = buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewer.viewerId, userId, previewLimit]);

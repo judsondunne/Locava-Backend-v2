@@ -21,8 +21,10 @@ import { registerV2ProfilePostDetailRoutes } from "../routes/v2/profile-post-det
 import { registerV2SearchResultsRoutes } from "../routes/v2/search-results.routes.js";
 import { registerV2SearchUsersRoutes } from "../routes/v2/search-users.routes.js";
 import { registerV2SearchDiscoveryRoutes } from "../routes/v2/search-discovery.routes.js";
+import { registerV2SearchMixesRoutes } from "../routes/v2/search-mixes.routes.js";
 import { registerV2PlacesReverseGeocodeRoutes } from "../routes/v2/places-reverse-geocode.routes.js";
 import { registerV2PostLikeRoutes } from "../routes/v2/post-like.routes.js";
+import { registerV2PostLikesRoutes } from "../routes/v2/post-likes.routes.js";
 import { registerV2UserFollowRoutes } from "../routes/v2/user-follow.routes.js";
 import { registerV2PostUnlikeRoutes } from "../routes/v2/post-unlike.routes.js";
 import { registerV2UserUnfollowRoutes } from "../routes/v2/user-unfollow.routes.js";
@@ -53,6 +55,7 @@ import { registerV2ChatsMessageReactionRoutes } from "../routes/v2/chats-message
 import { registerV2GroupsRoutes } from "../routes/v2/groups.routes.js";
 import { registerLegacyApiStubRoutes } from "../routes/compat/legacy-api-stubs.routes.js";
 import { registerLegacyMonolithProductProxyRoutes } from "../routes/compat/legacy-monolith-product-proxy.routes.js";
+import { registerLegacyMonolithAuthProxyRoutes } from "../routes/compat/legacy-monolith-auth-proxy.routes.js";
 import { registerLegacyMonolithUploadProxyRoutes } from "../routes/compat/legacy-monolith-upload-proxy.routes.js";
 import { registerLegacyMonolithNotificationsProxyRoutes } from "../routes/compat/legacy-monolith-notifications-proxy.routes.js";
 import { registerLegacyProductUploadRoutes } from "../routes/compat/legacy-product-upload.routes.js";
@@ -85,12 +88,18 @@ import { registerV2SocialContactsSyncRoutes } from "../routes/v2/social-contacts
 import { registerLocalDebugRoutes } from "../routes/debug/local-debug.routes.js";
 import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-firestore-probe.routes.js";
 import { SourceOfTruthRequiredError } from "../repositories/source-of-truth/strict-mode.js";
-import { getFirestoreAdminIdentity, getFirestoreSourceClient } from "../repositories/source-of-truth/firestore-client.js";
+import {
+  getFirestoreAdminIdentity,
+  getFirestoreSourceClient,
+  primeFirestoreMutationChannel,
+  primeFirestoreSourceClient
+} from "../repositories/source-of-truth/firestore-client.js";
 import { isLocalDevIdentityModeEnabled, resolveLocalDebugViewerId } from "../lib/local-dev-identity.js";
 import { searchPlacesIndexService } from "../services/surfaces/search-places-index.service.js";
 import { globalCache } from "../cache/global-cache.js";
 import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
+import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
 
 function classifyError(error: unknown): { code: string; statusCode: number; details?: unknown } {
   if (error instanceof ZodError) {
@@ -117,6 +126,7 @@ function classifyError(error: unknown): { code: string; statusCode: number; deta
 export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   const env = { ...loadEnv(), ...overrides };
   const mapMarkersAdapter = new MapMarkersFirestoreAdapter();
+  const shouldPrimeFirestoreOnReady = process.env.VITEST !== "true";
   if (env.NODE_ENV !== "test") {
     searchPlacesIndexService.scheduleLoad(5_000);
   }
@@ -137,6 +147,26 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   });
 
   app.decorate("config", env);
+
+  if (shouldPrimeFirestoreOnReady) {
+    app.addHook("onReady", async () => {
+      if (env.NODE_ENV !== "production") {
+        await primeCoherenceProvider();
+      }
+      await primeFirestoreSourceClient();
+      if (env.NODE_ENV !== "production") {
+        await primeFirestoreMutationChannel();
+      }
+      if (env.NODE_ENV !== "production") {
+        await primeMapMarkersRouteCache({
+          adapter: mapMarkersAdapter,
+          maxDocs: env.MAP_MARKERS_MAX_DOCS,
+          ttlMs: env.MAP_MARKERS_CACHE_TTL_MS,
+          log: app.log
+        });
+      }
+    });
+  }
 
   app.addHook("onRequest", (request, _reply, done) => {
     request.requestStartNs = process.hrtime.bigint();
@@ -165,7 +195,12 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         invalidation: { keys: 0, entityKeys: 0, routeKeys: 0, types: {} },
         fallbacks: [],
         timeouts: [],
-        surfaceTimings: {}
+        surfaceTimings: {},
+        audit: {
+          auditRunId: request.headers["x-audit-run-id"]?.toString(),
+          auditSpecId: request.headers["x-audit-spec-id"]?.toString(),
+          auditSpecName: request.headers["x-audit-spec-name"]?.toString()
+        }
       },
       () => {
         request.log.info({ event: "request_start" }, "incoming request");
@@ -211,27 +246,51 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         budgetViolations.push("payload_bytes_exceeded");
       }
     }
+    const dbOps = ctx ? { ...ctx.dbOps } : { reads: 0, writes: 0, queries: 0 };
+    const cache = ctx ? { ...ctx.cache } : { hits: 0, misses: 0 };
+    const dedupe = ctx ? { ...ctx.dedupe } : { hits: 0, misses: 0 };
+    const concurrency = ctx ? { ...ctx.concurrency } : { waits: 0 };
+    const entityCache = ctx ? { ...ctx.entityCache } : { hits: 0, misses: 0 };
+    const entityConstruction = ctx
+      ? { total: ctx.entityConstruction.total, types: { ...ctx.entityConstruction.types } }
+      : { total: 0, types: {} };
+    const idempotency = ctx ? { ...ctx.idempotency } : { hits: 0, misses: 0 };
+    const invalidation = ctx
+      ? {
+          keys: ctx.invalidation.keys,
+          entityKeys: ctx.invalidation.entityKeys,
+          routeKeys: ctx.invalidation.routeKeys,
+          types: { ...ctx.invalidation.types }
+        }
+      : { keys: 0, entityKeys: 0, routeKeys: 0, types: {} };
+    const fallbacks = ctx ? [...ctx.fallbacks] : [];
+    const timeouts = ctx ? [...ctx.timeouts] : [];
+    const surfaceTimings = ctx ? { ...ctx.surfaceTimings } : {};
+
     diagnosticsStore.addRequest({
       requestId: request.requestIdValue,
       method: request.method,
       route: request.routeOptions.url ?? request.url,
       routeName: ctx?.routeName,
+      auditRunId: ctx?.audit?.auditRunId,
+      auditSpecId: ctx?.audit?.auditSpecId,
+      auditSpecName: ctx?.audit?.auditSpecName,
       routePolicy: ctx?.routePolicy,
       budgetViolations,
       statusCode: reply.statusCode,
       latencyMs: Number(latencyMs.toFixed(2)),
       payloadBytes: ctx?.payloadBytes ?? 0,
-      dbOps: ctx?.dbOps ?? { reads: 0, writes: 0, queries: 0 },
-      cache: ctx?.cache ?? { hits: 0, misses: 0 },
-      dedupe: ctx?.dedupe ?? { hits: 0, misses: 0 },
-      concurrency: ctx?.concurrency ?? { waits: 0 },
-      entityCache: ctx?.entityCache ?? { hits: 0, misses: 0 },
-      entityConstruction: ctx?.entityConstruction ?? { total: 0, types: {} },
-      idempotency: ctx?.idempotency ?? { hits: 0, misses: 0 },
-      invalidation: ctx?.invalidation ?? { keys: 0, entityKeys: 0, routeKeys: 0, types: {} },
-      fallbacks: ctx?.fallbacks ?? [],
-      timeouts: ctx?.timeouts ?? [],
-      surfaceTimings: ctx?.surfaceTimings ?? {},
+      dbOps,
+      cache,
+      dedupe,
+      concurrency,
+      entityCache,
+      entityConstruction,
+      idempotency,
+      invalidation,
+      fallbacks,
+      timeouts,
+      surfaceTimings,
       timestamp: new Date().toISOString()
     });
 
@@ -289,8 +348,10 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2SearchResultsRoutes);
   app.register(registerV2SearchUsersRoutes);
   app.register(registerV2SearchDiscoveryRoutes);
+  app.register(registerV2SearchMixesRoutes);
   app.register(registerV2PlacesReverseGeocodeRoutes);
   app.register(registerV2PostLikeRoutes);
+  app.register(registerV2PostLikesRoutes);
   app.register(registerV2PostUnlikeRoutes);
   app.register(registerV2UserFollowRoutes);
   app.register(registerV2UserUnfollowRoutes);
@@ -324,6 +385,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     await registerLegacyMonolithUploadProxyRoutes(instance, env);
   });
   app.register(async (instance) => {
+    registerLegacyMonolithAuthProxyRoutes(instance, env);
     await registerLegacyMonolithProductProxyRoutes(instance, env);
     await registerLegacyMonolithNotificationsProxyRoutes(instance, env);
   });
@@ -392,4 +454,40 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   });
 
   return app;
+}
+
+async function primeMapMarkersRouteCache(input: {
+  adapter: MapMarkersFirestoreAdapter;
+  maxDocs: number;
+  ttlMs: number;
+  log: FastifyInstance["log"];
+}): Promise<void> {
+  const cacheKey = "map:markers:v2:all";
+  const existing = await globalCache.get<MapMarkersResponse>(cacheKey);
+  if (existing) return;
+  try {
+    const dataset = await input.adapter.fetchAll({ maxDocs: input.maxDocs });
+    const cacheSource = dataset.queryCount > 0 || dataset.readCount > 0 ? "miss" : "hit";
+    const payload: MapMarkersResponse = {
+      routeName: "map.markers.get",
+      markers: dataset.markers,
+      count: dataset.count,
+      generatedAt: dataset.generatedAt,
+      version: dataset.version,
+      etag: dataset.etag,
+      diagnostics: {
+        queryCount: dataset.queryCount,
+        readCount: dataset.readCount,
+        payloadBytes: Buffer.byteLength(JSON.stringify(dataset.markers), "utf8"),
+        invalidCoordinateDrops: dataset.invalidCoordinateDrops,
+        cacheSource
+      }
+    };
+    await globalCache.set(cacheKey, payload, input.ttlMs);
+  } catch (error) {
+    input.log.warn(
+      { reason: error instanceof Error ? error.message : String(error), routeName: "map.markers.get" },
+      "map markers route cache prewarm skipped"
+    );
+  }
 }

@@ -18,6 +18,7 @@ const EnvSchema = z.object({
   SERVICE_VERSION: z.string().default("0.1.0"),
   GCP_PROJECT_ID: z.string().optional(),
   FIRESTORE_SOURCE_ENABLED: z.coerce.boolean().default(true),
+  FIRESTORE_TEST_MODE: z.enum(["emulator", "mock", "disabled"]).optional(),
   FIREBASE_PROJECT_ID: z.string().optional(),
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   FIREBASE_PRIVATE_KEY: z.string().optional(),

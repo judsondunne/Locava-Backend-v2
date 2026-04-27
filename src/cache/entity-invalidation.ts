@@ -9,6 +9,7 @@ import {
 import { globalCache } from "./global-cache.js";
 import { invalidateRouteCacheByTags } from "./route-cache-index.js";
 import { recordInvalidation } from "../observability/request-context.js";
+import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
 
 export type MutationInvalidationInput =
   | {
@@ -148,6 +149,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
 
   if (input.mutationType === "posting.complete") {
     const { postId, viewerId } = input;
+    MapMarkersFirestoreAdapter.invalidateSharedCache();
     const entityKeys = [
       entityCacheKeys.postSocial(postId),
       entityCacheKeys.postCard(postId),
@@ -163,10 +165,11 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
 
     const visibilityRouteCacheKeys = derivePostingVisibilityRouteKeys(viewerId);
     await Promise.all(visibilityRouteCacheKeys.map((key) => globalCache.del(key)));
-    const invalidatedKeys = [...entityKeys, ...targetedRouteCacheKeys, ...visibilityRouteCacheKeys];
+    const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);
+    const invalidatedKeys = [...entityKeys, ...targetedRouteCacheKeys, ...visibilityRouteCacheKeys, ...mapBootstrapRouteKeys];
     recordInvalidation(input.mutationType, {
       entityKeyCount: entityKeys.length,
-      routeKeyCount: targetedRouteCacheKeys.length + visibilityRouteCacheKeys.length
+      routeKeyCount: targetedRouteCacheKeys.length + visibilityRouteCacheKeys.length + mapBootstrapRouteKeys.length
     });
     return {
       mutationType: input.mutationType,
@@ -179,6 +182,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         "route.feed_bootstrap",
         "route.profile_bootstrap",
         "route.profile_grid",
+        "route.map_bootstrap",
         "route.map_markers"
       ],
       invalidatedKeys
@@ -244,12 +248,14 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
   }
 
   if (input.mutationType === "chat.sendtext" || input.mutationType === "chat.reaction") {
-    const inboxStartKeys = await invalidateRouteCacheByTags([`route:chats.inbox:${input.viewerId}`]);
-    const threadStartKeys = await invalidateRouteCacheByTags([
-      `route:chats.thread:${input.viewerId}:${input.conversationId}`,
-      `route:chats.thread:${input.viewerId}`
-    ]);
-    const keys = [...inboxStartKeys, ...threadStartKeys];
+    const keys = await invalidateRouteCacheByTags(
+      [
+        `route:chats.inbox:${input.viewerId}`,
+        `route:chats.thread:${input.viewerId}:${input.conversationId}`,
+        `route:chats.thread:${input.viewerId}`
+      ],
+      { deferIndexCleanup: true }
+    );
     recordInvalidation(input.mutationType, {
       entityKeyCount: 0,
       routeKeyCount: keys.length
@@ -262,18 +268,33 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
   }
 
   const { userId, viewerId } = input;
-  const baseKeys = [entityCacheKeys.userSummary(userId), entityCacheKeys.userFirestoreDoc(userId)];
+  const baseKeys = [
+    entityCacheKeys.userSummary(userId),
+    entityCacheKeys.userFirestoreDoc(userId),
+    entityCacheKeys.userSummary(viewerId),
+    entityCacheKeys.userFirestoreDoc(viewerId)
+  ];
   const affectedPostIds = getKnownPostIdsForAuthor(userId, input.affectedAuthorPostLimit ?? 48);
   const viewerStateKeys = affectedPostIds.map((postId) => entityCacheKeys.viewerPostState(viewerId, postId));
-  await deleteEntityCacheKeys([...baseKeys, ...viewerStateKeys]);
-  const invalidatedKeys = [...baseKeys, ...viewerStateKeys];
+  const relationshipKeys = [
+    buildCacheKey("entity", ["profile-relationship-v1", viewerId, userId])
+  ];
+  const bootstrapKeys = [6].map((previewLimit) =>
+    buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, userId, String(previewLimit)])
+  );
+  await deleteEntityCacheKeys(baseKeys);
+  await Promise.all([...relationshipKeys, ...bootstrapKeys].map((key) => globalCache.del(key)));
+  if (viewerStateKeys.length > 0) {
+    void deleteEntityCacheKeys(viewerStateKeys).catch(() => undefined);
+  }
+  const invalidatedKeys = [...baseKeys, ...viewerStateKeys, ...relationshipKeys, ...bootstrapKeys];
   recordInvalidation(input.mutationType, {
-    entityKeyCount: invalidatedKeys.length,
-    routeKeyCount: 0
+    entityKeyCount: baseKeys.length + viewerStateKeys.length,
+    routeKeyCount: relationshipKeys.length + bootstrapKeys.length
   });
   return {
     mutationType: input.mutationType,
-    invalidationTypes: ["user.summary", "author_post.viewer_state"],
+    invalidationTypes: ["user.summary", "user.firestore_doc", "author_post.viewer_state", "profile.relationship", "route.profile_bootstrap"],
     invalidatedKeys
   };
 }
@@ -315,6 +336,7 @@ function derivePostingVisibilityRouteKeys(viewerId: string): string[] {
   for (const limit of [20, 120, 240, 400]) {
     keys.add(`map:markers:v2:${limit}`);
   }
+  keys.add("map:markers:v2:all");
   keys.add("map:markers:v1");
 
   return [...keys];

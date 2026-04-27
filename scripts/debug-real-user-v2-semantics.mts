@@ -681,6 +681,9 @@ async function runSearchScenarios(): Promise<void> {
   const users = await callRoute("GET", "/v2/search/users?q=judson&limit=10");
   const userItems = arr<Record<string, unknown>>(obj(users.envelope?.data).items);
   const userMismatches: string[] = [];
+  if (users.statusCode !== 200) {
+    userMismatches.push(`search users returned ${users.statusCode}`);
+  }
   for (const row of userItems) {
     const userId = str(row.userId);
     const doc = userId ? await getUserDoc(userId) : null;

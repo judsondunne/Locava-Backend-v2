@@ -43,7 +43,13 @@ export class SearchService {
       mediaType?: "image" | "video";
       likeCount?: number;
       commentCount?: number;
+      createdAtMs?: number;
       updatedAtMs?: number;
+      carouselFitWidth?: boolean;
+      layoutLetterbox?: boolean;
+      letterboxGradientTop?: string | null;
+      letterboxGradientBottom?: string | null;
+      letterboxGradients?: Array<{ top: string; bottom: string }> | null;
     },
     index: number,
     normalized: string,
@@ -70,6 +76,11 @@ export class SearchService {
       title: row.title || null,
       captionPreview: row.title || null,
       firstAssetUrl: posterUrl,
+      carouselFitWidth: typeof row.carouselFitWidth === "boolean" ? row.carouselFitWidth : undefined,
+      layoutLetterbox: typeof row.layoutLetterbox === "boolean" ? row.layoutLetterbox : undefined,
+      letterboxGradientTop: typeof row.letterboxGradientTop === "string" || row.letterboxGradientTop === null ? row.letterboxGradientTop : undefined,
+      letterboxGradientBottom: typeof row.letterboxGradientBottom === "string" || row.letterboxGradientBottom === null ? row.letterboxGradientBottom : undefined,
+      letterboxGradients: Array.isArray(row.letterboxGradients) && row.letterboxGradients.length > 0 ? row.letterboxGradients : undefined,
       media: {
         type: mediaType,
         posterUrl,
@@ -84,6 +95,7 @@ export class SearchService {
         liked: mutationStateRepository.hasViewerLikedPost(viewerId, postId),
         saved: mutationStateRepository.resolveViewerSavedPost(viewerId, postId, false)
       },
+      createdAtMs: Math.max(0, Number(row.createdAtMs ?? row.updatedAtMs ?? Date.now())),
       updatedAtMs: Math.max(0, Number(row.updatedAtMs ?? Date.now()))
     };
   }

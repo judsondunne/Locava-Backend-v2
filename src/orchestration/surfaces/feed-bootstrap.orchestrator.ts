@@ -68,21 +68,32 @@ export class FeedBootstrapOrchestrator {
     const fallbacks: string[] = [];
     let sessionHints: { recommendationPath: "for_you_light"; staleAfterMs: number } | null = null;
 
-    try {
-      sessionHints = await withTimeout(
-        this.service.loadSessionHints(viewer.viewerId, debugSlowDeferredMs),
-        90,
-        "feed.bootstrap.session_hints"
-      );
-    } catch (error) {
-      if (error instanceof TimeoutError) {
-        fallbacks.push("session_hints_timeout");
-        recordTimeout("feed.bootstrap.session_hints");
-        recordFallback("session_hints_timeout");
-      } else {
-        fallbacks.push("session_hints_failed");
-        recordFallback("session_hints_failed");
+    if (debugSlowDeferredMs > 0) {
+      try {
+        sessionHints = await withTimeout(
+          this.service.loadSessionHints(viewer.viewerId, debugSlowDeferredMs),
+          90,
+          "feed.bootstrap.session_hints"
+        );
+      } catch (error) {
+        if (error instanceof TimeoutError) {
+          fallbacks.push("session_hints_timeout");
+          recordTimeout("feed.bootstrap.session_hints");
+          recordFallback("session_hints_timeout");
+        } else {
+          fallbacks.push("session_hints_failed");
+          recordFallback("session_hints_failed");
+        }
       }
+    } else {
+      void this.service.loadSessionHints(viewer.viewerId, debugSlowDeferredMs).catch((error) => {
+        if (error instanceof TimeoutError) {
+          recordTimeout("feed.bootstrap.session_hints");
+          recordFallback("session_hints_timeout");
+          return;
+        }
+        recordFallback("session_hints_failed");
+      });
     }
 
     const response: FeedBootstrapResponse = {
@@ -105,6 +116,11 @@ export class FeedBootstrapOrchestrator {
             author: item.author,
             activities: item.activities,
             address: item.address,
+            carouselFitWidth: item.carouselFitWidth,
+            layoutLetterbox: item.layoutLetterbox,
+            letterboxGradientTop: item.letterboxGradientTop,
+            letterboxGradientBottom: item.letterboxGradientBottom,
+            letterboxGradients: item.letterboxGradients,
             geo: item.geo,
             assets: item.assets,
             title: item.title,
@@ -113,6 +129,7 @@ export class FeedBootstrapOrchestrator {
             media: item.media,
             social: item.social,
             viewer: item.viewer,
+            createdAtMs: item.createdAtMs,
             updatedAtMs: item.updatedAtMs
           }))
         }

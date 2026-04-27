@@ -56,7 +56,7 @@ type SearchablePost = {
   commentCount: number;
 };
 
-const MAX_PER_QUERY = 12;
+const MAX_PER_QUERY = 8;
 const POST_SELECT_FIELDS = [
   "userId",
   "userHandle",
@@ -130,7 +130,7 @@ export class SearchResultsFirestoreAdapter {
       }
     };
 
-    const perQueryLimit = Math.min(MAX_PER_QUERY, Math.max(6, safeLimit));
+    const perQueryLimit = Math.min(MAX_PER_QUERY, Math.max(4, safeLimit));
     const activityTerms = intent.activity?.queryActivities.slice(0, 1) ?? [];
     const fetches: Array<Promise<QueryDocumentSnapshot[]>> = [];
     const shouldRunRecentQuery =
@@ -192,7 +192,7 @@ export class SearchResultsFirestoreAdapter {
             .collection("posts")
             .orderBy("time", "desc")
             .select(...POST_SELECT_FIELDS)
-            .limit(intent.nearMe ? Math.max(24, safeLimit * 3) : Math.max(12, safeLimit + 2))
+            .limit(intent.nearMe ? Math.max(14, safeLimit * 2) : Math.max(8, safeLimit + 1))
             .get()
             .then((snap) => snap.docs),
           SearchResultsFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
@@ -215,7 +215,7 @@ export class SearchResultsFirestoreAdapter {
             .collection("posts")
             .orderBy("time", "desc")
             .select(...POST_SELECT_FIELDS)
-            .limit(Math.max(18, safeLimit * 3))
+            .limit(Math.max(10, safeLimit * 2))
             .get()
             .then((snap) => snap.docs),
           SearchResultsFirestoreAdapter.FIRESTORE_TIMEOUT_MS,

@@ -1,4 +1,4 @@
-import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { FieldPath, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { globalCache } from "../../cache/global-cache.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { logFirestoreDebug } from "./firestore-debug.js";
@@ -44,8 +44,14 @@ export type FirestoreFeedCandidate = {
     aspectRatio: number | null;
     orientation: string | null;
   }>;
+  carouselFitWidth?: boolean;
+  layoutLetterbox?: boolean;
+  letterboxGradientTop?: string | null;
+  letterboxGradientBottom?: string | null;
+  letterboxGradients?: Array<{ top: string; bottom: string }> | null;
   likeCount: number;
   commentCount: number;
+  likedByUserIds: string[];
 };
 
 export type FirestoreFeedCandidatesPage = {
@@ -58,11 +64,61 @@ export type FirestoreFeedCandidatesPage = {
 
 type FeedTabMode = "explore" | "following";
 
+const FEED_CANDIDATE_SELECT_FIELDS = [
+  "feedSlot",
+  "time",
+  "createdAtMs",
+  "updatedAtMs",
+  "lastUpdated",
+  "lat",
+  "lng",
+  "latitude",
+  "longitude",
+  "userId",
+  "mediaType",
+  "thumbUrl",
+  "displayPhotoLink",
+  "title",
+  "content",
+  "caption",
+  "text",
+  "description",
+  "tags",
+  "userHandle",
+  "userName",
+  "userPic",
+  "activities",
+  "address",
+  "long",
+  "geoData",
+  "likesCount",
+  "likes",
+  "commentsCount",
+  "likeCount",
+  "commentCount",
+  "assets",
+  "carouselFitWidth",
+  "layoutLetterbox",
+  "letterboxGradientTop",
+  "letterboxGradientBottom",
+  "letterboxGradients",
+  "letterbox_gradient_top",
+  "letterbox_gradient_bottom",
+  "deleted",
+  "isDeleted",
+  "archived",
+  "hidden",
+  "privacy"
+] as const;
+
 export class FeedFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
   private static readonly MAX_SCAN_LIMIT = 320;
   private static readonly QUERY_CHUNK_LIMIT = 80;
   private static readonly PAGE_BUFFER = 24;
+  private static readonly FIRST_PAGE_BUFFER = 8;
+  private static readonly FIRST_PAGE_SCAN_FLOOR = 14;
+  private static readonly FILTERED_SCAN_FLOOR = 24;
   private static readonly FIRESTORE_TIMEOUT_MS = 1500;
 
   isEnabled(): boolean {
@@ -95,9 +151,26 @@ export class FeedFirestoreAdapter {
         readCount: 0
       };
     }
+    const radiusActive =
+      typeof lat === "number" &&
+      Number.isFinite(lat) &&
+      typeof lng === "number" &&
+      Number.isFinite(lng) &&
+      typeof radiusKm === "number" &&
+      Number.isFinite(radiusKm) &&
+      radiusKm > 0 &&
+      radiusKm < Infinity;
+    const pageBuffer = cursorOffset === 0 ? FeedFirestoreAdapter.FIRST_PAGE_BUFFER : FeedFirestoreAdapter.PAGE_BUFFER;
+    const scanFloor =
+      tab === "following" || radiusActive
+        ? FeedFirestoreAdapter.FILTERED_SCAN_FLOOR
+        : cursorOffset === 0
+          ? FeedFirestoreAdapter.FIRST_PAGE_SCAN_FLOOR
+          : FeedFirestoreAdapter.FILTERED_SCAN_FLOOR;
+    const perPageMultiplier = cursorOffset === 0 ? 3 : 6;
     const scanLimit = Math.min(
       FeedFirestoreAdapter.MAX_SCAN_LIMIT,
-      Math.max(requiredCandidateCount + FeedFirestoreAdapter.PAGE_BUFFER, limit * 6, 48)
+      Math.max(requiredCandidateCount + pageBuffer, limit * perPageMultiplier, scanFloor)
     );
     const startedAt = Date.now();
     logFirestoreDebug("feed_candidates_firestore_start", {
@@ -123,44 +196,7 @@ export class FeedFirestoreAdapter {
         let queryRef = this.db
           .collection("posts")
           .orderBy("time", "desc")
-          .select(
-            "feedSlot",
-            "time",
-            "createdAtMs",
-            "updatedAtMs",
-            "lastUpdated",
-            "lat",
-            "lng",
-            "latitude",
-            "longitude",
-            "userId",
-            "mediaType",
-            "thumbUrl",
-            "displayPhotoLink",
-            "title",
-            "content",
-            "caption",
-            "text",
-            "description",
-            "tags",
-            "userHandle",
-            "userName",
-            "userPic",
-            "activities",
-            "address",
-            "long",
-            "geoData",
-            "likesCount",
-            "commentsCount",
-            "likeCount",
-            "commentCount",
-            "assets",
-            "deleted",
-            "isDeleted",
-            "archived",
-            "hidden",
-            "privacy"
-          )
+          .select(...FEED_CANDIDATE_SELECT_FIELDS)
           .limit(chunkLimit);
         if (lastDoc) {
           queryRef = queryRef.startAfter(lastDoc);
@@ -195,15 +231,6 @@ export class FeedFirestoreAdapter {
                 const authorId = String(data.userId ?? "");
                 if (!authorId || !followingIds?.has(authorId)) return false;
               }
-              const radiusActive =
-                typeof lat === "number" &&
-                Number.isFinite(lat) &&
-                typeof lng === "number" &&
-                Number.isFinite(lng) &&
-                typeof radiusKm === "number" &&
-                Number.isFinite(radiusKm) &&
-                radiusKm > 0 &&
-                radiusKm < Infinity;
               if (!radiusActive) return true;
               const postLat = normalizeGeo(data.lat ?? data.latitude);
               const postLng = normalizeGeo(data.lng ?? data.longitude);
@@ -243,7 +270,7 @@ export class FeedFirestoreAdapter {
       tab === "explore"
         ? rotateDeterministically(rankedBase, `${viewerId}:${new Date().toISOString().slice(0, 10)}`)
         : rankedBase;
-    await globalCache.set(cacheKey, { ranked, sourceExhausted }, 6_000);
+    void globalCache.set(cacheKey, { ranked, sourceExhausted }, 6_000).catch(() => undefined);
     if (cursorOffset >= ranked.length) {
       return {
         items: [],
@@ -271,6 +298,55 @@ export class FeedFirestoreAdapter {
       "feed-firestore-following-query"
     );
     return new Set(snap.docs.map((doc) => doc.id).filter(Boolean));
+  }
+
+  async getCandidatesByPostIds(postIds: string[]): Promise<{ items: FirestoreFeedCandidate[]; queryCount: number; readCount: number }> {
+    if (!this.db) {
+      throw new Error("firestore_source_unavailable");
+    }
+    const uniqueIds = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
+    if (uniqueIds.length === 0) {
+      return { items: [], queryCount: 0, readCount: 0 };
+    }
+    const chunks: string[][] = [];
+    for (let i = 0; i < uniqueIds.length; i += 10) {
+      chunks.push(uniqueIds.slice(i, i + 10));
+    }
+    let queryCount = 0;
+    let readCount = 0;
+    const items: FirestoreFeedCandidate[] = [];
+    for (const chunk of chunks) {
+      const snapshot = await withTimeout(
+        this.db
+          .collection("posts")
+          .where(FieldPath.documentId(), "in", chunk)
+          .select(...FEED_CANDIDATE_SELECT_FIELDS)
+          .get(),
+        FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+        "feed-firestore-candidates-by-id"
+      );
+      queryCount += 1;
+      readCount += snapshot.docs.length;
+      items.push(
+        ...snapshot.docs
+          .filter((doc) => {
+            const data = doc.data() as Record<string, unknown>;
+            if (Boolean(data.deleted) || Boolean(data.isDeleted) || Boolean(data.archived) || Boolean(data.hidden)) return false;
+            const privacy = typeof data.privacy === "string" ? data.privacy.toLowerCase() : "public";
+            if (privacy === "private") return false;
+            const thumb =
+              typeof data.displayPhotoLink === "string" && data.displayPhotoLink.trim()
+                ? data.displayPhotoLink
+                : typeof data.thumbUrl === "string" && data.thumbUrl.trim()
+                  ? data.thumbUrl
+                  : null;
+            const hasAssets = Array.isArray(data.assets) && data.assets.length > 0;
+            return Boolean(thumb || hasAssets);
+          })
+          .map(mapDocToCandidate)
+      );
+    }
+    return { items, queryCount, readCount };
   }
 }
 
@@ -324,6 +400,7 @@ function mapDocToCandidate(doc: QueryDocumentSnapshot): FirestoreFeedCandidate {
     : [];
   const tags = Array.isArray(data.tags) ? data.tags.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
   const geoData = (data.geoData ?? {}) as Record<string, unknown>;
+  const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(data);
   return {
     postId: doc.id,
     authorId,
@@ -351,8 +428,59 @@ function mapDocToCandidate(doc: QueryDocumentSnapshot): FirestoreFeedCandidate {
       geohash: normalizeText(geoData.geohash)
     },
     assets: normalizeAssetsForCard(data.assets),
+    carouselFitWidth: typeof data.carouselFitWidth === "boolean" ? data.carouselFitWidth : undefined,
+    layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
+    letterboxGradientTop,
+    letterboxGradientBottom,
+    letterboxGradients,
     likeCount: normalizeCount(data.likesCount ?? data.likeCount),
-    commentCount: normalizeCount(data.commentsCount ?? data.commentCount)
+    commentCount: normalizeCount(data.commentsCount ?? data.commentCount),
+    likedByUserIds: normalizeIdArray(data.likes)
+  };
+}
+
+function normalizeLetterboxHints(data: Record<string, unknown>): {
+  letterboxGradientTop: string | null | undefined;
+  letterboxGradientBottom: string | null | undefined;
+  letterboxGradients: Array<{ top: string; bottom: string }> | null | undefined;
+} {
+  const topRaw =
+    typeof data.letterboxGradientTop === "string"
+      ? data.letterboxGradientTop
+      : typeof data.letterbox_gradient_top === "string"
+        ? data.letterbox_gradient_top
+        : null;
+  const bottomRaw =
+    typeof data.letterboxGradientBottom === "string"
+      ? data.letterboxGradientBottom
+      : typeof data.letterbox_gradient_bottom === "string"
+        ? data.letterbox_gradient_bottom
+        : null;
+  const top = topRaw?.trim() ? topRaw.trim() : null;
+  const bottom = bottomRaw?.trim() ? bottomRaw.trim() : null;
+
+  const gradientsRaw = data.letterboxGradients;
+  if (!Array.isArray(gradientsRaw)) {
+    return {
+      letterboxGradientTop: top ?? undefined,
+      letterboxGradientBottom: bottom ?? undefined,
+      letterboxGradients: undefined
+    };
+  }
+  const out: Array<{ top: string; bottom: string }> = [];
+  for (const entry of gradientsRaw) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as { top?: unknown; bottom?: unknown };
+    if (typeof e.top !== "string" || typeof e.bottom !== "string") continue;
+    const t = e.top.trim();
+    const b = e.bottom.trim();
+    if (!t || !b) continue;
+    out.push({ top: t, bottom: b });
+  }
+  return {
+    letterboxGradientTop: top ?? undefined,
+    letterboxGradientBottom: bottom ?? undefined,
+    letterboxGradients: out.length > 0 ? out : undefined
   };
 }
 
@@ -410,6 +538,19 @@ function normalizeCount(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.floor(n);
+}
+
+function normalizeIdArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (typeof entry === "string") return entry.trim();
+      if (entry && typeof entry === "object" && typeof (entry as { userId?: unknown }).userId === "string") {
+        return String((entry as { userId: string }).userId).trim();
+      }
+      return "";
+    })
+    .filter(Boolean);
 }
 
 function normalizeText(value: unknown): string | null {

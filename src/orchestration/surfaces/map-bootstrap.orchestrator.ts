@@ -19,6 +19,7 @@ export class MapBootstrapOrchestrator {
 
     const bounds = this.service.parseBounds(input.bbox);
     const requestKey = `${input.viewerId}:${input.bbox}:${input.limit}`;
+    const page = await this.service.loadBootstrap({ bbox: input.bbox, limit: input.limit });
     const response: MapBootstrapResponse = {
       routeName: "map.bootstrap.get",
       requestKey,
@@ -27,12 +28,12 @@ export class MapBootstrapOrchestrator {
         limit: input.limit
       },
       page: {
-        count: 0,
-        hasMore: false,
-        nextCursor: null,
+        count: page.markers.length,
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
         sort: "ts_desc"
       },
-      markers: [],
+      markers: page.markers,
       degraded: false,
       fallbacks: []
     };

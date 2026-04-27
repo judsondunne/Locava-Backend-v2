@@ -1,5 +1,6 @@
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { withMutationLock } from "../../lib/mutation-lock.js";
 import type { NotificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
@@ -11,7 +12,7 @@ export class NotificationsService {
     const cursorPart = input.cursor ?? "start";
     return dedupeInFlight(`notifications:list:${input.viewerId}:${cursorPart}:${input.limit}`, () =>
       withConcurrencyLimit("notifications-list-repo", 10, async () => {
-        // Repository already hydrates actors via batched user reads.
+        // Repository serves denormalized actor/target fields from the notification row itself.
         return this.repository.listNotifications(input);
       })
     );
@@ -44,7 +45,7 @@ export class NotificationsService {
     metadata?: Record<string, unknown>;
   }): void {
     // Keep mutation request paths non-blocking; creation runs asynchronously outside request context.
-    setTimeout(() => {
+    scheduleBackgroundWork(async () => {
       void withConcurrencyLimit("notifications-create-hook", 12, async () => {
         const result = await this.repository.createFromMutation(input);
         if (result.created && result.viewerId) {
@@ -54,6 +55,6 @@ export class NotificationsService {
           });
         }
       }).catch(() => undefined);
-    }, 0);
+    });
   }
 }

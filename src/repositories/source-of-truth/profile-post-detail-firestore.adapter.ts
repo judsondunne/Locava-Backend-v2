@@ -11,6 +11,11 @@ export type FirestoreProfilePostDetail = {
   userId: string;
   caption?: string;
   createdAtMs: number;
+  carouselFitWidth?: boolean;
+  layoutLetterbox?: boolean;
+  letterboxGradientTop?: string;
+  letterboxGradientBottom?: string;
+  letterboxGradients?: Array<{ top: string; bottom: string }>;
   mediaType: "image" | "video";
   thumbUrl: string;
   assets: Array<{
@@ -137,6 +142,13 @@ function mapProfilePostDetail(input: {
     likesCount?: number;
     commentCount?: number;
     likes?: unknown;
+    carouselFitWidth?: unknown;
+    layoutLetterbox?: unknown;
+    letterboxGradientTop?: unknown;
+    letterboxGradientBottom?: unknown;
+    letterbox_gradient_top?: unknown;
+    letterbox_gradient_bottom?: unknown;
+    letterboxGradients?: unknown;
   };
   if (postData.userId !== input.userId) {
     throw new Error("post_not_found_for_profile");
@@ -164,11 +176,17 @@ function mapProfilePostDetail(input: {
     (value) => value === input.viewerId || (typeof value === "object" && value && "userId" in value && (value as { userId?: string }).userId === input.viewerId)
   );
 
+  const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(postData);
   return {
     postId: input.postDoc.id,
     userId: input.userId,
     caption,
     createdAtMs: normalizePostCreatedMs(raw),
+    carouselFitWidth: typeof postData.carouselFitWidth === "boolean" ? postData.carouselFitWidth : undefined,
+    layoutLetterbox: typeof postData.layoutLetterbox === "boolean" ? postData.layoutLetterbox : undefined,
+    ...(typeof letterboxGradientTop === "string" ? { letterboxGradientTop } : {}),
+    ...(typeof letterboxGradientBottom === "string" ? { letterboxGradientBottom } : {}),
+    ...(letterboxGradients ? { letterboxGradients } : {}),
     mediaType,
     thumbUrl: readPostThumbUrl(raw, input.postDoc.id),
     assets: Array.isArray(postData.assets) && postData.assets.length > 0 ? postData.assets : defaultAssets(input.postDoc.id, mediaType),
@@ -183,6 +201,52 @@ function mapProfilePostDetail(input: {
       commentCount: normalizeCounter(postData.commentCount),
       viewerHasLiked: (input.likedDoc.exists || likedViaArray) && input.viewerId.length > 0
     }
+  };
+}
+
+function normalizeLetterboxHints(data: {
+  letterboxGradientTop?: unknown;
+  letterboxGradientBottom?: unknown;
+  letterbox_gradient_top?: unknown;
+  letterbox_gradient_bottom?: unknown;
+  letterboxGradients?: unknown;
+}): {
+  letterboxGradientTop: string | undefined;
+  letterboxGradientBottom: string | undefined;
+  letterboxGradients: Array<{ top: string; bottom: string }> | undefined;
+} {
+  const topRaw =
+    typeof data.letterboxGradientTop === "string"
+      ? data.letterboxGradientTop
+      : typeof data.letterbox_gradient_top === "string"
+        ? data.letterbox_gradient_top
+        : "";
+  const bottomRaw =
+    typeof data.letterboxGradientBottom === "string"
+      ? data.letterboxGradientBottom
+      : typeof data.letterbox_gradient_bottom === "string"
+        ? data.letterbox_gradient_bottom
+        : "";
+  const top = topRaw.trim();
+  const bottom = bottomRaw.trim();
+
+  if (!Array.isArray(data.letterboxGradients)) {
+    return { letterboxGradientTop: top || undefined, letterboxGradientBottom: bottom || undefined, letterboxGradients: undefined };
+  }
+  const out: Array<{ top: string; bottom: string }> = [];
+  for (const entry of data.letterboxGradients) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as { top?: unknown; bottom?: unknown };
+    if (typeof e.top !== "string" || typeof e.bottom !== "string") continue;
+    const t = e.top.trim();
+    const b = e.bottom.trim();
+    if (!t || !b) continue;
+    out.push({ top: t, bottom: b });
+  }
+  return {
+    letterboxGradientTop: top || undefined,
+    letterboxGradientBottom: bottom || undefined,
+    letterboxGradients: out.length > 0 ? out : undefined
   };
 }
 

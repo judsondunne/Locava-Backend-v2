@@ -34,8 +34,8 @@ export class NotificationsListOrchestrator {
       unread: {
         count: page.unreadCount
       },
-      degraded: false,
-      fallbacks: []
+      degraded: page.degraded,
+      fallbacks: page.fallbacks
     };
     // Session bootstrap prewarms the first notifications page; keep it warm long enough for the
     // user to actually open the screen, while mutations still invalidate this tag precisely.

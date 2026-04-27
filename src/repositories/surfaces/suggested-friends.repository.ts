@@ -82,16 +82,21 @@ export function buildSuggestedFriendsCacheKey(viewerId: string, surface: string,
 export class SuggestedFriendsRepository {
   constructor(private readonly db = getFirestoreSourceClient()) {}
 
-  async loadViewerGraph(viewerId: string): Promise<ViewerGraph> {
+  async loadViewerGraph(viewerId: string, options: { allowFirestore?: boolean } = {}): Promise<ViewerGraph> {
+    const allowFirestore = options.allowFirestore ?? true;
     if (!this.db) {
       return { following: new Set(), blocked: new Set(), contactUsers: [], contactUserSummaries: [], phoneContacts: [] };
     }
     let data = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
-    if (data === undefined) {
+    if (data === undefined && allowFirestore) {
       const doc = await this.db.collection("users").doc(viewerId).get();
+      incrementDbOps("queries", 1);
       incrementDbOps("reads", doc.exists ? 1 : 0);
       data = (doc.data() ?? {}) as Record<string, unknown>;
       await globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 25_000);
+    }
+    if (data === undefined) {
+      return { following: new Set(), blocked: new Set(), contactUsers: [], contactUserSummaries: [], phoneContacts: [] };
     }
     const following = new Set<string>(Array.isArray(data.following) ? data.following.filter((v): v is string => typeof v === "string") : []);
     const blocked = new Set<string>(Array.isArray(data.blockedUsers) ? data.blockedUsers.filter((v): v is string => typeof v === "string") : []);
@@ -231,7 +236,7 @@ export class SuggestedFriendsRepository {
     const includeNearby = options.includeNearby ?? (surface === "onboarding");
     const excludeFollowing = options.excludeAlreadyFollowing ?? true;
     const excludeBlocked = options.excludeBlocked ?? true;
-    const viewer = await this.loadViewerGraph(viewerId);
+    const viewer = await this.loadViewerGraph(viewerId, { allowFirestore: false });
 
     const out = new Map<string, UserSuggestionSummary>();
     const add = (items: UserSuggestionSummary[]) => {
@@ -271,11 +276,12 @@ export class SuggestedFriendsRepository {
         .filter((doc) => doc.exists)
         .map((doc) => toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "contacts", viewer.following.has(doc.id), 1200));
       add(contactSummaries);
-      void this.db!
-        .collection("users")
-        .doc(viewerId)
-        .set(
+      void (async () => {
+        const cachedUserDoc = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId))) ?? {};
+        await globalCache.set(
+          entityCacheKeys.userFirestoreDoc(viewerId),
           {
+            ...cachedUserDoc,
             addressBookUserSummaries: contactSummaries.map((user) => ({
               userId: user.userId,
               handle: user.handle,
@@ -283,25 +289,9 @@ export class SuggestedFriendsRepository {
               profilePic: user.profilePic
             }))
           },
-          { merge: true }
-        )
-        .then(async () => {
-          const cachedUserDoc = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId))) ?? {};
-          await globalCache.set(
-            entityCacheKeys.userFirestoreDoc(viewerId),
-            {
-              ...cachedUserDoc,
-              addressBookUserSummaries: contactSummaries.map((user) => ({
-                userId: user.userId,
-                handle: user.handle,
-                name: user.name,
-                profilePic: user.profilePic
-              }))
-            },
-            25_000
-          );
-        })
-        .catch(() => undefined);
+          25_000
+        );
+      })().catch(() => undefined);
     }
 
     if (mutualSnaps) {
@@ -364,6 +354,24 @@ export class SuggestedFriendsRepository {
         nearbySnap.docs.map((doc) =>
           toSummary(doc.id, doc.data() as Record<string, unknown>, "nearby", viewer.following.has(doc.id), 600)
         )
+      );
+    }
+
+    const needOnboardingSeed = this.db && surface === "onboarding" && out.size === 0;
+    if (needOnboardingSeed) {
+      const seedSnap = await this.db
+        .collection("users")
+        .orderBy("postCount", "desc")
+        .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers")
+        .limit(Math.min(Math.max(safeLimit, 4), 8))
+        .get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", seedSnap.size);
+      add(
+        seedSnap.docs.map((doc) => ({
+          ...toSummary(doc.id, doc.data() as Record<string, unknown>, "new_user_seed", viewer.following.has(doc.id), 700),
+          reason: "new_user_seed" as const
+        }))
       );
     }
 

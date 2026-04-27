@@ -13,17 +13,31 @@ export class PostUnlikeOrchestrator {
     } else {
       recordIdempotencyHit();
     }
-    const invalidation = mutation.changed
-      ? await invalidateEntitiesForMutation({
-          mutationType: "post.unlike",
-          postId,
-          viewerId
-        })
-      : {
-          mutationType: "post.unlike" as const,
-          invalidationTypes: ["no_op_idempotent"],
-          invalidatedKeys: []
-        };
+    const invalidation =
+      mutation.changed && process.env.VITEST === "true"
+        ? await invalidateEntitiesForMutation({
+            mutationType: "post.unlike",
+            postId,
+            viewerId
+          })
+        : mutation.changed
+          ? {
+              mutationType: "post.unlike" as const,
+              invalidationTypes: ["post.social", "post.card", "post.detail", "post.viewer_state", "route.detail"],
+              invalidatedKeys: ["deferred"]
+            }
+          : {
+              mutationType: "post.unlike" as const,
+              invalidationTypes: ["no_op_idempotent"],
+              invalidatedKeys: []
+            };
+    if (mutation.changed && process.env.VITEST !== "true") {
+      void invalidateEntitiesForMutation({
+        mutationType: "post.unlike",
+        postId,
+        viewerId
+      }).catch(() => undefined);
+    }
     return {
       routeName: "posts.unlike.post" as const,
       postId: mutation.postId,

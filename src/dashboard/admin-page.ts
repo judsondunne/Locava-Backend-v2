@@ -20,6 +20,7 @@ export function renderAdminPage(): string {
   <body>
     <h1>Locava Backend V2 Diagnostics</h1>
     <p>Internal dashboard for route visibility, diagnostics, and curl-equivalent test triggering.</p>
+    <p><a href="/admin/search-autofill-lab" style="color:#93c5fd; text-decoration:none;">Search autofill lab</a></p>
 
     <div class="grid">
       <section class="panel">

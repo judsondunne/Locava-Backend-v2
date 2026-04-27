@@ -8,9 +8,11 @@ import {
   collectionsListContract
 } from "../../contracts/surfaces/collections-list.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { failure, success } from "../../lib/response.js";
-import { recordInvalidation, setRouteName } from "../../observability/request-context.js";
+import { incrementDbOps, recordInvalidation, setRouteName } from "../../observability/request-context.js";
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
+import { FeedFirestoreAdapter, type FirestoreFeedCandidate } from "../../repositories/source-of-truth/feed-firestore.adapter.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
 
@@ -41,11 +43,14 @@ const SaveSheetQuerySchema = z.object({ postId: z.string().trim().min(1) });
 
 const collectionsAdapter = new CollectionsFirestoreAdapter();
 const feedService = new FeedService(new FeedRepository());
+const feedFirestoreAdapter = new FeedFirestoreAdapter();
 
 function queueEntityInvalidation(invalidationType: string, keys: string[]): { invalidatedKeysCount: number; invalidationTypes: string[] } {
   const uniqueKeys = [...new Set(keys.filter(Boolean))];
   recordInvalidation(invalidationType, { entityKeyCount: uniqueKeys.length });
-  void deleteEntityCacheKeys(uniqueKeys).catch(() => undefined);
+  scheduleBackgroundWork(async () => {
+    await deleteEntityCacheKeys(uniqueKeys);
+  });
   return {
     invalidatedKeysCount: uniqueKeys.length,
     invalidationTypes: uniqueKeys.length > 0 ? [invalidationType] : ["no_op_idempotent"]
@@ -54,11 +59,7 @@ function queueEntityInvalidation(invalidationType: string, keys: string[]): { in
 
 async function invalidateSavedRouteCache(viewerId: string): Promise<string[]> {
   const tags = [`route:collections.saved:${viewerId}`];
-  if (process.env.VITEST === "true") {
-    return invalidateRouteCacheByTags(tags);
-  }
-  void invalidateRouteCacheByTags(tags).catch(() => undefined);
-  return [];
+  return invalidateRouteCacheByTags(tags, { deferIndexCleanup: true });
 }
 
 function encodeCollectionsCursor(offset: number): string {
@@ -76,10 +77,23 @@ function decodeCollectionsCursor(cursor?: string): number {
 
 async function hydratePostCards(viewerId: string, postIds: string[]) {
   const ordered = postIds.map((id) => id.trim()).filter(Boolean);
-  const cards = await feedService.loadPostCardSummaryBatch(viewerId, ordered);
-  const byId = new Map(cards.map((row) => [row.postId, row] as const));
+  const unique = [...new Set(ordered)];
+  let directById = new Map<string, ReturnType<typeof projectCollectionCard>>();
+  if (feedFirestoreAdapter.isEnabled() && unique.length > 0) {
+    try {
+      const direct = await feedFirestoreAdapter.getCandidatesByPostIds(unique);
+      incrementDbOps("queries", direct.queryCount);
+      incrementDbOps("reads", direct.readCount);
+      directById = new Map(direct.items.map((row) => [row.postId, projectCollectionCard(row, viewerId)] as const));
+    } catch {
+      directById = new Map();
+    }
+  }
+  const missing = unique.filter((postId) => !directById.has(postId));
+  const fallbackCards = missing.length > 0 ? await feedService.loadPostCardSummaryBatch(viewerId, missing) : [];
+  const fallbackById = new Map(fallbackCards.map((row) => [row.postId, projectCollectionFallbackCard(row)] as const));
   return ordered
-    .map((postId) => byId.get(postId))
+    .map((postId) => directById.get(postId) ?? fallbackById.get(postId))
     .filter((row): row is NonNullable<typeof row> => Boolean(row))
     .map((row) => ({
       ...row,
@@ -89,6 +103,70 @@ async function hydratePostCards(viewerId: string, postIds: string[]) {
         saved: true
       }
     }));
+}
+
+function projectCollectionCard(row: FirestoreFeedCandidate, viewerId: string) {
+  return {
+    postId: row.postId,
+    rankToken: `collection-rank-${row.postId}`,
+    author: {
+      userId: row.authorId,
+      handle: row.authorHandle ?? (row.authorId ? row.authorId.replace(/^@+/, "") : "unknown"),
+      name: row.authorName,
+      pic: row.authorPic
+    },
+    activities: row.activities,
+    address: row.address,
+    geo: row.geo,
+    title: row.title,
+    captionPreview: row.captionPreview,
+    firstAssetUrl: row.firstAssetUrl,
+    media: {
+      type: row.mediaType,
+      posterUrl: row.posterUrl,
+      aspectRatio: row.assets[0]?.aspectRatio ?? 9 / 16,
+      startupHint: row.mediaType === "video" ? ("poster_then_preview" as const) : ("poster_only" as const)
+    },
+    social: {
+      likeCount: row.likeCount,
+      commentCount: row.commentCount
+    },
+    viewer: {
+      liked: row.likedByUserIds.includes(viewerId),
+      saved: true
+    },
+    updatedAtMs: row.updatedAtMs
+  };
+}
+
+function projectCollectionFallbackCard(
+  row: Awaited<ReturnType<FeedService["loadPostCardSummaryBatch"]>>[number]
+) {
+  return {
+    postId: row.postId,
+    rankToken: `collection-rank-${row.postId}`,
+    author: row.author,
+    activities: row.activities,
+    address: row.address,
+    geo: row.geo,
+    title: row.title,
+    captionPreview: row.captionPreview,
+    firstAssetUrl: row.firstAssetUrl,
+    media: row.media,
+    social: row.social,
+    viewer: row.viewer,
+    updatedAtMs: row.updatedAtMs
+  };
+}
+
+function toCollectionListItem(
+  collection: Awaited<ReturnType<typeof collectionsAdapter.listViewerCollections>>[number]
+) {
+  return {
+    ...collection,
+    items: [],
+    collaboratorInfo: undefined
+  };
 }
 
 export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise<void> {
@@ -124,7 +202,7 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
         hasMore,
         nextCursor
       },
-      items
+      items: items.map(toCollectionListItem)
     });
   });
 
@@ -211,7 +289,6 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
       coverUri: body.coverUri,
       color: body.color,
     });
-    void deleteEntityCacheKeys([`collection:${created.id}`, `collections:list:${viewer.viewerId}`]).catch(() => undefined);
     return success({
       routeName: "collections.create.post" as const,
       collectionId: created.id,
@@ -238,7 +315,6 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
     if (!updated.collection) {
       return reply.status(404).send(failure("collection_not_found", "Collection not found"));
     }
-    void deleteEntityCacheKeys([`collection:${params.collectionId}`, `collections:list:${viewer.viewerId}`]).catch(() => undefined);
     return success({
       routeName: "collections.update.post" as const,
       collectionId: params.collectionId,
@@ -264,7 +340,6 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
     if (!deleted.changed) {
       return reply.status(404).send(failure("collection_not_found", "Collection not found"));
     }
-    void deleteEntityCacheKeys([`collection:${params.collectionId}`, `collections:list:${viewer.viewerId}`]).catch(() => undefined);
     return success({
       routeName: "collections.delete.post" as const,
       collectionId: params.collectionId,
@@ -289,10 +364,7 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
       postId: body.postId,
     });
     const invalidation = queueEntityInvalidation("collection.posts.add", [
-      `collection:${params.collectionId}`,
-      `collection:${params.collectionId}:posts`,
       entityCacheKeys.viewerPostState(viewer.viewerId, body.postId),
-      `collections:list:${viewer.viewerId}`,
     ]);
     return success({
       routeName: "collections.posts.add.post" as const,
@@ -324,10 +396,7 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
       postId: params.postId,
     });
     const invalidation = queueEntityInvalidation("collection.posts.remove", [
-      `collection:${params.collectionId}`,
-      `collection:${params.collectionId}:posts`,
       entityCacheKeys.viewerPostState(viewer.viewerId, params.postId),
-      `collections:list:${viewer.viewerId}`,
     ]);
     return success({
       routeName: "collections.posts.remove.delete" as const,
@@ -375,10 +444,7 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
     const routeKeys = res.changed ? await invalidateSavedRouteCache(viewer.viewerId) : [];
     const invalidation = res.changed
       ? queueEntityInvalidation("post.save", [
-          `collection:${res.collectionId}`,
-          `collection:${res.collectionId}:posts`,
           entityCacheKeys.viewerPostState(viewer.viewerId, params.postId),
-          `collections:list:${viewer.viewerId}`,
         ])
       : { invalidatedKeysCount: 0, invalidationTypes: ["no_op_idempotent"] };
     if (routeKeys.length > 0) {
@@ -411,10 +477,7 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
     const routeKeys = res.changed ? await invalidateSavedRouteCache(viewer.viewerId) : [];
     const invalidation = res.changed
       ? queueEntityInvalidation("post.unsave", [
-          `collection:${res.collectionId}`,
-          `collection:${res.collectionId}:posts`,
           entityCacheKeys.viewerPostState(viewer.viewerId, params.postId),
-          `collections:list:${viewer.viewerId}`,
         ])
       : { invalidatedKeysCount: 0, invalidationTypes: ["no_op_idempotent"] };
     if (routeKeys.length > 0) {
@@ -455,7 +518,12 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
       saved: saveState.saved,
       collectionIds: saveState.collectionIds,
       items: collections.map((row) => ({
-        ...row,
+        id: row.id,
+        ownerId: row.ownerId,
+        name: row.name,
+        privacy: row.privacy,
+        coverUri: row.coverUri,
+        itemsCount: row.itemsCount,
         containsPost: selected.has(row.id),
       })),
     });

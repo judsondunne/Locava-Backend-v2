@@ -44,7 +44,7 @@ export class ProfileGridOrchestrator {
       fallbacks
     };
 
-    await globalCache.set(pageCacheKey, response, 10_000);
+    void globalCache.set(pageCacheKey, response, 10_000).catch(() => undefined);
     return response;
   }
 }

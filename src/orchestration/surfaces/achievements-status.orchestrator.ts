@@ -19,7 +19,7 @@ export class AchievementsStatusOrchestrator {
     }
     const bootstrapCacheKey = buildCacheKey("bootstrap", ["achievements-bootstrap-v1", input.viewerId]);
     const cachedBootstrap = await globalCache.get<AchievementsBootstrapResponse>(bootstrapCacheKey);
-    if (cachedBootstrap && !cachedBootstrap.degraded) {
+    if (cachedBootstrap) {
       recordCacheHit();
       const response: AchievementsStatusResponse = {
         routeName: "achievements.status.get",
@@ -27,7 +27,7 @@ export class AchievementsStatusOrchestrator {
         degraded: cachedBootstrap.degraded,
         fallbacks: cachedBootstrap.fallbacks
       };
-      await globalCache.set(cacheKey, response, 8_000);
+      void globalCache.set(cacheKey, response, 8_000);
       return response;
     }
 
@@ -41,12 +41,12 @@ export class AchievementsStatusOrchestrator {
         degraded: cachedSnapshot.degraded,
         fallbacks: cachedSnapshot.fallbacks
       };
-      await globalCache.set(cacheKey, response, 8_000);
+      void globalCache.set(cacheKey, response, 8_000);
       return response;
     }
     const snapshotShellCacheKey = buildCacheKey("bootstrap", ["achievements-snapshot-shell-v1", input.viewerId]);
     const cachedSnapshotShell = await globalCache.get<AchievementsSnapshotResponse>(snapshotShellCacheKey);
-    if (cachedSnapshotShell && !cachedSnapshotShell.degraded) {
+    if (cachedSnapshotShell) {
       recordCacheHit();
       const response: AchievementsStatusResponse = {
         routeName: "achievements.status.get",
@@ -54,19 +54,19 @@ export class AchievementsStatusOrchestrator {
         degraded: cachedSnapshotShell.degraded,
         fallbacks: cachedSnapshotShell.fallbacks
       };
-      await globalCache.set(cacheKey, response, 8_000);
+      void globalCache.set(cacheKey, response, 8_000);
       return response;
     }
 
     recordCacheMiss();
-    const status = await this.service.loadStatusSurface(input.viewerId);
+    const bootstrapShell = await this.service.loadBootstrapShell(input.viewerId);
     const response: AchievementsStatusResponse = {
       routeName: "achievements.status.get",
-      status,
-      degraded: false,
-      fallbacks: []
+      status: projectCanonicalStatusFromSnapshot(bootstrapShell.snapshot),
+      degraded: bootstrapShell.degraded,
+      fallbacks: bootstrapShell.fallbacks
     };
-    await globalCache.set(cacheKey, response, 8_000);
+    void globalCache.set(cacheKey, response, 8_000);
     return response;
   }
 }

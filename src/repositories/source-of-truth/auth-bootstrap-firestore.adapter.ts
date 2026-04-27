@@ -8,14 +8,20 @@ export type AuthBootstrapUserFields = {
   unreadCount: number;
 };
 
+type AuthBootstrapViewerSummary = {
+  handle: string;
+  name: string;
+  pic: string | null;
+};
+
 /**
  * Lightweight user-doc reads for session/bootstrap. Does not replace auth tokens;
  * enriches canonical v2 contracts with denormalized fields when present.
  */
 export class AuthBootstrapFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
-  private static readonly FIRESTORE_TIMEOUT_MS = 250;
-  private static readonly USER_FIELDS_TTL_MS = 4_000;
+  private static readonly FIRESTORE_TIMEOUT_MS = 450;
+  private static readonly USER_FIELDS_TTL_MS = 30_000;
   private static readonly USER_FIELDS_MASK = [
     "handle",
     "name",
@@ -36,6 +42,7 @@ export class AuthBootstrapFirestoreAdapter {
     "numPosts",
     "numposts",
     "postCountVerifiedAtMs",
+    "postCountVerifiedValue",
     "followerCount",
     "followersCount",
     "followingCount",
@@ -45,10 +52,28 @@ export class AuthBootstrapFirestoreAdapter {
     "unreadCount",
     "unreadNotificationCount",
     "notificationUnreadCount",
-    "notifUnread"
+    "notifUnread",
+    "notificationsReadAllAtMs",
+    "notificationsMarkedReadThroughMs"
   ] as const;
   private static userFieldsCache = new Map<string, { expiresAtMs: number; data: AuthBootstrapUserFields }>();
+  private static viewerSummaryCache = new Map<string, { expiresAtMs: number; data: AuthBootstrapViewerSummary }>();
   private disabledUntilMs = 0;
+
+  static resetCachesForTests(): void {
+    AuthBootstrapFirestoreAdapter.userFieldsCache.clear();
+    AuthBootstrapFirestoreAdapter.viewerSummaryCache.clear();
+  }
+
+  static getCachedViewerSummary(viewerId: string): AuthBootstrapViewerSummary | null {
+    const cached = AuthBootstrapFirestoreAdapter.viewerSummaryCache.get(viewerId);
+    if (!cached) return null;
+    if (Date.now() >= cached.expiresAtMs) {
+      AuthBootstrapFirestoreAdapter.viewerSummaryCache.delete(viewerId);
+      return null;
+    }
+    return cached.data;
+  }
 
   isEnabled(): boolean {
     if (!this.db) return false;
@@ -104,6 +129,8 @@ export class AuthBootstrapFirestoreAdapter {
       unreadNotificationCount?: number;
       notificationUnreadCount?: number;
       notifUnread?: number;
+      notificationsReadAllAtMs?: number;
+      notificationsMarkedReadThroughMs?: number;
     };
 
     const handle = String(data.handle ?? "").replace(/^@+/, "").trim();
@@ -115,22 +142,33 @@ export class AuthBootstrapFirestoreAdapter {
       badge,
       unreadCount
     };
+    const viewerSummary: AuthBootstrapViewerSummary = {
+      handle: handle || `user_${viewerId.slice(0, 8)}`,
+      name: pickString(data.name ?? data.displayName, handle || `User ${viewerId.slice(0, 8)}`),
+      pic: pickNullableString(data.profilePic ?? data.profilePicture ?? data.photo)
+    };
     AuthBootstrapFirestoreAdapter.userFieldsCache.set(viewerId, {
       expiresAtMs: Date.now() + AuthBootstrapFirestoreAdapter.USER_FIELDS_TTL_MS,
       data: payload
     });
-    void globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data as Record<string, unknown>, 25_000);
-    void globalCache.set(entityCacheKeys.notificationsUnreadCount(viewerId), unreadCount, 25_000);
-    void globalCache.set(
-      entityCacheKeys.userSummary(viewerId),
-      {
-        userId: viewerId,
-        handle: handle || `user_${viewerId.slice(0, 8)}`,
-        name: pickString(data.name ?? data.displayName, handle || `User ${viewerId.slice(0, 8)}`),
-        pic: pickNullableString(data.profilePic ?? data.profilePicture ?? data.photo)
-      },
-      25_000
-    );
+    AuthBootstrapFirestoreAdapter.viewerSummaryCache.set(viewerId, {
+      expiresAtMs: Date.now() + AuthBootstrapFirestoreAdapter.USER_FIELDS_TTL_MS,
+      data: viewerSummary
+    });
+    await Promise.all([
+      globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data as Record<string, unknown>, 300_000),
+      globalCache.set(entityCacheKeys.notificationsUnreadCount(viewerId), unreadCount, 25_000),
+      globalCache.set(
+        entityCacheKeys.userSummary(viewerId),
+        {
+          userId: viewerId,
+          handle: viewerSummary.handle,
+          name: viewerSummary.name,
+          pic: viewerSummary.pic
+        },
+        300_000
+      )
+    ]);
     void this.db
       .collection("users")
       .doc(viewerId)

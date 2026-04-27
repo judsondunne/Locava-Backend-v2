@@ -29,6 +29,7 @@ export async function registerV2CommentsCreateRoutes(app: FastifyInstance): Prom
       viewerId: viewer.viewerId,
       postId: params.postId,
       text: body.text,
+      replyingTo: body.replyingTo ?? null,
       clientMutationKey: body.clientMutationKey ?? null
     });
     return success(payload);

@@ -1,3 +1,4 @@
+import { scheduleBackgroundWork } from "../lib/background-work.js";
 import { globalCache } from "./global-cache.js";
 
 const MAX_KEYS_PER_TAG = 256;
@@ -39,13 +40,16 @@ export async function registerRouteCacheKey(key: string, tags: string[]): Promis
   await writeStringList(keyIndexKey(key), [...keyTags]);
 }
 
-export async function invalidateRouteCacheByTags(tags: string[]): Promise<string[]> {
+export async function invalidateRouteCacheByTags(
+  tags: string[],
+  options: { deferIndexCleanup?: boolean } = {}
+): Promise<string[]> {
   const cleanedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];
   if (!cleanedTags.length) return [];
 
   const keysToInvalidate = new Set<string>();
-  for (const tag of cleanedTags) {
-    const tagKeys = await readStringList(tagIndexKey(tag));
+  const tagKeyLists = await Promise.all(cleanedTags.map((tag) => readStringList(tagIndexKey(tag))));
+  for (const tagKeys of tagKeyLists) {
     for (const key of tagKeys) {
       keysToInvalidate.add(key);
       if (keysToInvalidate.size >= MAX_INVALIDATE_KEYS) break;
@@ -55,6 +59,18 @@ export async function invalidateRouteCacheByTags(tags: string[]): Promise<string
   const invalidateList = [...keysToInvalidate];
   await Promise.all(invalidateList.map((key) => globalCache.del(key)));
 
+  if (options.deferIndexCleanup) {
+    scheduleBackgroundWork(async () => {
+      await cleanupRouteCacheIndexForKeys(invalidateList);
+    });
+    return invalidateList;
+  }
+
+  await cleanupRouteCacheIndexForKeys(invalidateList);
+  return invalidateList;
+}
+
+async function cleanupRouteCacheIndexForKeys(invalidateList: string[]): Promise<void> {
   for (const key of invalidateList) {
     const mappedTags = await readStringList(keyIndexKey(key));
     for (const tag of mappedTags) {
@@ -68,5 +84,4 @@ export async function invalidateRouteCacheByTags(tags: string[]): Promise<string
     }
     await globalCache.del(keyIndexKey(key));
   }
-  return invalidateList;
 }

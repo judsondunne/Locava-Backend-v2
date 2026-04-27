@@ -12,6 +12,7 @@ import { NotificationsListOrchestrator } from "./notifications-list.orchestrator
 import { NotificationsService } from "../../services/surfaces/notifications.service.js";
 import { notificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 
 export class AuthSessionOrchestrator {
   private readonly feedService = new FeedService(new FeedRepository());
@@ -22,6 +23,10 @@ export class AuthSessionOrchestrator {
   private readonly collectionsAdapter = new CollectionsFirestoreAdapter();
 
   constructor(private readonly service: AuthBootstrapService) {}
+
+  private scheduleDetached(label: string, delayMs: number, work: () => Promise<void>): void {
+    scheduleBackgroundWork(work, delayMs, { label: `auth-session:${label}` });
+  }
 
   async run(viewer: ViewerContext, debugSlowDeferredMs: number): Promise<AuthSessionResponse> {
     const cacheKey = buildCacheKey("entity", ["session-v1", viewer.viewerId]);
@@ -40,7 +45,7 @@ export class AuthSessionOrchestrator {
     try {
       viewerSummary = await withTimeout(
         this.service.loadViewerSummary(viewer.viewerId, debugSlowDeferredMs),
-        280,
+        debugSlowDeferredMs > 0 ? 280 : 140,
         "auth.session.viewer_summary"
       );
     } catch (error) {
@@ -79,43 +84,44 @@ export class AuthSessionOrchestrator {
     };
 
     await globalCache.set(cacheKey, response, 5000);
-    void this.feedBootstrapOrchestrator
-      .run({
+    if (!viewerSummary) {
+      this.scheduleDetached("viewer-summary", 1_000, async () => {
+        await this.service.loadViewerSummary(viewer.viewerId, 0);
+      });
+    }
+    // Keep auth/session lean: background warmers should never contend with
+    // the next interactive route on cold start.
+    this.scheduleDetached("feed-bootstrap", 4_000, async () => {
+      await this.feedBootstrapOrchestrator.run({
         viewer,
         limit: 4,
         tab: "explore",
         debugSlowDeferredMs: 0
-      })
-      .catch(() => undefined);
-    setTimeout(() => {
-      void this.notificationsListOrchestrator
-        .run({
-          viewerId: viewer.viewerId,
-          cursor: null,
-          limit: 10
-        })
-        .catch(() => undefined);
-    }, 450);
-    setTimeout(() => {
-      void this.collectionsAdapter
-        .listViewerCollections({
-          viewerId: viewer.viewerId,
-          limit: 10
-        })
-        .catch(() => undefined);
-      void this.collectionsAdapter
-        .ensureDefaultSavedCollection(viewer.viewerId)
-        .then(() =>
-          this.collectionsAdapter.listCollectionPostIds({
-            viewerId: viewer.viewerId,
-            collectionId: `saved-${viewer.viewerId}`,
-            cursor: null,
-            limit: 8
-          })
-        )
-        .then((page) => this.feedService.loadPostCardSummaryBatch(viewer.viewerId, page.items.map((item) => item.postId)))
-        .catch(() => undefined);
-    }, 700);
+      });
+    });
+    // Notifications is commonly the first follow-up surface after auth/session,
+    // so warm it quickly while still staying off the request critical path.
+    this.scheduleDetached("notifications", 300, async () => {
+      await this.notificationsListOrchestrator.run({
+        viewerId: viewer.viewerId,
+        cursor: null,
+        limit: 10
+      });
+    });
+    this.scheduleDetached("collections-and-saved", 6_000, async () => {
+      await this.collectionsAdapter.listViewerCollections({
+        viewerId: viewer.viewerId,
+        limit: 10
+      });
+      await this.collectionsAdapter.ensureDefaultSavedCollection(viewer.viewerId);
+      const page = await this.collectionsAdapter.listCollectionPostIds({
+        viewerId: viewer.viewerId,
+        collectionId: `saved-${viewer.viewerId}`,
+        cursor: null,
+        limit: 8
+      });
+      await this.feedService.loadPostCardSummaryBatch(viewer.viewerId, page.items.map((item) => item.postId));
+    });
     return response;
   }
 }

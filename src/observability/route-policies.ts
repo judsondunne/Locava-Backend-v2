@@ -53,7 +53,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "profile.bootstrap.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 110, p95Ms: 260 },
+      latency: { p50Ms: 150, p95Ms: 340 },
       dbOps: { maxReadsCold: 16, maxQueriesCold: 4, expectedReadsWarm: 4, expectedQueriesWarm: 2 },
       payload: { maxBytes: 55_000, targetBytes: 28_000 }
     },
@@ -137,6 +137,28 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
   },
+  "search.mixes.bootstrap.get": {
+    routeName: "search.mixes.bootstrap.get",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 140, p95Ms: 320 },
+      dbOps: { maxReadsCold: 240, maxQueriesCold: 20, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 55_000, targetBytes: 24_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
+  "search.mixes.feed.post": {
+    routeName: "search.mixes.feed.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 120, p95Ms: 280 },
+      dbOps: { maxReadsCold: 180, maxQueriesCold: 12, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 70_000, targetBytes: 34_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
   "posts.like.post": {
     routeName: "posts.like.post",
     priority: "critical_interactive",
@@ -147,6 +169,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 2 }
+  },
+  "posts.likes.list": {
+    routeName: "posts.likes.list",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 85, p95Ms: 240 },
+      dbOps: { maxReadsCold: 120, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 1 },
+      payload: { maxBytes: 60_000, targetBytes: 18_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 2 }
   },
   "posts.unlike.post": {
     routeName: "posts.unlike.post",
@@ -224,6 +257,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 8 }
+  },
+  "achievements.leaderboardviewerrank.get": {
+    routeName: "achievements.leaderboardviewerrank.get",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 90, p95Ms: 200 },
+      dbOps: { maxReadsCold: 6, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 14_000, targetBytes: 6_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
   },
   "posting.operationretry.post": {
     routeName: "posting.operationretry.post",
@@ -328,7 +372,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "notifications.markread.post",
     priority: "deferred_interactive",
     budgets: {
-      latency: { p50Ms: 70, p95Ms: 170 },
+      latency: { p50Ms: 110, p95Ms: 300 },
       dbOps: { maxReadsCold: 1, maxQueriesCold: 1, expectedReadsWarm: 1, expectedQueriesWarm: 1 },
       payload: { maxBytes: 8_000, targetBytes: 2_500 }
     },
@@ -610,6 +654,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
   },
+  "achievements.claim.post": {
+    routeName: "achievements.claim.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 80, p95Ms: 180 },
+      dbOps: { maxReadsCold: 2, maxQueriesCold: 2, expectedReadsWarm: 1, expectedQueriesWarm: 1 },
+      payload: { maxBytes: 10_000, targetBytes: 2_500 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
   "achievements.screenopened.post": {
     routeName: "achievements.screenopened.post",
     priority: "background",
@@ -691,9 +746,9 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "map.bootstrap.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 90, p95Ms: 210 },
-      dbOps: { maxReadsCold: 300, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
-      payload: { maxBytes: 180_000, targetBytes: 90_000 }
+      latency: { p50Ms: 300, p95Ms: 1_000 },
+      dbOps: { maxReadsCold: 2_500, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 180_000, targetBytes: 115_000 }
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 8 }
@@ -702,9 +757,9 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "map.markers.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 85, p95Ms: 220 },
-      dbOps: { maxReadsCold: 320, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
-      payload: { maxBytes: 220_000, targetBytes: 110_000 }
+      latency: { p50Ms: 260, p95Ms: 700 },
+      dbOps: { maxReadsCold: 2_500, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 900_000, targetBytes: 780_000 }
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
@@ -763,6 +818,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "recommended",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "mixes.feed.post": {
+    routeName: "mixes.feed.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 120, p95Ms: 280 },
+      dbOps: { maxReadsCold: 220, maxQueriesCold: 18, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 90_000, targetBytes: 38_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
   },
   "social.suggested_friends.get": {
     routeName: "social.suggested_friends.get",

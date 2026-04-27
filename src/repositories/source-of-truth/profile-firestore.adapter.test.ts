@@ -94,7 +94,7 @@ function makeDb(opts: {
 }
 
 describe("profile firestore adapter follow counts", () => {
-  it("prefers canonical post counts over stale embedded totals", async () => {
+  it("prefers canonical post counts immediately over stale embedded totals", async () => {
     const db = makeDb({
       userData: {
         handle: "user_1",
@@ -131,13 +131,34 @@ describe("profile firestore adapter follow counts", () => {
         handle: "user_1",
         name: "User One",
         postCount: 12,
-        postCountVerifiedAtMs: Date.now()
+        postCountVerifiedAtMs: Date.now(),
+        postCountVerifiedValue: 12
       },
       postsCountThrows: true,
       postsGetThrows: true
     });
     const adapter = new ProfileFirestoreAdapter(db as never);
     const header = await adapter.getProfileHeader("u-post-count-verified");
+    expect(header.data.counts.posts).toBe(12);
+  });
+
+  it("prefers verified flat post counts over stale nested stats totals", async () => {
+    const db = makeDb({
+      userData: {
+        handle: "user_1",
+        name: "User One",
+        postCount: 12,
+        postCountVerifiedAtMs: Date.now(),
+        postCountVerifiedValue: 12,
+        stats: {
+          posts: 99
+        }
+      },
+      postsCountThrows: true,
+      postsGetThrows: true
+    });
+    const adapter = new ProfileFirestoreAdapter(db as never);
+    const header = await adapter.getProfileHeader("u-post-count-stale-stats");
     expect(header.data.counts.posts).toBe(12);
   });
 
@@ -160,7 +181,24 @@ describe("profile firestore adapter follow counts", () => {
     expect(header.data.counts.following).toBe(3);
   });
 
-  it("prefers subcollection counts when available", async () => {
+  it("uses embedded follower/following counts even when legacy arrays are missing", async () => {
+    const db = makeDb({
+      userData: {
+        handle: "user_1",
+        name: "User One",
+        followerCount: 233,
+        followingCount: 77
+      },
+      followersCount: 11,
+      followingCount: 7
+    });
+    const adapter = new ProfileFirestoreAdapter(db as never);
+    const header = await adapter.getProfileHeader("u-embedded-counts");
+    expect(header.data.counts.followers).toBe(233);
+    expect(header.data.counts.following).toBe(77);
+  });
+
+  it("stages follow counts when only subcollection counts exist", async () => {
     const db = makeDb({
       userData: {
         handle: "user_1",
@@ -171,8 +209,8 @@ describe("profile firestore adapter follow counts", () => {
     });
     const adapter = new ProfileFirestoreAdapter(db as never);
     const header = await adapter.getProfileHeader("u-subcollections");
-    expect(header.data.counts.followers).toBe(11);
-    expect(header.data.counts.following).toBe(7);
+    expect(header.data.counts.followers).toBe(0);
+    expect(header.data.counts.following).toBe(0);
   });
 
   it("returns zero for empty graph", async () => {

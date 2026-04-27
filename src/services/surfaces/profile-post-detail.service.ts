@@ -16,29 +16,31 @@ export class ProfilePostDetailService {
           withConcurrencyLimit("profile-post-detail-repo", 6, async () => {
             const detail = await this.repository.getPostDetail(userId, postId, viewerId);
             recordEntityConstructed("PostDetail");
-            await getOrSetEntityCache(entityCacheKeys.userSummary(detail.author.userId), 25_000, async () => {
-              recordEntityConstructed("AuthorSummary");
-              return {
-                userId: detail.author.userId,
-                handle: detail.author.handle,
-                name: detail.author.name,
-                pic: detail.author.profilePic
-              };
-            });
-            await getOrSetEntityCache(entityCacheKeys.postSocial(detail.postId), 15_000, async () => {
-              recordEntityConstructed("SocialSummary");
-              return {
-                likeCount: detail.social.likeCount,
-                commentCount: detail.social.commentCount
-              };
-            });
-            await getOrSetEntityCache(entityCacheKeys.viewerPostState(viewerId, detail.postId), 10_000, async () => {
-              recordEntityConstructed("ViewerPostState");
-              return {
-                liked: detail.social.viewerHasLiked,
-                saved: false
-              };
-            });
+            void Promise.all([
+              getOrSetEntityCache(entityCacheKeys.userSummary(detail.author.userId), 25_000, async () => {
+                recordEntityConstructed("AuthorSummary");
+                return {
+                  userId: detail.author.userId,
+                  handle: detail.author.handle,
+                  name: detail.author.name,
+                  pic: detail.author.profilePic
+                };
+              }),
+              getOrSetEntityCache(entityCacheKeys.postSocial(detail.postId), 15_000, async () => {
+                recordEntityConstructed("SocialSummary");
+                return {
+                  likeCount: detail.social.likeCount,
+                  commentCount: detail.social.commentCount
+                };
+              }),
+              getOrSetEntityCache(entityCacheKeys.viewerPostState(viewerId, detail.postId), 10_000, async () => {
+                recordEntityConstructed("ViewerPostState");
+                return {
+                  liked: detail.social.viewerHasLiked,
+                  saved: false
+                };
+              })
+            ]).catch(() => undefined);
             return detail;
           })
       )

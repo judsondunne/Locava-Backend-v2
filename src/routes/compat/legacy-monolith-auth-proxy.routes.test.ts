@@ -3,7 +3,7 @@ import { createApp } from "../../app/createApp.js";
 
 describe("legacy monolith auth proxy routes", () => {
   it("returns 503 JSON when LEGACY_MONOLITH_PROXY_BASE_URL is unset (not 404)", async () => {
-    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", LEGACY_MONOLITH_PROXY_BASE_URL: undefined });
     const res = await app.inject({
       method: "POST",
       url: "/api/auth/signin/google",

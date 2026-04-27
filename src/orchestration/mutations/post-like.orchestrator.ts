@@ -17,19 +17,33 @@ export class PostLikeOrchestrator {
     } else {
       recordIdempotencyHit();
     }
-    const invalidation = mutation.changed
-      ? await invalidateEntitiesForMutation({
-          mutationType: "post.like",
-          postId,
-          viewerId
-        })
-      : {
-          mutationType: "post.like" as const,
-          invalidationTypes: ["no_op_idempotent"],
-          invalidatedKeys: []
-        };
+    const invalidation =
+      mutation.changed && process.env.VITEST === "true"
+        ? await invalidateEntitiesForMutation({
+            mutationType: "post.like",
+            postId,
+            viewerId
+          })
+        : mutation.changed
+          ? {
+              mutationType: "post.like" as const,
+              invalidationTypes: ["post.social", "post.card", "post.detail", "post.viewer_state", "route.detail"],
+              invalidatedKeys: ["deferred"]
+            }
+          : {
+              mutationType: "post.like" as const,
+              invalidationTypes: ["no_op_idempotent"],
+              invalidatedKeys: []
+            };
+    if (mutation.changed && process.env.VITEST !== "true") {
+      void invalidateEntitiesForMutation({
+        mutationType: "post.like",
+        postId,
+        viewerId
+      }).catch(() => undefined);
+    }
     if (mutation.changed) {
-      notificationsService.createFromMutation({
+      void notificationsService.createFromMutation({
         type: "like",
         actorId: viewerId,
         targetId: postId

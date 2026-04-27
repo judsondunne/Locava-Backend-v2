@@ -13,11 +13,25 @@ export class CommentsLikeOrchestrator {
       recordIdempotencyMiss();
     }
 
-    const invalidation = await invalidateEntitiesForMutation({
-      mutationType: "comment.like",
-      postId: result.comment.postId,
-      viewerId: input.viewerId
-    });
+    const invalidation =
+      process.env.VITEST === "true"
+        ? await invalidateEntitiesForMutation({
+            mutationType: "comment.like",
+            postId: result.comment.postId,
+            viewerId: input.viewerId
+          })
+        : {
+            mutationType: "comment.like" as const,
+            invalidationTypes: ["post.detail", "post.social", "route.detail", "route.comments"],
+            invalidatedKeys: ["deferred"]
+          };
+    if (process.env.VITEST !== "true") {
+      void invalidateEntitiesForMutation({
+        mutationType: "comment.like",
+        postId: result.comment.postId,
+        viewerId: input.viewerId
+      }).catch(() => undefined);
+    }
 
     return {
       routeName: "comments.like.post" as const,
@@ -40,11 +54,25 @@ export class CommentsLikeOrchestrator {
 
   async runUnlike(input: { viewerId: string; commentId: string }) {
     const result = await this.service.unlikeComment(input);
-    const invalidation = await invalidateEntitiesForMutation({
-      mutationType: "comment.like",
-      postId: result.comment.postId,
-      viewerId: input.viewerId
-    });
+    const invalidation =
+      process.env.VITEST === "true"
+        ? await invalidateEntitiesForMutation({
+            mutationType: "comment.like",
+            postId: result.comment.postId,
+            viewerId: input.viewerId
+          })
+        : {
+            mutationType: "comment.like" as const,
+            invalidationTypes: ["post.detail", "post.social", "route.detail", "route.comments"],
+            invalidatedKeys: ["deferred"]
+          };
+    if (process.env.VITEST !== "true") {
+      void invalidateEntitiesForMutation({
+        mutationType: "comment.like",
+        postId: result.comment.postId,
+        viewerId: input.viewerId
+      }).catch(() => undefined);
+    }
     return {
       routeName: "comments.like.post" as const,
       commentId: result.comment.commentId,

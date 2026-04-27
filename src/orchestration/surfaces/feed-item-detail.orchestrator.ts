@@ -1,8 +1,14 @@
 import { globalCache } from "../../cache/global-cache.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { FeedItemDetailResponse } from "../../contracts/surfaces/feed-item-detail.contract.js";
-import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
+import {
+  recordCacheHit,
+  recordCacheMiss,
+  recordFallback,
+  recordTimeout
+} from "../../observability/request-context.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
+import { TimeoutError, withTimeout } from "../timeouts.js";
 
 export class FeedItemDetailOrchestrator {
   constructor(private readonly service: FeedService) {}
@@ -24,6 +30,12 @@ export class FeedItemDetailOrchestrator {
     }
     recordCacheMiss();
 
+    const commentsPreviewPromise = withTimeout(
+      this.service.loadCommentsPreview(postId, input.debugSlowDeferredMs),
+      90,
+      "feed.item_detail.comments_preview"
+    );
+    void commentsPreviewPromise.catch(() => undefined);
     const [cardSummary, post] = await Promise.all([
       this.service.loadPostCardSummary(viewerId, postId),
       this.service.loadPostDetail(postId, viewerId)
@@ -31,6 +43,21 @@ export class FeedItemDetailOrchestrator {
     const author = cardSummary.author;
     const social = cardSummary.social;
     const viewer = cardSummary.viewer;
+    const fallbacks: string[] = [];
+    let commentsPreview: Array<{ commentId: string; userId: string; text: string; createdAtMs: number }> | null = null;
+
+    try {
+      commentsPreview = await commentsPreviewPromise;
+    } catch (error) {
+      if (error instanceof TimeoutError) {
+        fallbacks.push("comments_preview_timeout");
+        recordTimeout("feed.item_detail.comments_preview");
+        recordFallback("comments_preview_timeout");
+      } else {
+        fallbacks.push("comments_preview_failed");
+        recordFallback("comments_preview_failed");
+      }
+    }
 
     const response: FeedItemDetailResponse = {
       routeName: "feed.itemdetail.get",
@@ -64,13 +91,13 @@ export class FeedItemDetailOrchestrator {
         viewer
       },
       deferred: {
-        commentsPreview: null
+        commentsPreview
       },
       background: {
         prefetchHints: ["feed:item:comments:next", "feed:item:social:refresh"]
       },
-      degraded: false,
-      fallbacks: []
+      degraded: fallbacks.length > 0,
+      fallbacks
     };
 
     if (enableDetailCache) {

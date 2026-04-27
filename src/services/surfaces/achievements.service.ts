@@ -19,6 +19,7 @@ import type {
   AchievementsRepository,
   LeaderboardReadModel
 } from "../../repositories/surfaces/achievements.repository.js";
+import type { AchievementsClaimablesResponse } from "../../contracts/surfaces/achievements-claimables.contract.js";
 
 export class AchievementsService {
   constructor(private readonly repository: AchievementsRepository) {}
@@ -103,9 +104,7 @@ export class AchievementsService {
   }
 
   async recordScreenOpened(viewerId: string): Promise<{ recordedAtMs: number }> {
-    return dedupeInFlight(`achievements:screen-opened:${viewerId}`, () =>
-      withConcurrencyLimit("achievements-screen-opened-repo", 4, () => this.repository.recordScreenOpened(viewerId))
-    );
+    return this.repository.recordScreenOpened(viewerId);
   }
 
   async consumePendingDelta(viewerId: string): Promise<AchievementPendingDelta | null> {
@@ -174,6 +173,14 @@ export class AchievementsService {
     challenges: Array<{ id: string; title: string; rewardPoints: number }>;
   }> {
     return this.repository.getClaimables(viewerId);
+  }
+
+  async loadClaimablesSurface(
+    viewerId: string
+  ): Promise<Pick<AchievementsClaimablesResponse, "claimables" | "degraded" | "fallbacks">> {
+    return dedupeInFlight(`achievements:claimables-shell:${viewerId}`, () =>
+      withConcurrencyLimit("achievements-claimables-shell-repo", 6, () => this.repository.getClaimablesSurface(viewerId))
+    );
   }
 
   async loadBootstrap(viewerId: string): Promise<{

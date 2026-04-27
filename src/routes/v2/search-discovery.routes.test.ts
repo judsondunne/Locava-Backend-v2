@@ -42,6 +42,22 @@ describe("v2 search discovery routes", () => {
     expect(texts.some((text) => text.includes("vermont"))).toBe(true);
   });
 
+  it("returns sentence-style autofill completions for cool hikes in vermont", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/search/suggest?q=cool%20hikes%20in%20vermont",
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data.detectedActivity).toBe("hiking");
+    const texts = (body.data.suggestions as Array<{ text?: string }>).map((row) =>
+      String(row.text ?? "").toLowerCase(),
+    );
+    expect(texts.some((text) => text.includes("cool hikes in vermont"))).toBe(true);
+    expect(texts.some((text) => text.includes("views in vermont"))).toBe(true);
+  });
+
   it("prefers the Sunday-era Burlington, Vermont interpretation for bare burlington", async () => {
     const res = await app.inject({
       method: "GET",

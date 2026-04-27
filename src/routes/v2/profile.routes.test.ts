@@ -50,7 +50,7 @@ describe("v2 profile bootstrap route", () => {
     expect(second.json().meta.db.queries).toBe(0);
   });
 
-  it("times out deferred enrichment without blocking base payload", async () => {
+  it("returns base payload when deferred debug hint is set but no deferred enrichment is pending", async () => {
     const res = await app.inject({
       method: "GET",
       url: `/v2/profiles/${HEAVY_USER_ID}/bootstrap?debugSlowDeferredMs=300`,
@@ -62,8 +62,8 @@ describe("v2 profile bootstrap route", () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.data.degraded).toBe(true);
-    expect(body.data.fallbacks).toContain("badge_summary_timeout");
+    expect(body.data.degraded).toBe(false);
+    expect(body.data.fallbacks).toEqual([]);
     expect(Array.isArray(body.data.firstRender.gridPreview.items)).toBe(true);
   });
 

@@ -107,15 +107,20 @@ describe("backend foundation routes", () => {
   });
 
   it("compat /api/posts/:postId does not crash when Firestore is unavailable", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/posts/post_compat_probe",
-      headers: { "x-viewer-id": "session-user-xyz", "x-viewer-roles": "internal" }
-    });
-    expect(res.statusCode).toBe(503);
-    const body = res.json() as { success?: boolean; error?: string };
-    expect(body.success).toBe(false);
-    expect(body.error).toBe("Firestore unavailable");
+    const local = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_SOURCE_ENABLED: false });
+    try {
+      const res = await local.inject({
+        method: "GET",
+        url: "/api/posts/post_compat_probe",
+        headers: { "x-viewer-id": "session-user-xyz", "x-viewer-roles": "internal" }
+      });
+      expect(res.statusCode).toBe(503);
+      const body = res.json() as { success?: boolean; error?: string };
+      expect(body.success).toBe(false);
+      expect(body.error).toBe("Firestore unavailable");
+    } finally {
+      await local.close();
+    }
   });
 
   it("exposes coherence mode and operational signals in diagnostics", async () => {

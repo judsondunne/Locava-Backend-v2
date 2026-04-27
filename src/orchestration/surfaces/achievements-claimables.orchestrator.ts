@@ -15,14 +15,14 @@ export class AchievementsClaimablesOrchestrator {
       return cached;
     }
     recordCacheMiss();
-    const claimables = await this.service.loadClaimables(input.viewerId);
+    const surface = await this.service.loadClaimablesSurface(input.viewerId);
     const response: AchievementsClaimablesResponse = {
       routeName: "achievements.claimables.get",
-      claimables,
-      degraded: false,
-      fallbacks: []
+      claimables: surface.claimables,
+      degraded: surface.degraded,
+      fallbacks: surface.fallbacks
     };
-    await globalCache.set(cacheKey, response, 5_000);
+    await globalCache.set(cacheKey, response, response.degraded ? 5_000 : 60_000);
     return response;
   }
 }

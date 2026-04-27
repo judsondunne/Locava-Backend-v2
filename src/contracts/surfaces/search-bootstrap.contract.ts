@@ -28,6 +28,15 @@ export const SearchBootstrapResponseSchema = z.object({
       posts: z.array(SearchBootstrapPostRowSchema)
     })
   ),
+  collections: z.array(
+    z.object({
+      text: z.string(),
+      type: z.literal("mix"),
+      suggestionType: z.string().optional(),
+      badge: z.string().optional(),
+      data: z.record(z.string(), z.unknown()).optional()
+    })
+  ),
   suggestedUsers: z.array(
     z.object({
       id: z.string(),

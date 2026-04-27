@@ -1,10 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { type RequestContext, getRequestContext, runWithRequestContext } from "../../observability/request-context.js";
 import * as firestoreClient from "../source-of-truth/firestore-client.js";
 import { NotificationsRepository } from "./notifications.repository.js";
 
-describe("notifications repository markRead", () => {
+function withRequestContext<T>(fn: () => Promise<T>): Promise<T> {
+  const ctx: RequestContext = {
+    requestId: "test-request",
+    route: "/test",
+    method: "GET",
+    startNs: 0n,
+    payloadBytes: 0,
+    dbOps: { reads: 0, writes: 0, queries: 0 },
+    cache: { hits: 0, misses: 0 },
+    dedupe: { hits: 0, misses: 0 },
+    concurrency: { waits: 0 },
+    entityCache: { hits: 0, misses: 0 },
+    entityConstruction: { total: 0, types: {} },
+    idempotency: { hits: 0, misses: 0 },
+    invalidation: { keys: 0, entityKeys: 0, routeKeys: 0, types: {} },
+    fallbacks: [],
+    timeouts: [],
+    surfaceTimings: {}
+  };
+  return runWithRequestContext(ctx, fn);
+}
+
+describe("notifications repository", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -62,6 +85,130 @@ describe("notifications repository markRead", () => {
       markedCount: 1,
       unreadCount: 2,
       idempotent: false
+    });
+  });
+
+  it("uses a single query on cold list when unread/read-all caches are already primed", async () => {
+    const pageGet = vi.fn(async () => ({
+      docs: [
+        {
+          id: "notif-2",
+          data: () => ({
+            type: "like",
+            senderUserId: "actor-2",
+            senderName: "Actor Two",
+            senderProfilePic: "https://example.com/actor-2.jpg",
+            message: "liked your post",
+            timestamp: 1_000,
+            read: false,
+            postId: "post-2"
+          })
+        }
+      ]
+    }));
+    const db = {
+      collection: (name: string) => {
+        if (name !== "users") throw new Error(`unexpected_collection:${name}`);
+        return {
+          doc: (_viewerId: string) => ({
+            collection: (sub: string) => {
+              if (sub !== "notifications") throw new Error(`unexpected_subcollection:${sub}`);
+              const query = {
+                orderBy: () => query,
+                select: () => query,
+                limit: () => query,
+                startAfter: () => query,
+                get: pageGet
+              };
+              return query;
+            }
+          })
+        };
+      }
+    };
+
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(db as never);
+    vi.spyOn(globalCache, "get").mockImplementation(async (key: string) => {
+      if (key === entityCacheKeys.notificationsUnreadCount("viewer-1")) return 7;
+      if (key === entityCacheKeys.notificationsReadAllAt("viewer-1")) return 2_000;
+      return undefined;
+    });
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+
+    const repository = new NotificationsRepository();
+    await withRequestContext(async () => {
+      const page = await repository.listNotifications({
+        viewerId: "viewer-1",
+        cursor: null,
+        limit: 10
+      });
+      expect(page.items).toHaveLength(1);
+      expect(page.items[0]?.readState).toBe("unread");
+      expect(page.unreadCount).toBe(7);
+      expect(page.degraded).toBe(false);
+      expect(page.fallbacks).toEqual([]);
+      const ctx = getRequestContext();
+      expect(ctx?.dbOps.queries).toBe(1);
+      expect(ctx?.dbOps.reads).toBe(1);
+    });
+  });
+
+  it("returns staged unread count instead of issuing a second query on cold cache miss", async () => {
+    const pageGet = vi.fn(async () => ({
+      docs: [
+        {
+          id: "notif-3",
+          data: () => ({
+            type: "comment",
+            senderUserId: "actor-3",
+            senderName: "Actor Three",
+            senderProfilePic: "https://example.com/actor-3.jpg",
+            message: "commented on your post",
+            timestamp: 3_000,
+            read: false,
+            postId: "post-3"
+          })
+        }
+      ]
+    }));
+    const db = {
+      collection: (name: string) => {
+        if (name !== "users") throw new Error(`unexpected_collection:${name}`);
+        return {
+          doc: (_viewerId: string) => ({
+            collection: (sub: string) => {
+              if (sub !== "notifications") throw new Error(`unexpected_subcollection:${sub}`);
+              const query = {
+                orderBy: () => query,
+                select: () => query,
+                limit: () => query,
+                startAfter: () => query,
+                get: pageGet
+              };
+              return query;
+            }
+          })
+        };
+      }
+    };
+
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(db as never);
+    vi.spyOn(globalCache, "get").mockImplementation(async () => undefined);
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+
+    const repository = new NotificationsRepository();
+    await withRequestContext(async () => {
+      const page = await repository.listNotifications({
+        viewerId: "viewer-1",
+        cursor: null,
+        limit: 10
+      });
+      expect(page.unreadCount).toBeNull();
+      expect(page.degraded).toBe(true);
+      expect(page.fallbacks).toContain("notifications_unread_count_staged");
+      const ctx = getRequestContext();
+      expect(ctx?.dbOps.queries).toBe(1);
+      expect(ctx?.dbOps.reads).toBe(1);
     });
   });
 });

@@ -143,7 +143,7 @@ export class ProfileRepository {
 
   async getGridPage(input: ProfileGridPageInput): Promise<ProfileGridPreviewRecord> {
     const { userId, cursor, limit } = input;
-    const safeLimit = Math.max(1, Math.min(limit, 24));
+    const safeLimit = Math.max(1, Math.min(limit, 10));
     let gridCursor;
     try {
       gridCursor = parseProfileGridCursor(cursor);

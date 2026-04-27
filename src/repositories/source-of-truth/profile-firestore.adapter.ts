@@ -58,6 +58,7 @@ type ProfileUserDoc = {
   followersCount?: number;
   followingCount?: number;
   postCountVerifiedAtMs?: number;
+  postCountVerifiedValue?: number;
   followers?: unknown[];
   following?: unknown[];
   stats?: {
@@ -70,14 +71,41 @@ type ProfileUserDoc = {
 export type ProfileGridFirestoreCursor =
   | { mode: "first" }
   | { mode: "legacy_offset"; offset: number }
-  | { mode: "stable_after"; createdAtMs: number; postId: string };
+  | { mode: "stable_after"; orderMs: number; postId: string; orderKind: "timestamp" | "number" };
 
 export class ProfileFirestoreAdapter {
+  private static readonly PROFILE_HEADER_FIELD_MASK = [
+    "handle",
+    "name",
+    "displayName",
+    "profilePicPath",
+    "profilePicLarge",
+    "profilePicSmall",
+    "photoURL",
+    "bio",
+    "postCount",
+    "postsCount",
+    "numPosts",
+    "numposts",
+    "postCountVerifiedAtMs",
+    "postCountVerifiedValue",
+    "followerCount",
+    "followersCount",
+    "followingCount",
+    "followers",
+    "following",
+    "stats"
+  ] as const;
+  private static readonly postCountVerificationInFlight = new Set<string>();
   constructor(private readonly db = getFirestoreSourceClient()) {}
   private static readonly FIRESTORE_TIMEOUT_MS = 1200;
   private static readonly LEGACY_SCAN_CAP = 240;
   private static readonly VERIFIED_POST_COUNT_TTL_MS = 5 * 60_000;
   private disabledUntilMs = 0;
+
+  static resetCachesForTests(): void {
+    ProfileFirestoreAdapter.postCountVerificationInFlight.clear();
+  }
 
   isEnabled(): boolean {
     if (!this.db) return false;
@@ -95,15 +123,24 @@ export class ProfileFirestoreAdapter {
     let baseReadCount = 0;
     let data: ProfileUserDoc | undefined = cachedData;
     if (!data) {
+      const docRef = this.db.collection("users").doc(userId);
       const doc = await withTimeout(
-        this.db
-          .collection("users")
-          .doc(userId)
-          .get(),
+        typeof (this.db as { getAll?: unknown }).getAll === "function"
+          ? (
+              this.db as {
+                getAll: (
+                  ref: FirebaseFirestore.DocumentReference,
+                  options: { fieldMask: string[] }
+                ) => Promise<FirebaseFirestore.DocumentSnapshot[]>;
+              }
+            )
+              .getAll(docRef, { fieldMask: [...ProfileFirestoreAdapter.PROFILE_HEADER_FIELD_MASK] })
+              .then(([snap]) => snap)
+          : docRef.get(),
         ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
         "profile-firestore-header"
       );
-      if (!doc.exists) throw new Error("profile_header_not_found");
+      if (!doc?.exists) throw new Error("profile_header_not_found");
       data = doc.data() as ProfileUserDoc;
       baseQueryCount = 1;
       baseReadCount = 1;
@@ -111,14 +148,20 @@ export class ProfileFirestoreAdapter {
     }
     if (!data) throw new Error("profile_header_not_found");
     const stats = data.stats && typeof data.stats === "object" ? data.stats : undefined;
+    const nestedEmbeddedPostCount =
+      normalizeEmbeddedCount(stats?.posts) ?? normalizeEmbeddedCount(stats?.totalPosts) ?? undefined;
+    const flatEmbeddedPostCount =
+      normalizeEmbeddedCount(data.postCount ?? data.postsCount ?? data.numPosts ?? data.numposts) ?? undefined;
+    const verifiedPostCount = normalizeEmbeddedCount(data.postCountVerifiedValue);
     const embeddedPostCount =
-      pickCount(
-        normalizeEmbeddedCount(stats?.posts) ?? normalizeEmbeddedCount(stats?.totalPosts) ?? undefined,
-        normalizeEmbeddedCount(data.postCount ?? data.postsCount ?? data.numPosts ?? data.numposts) ?? undefined
-      ) ?? 0;
+      typeof verifiedPostCount === "number" &&
+      typeof flatEmbeddedPostCount === "number" &&
+      verifiedPostCount === flatEmbeddedPostCount
+        ? flatEmbeddedPostCount
+        : pickCount(nestedEmbeddedPostCount, flatEmbeddedPostCount) ?? 0;
     const [followCounts, postCount] = await Promise.all([
       this.getFollowCounts(userId, data),
-      this.countPostsByUser(userId, embeddedPostCount, data.postCountVerifiedAtMs)
+      this.countPostsByUser(userId, embeddedPostCount, data.postCountVerifiedAtMs, verifiedPostCount ?? undefined)
     ]);
     return {
       data: {
@@ -177,7 +220,7 @@ export class ProfileFirestoreAdapter {
   }
 
   private async getFollowCounts(
-    userId: string,
+    _userId: string,
     userDocData: {
       followerCount?: unknown;
       followersCount?: unknown;
@@ -191,135 +234,142 @@ export class ProfileFirestoreAdapter {
     const followersArray = countUniqueGraphArray(userDocData.followers);
     const followingArray = countUniqueGraphArray(userDocData.following);
 
-    if (followersArray != null || followingArray != null) {
+    const hasEmbedded = embeddedFollowersCount != null || embeddedFollowingCount != null;
+    const hasArrays = followersArray != null || followingArray != null;
+    if (hasEmbedded || hasArrays) {
       return {
         followersCount: embeddedFollowersCount ?? followersArray ?? 0,
         followingCount: embeddedFollowingCount ?? followingArray ?? 0,
-        source: embeddedFollowersCount != null || embeddedFollowingCount != null ? "embedded_counts_arrays" : "arrays",
+        source: hasEmbedded && hasArrays ? "embedded_counts_arrays" : hasEmbedded ? "embedded_counts" : "arrays",
         queryCount: 0,
         readCount: 0
       };
     }
 
-    const [followersSubcollection, followingSubcollection] = await Promise.all([
-      embeddedFollowersCount != null ? Promise.resolve({ count: embeddedFollowersCount, queryCount: 0, readCount: 0 }) : this.countSubcollectionDocs(userId, "followers"),
-      embeddedFollowingCount != null ? Promise.resolve({ count: embeddedFollowingCount, queryCount: 0, readCount: 0 }) : this.countSubcollectionDocs(userId, "following")
-    ]);
-
-    const followersCount = followersSubcollection.count ?? (followersArray != null ? followersArray : 0);
-    const followingCount = followingSubcollection.count ?? (followingArray != null ? followingArray : 0);
-    const usedSubcollections = followersSubcollection.count != null || followingSubcollection.count != null;
-    const usedArrays =
-      (followersSubcollection.count == null && followersArray != null) ||
-      (followingSubcollection.count == null && followingArray != null);
-    const usedEmbeddedCounts = embeddedFollowersCount != null || embeddedFollowingCount != null;
-    const source = usedEmbeddedCounts
-      ? usedArrays
-        ? "embedded_counts_arrays"
-        : "embedded_counts"
-      : usedSubcollections && usedArrays
-        ? "mixed_subcollections_arrays"
-        : usedSubcollections
-          ? "subcollections"
-          : usedArrays
-            ? "arrays"
-            : "none";
-
     return {
-      followersCount,
-      followingCount,
-      source,
-      queryCount: followersSubcollection.queryCount + followingSubcollection.queryCount,
-      readCount: followersSubcollection.readCount + followingSubcollection.readCount
+      followersCount: 0,
+      followingCount: 0,
+      source: "staged_missing_counts",
+      queryCount: 0,
+      readCount: 0
     };
-  }
-
-  private async countSubcollectionDocs(
-    userId: string,
-    subcollection: "followers" | "following"
-  ): Promise<{ count: number | null; queryCount: number; readCount: number }> {
-    if (!this.db) return { count: null, queryCount: 0, readCount: 0 };
-    const ref = this.db.collection("users").doc(userId).collection(subcollection);
-    const supportsAggregateCount = typeof (ref as { count?: unknown }).count === "function";
-
-    if (supportsAggregateCount) {
-      try {
-        const aggregateSnap = await withTimeout(
-          (ref as { count: () => { get: () => Promise<{ data: () => { count?: unknown } }> } }).count().get(),
-          ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
-          `profile-firestore-${subcollection}-count`
-        );
-        const count = aggregateSnap.data()?.count;
-        if (typeof count === "number" && Number.isFinite(count) && count >= 0) {
-          return { count: Math.floor(count), queryCount: 1, readCount: 0 };
-        }
-      } catch {
-        // Fall through to non-aggregate counting.
-      }
-    }
-
-    try {
-      const snap = await withTimeout(
-        ref.get(),
-        ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
-        `profile-firestore-${subcollection}-scan`
-      );
-      return { count: snap.size, queryCount: 1, readCount: snap.size };
-    } catch {
-      return { count: null, queryCount: 0, readCount: 0 };
-    }
   }
 
   private async countPostsByUser(
     userId: string,
     embeddedCount: number,
-    verifiedAtMs?: number
+    verifiedAtMs?: number,
+    verifiedCount?: number
   ): Promise<{ count: number | null; queryCount: number; readCount: number }> {
     if (!this.db) return { count: null, queryCount: 0, readCount: 0 };
     const normalizedEmbeddedCount = Math.max(0, Math.floor(embeddedCount));
+    const cached = await globalCache.get<number>(entityCacheKeys.userPostCount(userId));
+    if (typeof cached === "number" && Number.isFinite(cached) && cached >= 0) {
+      return { count: Math.floor(cached), queryCount: 0, readCount: 0 };
+    }
     const verifiedIsFresh =
       typeof verifiedAtMs === "number" &&
       Number.isFinite(verifiedAtMs) &&
       verifiedAtMs > 0 &&
       Date.now() - verifiedAtMs <= ProfileFirestoreAdapter.VERIFIED_POST_COUNT_TTL_MS;
-    if (verifiedIsFresh) {
-      void globalCache.set(entityCacheKeys.userPostCount(userId), normalizedEmbeddedCount, 30_000);
+    const verifiedMatchesEmbedded =
+      typeof verifiedCount === "number" &&
+      Number.isFinite(verifiedCount) &&
+      verifiedCount >= 0 &&
+      Math.floor(verifiedCount) === normalizedEmbeddedCount;
+    if (verifiedIsFresh && verifiedMatchesEmbedded) {
       return { count: normalizedEmbeddedCount, queryCount: 0, readCount: 0 };
     }
-    const cached = await globalCache.get<number>(entityCacheKeys.userPostCount(userId));
-    if (typeof cached === "number" && Number.isFinite(cached) && cached >= 0) {
-      return { count: Math.floor(cached), queryCount: 0, readCount: 0 };
-    }
-    const query = this.db.collection("posts").where("userId", "==", userId);
     try {
+      const snap = await withTimeout(
+        this.db.collection("posts").where("userId", "==", userId).count().get(),
+        ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+        "profile-firestore-post-count"
+      );
+      const resolvedCount = Math.max(0, normalizeCount(snap.data()?.count));
+      void globalCache.set(entityCacheKeys.userPostCount(userId), resolvedCount, 30_000);
+      if (resolvedCount !== normalizedEmbeddedCount) {
+        await this.selfHealPostCount(userId, resolvedCount);
+      } else {
+        await this.touchVerifiedPostCount(userId, resolvedCount);
+      }
+      return { count: resolvedCount, queryCount: 1, readCount: 0 };
+    } catch {
+      if (normalizedEmbeddedCount > 0) {
+        void this.schedulePostCountVerification(userId, normalizedEmbeddedCount, verifiedAtMs);
+      }
+      return { count: normalizedEmbeddedCount, queryCount: 0, readCount: 0 };
+    }
+  }
+
+  private async schedulePostCountVerification(
+    userId: string,
+    embeddedCount: number,
+    verifiedAtMs?: number
+  ): Promise<void> {
+    if (!this.db) return;
+    const verifiedIsFresh =
+      typeof verifiedAtMs === "number" &&
+      Number.isFinite(verifiedAtMs) &&
+      verifiedAtMs > 0 &&
+      Date.now() - verifiedAtMs <= ProfileFirestoreAdapter.VERIFIED_POST_COUNT_TTL_MS;
+    if (verifiedIsFresh || ProfileFirestoreAdapter.postCountVerificationInFlight.has(userId)) {
+      return;
+    }
+    ProfileFirestoreAdapter.postCountVerificationInFlight.add(userId);
+    try {
+      const query = this.db.collection("posts").where("userId", "==", userId);
+      let resolvedCount: number | null = null;
       if (typeof (query as { count?: unknown }).count === "function") {
-        const snap = await withTimeout(
-          (query as { count: () => { get: () => Promise<{ data: () => { count?: unknown } }> } }).count().get(),
-          ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
-          "profile-firestore-post-count"
-        );
-        const count = snap.data()?.count;
-        if (typeof count === "number" && Number.isFinite(count) && count >= 0) {
-          const resolvedCount = Math.floor(count);
-          await this.selfHealPostCount(userId, resolvedCount);
-          void globalCache.set(entityCacheKeys.userPostCount(userId), resolvedCount, 30_000);
-          return { count: resolvedCount, queryCount: 1, readCount: 0 };
+        try {
+          const snap = await withTimeout(
+            (query as { count: () => { get: () => Promise<{ data: () => { count?: unknown } }> } }).count().get(),
+            ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+            "profile-firestore-post-count-verify"
+          );
+          const count = snap.data()?.count;
+          if (typeof count === "number" && Number.isFinite(count) && count >= 0) {
+            resolvedCount = Math.floor(count);
+          }
+        } catch {
+          resolvedCount = null;
         }
       }
-    } catch {
-      // Fall back to embedded counts if aggregate count is unavailable.
-    }
-    try {
-      const snap = await withTimeout(query.get(), ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS, "profile-firestore-post-scan");
-      const resolvedCount = snap.size;
-      await this.selfHealPostCount(userId, resolvedCount);
-      void globalCache.set(entityCacheKeys.userPostCount(userId), resolvedCount, 30_000);
-      return { count: resolvedCount, queryCount: 1, readCount: snap.size };
-    } catch {
-      if (verifiedIsFresh || normalizedEmbeddedCount >= 0) {
-        return { count: normalizedEmbeddedCount, queryCount: 0, readCount: 0 };
+      if (resolvedCount == null) {
+        try {
+          const snap = await withTimeout(
+            query.get(),
+            ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+            "profile-firestore-post-scan-verify"
+          );
+          resolvedCount = snap.size;
+        } catch {
+          resolvedCount = null;
+        }
       }
-      return { count: null, queryCount: 0, readCount: 0 };
+      if (resolvedCount != null && resolvedCount !== embeddedCount) {
+        await this.selfHealPostCount(userId, resolvedCount);
+      } else if (resolvedCount != null) {
+        const now = Date.now();
+        await this.db
+          .collection("users")
+          .doc(userId)
+          .set({ postCountVerifiedAtMs: now, postCountVerifiedValue: resolvedCount }, { merge: true });
+        const cached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(userId));
+        if (cached && typeof cached === "object") {
+          void globalCache.set(
+            entityCacheKeys.userFirestoreDoc(userId),
+            {
+              ...cached,
+              postCountVerifiedAtMs: now,
+              postCountVerifiedValue: resolvedCount
+            },
+            25_000
+          ).catch(() => undefined);
+        }
+      }
+    } finally {
+      ProfileFirestoreAdapter.postCountVerificationInFlight.delete(userId);
     }
   }
 
@@ -334,23 +384,46 @@ export class ProfileFirestoreAdapter {
           numPosts: canonicalCount,
           postCount: canonicalCount,
           postsCount: canonicalCount,
-          postCountVerifiedAtMs: now
+          postCountVerifiedAtMs: now,
+          postCountVerifiedValue: canonicalCount
         },
         { merge: true }
       );
     const cached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(userId));
     if (cached && typeof cached === "object") {
-      await globalCache.set(
+      void globalCache.set(
         entityCacheKeys.userFirestoreDoc(userId),
         {
           ...cached,
           numPosts: canonicalCount,
           postCount: canonicalCount,
           postsCount: canonicalCount,
-          postCountVerifiedAtMs: now
+          postCountVerifiedAtMs: now,
+          postCountVerifiedValue: canonicalCount
         },
         25_000
-      );
+      ).catch(() => undefined);
+    }
+  }
+
+  private async touchVerifiedPostCount(userId: string, verifiedCount: number): Promise<void> {
+    if (!this.db) return;
+    const now = Date.now();
+    await this.db
+      .collection("users")
+      .doc(userId)
+      .set({ postCountVerifiedAtMs: now, postCountVerifiedValue: verifiedCount }, { merge: true });
+    const cached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(userId));
+    if (cached && typeof cached === "object") {
+      void globalCache.set(
+        entityCacheKeys.userFirestoreDoc(userId),
+        {
+          ...cached,
+          postCountVerifiedAtMs: now,
+          postCountVerifiedValue: verifiedCount
+        },
+        25_000
+      ).catch(() => undefined);
     }
   }
 
@@ -374,14 +447,11 @@ export class ProfileFirestoreAdapter {
       .orderBy(FieldPath.documentId(), "desc")
       .select(
         "time",
-        "lastUpdated",
-        "updatedAt",
         "createdAtMs",
         "updatedAtMs",
         "displayPhotoLink",
         "photoLink",
         "thumbUrl",
-        "assets",
         "mediaType",
         "aspectRatio",
         "processing",
@@ -392,7 +462,9 @@ export class ProfileFirestoreAdapter {
       .limit(safeLimit + 1);
 
     if (cursor.mode === "stable_after") {
-      queryRef = queryRef.startAfter(Timestamp.fromMillis(cursor.createdAtMs), cursor.postId);
+      const orderValue =
+        cursor.orderKind === "timestamp" ? Timestamp.fromMillis(cursor.orderMs) : cursor.orderMs;
+      queryRef = queryRef.startAfter(orderValue, cursor.postId);
     }
 
     const snapshot = await withTimeout(queryRef.get(), ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS, timeoutLabel);
@@ -402,7 +474,7 @@ export class ProfileFirestoreAdapter {
     const last = pageDocs[pageDocs.length - 1];
     const nextCursor =
       hasMore && last
-        ? encodeStableGridCursor(readOrderMillisFromSnapshot(last), last.id)
+        ? encodeStableGridCursor(readOrderMillisFromSnapshot(last), last.id, last.get("time"))
         : null;
 
     return {
@@ -428,14 +500,11 @@ export class ProfileFirestoreAdapter {
         .orderBy(FieldPath.documentId(), "desc")
         .select(
           "time",
-          "lastUpdated",
-          "updatedAt",
           "createdAtMs",
           "updatedAtMs",
           "displayPhotoLink",
           "photoLink",
           "thumbUrl",
-          "assets",
           "mediaType",
           "aspectRatio",
           "processing",
@@ -463,7 +532,7 @@ export class ProfileFirestoreAdapter {
     const last = pageDocs[pageDocs.length - 1];
     const nextCursor =
       hasMore && last
-        ? encodeStableGridCursor(readOrderMillisFromSnapshot(last), last.id)
+        ? encodeStableGridCursor(readOrderMillisFromSnapshot(last), last.id, last.get("time"))
         : null;
     return {
       items,
@@ -488,9 +557,15 @@ export function parseProfileGridCursor(cursor: string | null): ProfileGridFirest
   if (stablePayload) {
     try {
       const raw = Buffer.from(stablePayload, "base64url").toString("utf8");
-      const parsed = JSON.parse(raw) as { t?: unknown; id?: unknown };
+      const parsed = JSON.parse(raw) as { t?: unknown; id?: unknown; k?: unknown };
       if (typeof parsed.t === "number" && typeof parsed.id === "string" && parsed.id.length > 0) {
-        return { mode: "stable_after", createdAtMs: Math.floor(parsed.t), postId: parsed.id };
+        const k = parsed.k === "number" ? "number" : "timestamp";
+        return {
+          mode: "stable_after",
+          orderMs: Math.floor(parsed.t),
+          postId: parsed.id,
+          orderKind: k
+        };
       }
     } catch {
       throw new Error("Invalid cursor format");
@@ -499,8 +574,10 @@ export function parseProfileGridCursor(cursor: string | null): ProfileGridFirest
   throw new Error("Invalid cursor format");
 }
 
-function encodeStableGridCursor(createdAtMs: number, postId: string): string {
-  const payload = JSON.stringify({ t: createdAtMs, id: postId });
+function encodeStableGridCursor(orderMs: number, postId: string, rawOrder: unknown): string {
+  const orderKind: "timestamp" | "number" =
+    typeof rawOrder === "number" ? "number" : "timestamp";
+  const payload = JSON.stringify({ t: orderMs, id: postId, k: orderKind });
   return `pgrid:v1:${Buffer.from(payload, "utf8").toString("base64url")}`;
 }
 

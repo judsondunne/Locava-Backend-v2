@@ -59,6 +59,7 @@ describe("v2 feed page route", () => {
       expect(secondBody.data.page.cursorIn).toBe(nextCursor);
       if ((secondBody.data.items as Array<Record<string, unknown>>).length > 0) {
         expect(secondBody.data.items[0].postId).not.toBe(firstBody.data.items[0].postId);
+        expect(typeof secondBody.data.items[0].createdAtMs).toBe("number");
       } else {
         expect(secondBody.data.debugFailureReason).toBeUndefined();
       }
@@ -202,6 +203,7 @@ describe("v2 feed page route", () => {
         expect(String(first.postId ?? "").length).toBeGreaterThan(0);
         expect(String(author.userId ?? "").length).toBeGreaterThan(0);
         expect(String(media.posterUrl ?? "").length).toBeGreaterThan(0);
+        expect(typeof first.createdAtMs).toBe("number");
       } else {
         expect(nd.debugFailureReason).toBeUndefined();
       }

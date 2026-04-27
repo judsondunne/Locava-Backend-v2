@@ -6,6 +6,9 @@ export type RequestDiagnostic = {
   method: string;
   route: string;
   routeName?: string;
+  auditRunId?: string;
+  auditSpecId?: string;
+  auditSpecName?: string;
   routePolicy?: RouteBudgetPolicy;
   budgetViolations: string[];
   statusCode: number;
@@ -47,20 +50,32 @@ export type RequestDiagnostic = {
   timestamp: string;
 };
 
+export type RequestDiagnosticFilter = {
+  requestId?: string;
+  auditRunId?: string;
+  auditSpecId?: string;
+  auditSpecName?: string;
+  routeName?: string;
+};
+
 const MAX_ENTRIES = 200;
 
 class DiagnosticsStore {
   private readonly requests: RequestDiagnostic[] = [];
 
   addRequest(record: RequestDiagnostic): void {
-    this.requests.push(record);
+    this.requests.push(cloneDiagnostic(record));
     if (this.requests.length > MAX_ENTRIES) {
       this.requests.shift();
     }
   }
 
-  getRecentRequests(limit = 50): RequestDiagnostic[] {
-    return this.requests.slice(-limit).reverse();
+  getRecentRequests(limit = 50, filter?: RequestDiagnosticFilter): RequestDiagnostic[] {
+    return this.filterRequests(limit, filter);
+  }
+
+  findRequest(filter: RequestDiagnosticFilter): RequestDiagnostic | null {
+    return this.filterRequests(MAX_ENTRIES, filter)[0] ?? null;
   }
 
   getSummary(): { total: number; avgLatencyMs: number; p95LatencyMs: number; avgPayloadBytes: number } {
@@ -208,6 +223,71 @@ class DiagnosticsStore {
       })
       .sort((a, b) => b.count - a.count);
   }
+
+  clear(): void {
+    this.requests.length = 0;
+  }
+
+  private filterRequests(limit: number, filter?: RequestDiagnosticFilter): RequestDiagnostic[] {
+    const bounded = Math.max(1, limit);
+    if (!filter) {
+      return this.requests.slice(-bounded).reverse();
+    }
+    const matched: RequestDiagnostic[] = [];
+    for (let index = this.requests.length - 1; index >= 0; index -= 1) {
+      const row = this.requests[index];
+      if (!row || !matchesFilter(row, filter)) continue;
+      matched.push(row);
+      if (matched.length >= bounded) break;
+    }
+    return matched;
+  }
 }
 
 export const diagnosticsStore = new DiagnosticsStore();
+
+function matchesFilter(row: RequestDiagnostic, filter: RequestDiagnosticFilter): boolean {
+  if (filter.requestId && row.requestId !== filter.requestId) return false;
+  if (filter.auditRunId && row.auditRunId !== filter.auditRunId) return false;
+  if (filter.auditSpecId && row.auditSpecId !== filter.auditSpecId) return false;
+  if (filter.auditSpecName && row.auditSpecName !== filter.auditSpecName) return false;
+  if (filter.routeName && (row.routeName ?? row.route) !== filter.routeName) return false;
+  return true;
+}
+
+function cloneDiagnostic(record: RequestDiagnostic): RequestDiagnostic {
+  return {
+    requestId: record.requestId,
+    method: record.method,
+    route: record.route,
+    routeName: record.routeName,
+    auditRunId: record.auditRunId,
+    auditSpecId: record.auditSpecId,
+    auditSpecName: record.auditSpecName,
+    routePolicy: record.routePolicy,
+    budgetViolations: [...record.budgetViolations],
+    statusCode: record.statusCode,
+    latencyMs: record.latencyMs,
+    payloadBytes: record.payloadBytes,
+    dbOps: { ...record.dbOps },
+    cache: { ...record.cache },
+    dedupe: { ...record.dedupe },
+    concurrency: { ...record.concurrency },
+    entityCache: { ...record.entityCache },
+    entityConstruction: {
+      total: record.entityConstruction.total,
+      types: { ...record.entityConstruction.types }
+    },
+    idempotency: { ...record.idempotency },
+    invalidation: {
+      keys: record.invalidation.keys,
+      entityKeys: record.invalidation.entityKeys,
+      routeKeys: record.invalidation.routeKeys,
+      types: { ...record.invalidation.types }
+    },
+    fallbacks: [...record.fallbacks],
+    timeouts: [...record.timeouts],
+    surfaceTimings: { ...record.surfaceTimings },
+    timestamp: record.timestamp
+  };
+}

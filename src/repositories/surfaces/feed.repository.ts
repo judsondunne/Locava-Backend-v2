@@ -51,6 +51,11 @@ export type FeedBootstrapCandidateRecord = {
   description?: string | null;
   captionPreview: string | null;
   tags?: string[];
+  carouselFitWidth?: boolean;
+  layoutLetterbox?: boolean;
+  letterboxGradientTop?: string | null;
+  letterboxGradientBottom?: string | null;
+  letterboxGradients?: Array<{ top: string; bottom: string }>;
   createdAtMs: number;
   firstAssetUrl: string | null;
   media: {
@@ -169,8 +174,14 @@ function buildFeedCardShell(
       aspectRatio: number | null;
       orientation: string | null;
     }>;
+    carouselFitWidth?: boolean;
+    layoutLetterbox?: boolean;
+    letterboxGradientTop?: string | null;
+    letterboxGradientBottom?: string | null;
+    letterboxGradients?: Array<{ top: string; bottom: string }> | null;
     likeCount: number;
     commentCount: number;
+    likedByUserIds: string[];
   }
 ): FeedBootstrapCandidateRecord {
   const aid = candidate.authorId.trim();
@@ -184,6 +195,11 @@ function buildFeedCardShell(
     },
     activities: candidate.activities,
     address: candidate.address,
+    carouselFitWidth: candidate.carouselFitWidth,
+    layoutLetterbox: candidate.layoutLetterbox,
+    letterboxGradientTop: candidate.letterboxGradientTop ?? undefined,
+    letterboxGradientBottom: candidate.letterboxGradientBottom ?? undefined,
+    letterboxGradients: candidate.letterboxGradients ?? undefined,
     geo: candidate.geo,
     assets: candidate.assets,
     description: candidate.description ?? null,
@@ -203,7 +219,9 @@ function buildFeedCardShell(
       commentCount: Math.max(0, candidate.commentCount)
     },
     viewer: {
-      liked: mutationStateRepository.hasViewerLikedPost(viewerId, candidate.postId),
+      liked:
+        mutationStateRepository.hasViewerLikedPost(viewerId, candidate.postId) ||
+        candidate.likedByUserIds.includes(viewerId),
       saved: mutationStateRepository.resolveViewerSavedPost(viewerId, candidate.postId, false)
     },
     updatedAtMs: candidate.updatedAtMs
@@ -250,7 +268,8 @@ function buildSyntheticTestFeedCard(viewerId: string, postId: string): FeedBoots
       }
     ],
     likeCount: Math.max(0, 80 - slot),
-    commentCount: Math.max(0, 20 - Math.floor(slot / 2))
+    commentCount: Math.max(0, 20 - Math.floor(slot / 2)),
+    likedByUserIds: []
   });
 }
 
@@ -274,6 +293,26 @@ function mergeBundleIntoFeedCard(
     description: bundle.post.description ?? card.description ?? null,
     captionPreview: bundle.post.caption,
     tags: bundle.post.tags ?? card.tags ?? [],
+    carouselFitWidth:
+      typeof bundle.post.carouselFitWidth === "boolean"
+        ? bundle.post.carouselFitWidth
+        : card.carouselFitWidth,
+    layoutLetterbox:
+      typeof bundle.post.layoutLetterbox === "boolean"
+        ? bundle.post.layoutLetterbox
+        : card.layoutLetterbox,
+    letterboxGradientTop:
+      typeof bundle.post.letterboxGradientTop === "string" || bundle.post.letterboxGradientTop === null
+        ? bundle.post.letterboxGradientTop
+        : card.letterboxGradientTop,
+    letterboxGradientBottom:
+      typeof bundle.post.letterboxGradientBottom === "string" || bundle.post.letterboxGradientBottom === null
+        ? bundle.post.letterboxGradientBottom
+        : card.letterboxGradientBottom,
+    letterboxGradients:
+      Array.isArray(bundle.post.letterboxGradients) && bundle.post.letterboxGradients.length > 0
+        ? bundle.post.letterboxGradients
+        : card.letterboxGradients,
     createdAtMs: bundle.post.createdAtMs,
     firstAssetUrl: bundle.post.assets[0]?.thumbnail ?? card.firstAssetUrl,
     media: {
@@ -395,7 +434,7 @@ export class FeedRepository {
       if (synthetic) {
         return synthetic;
       }
-      if (this.db && !/-feed-post-\d+$/.test(postId)) {
+      if (this.db) {
         incrementDbOps("queries", 1);
         const postDoc = await this.db.collection("posts").doc(postId).get();
         incrementDbOps("reads", postDoc.exists ? 1 : 0);
@@ -435,14 +474,38 @@ export class FeedRepository {
         aspectRatio: null,
         orientation: null
       })),
+      carouselFitWidth: bundle.post.carouselFitWidth,
+      layoutLetterbox: bundle.post.layoutLetterbox,
+      letterboxGradientTop: bundle.post.letterboxGradientTop ?? null,
+      letterboxGradientBottom: bundle.post.letterboxGradientBottom ?? null,
+      letterboxGradients: bundle.post.letterboxGradients ?? null,
       likeCount: bundle.social.likeCount,
-      commentCount: bundle.social.commentCount
+      commentCount: bundle.social.commentCount,
+      likedByUserIds: bundle.viewer.liked && viewerId ? [viewerId] : []
     });
     return mergeBundleIntoFeedCard(viewerId, shell, bundle);
   }
 
   async getPostCardSummariesByPostIds(viewerId: string, postIds: string[]): Promise<FeedBootstrapCandidateRecord[]> {
     const uniqueIds = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
+    if (uniqueIds.length === 0) return [];
+    if (this.firestoreAdapter.isEnabled()) {
+      try {
+        const page = await this.firestoreAdapter.getCandidatesByPostIds(uniqueIds);
+        incrementDbOps("queries", page.queryCount);
+        incrementDbOps("reads", page.readCount);
+        const byId = new Map(page.items.map((item) => [item.postId, item] as const));
+        return uniqueIds
+          .map((postId) => byId.get(postId))
+          .filter((item): item is NonNullable<typeof item> => item !== undefined)
+          .map((item) => buildFeedCardShell(viewerId, item));
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("_timeout")) {
+          recordTimeout("feed_card_batch_firestore");
+        }
+        recordFallback("feed_card_batch_firestore_fallback");
+      }
+    }
     const hydrated = await Promise.all(uniqueIds.map((postId) => this.getPostCardSummary(viewerId, postId)));
     return hydrated;
   }
@@ -501,6 +564,26 @@ export class FeedRepository {
         thumbUrl: fromSource.post.thumbUrl,
         assets: fromSource.post.assets
       };
+    }
+
+    if (this.db) {
+      incrementDbOps("queries", 1);
+      const postDoc = await this.db.collection("posts").doc(postId).get();
+      incrementDbOps("reads", postDoc.exists ? 1 : 0);
+      if (!postDoc.exists) {
+        throw new Error("feed_post_not_found");
+      }
+      const raw = (postDoc.data() ?? {}) as Record<string, unknown>;
+      const privacy = typeof raw.privacy === "string" ? raw.privacy.toLowerCase() : "public";
+      if (
+        Boolean(raw.deleted) ||
+        Boolean(raw.isDeleted) ||
+        Boolean(raw.archived) ||
+        Boolean(raw.hidden) ||
+        privacy === "private"
+      ) {
+        throw new Error("feed_post_not_found");
+      }
     }
 
     throw new SourceOfTruthRequiredError("feed_detail_firestore");

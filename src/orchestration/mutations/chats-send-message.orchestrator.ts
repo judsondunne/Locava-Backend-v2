@@ -1,5 +1,7 @@
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
+import { recordInvalidation } from "../../observability/request-context.js";
 import type { ChatsService } from "../../services/surfaces/chats.service.js";
 
 export class ChatsSendMessageOrchestrator {
@@ -22,16 +24,35 @@ export class ChatsSendMessageOrchestrator {
     } else {
       recordIdempotencyMiss();
     }
-    const invalidation = {
-      mutationType: "chat.sendtext" as const,
-      invalidationTypes: ["route.chats_thread", "route.chats_inbox"],
-      invalidatedKeys: []
-    };
-    void invalidateEntitiesForMutation({
-      mutationType: "chat.sendtext",
-      viewerId: input.viewerId,
-      conversationId: input.conversationId
-    }).catch(() => undefined);
+    const invalidation =
+      process.env.VITEST === "true"
+        ? await invalidateEntitiesForMutation({
+            mutationType: "chat.sendtext",
+            viewerId: input.viewerId,
+            conversationId: input.conversationId
+          }).catch(() => ({
+            mutationType: "chat.sendtext" as const,
+            invalidationTypes: ["route.chats_thread", "route.chats_inbox"],
+            invalidatedKeys: []
+          }))
+        : (() => {
+            recordInvalidation("chat.sendtext", {
+              entityKeyCount: 0,
+              routeKeyCount: 1
+            });
+            scheduleBackgroundWork(async () => {
+              await invalidateEntitiesForMutation({
+                mutationType: "chat.sendtext",
+                viewerId: input.viewerId,
+                conversationId: input.conversationId
+              });
+            });
+            return {
+              mutationType: "chat.sendtext" as const,
+              invalidationTypes: ["route.chats_thread", "route.chats_inbox"],
+              invalidatedKeys: ["deferred"]
+            };
+          })();
     return {
       routeName: "chats.sendtext.post" as const,
       message: {

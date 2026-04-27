@@ -1,0 +1,37 @@
+{
+  "projectId": "demo-locava-backendv2",
+  "users": [
+    "internal-viewer",
+    "viewer-a",
+    "author-24",
+    "author-25",
+    "aXngoh9jeqW35FNM3fq1w9aXdEh1",
+    "seed-contact-1",
+    "seed-email-1",
+    "user-1",
+    "user-2",
+    "user-3",
+    "user-4"
+  ],
+  "searchUsersPrefix": "creator-",
+  "posts": {
+    "feedSyntheticPrefix": "internal-viewer-feed-post-",
+    "heavyUserPrefix": "aXngoh9jeqW35FNM3fq1w9aXdEh1-post-",
+    "author24Prefix": "author-24-post-"
+  },
+  "collections": [
+    "saved-internal-viewer",
+    "internal-viewer-collection-1"
+  ],
+  "notifications": [
+    "users/internal-viewer/notifications/*",
+    "users/user-4/notifications/*"
+  ],
+  "chats": [
+    "chat-demo-1"
+  ],
+  "achievements": [
+    "cache/achievements_leagues_v2",
+    "users/internal-viewer/achievements/state"
+  ]
+}

@@ -27,23 +27,21 @@ export class DirectoryUsersService {
           limit,
           excludeUserIds
         });
-        const items = await Promise.all(
-          page.users.map((user) =>
+        const items = page.users.map((user) => ({
+          userId: user.userId,
+          handle: user.handle,
+          name: user.name,
+          pic: user.pic
+        }));
+        void Promise.all(
+          items.map((user) =>
             getOrSetEntityCache(entityCacheKeys.userSummary(user.userId), 25_000, async () => {
               recordEntityConstructed("AuthorSummary");
-              return {
-                userId: user.userId,
-                handle: user.handle,
-                name: user.name,
-                pic: user.pic
-              };
+              return user;
             })
           )
-        );
-        const followingUserIds = await this.repository.getViewerFollowingUserIds(
-          viewerId,
-          page.users.map((user) => user.userId)
-        );
+        ).catch(() => undefined);
+        const followingUserIds = await this.repository.getViewerFollowingUserIds(viewerId, page.users.map((user) => user.userId));
         return {
           ...page,
           items,

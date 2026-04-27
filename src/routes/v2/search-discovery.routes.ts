@@ -9,6 +9,8 @@ import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
 import { SearchDiscoveryService } from "../../services/surfaces/search-discovery.service.js";
+import { SearchAutofillService } from "../../services/search-autofill/search-autofill.service.js";
+import { SearchMixesOrchestrator } from "../../orchestration/searchMixes.orchestrator.js";
 
 const SUGGEST_CACHE_TTL_MS = 20_000;
 const SUGGEST_CACHE_MAX_KEYS = 200;
@@ -320,6 +322,8 @@ function collectionToSearchRow(item: Record<string, unknown>): Record<string, un
 
 export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Promise<void> {
   const service = new SearchDiscoveryService();
+  const autofillService = new SearchAutofillService();
+  const mixesOrchestrator = new SearchMixesOrchestrator();
 
   app.get<{ Querystring: { q?: string } }>("/v2/search/suggest", async (request, reply) => {
     const viewer = buildViewerContext(request);
@@ -339,372 +343,16 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
     if (existingInFlight) {
       return success(await existingInFlight);
     }
-    const userContext =
-      Number.isFinite(query.lat) && Number.isFinite(query.lng)
-        ? { lat: Number(query.lat), lng: Number(query.lng) }
-        : undefined;
-    const modernSuggestPromise = (async (): Promise<Record<string, unknown>> => {
-      const parsedIntent = service.parseIntent(q);
-      const locationQuery =
-        parsedIntent.location?.normalized && parsedIntent.location.normalized.length >= 2
-          ? parsedIntent.location.normalized
-          : q;
-      const shouldLoadUsers =
-        q.length >= 3 &&
-        !parsedIntent.activity &&
-        !parsedIntent.location &&
-        !q.includes(" in ") &&
-        !q.includes(" near ");
-      const [locationRows, userSuggestions] = await Promise.all([
-        service.loadLocationSuggestions(locationQuery, 6),
-        shouldLoadUsers ? service.searchUsersForQuery(q, 4) : Promise.resolve([]),
-      ]);
-      const payload = service.buildSuggestPayload({
+    const loadPromise = (async (): Promise<Record<string, unknown>> => {
+      const payload = await autofillService.suggest({
         query: q,
-        locationRows,
-        userSuggestions,
-      }) as unknown as Record<string, unknown>;
+        lat: Number.isFinite(query.lat) ? Number(query.lat) : null,
+        lng: Number.isFinite(query.lng) ? Number(query.lng) : null,
+        mode: "social",
+      });
       suggestCache.set(cacheKey, { expiresAtMs: Date.now() + SUGGEST_CACHE_TTL_MS, payload });
       trimSuggestCache();
-      return payload;
-    })();
-    suggestInFlight.set(cacheKey, modernSuggestPromise);
-    try {
-      return success(await modernSuggestPromise);
-    } finally {
-      suggestInFlight.delete(cacheKey);
-    }
-    if (ENABLE_LEGACY_SUGGEST_BRIDGE) {
-      try {
-        const legacy = await loadLegacySuggestMods();
-        const parsed = legacy.parserService.parseQuery(q);
-        const suggestionsRaw = await legacy.suggestionsService.generateSuggestions(q, userContext, { mode: "social" });
-        const suggestions = suggestionsRaw.map((row) => {
-          const suggestionType = legacySuggestionType(row);
-          const badge = legacySuggestionBadge(row);
-          return {
-            ...row,
-            suggestionType,
-            ...(badge ? { badge } : {})
-          };
-        });
-        const detectedActivityRaw =
-          (parsed.entities?.activity as { canonical?: string } | undefined)?.canonical ??
-          null;
-        const detectedActivity = typeof detectedActivityRaw === "string" ? detectedActivityRaw : null;
-        const relKey = String(detectedActivity ?? "").trim().toLowerCase();
-        const related = relKey ? (legacy.relatedActivities[relKey] ?? []).slice(0, 4) : [];
-        const payload = {
-          routeName: "search.suggest.get",
-          suggestions,
-          detectedActivity,
-          relatedActivities: related
-        };
-        suggestCache.set(cacheKey, { expiresAtMs: Date.now() + SUGGEST_CACHE_TTL_MS, payload });
-        trimSuggestCache();
-        return success(payload);
-      } catch {
-        // fall through to native v2 suggest behavior
-      }
-    }
-    const loadPromise = (async (): Promise<Record<string, unknown>> => {
-    const fastWordCompletion = buildWordCompletionFromHints(q);
-    const fastBestInState = buildBestInStateCompletionsFromHints(q);
-    const hasInPhrase = q.includes(" in ") || q.endsWith(" in") || q.endsWith(" i");
-    const fastExactActivity =
-      FAST_ACTIVITY_HINTS.find((a) => a === q || a.startsWith(q) || q.startsWith(a)) ?? null;
-    if (fastBestInState && !hasInPhrase) {
-      return {
-        routeName: "search.suggest.get",
-        suggestions: [
-          {
-            text: fastBestInState.activity,
-            type: "activity",
-            suggestionType: "activity",
-            badge: "Popular",
-            data: { canonical: fastBestInState.activity, activity: fastBestInState.activity }
-          },
-          ...fastBestInState.rows
-        ],
-        detectedActivity: fastBestInState.activity,
-        relatedActivities: FAST_ACTIVITY_HINTS.filter((a) => a !== fastBestInState.activity).slice(0, 4)
-      };
-    }
-    if (fastWordCompletion && !hasInPhrase) {
-      return {
-        routeName: "search.suggest.get",
-        suggestions: [
-          {
-            text: fastWordCompletion.replace(/^best\s+/i, ""),
-            type: "activity",
-            suggestionType: "activity",
-            badge: "Popular",
-            data: { canonical: fastWordCompletion.replace(/^best\s+/i, ""), activity: fastWordCompletion.replace(/^best\s+/i, "") }
-          },
-          {
-            text: fastWordCompletion,
-            type: "sentence",
-            suggestionType: "template",
-            data: { activity: fastWordCompletion.replace(/^best\s+/i, "") }
-          }
-        ],
-        detectedActivity: fastWordCompletion.replace(/^best\s+/i, ""),
-        relatedActivities: FAST_ACTIVITY_HINTS.filter((a) => a !== fastWordCompletion.replace(/^best\s+/i, "")).slice(0, 4)
-      };
-    }
-    if (fastExactActivity && !hasInPhrase) {
-      return {
-        routeName: "search.suggest.get",
-        suggestions: [
-          {
-            text: fastExactActivity,
-            type: "activity",
-            suggestionType: "activity",
-            badge: "Popular",
-            data: { canonical: fastExactActivity, activity: fastExactActivity }
-          },
-          {
-            text: `${fastExactActivity} near me`,
-            type: "smart_completion",
-            suggestionType: "activity",
-            data: { activity: fastExactActivity, nearMe: true }
-          }
-        ],
-        detectedActivity: fastExactActivity,
-        relatedActivities: FAST_ACTIVITY_HINTS.filter((a) => a !== fastExactActivity).slice(0, 4)
-      };
-    }
-    const locationFragment = extractLocationFragment(q);
-    const locationQuery = locationFragment.length >= 1 ? locationFragment : q;
-    const earlyLocationRows = await service.loadLocationSuggestions(locationQuery, 6);
-    const looksLikePlainPlaceQuery =
-      q.length >= 3 &&
-      !q.includes("near me") &&
-      !q.includes("nearby") &&
-      !q.includes(" best ") &&
-      !q.startsWith("best ") &&
-      !q.includes(" in ");
-    if (looksLikePlainPlaceQuery && earlyLocationRows.length > 0) {
-      return {
-        routeName: "search.suggest.get",
-        suggestions: [
-          {
-            text: q,
-            type: "natural_echo",
-            suggestionType: "template",
-            data: { originalQuery: q, completedPart: "" }
-          },
-          ...earlyLocationRows.map((row) => ({
-            text: row.text,
-            type: "town",
-            suggestionType: "place",
-            data: {
-              cityRegionId: row.cityRegionId || "",
-              stateRegionId: row.stateRegionId || ""
-            }
-          }))
-        ],
-        detectedActivity: null,
-        relatedActivities: []
-      };
-    }
-    const topActivities = await service.loadTopActivities(24);
-    const tokens = splitQueryTokens(q).filter((t) => t.length >= 2);
-    const normalizedTokens = tokens.map(normalizeTerm);
-    const matchedActivity =
-      topActivities.find(
-        (a) =>
-          a.startsWith(q) ||
-          q.includes(a) ||
-          normalizedTokens.some((token) => normalizeTerm(a).includes(token) || token.includes(normalizeTerm(a)))
-      ) ?? null;
-    const related = matchedActivity ? topActivities.filter((a) => a !== matchedActivity).slice(0, 4) : topActivities.slice(0, 4);
-    const looksActivityLike = FAST_ACTIVITY_HINTS.some((a) => a.includes(q) || q.includes(a));
-    const shouldLookupUsers = q.length >= 2 && !q.includes("near me") && earlyLocationRows.length === 0 && !looksActivityLike;
-    let userRows: Array<Record<string, unknown>> = [];
-    if (shouldLookupUsers) {
-      const usersResponse = await app.inject({
-        method: "GET",
-        url: `/v2/search/users?q=${encodeURIComponent(q)}&limit=3`,
-        headers: { "x-viewer-id": viewer.viewerId, "x-viewer-roles": "internal" }
-      });
-      const usersPayload = usersResponse.json() as Record<string, unknown>;
-      const usersData = usersPayload.data as Record<string, unknown> | undefined;
-      const userItems = (usersData?.items ?? []) as Array<Record<string, unknown>>;
-      userRows = userItems.map((item) => ({
-        text: String(item.name ?? item.handle ?? ""),
-        type: "user",
-        suggestionType: "user",
-        data: {
-          userId: String(item.userId ?? item.id ?? ""),
-          handle: String(item.handle ?? ""),
-          profilePic: String(item.profilePic ?? "")
-        }
-      }));
-    }
-    const completionActivity = resolveActivityCompletion(q, topActivities);
-    const isBestPrefix = /^best\s+/i.test(q);
-    const phrasePrefix = q.endsWith(" i")
-      ? `${q.slice(0, -1).trim()} in`
-      : q;
-    const inIdx = q.lastIndexOf(" in ");
-    const phraseBase = inIdx >= 0 ? `${q.slice(0, inIdx).trim()} in` : phrasePrefix;
-    const activityRows = (!hasInPhrase && !isBestPrefix ? topActivities : [])
-      .filter(
-        (a) =>
-          a.includes(q) ||
-          q.includes(a) ||
-          normalizedTokens.some((token) => normalizeTerm(a).includes(token))
-      )
-      .slice(0, 4)
-      .map((activity) => ({
-        text: activity,
-        type: "activity",
-        suggestionType: "activity",
-        badge: "Popular",
-        data: { canonical: activity, activity }
-      }));
-    const baseLocationRows = earlyLocationRows.slice(0, 4);
-    const locationRows = baseLocationRows.map((row) => {
-      const text = hasInPhrase
-        ? `${phraseBase} ${row.text}`.replace(/\s+/g, " ").trim()
-        : row.text;
-      return {
-      text,
-      type: "town",
-      suggestionType: "place",
-      data: {
-        cityRegionId: row.cityRegionId || "",
-        stateRegionId: row.stateRegionId || "",
-        activity: matchedActivity ?? undefined
-      }
-    };});
-    const sentenceRows: Array<Record<string, unknown>> = [];
-    const smartCompletionRows: Array<Record<string, unknown>> = [];
-    const wordCompletion = hasInPhrase ? null : buildWordCompletion(q, topActivities);
-    if (wordCompletion) {
-      sentenceRows.push({
-        text: wordCompletion,
-        type: "sentence",
-        suggestionType: "template",
-        data: {
-          activity: wordCompletion.replace(/^best\s+/i, ""),
-        },
-      });
-    }
-    if (!hasInPhrase && completionActivity && !q.includes("near me")) {
-      const lead = isBestPrefix ? `best ${completionActivity}` : completionActivity;
-      smartCompletionRows.push({
-        text: `${lead} near me`.replace(/\s+/g, " ").trim(),
-        type: "smart_completion",
-        suggestionType: "activity",
-        data: { activity: completionActivity, nearMe: true }
-      });
-    } else if (!hasInPhrase && matchedActivity && !q.includes("near me")) {
-      smartCompletionRows.push({
-        text: `${matchedActivity} near me`,
-        type: "smart_completion",
-        suggestionType: "activity",
-        data: { activity: matchedActivity, nearMe: true }
-      });
-    }
-    if (matchedActivity) {
-      sentenceRows.push({
-        text: `best ${matchedActivity}`,
-        type: "smart_completion",
-        suggestionType: "template",
-        data: {
-          activity: matchedActivity
-        }
-      });
-      if (q.includes("near me") || q.includes("nearby")) {
-        sentenceRows.push({
-          text: `${matchedActivity} near me`,
-          type: "sentence",
-          suggestionType: "template",
-          data: {
-            activity: matchedActivity,
-            nearMe: true
-          }
-        });
-      }
-      if (locationRows.length > 0 && !hasInPhrase) {
-        sentenceRows.push({
-          text: `${matchedActivity} in ${locationRows[0]?.text}`,
-          type: "sentence",
-          suggestionType: "template",
-          data: {
-            activity: matchedActivity,
-            cityRegionId: (locationRows[0]?.data as Record<string, unknown> | undefined)?.cityRegionId ?? "",
-            stateRegionId: (locationRows[0]?.data as Record<string, unknown> | undefined)?.stateRegionId ?? ""
-          }
-        });
-      }
-    }
-    const stateCompletions = hasInPhrase ? buildStateCompletions(q) : [];
-    if (stateCompletions.length > 0) {
-      for (const state of stateCompletions) {
-        sentenceRows.push({
-          text: matchedActivity ? `best ${matchedActivity} in ${state}` : `${q.replace(/\bin\s+[a-z\s]*$/i, "in")} ${state}`.trim(),
-          type: "state",
-          suggestionType: "template",
-          data: {
-            activity: matchedActivity ?? undefined,
-            stateRegionId: state,
-          },
-        });
-      }
-    }
-    if (US_STATES.includes(q)) {
-      sentenceRows.push({
-        text: q,
-        type: "state",
-        suggestionType: "template",
-        data: { stateRegionId: q }
-      });
-      sentenceRows.push({
-        text: `${q}, ${q}`,
-        type: "natural_echo",
-        suggestionType: "template",
-        data: { stateRegionId: q }
-      });
-    }
-    if (!q.includes("near me") && completionActivity && !q.includes(" in ")) {
-      sentenceRows.push({
-        text: `${completionActivity} near me`,
-        type: "natural_echo",
-        suggestionType: "activity",
-        data: { activity: completionActivity, nearMe: true }
-      });
-    }
-    const rawSuggestions = [...userRows, ...smartCompletionRows, ...locationRows, ...activityRows, ...sentenceRows];
-    const seen = new Set<string>();
-    const suggestions = rawSuggestions.filter((row) => {
-      const key = `${String(row.type ?? "")}:${String(row.text ?? "").trim().toLowerCase()}`;
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    if (suggestions.length === 0) {
-      suggestions.push(
-        ...topActivities.slice(0, 4).map((activity) => ({
-          text: activity,
-          type: "activity",
-          suggestionType: "activity",
-          badge: "Popular",
-          data: { canonical: activity, activity }
-        }))
-      );
-    }
-    const payload = {
-      routeName: "search.suggest.get",
-      suggestions,
-      detectedActivity: matchedActivity,
-      relatedActivities: related
-    };
-    suggestCache.set(cacheKey, { expiresAtMs: Date.now() + SUGGEST_CACHE_TTL_MS, payload });
-    trimSuggestCache();
-    return payload;
+      return payload as unknown as Record<string, unknown>;
     })();
     suggestInFlight.set(cacheKey, loadPromise);
     try {
@@ -814,57 +462,40 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
       if (!canUseV2Surface("search", viewer.roles)) {
         return reply.status(403).send(failure("v2_surface_disabled", "Search v2 surface is not enabled for this viewer"));
       }
-      const limit = Math.max(1, Math.min(36, Number(request.body?.limit ?? 20) || 20));
-      const cursorOffset = decodeMixCursor(request.body?.cursor);
-      const mixSpec = (request.body?.mixSpec ?? {}) as Record<string, unknown>;
-      const seedActivityRaw =
-        ((mixSpec.seeds as Record<string, unknown> | undefined)?.primaryActivityId as string | undefined) ??
-        (mixSpec.heroQuery as string | undefined) ??
-        "";
-      const seedActivity = String(seedActivityRaw).trim().toLowerCase();
-      const ranked = seedActivity
-        ? await service.searchPostsForQuery(seedActivity, { limit: Math.min(120, cursorOffset + limit + 1) })
-        : await service.loadRecentPosts(Math.min(120, cursorOffset + limit + 1));
-      const strictFiltered = seedActivity
-        ? ranked.filter((post) => {
-            const seedTokens = new Set(tokenizeNormalized(seedActivity));
-            const titleText = String(post.title ?? "").trim().toLowerCase();
-            const titleTokens = new Set(tokenizeNormalized(titleText));
-            const rawActivities = Array.isArray(post.activities) ? post.activities : [];
-            const activityTokens = rawActivities.flatMap((value) => tokenizeNormalized(value));
-            const activityTokenSet = new Set(activityTokens);
-            if (hasLikelyActivityTagSpam(rawActivities)) return false;
-            const hasExactSeedActivity = rawActivities.some((value) => hasExactPhrase(String(value ?? ""), seedActivity));
-            const hasExactTitlePhrase = hasExactPhrase(titleText, seedActivity);
-            if (hasExactSeedActivity || hasExactTitlePhrase) return true;
-            if (seedTokens.size === 0) return false;
-            return [...seedTokens].every((token) => titleTokens.has(token) || activityTokenSet.has(token));
-          })
-        : ranked;
-      const relaxedFiltered = seedActivity
-        ? ranked.filter((post) => {
-            const seedTokens = new Set(tokenizeNormalized(seedActivity));
-            const titleText = String(post.title ?? "").trim().toLowerCase();
-            const titleTokens = new Set(tokenizeNormalized(titleText));
-            const activityTokens = Array.isArray(post.activities)
-              ? post.activities.flatMap((value) => tokenizeNormalized(value))
-              : [];
-            const hasExactTitlePhrase = hasExactPhrase(titleText, seedActivity);
-            const hasActivityToken = [...seedTokens].some((token) => activityTokens.includes(token));
-            const hasTitleToken = [...seedTokens].some((token) => titleTokens.has(token));
-            return hasExactTitlePhrase || hasActivityToken || hasTitleToken;
-          })
-        : ranked;
-      const filtered = strictFiltered.length > 0 ? strictFiltered : relaxedFiltered;
-      const pageRows = filtered.slice(cursorOffset, cursorOffset + limit + 1);
-      const hasMore = pageRows.length > limit;
-      return success({
-        routeName: "mixes.feed.post",
-        posts: pageRows.slice(0, limit),
-        nextCursor: hasMore ? `cursor:${cursorOffset + limit}` : null,
-        hasMore,
-        rankingVersion: "mix_v1"
-      });
+      setRouteName("mixes.feed.post");
+      try {
+        const limit = Math.max(1, Math.min(36, Number(request.body?.limit ?? 20) || 20));
+        const cursorOffset = decodeMixCursor(request.body?.cursor);
+        const mixSpec = (request.body?.mixSpec ?? {}) as Record<string, unknown>;
+        const seedActivityRaw =
+          ((mixSpec.seeds as Record<string, unknown> | undefined)?.primaryActivityId as string | undefined) ??
+          (mixSpec.heroQuery as string | undefined) ??
+          "";
+        const seedActivity = String(seedActivityRaw).trim().toLowerCase();
+
+        const mixId = seedActivity ? `activity:${seedActivity}` : "nearby:near_you";
+        const payload = await mixesOrchestrator.feedPage({
+          viewerId: viewer.viewerId,
+          mixId,
+          lat: typeof request.body?.lat === "number" && Number.isFinite(request.body.lat) ? request.body.lat : null,
+          lng: typeof request.body?.lng === "number" && Number.isFinite(request.body.lng) ? request.body.lng : null,
+          limit,
+          cursor: null,
+          cursorOffsetOverride: cursorOffset,
+          includeDebug: Boolean((request.body as any)?.includeDebug),
+        });
+
+        const hasMore = payload.hasMore;
+        return success({
+          routeName: "mixes.feed.post",
+          posts: payload.posts,
+          nextCursor: hasMore ? `cursor:${cursorOffset + limit}` : null,
+          hasMore,
+          rankingVersion: "mix_v1"
+        });
+      } catch (error) {
+        return reply.status(503).send(failure("upstream_unavailable", "Mix feed is temporarily unavailable"));
+      }
     }
   );
 
@@ -889,13 +520,32 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
       return success(await inFlight);
     }
     const run = (async () => {
-      const posts = await service.loadRecentPosts(limit);
-      return {
-      routeName: "mixes.area.post",
-      townDisplayName: "Near you",
-      posts,
-      showNearYouCopy: true
-      };
+      try {
+        const payload = await mixesOrchestrator.feedPage({
+          viewerId: viewer.viewerId,
+          mixId: "nearby:near_you",
+          lat: Number.isFinite(lat) ? lat : null,
+          lng: Number.isFinite(lng) ? lng : null,
+          limit,
+          cursor: null,
+          cursorOffsetOverride: 0,
+          includeDebug: false,
+        });
+        const posts = payload.posts;
+        return {
+          routeName: "mixes.area.post",
+          townDisplayName: "Near you",
+          posts,
+          showNearYouCopy: true
+        };
+      } catch (error) {
+        return {
+          routeName: "mixes.area.post",
+          townDisplayName: "Near you",
+          posts: [],
+          showNearYouCopy: true
+        };
+      }
     })();
     mixesAreaInFlight.set(cacheKey, run);
     try {

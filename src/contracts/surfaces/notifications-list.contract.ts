@@ -19,7 +19,7 @@ export const NotificationsListResponseSchema = z.object({
   }),
   items: z.array(NotificationSummarySchema),
   unread: z.object({
-    count: z.number().int().nonnegative()
+    count: z.number().int().nonnegative().nullable()
   }),
   degraded: z.boolean(),
   fallbacks: z.array(z.string())

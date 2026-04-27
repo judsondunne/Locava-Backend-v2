@@ -1,5 +1,8 @@
 import type { MapMarkerSummary } from "../../contracts/entities/map-entities.contract.js";
+import { loadEnv } from "../../config/env.js";
 import { MapMarkersFirestoreAdapter } from "../source-of-truth/map-markers-firestore.adapter.js";
+
+const env = loadEnv();
 
 export type MapBounds = {
   minLng: number;
@@ -37,7 +40,7 @@ export class MapRepository {
     const page = await this.adapter.fetchWindow({
       bounds: input.bounds,
       limit: input.limit,
-      maxDocs: Math.max(180, input.limit * 2)
+      maxDocs: env.MAP_MARKERS_MAX_DOCS
     });
     return {
       markers: page.markers.map((marker) => ({
@@ -45,11 +48,11 @@ export class MapRepository {
         postId: marker.postId,
         lat: marker.lat,
         lng: marker.lng,
-        thumbUrl: marker.thumbnailUrl ?? "",
+        thumbUrl: marker.thumbnailUrl ?? null,
         mediaType: marker.hasVideo ? "video" : "image",
-        ts: marker.createdAt ?? Date.now(),
-        activityIds: marker.activities,
-        settingType: "outdoor"
+        ts: marker.updatedAt ?? marker.createdAt ?? Date.now(),
+        activityIds: uniqueStrings([...(marker.activities ?? []), ...(marker.activity ? [marker.activity] : [])]),
+        settingType: null
       })),
       hasMore: page.hasMore,
       nextCursor: page.nextCursor
@@ -58,3 +61,13 @@ export class MapRepository {
 }
 
 export const mapRepository = new MapRepository();
+
+function uniqueStrings(values: string[]): string[] {
+  const out: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || out.includes(trimmed)) continue;
+    out.push(trimmed);
+  }
+  return out;
+}

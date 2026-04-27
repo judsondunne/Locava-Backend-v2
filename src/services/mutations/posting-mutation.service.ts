@@ -2,11 +2,13 @@ import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { withMutationLock } from "../../lib/mutation-lock.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { AuthBootstrapFirestoreAdapter } from "../../repositories/source-of-truth/auth-bootstrap-firestore.adapter.js";
 import { readWasabiConfigFromEnv } from "../storage/wasabi-config.js";
 import { buildFinalizedSessionAssetPlan } from "../storage/wasabi-presign.service.js";
 import { postingAchievementsService } from "./posting-achievements.service.js";
@@ -29,23 +31,27 @@ type FinalizeStagedItem = {
 };
 
 export class PostingMutationService {
-  private readonly completionTimers = new Map<string, NodeJS.Timeout>();
-  private readonly mediaVerificationTimers = new Map<string, NodeJS.Timeout>();
-  private readonly achievementProcessingTimers = new Map<string, NodeJS.Timeout>();
-  private readonly viewerDocWarmTimers = new Map<string, NodeJS.Timeout>();
-  private readonly finalizeSupplementaryWriteTimers = new Map<string, NodeJS.Timeout>();
+  private readonly completionTimers = new Map<string, true>();
+  private readonly mediaVerificationTimers = new Map<string, true>();
+  private readonly achievementProcessingTimers = new Map<string, true>();
+  private readonly viewerDocWarmTimers = new Map<string, true>();
+  private readonly finalizeSupplementaryWriteTimers = new Map<string, true>();
+  private readonly authBootstrapAdapter = new AuthBootstrapFirestoreAdapter();
 
   async createUploadSession(input: {
     viewerId: string;
     clientSessionKey: string;
     mediaCountHint: number;
   }): Promise<{ session: UploadSessionRecord; idempotent: boolean }> {
-    this.scheduleViewerDocCacheWarm(input.viewerId);
-    return dedupeInFlight(`posting:create-session:${input.viewerId}:${input.clientSessionKey}`, () =>
-      withConcurrencyLimit("posting-create-session", 12, () =>
-        postingMutationRepository.createUploadSession(input)
-      )
-    );
+    return dedupeInFlight(`posting:create-session:${input.viewerId}:${input.clientSessionKey}`, async () => {
+      const [result] = await Promise.all([
+        withConcurrencyLimit("posting-create-session", 12, () =>
+          postingMutationRepository.createUploadSession(input)
+        ),
+        this.ensureViewerIdentityCached(input.viewerId)
+      ]);
+      return result;
+    });
   }
 
   async finalizePosting(input: {
@@ -245,12 +251,11 @@ export class PostingMutationService {
     postId: string
   ): void {
     if (this.achievementProcessingTimers.has(postId)) return;
-    const timer = setTimeout(() => {
+    this.achievementProcessingTimers.set(postId, true);
+    scheduleBackgroundWork(async () => {
       this.achievementProcessingTimers.delete(postId);
-      void this.buildFinalizeAchievementDelta(input, postId).catch(() => undefined);
-    }, 0);
-    timer.unref?.();
-    this.achievementProcessingTimers.set(postId, timer);
+      await this.buildFinalizeAchievementDelta(input, postId);
+    });
   }
 
   private shouldEnforceFinalizeAssertions(): boolean {
@@ -264,12 +269,46 @@ export class PostingMutationService {
   private scheduleViewerDocCacheWarm(viewerId: string): void {
     if (this.shouldEnforceFinalizeAssertions()) return;
     if (this.viewerDocWarmTimers.has(viewerId)) return;
-    const timer = setTimeout(() => {
+    this.viewerDocWarmTimers.set(viewerId, true);
+    scheduleBackgroundWork(async () => {
       this.viewerDocWarmTimers.delete(viewerId);
-      void this.ensureViewerDocCached(viewerId).catch(() => undefined);
-    }, 0);
-    timer.unref?.();
-    this.viewerDocWarmTimers.set(viewerId, timer);
+      await this.ensureViewerIdentityCached(viewerId);
+    });
+  }
+
+  private async ensureViewerIdentityCached(viewerId: string): Promise<void> {
+    const cachedSummary =
+      (await globalCache.get<{
+        handle?: unknown;
+        name?: unknown;
+        pic?: unknown;
+      }>(entityCacheKeys.userSummary(viewerId))) ?? null;
+    if (cachedSummary) {
+      return;
+    }
+    const adapterSummary = AuthBootstrapFirestoreAdapter.getCachedViewerSummary(viewerId);
+    if (adapterSummary) {
+      await globalCache.set(
+        entityCacheKeys.userSummary(viewerId),
+        {
+          userId: viewerId,
+          handle: adapterSummary.handle,
+          name: adapterSummary.name,
+          pic: adapterSummary.pic
+        },
+        30_000
+      );
+      return;
+    }
+    try {
+      if (this.authBootstrapAdapter.isEnabled()) {
+        await this.authBootstrapAdapter.getViewerBootstrapFields(viewerId);
+        return;
+      }
+    } catch {
+      // Fall through to the broader user-doc cache warm.
+    }
+    await this.ensureViewerDocCached(viewerId);
   }
 
   private async ensureViewerDocCached(viewerId: string): Promise<Record<string, unknown> | null> {
@@ -283,7 +322,31 @@ export class PostingMutationService {
     }
     const snap = await db.collection("users").doc(viewerId).get();
     const data = (snap.data() ?? {}) as Record<string, unknown>;
-    await globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 25_000);
+    await Promise.all([
+      globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 25_000),
+      globalCache.set(
+        entityCacheKeys.userSummary(viewerId),
+        {
+          userId: viewerId,
+          handle: typeof data.handle === "string" ? data.handle : "",
+          name:
+            typeof data.name === "string"
+              ? data.name
+              : typeof data.displayName === "string"
+                ? data.displayName
+                : "",
+          pic:
+            typeof data.profilePic === "string"
+              ? data.profilePic
+              : typeof data.profilePicSmall === "string"
+                ? data.profilePicSmall
+                : typeof data.photo === "string"
+                  ? data.photo
+                  : null
+        },
+        25_000
+      )
+    ]);
     return data;
   }
 
@@ -294,38 +357,52 @@ export class PostingMutationService {
     nowTs: Timestamp;
   }): void {
     if (this.finalizeSupplementaryWriteTimers.has(input.postId)) return;
-    const timer = setTimeout(() => {
+    this.finalizeSupplementaryWriteTimers.set(input.postId, true);
+    scheduleBackgroundWork(async () => {
       this.finalizeSupplementaryWriteTimers.delete(input.postId);
       const db = getFirestoreSourceClient();
       if (!db) return;
-      void db
-        .runTransaction(async (tx) => {
-          const userPostRef = db.collection("users").doc(input.viewerId).collection("posts").doc(input.postId);
-          const achievementsStateRef = db.collection("users").doc(input.viewerId).collection("achievements").doc("state");
-          const existingUserPost = await tx.get(userPostRef);
-          if (existingUserPost.exists) return;
-          tx.set(
-            userPostRef,
-            {
-              postId: input.postId,
-              createdAt: input.nowTs,
-              time: input.nowTs
-            },
-            { merge: true }
-          );
-          tx.set(
-            achievementsStateRef,
-            {
-              totalPosts: FieldValue.increment(1),
-              updatedAt: input.now
-            },
-            { merge: true }
-          );
-        })
-        .catch(() => undefined);
-    }, 0);
-    timer.unref?.();
-    this.finalizeSupplementaryWriteTimers.set(input.postId, timer);
+      await db.runTransaction(async (tx) => {
+        const userRef = db.collection("users").doc(input.viewerId);
+        const userPostRef = db.collection("users").doc(input.viewerId).collection("posts").doc(input.postId);
+        const achievementsStateRef = db.collection("users").doc(input.viewerId).collection("achievements").doc("state");
+        const existingUserPost = await tx.get(userPostRef);
+        if (existingUserPost.exists) return;
+        tx.set(
+          userRef,
+          {
+            numPosts: FieldValue.increment(1),
+            postCount: FieldValue.increment(1),
+            postsCount: FieldValue.increment(1),
+            postCountVerifiedValue: FieldValue.increment(1),
+            postCountVerifiedAtMs: input.now,
+            updatedAt: input.now
+          },
+          { merge: true }
+        );
+        tx.set(
+          userPostRef,
+          {
+            postId: input.postId,
+            createdAt: input.nowTs,
+            time: input.nowTs
+          },
+          { merge: true }
+        );
+        tx.set(
+          achievementsStateRef,
+          {
+            totalPosts: FieldValue.increment(1),
+            updatedAt: input.now
+          },
+          { merge: true }
+        );
+      });
+      await Promise.allSettled([
+        globalCache.del(entityCacheKeys.userPostCount(input.viewerId)),
+        globalCache.del(entityCacheKeys.userFirestoreDoc(input.viewerId))
+      ]);
+    });
   }
 
   private async assertFinalizePollInvariant(viewerId: string, postId: string, sessionId: string): Promise<void> {
@@ -404,7 +481,6 @@ export class PostingMutationService {
     uploadedObjectKey: string | null;
   }): Promise<{ media: PostingMediaRecord; idempotent: boolean }> {
     return dedupeInFlight(`posting:media:uploaded:${input.viewerId}:${input.mediaId}`, async () => {
-      await this.ensureViewerDocCached(input.viewerId);
       return (
       withConcurrencyLimit("posting-media-mark-uploaded", 10, () =>
         withMutationLock(`posting-media:${input.viewerId}:${input.mediaId}`, () =>
@@ -423,27 +499,28 @@ export class PostingMutationService {
 
   private scheduleCompletionInvalidation(viewerId: string, operationId: string): void {
     if (this.completionTimers.has(operationId)) return;
-    const timer = setTimeout(() => {
+    this.completionTimers.set(operationId, true);
+    scheduleBackgroundWork(async () => {
       this.completionTimers.delete(operationId);
-      void this.getPostingOperationWithInvalidation(viewerId, operationId).catch(() => undefined);
+      await this.getPostingOperationWithInvalidation(viewerId, operationId);
     }, 1600);
-    timer.unref?.();
-    this.completionTimers.set(operationId, timer);
   }
 
   private scheduleCanonicalMediaVerification(postId: string): void {
+    if (process.env.NODE_ENV !== "production") {
+      return;
+    }
     if (this.mediaVerificationTimers.has(postId)) return;
-    const timer = setTimeout(() => {
+    this.mediaVerificationTimers.set(postId, true);
+    scheduleBackgroundWork(async () => {
       this.mediaVerificationTimers.delete(postId);
-      void this.assertCanonicalMediaPubliclyReadable(postId).catch((error) => {
+      await this.assertCanonicalMediaPubliclyReadable(postId).catch((error) => {
         console.warn("[posting.finalize] deferred media verification failed", {
           postId,
           error: error instanceof Error ? error.message : String(error)
         });
       });
-    }, 0);
-    timer.unref?.();
-    this.mediaVerificationTimers.set(postId, timer);
+    });
   }
 
   private async getPostingOperationWithInvalidation(
@@ -665,6 +742,21 @@ export class PostingMutationService {
     const startedAt = debugTimings ? Date.now() : 0;
 
     let userData = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId))) ?? null;
+    if (!userData) {
+      const cachedSummary =
+        (await globalCache.get<{
+          handle?: unknown;
+          name?: unknown;
+          pic?: unknown;
+        }>(entityCacheKeys.userSummary(input.viewerId))) ?? null;
+      if (cachedSummary) {
+        userData = {
+          handle: typeof cachedSummary.handle === "string" ? cachedSummary.handle : "",
+          name: typeof cachedSummary.name === "string" ? cachedSummary.name : "",
+          profilePic: typeof cachedSummary.pic === "string" ? cachedSummary.pic : ""
+        };
+      }
+    }
     if (debugTimings) {
       console.info("[posting.finalize.timing] publishCanonicalPostDirect:cacheLookup", { ms: Date.now() - startedAt, hit: !!userData });
     }
@@ -742,27 +834,14 @@ export class PostingMutationService {
     };
 
     const postRef = db.collection("posts").doc(postId);
-    const userRef = db.collection("users").doc(input.viewerId);
-    await db.runTransaction(async (tx) => {
-      const existingPost = await tx.get(postRef);
-      if (existingPost.exists) return;
-      tx.set(postRef, postDoc, { merge: true });
-      tx.set(
-        userRef,
-        {
-          numPosts: FieldValue.increment(1),
-          postCount: FieldValue.increment(1),
-          postsCount: FieldValue.increment(1),
-          postCountVerifiedAtMs: now,
-          updatedAt: now
-        },
-        { merge: true }
-      );
-    });
-    await Promise.allSettled([
-      globalCache.del(entityCacheKeys.userPostCount(input.viewerId)),
-      globalCache.del(entityCacheKeys.userFirestoreDoc(input.viewerId))
-    ]);
+    try {
+      await postRef.create(postDoc);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes("ALREADY_EXISTS")) {
+        throw error;
+      }
+    }
     this.scheduleFinalizeSupplementaryWrites({
       viewerId: input.viewerId,
       postId,
@@ -770,7 +849,7 @@ export class PostingMutationService {
       nowTs
     });
     if (debugTimings) {
-      console.info("[posting.finalize.timing] publishCanonicalPostDirect:batchCommit", { ms: Date.now() - startedAt });
+      console.info("[posting.finalize.timing] publishCanonicalPostDirect:canonicalCreate", { ms: Date.now() - startedAt });
     }
     return postId;
   }

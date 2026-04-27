@@ -11,8 +11,10 @@ export class PostsDetailOrchestrator {
   async run(input: { viewerId: string; postId: string }): Promise<PostsDetailResponse> {
     const startedAt = Date.now();
     const { viewerId, postId } = input;
-    const cardSummary = await this.service.loadPostCardSummary(viewerId, postId);
-    const post = await this.service.loadPostDetail(postId, viewerId);
+    const [cardSummary, post] = await Promise.all([
+      this.service.loadPostCardSummary(viewerId, postId),
+      this.service.loadPostDetail(postId, viewerId)
+    ]);
     const author = cardSummary.author;
     const social = cardSummary.social;
     const viewer = cardSummary.viewer;

@@ -104,6 +104,40 @@ type JsonReport = {
   actions: NativeActionRecord[];
 };
 
+type DemoCriticalStatus = "COVERED" | "MISSING_TEST" | "BROKEN" | "INTENTIONAL_LOW_RISK";
+
+type DemoCriticalSpec = {
+  screen: string;
+  component: string;
+  userAction: string;
+  visualBehavior: string;
+  expectedRouteNames: string[];
+  expectedSourceOfTruth: string[];
+  expectedCacheInvalidation: string[];
+  expectedRouteSummary?: string;
+  fileIncludes?: string[];
+  functionNames?: string[];
+  routeNamePrefixes?: string[];
+  normalizedPathPrefixes?: string[];
+  coverageHints?: string[];
+  lowRisk?: boolean;
+  notes?: string[];
+};
+
+type DemoCriticalRow = {
+  screen: string;
+  component: string;
+  userAction: string;
+  visualBehavior: string;
+  expectedRoute: string;
+  expectedSourceOfTruth: string[];
+  expectedCacheInvalidation: string[];
+  existingCoverage: string[];
+  status: DemoCriticalStatus;
+  notes: string[];
+  matchedActions: NativeActionRecord[];
+};
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const backendRoot = path.resolve(here, "..");
 const workspaceRoot = path.resolve(backendRoot, "..");
@@ -128,6 +162,643 @@ const SET_ROUTE_NAME_RE_GLOBAL = /setRouteName\(\s*(?:"([^"]+)"|'([^']+)'|`([^`]
 const DISABLED_PATTERNS = [/unsupported/i, /not_supported/i, /disabled/i, /boundedV2ReadMode\s*\?\s*undefined/i];
 const LEGACY_OK_PATTERNS = [/legacy/i, /compat/i, /fallback/i];
 const EFFECT_NAMES = new Set(["useEffect", "useLayoutEffect", "useMemoEffect"]);
+
+const DEMO_CRITICAL_SPECS: DemoCriticalSpec[] = [
+  {
+    screen: "Home feed",
+    component: "Locava-Native/src/features/home/backendv2/feedV2.repository.ts",
+    userAction: "Open Home / pull to refresh / paginate",
+    visualBehavior: "Show feed shell immediately, then real feed cards with truthful pagination state.",
+    expectedRouteNames: ["feed.bootstrap.get", "feed.page.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{authorId}"],
+    expectedCacheInvalidation: ["feed/viewer", "posts/detail", "posts/card"],
+    routeNamePrefixes: ["feed.bootstrap.get", "feed.page.get"],
+    fileIncludes: ["Locava-Native/src/features/home/backendv2/feedV2.repository.ts"],
+    coverageHints: ["Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Feed item card",
+    component: "Locava-Native/src/features/home/backendv2/feedDetailV2.repository.ts",
+    userAction: "Tap a feed card",
+    visualBehavior: "Open the tapped card with shell-first detail and truthful staged hydration.",
+    expectedRouteNames: ["feed.itemdetail.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{authorId}"],
+    expectedCacheInvalidation: ["posts/detail", "comments/list", "viewer social state"],
+    routeNamePrefixes: ["feed.itemdetail.get"],
+    fileIncludes: ["Locava-Native/src/features/home/backendv2/feedDetailV2.repository.ts"],
+    coverageHints: ["Route test", "Full audit"],
+  },
+  {
+    screen: "Post detail",
+    component: "Locava-Native/src/features/posts/postDetail.store.ts",
+    userAction: "Open a post detail view",
+    visualBehavior: "Render canonical post detail with real comments, owner state, and media.",
+    expectedRouteNames: ["posts.detail.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{authorId}", "posts/{postId}/comments/{commentId}"],
+    expectedCacheInvalidation: ["posts/detail", "comments/list", "posts/card"],
+    routeNamePrefixes: ["posts.detail.get"],
+    fileIncludes: ["Locava-Native/src/features/posts/postDetail.store.ts", "Locava-Native/src/features/liftable/backendv2/postViewerDetailV2.repository.ts"],
+    coverageHints: ["Route test", "Full audit"],
+  },
+  {
+    screen: "Media / video tile",
+    component: "Locava-Native/src/features/liftable/backendv2/postViewerDetailV2.repository.ts",
+    userAction: "Tap a media tile",
+    visualBehavior: "Open the full media/post viewer for that tile without fake placeholder data.",
+    expectedRouteNames: ["posts.detail.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{authorId}"],
+    expectedCacheInvalidation: ["posts/detail", "media/viewer"],
+    routeNamePrefixes: ["posts.detail.get"],
+    fileIncludes: ["Locava-Native/src/features/liftable/backendv2/postViewerDetailV2.repository.ts"],
+    coverageHints: ["Full audit"],
+  },
+  {
+    screen: "Map",
+    component: "Locava-Native/src/features/map/backendv2/mapV2.repository.ts",
+    userAction: "Open the map screen",
+    visualBehavior: "Load lightweight markers with an immediate map shell and no full post hydration.",
+    expectedRouteNames: ["map.markers.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{authorId}"],
+    expectedCacheInvalidation: ["map/markers", "posts/detail"],
+    fileIncludes: ["Locava-Native/src/features/map/backendv2/mapV2.repository.ts"],
+    coverageHints: ["Route test", "Full audit", "Native: test:map:v2-harness"],
+  },
+  {
+    screen: "Marker tap",
+    component: "Locava-Native/src/features/map/backendv2/mapV2.repository.ts",
+    userAction: "Tap a marker",
+    visualBehavior: "Open the marker's post detail from a lightweight marker payload.",
+    expectedRouteNames: ["posts.detail.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{authorId}"],
+    expectedCacheInvalidation: ["posts/detail", "map/markers"],
+    routeNamePrefixes: ["posts.detail.get"],
+    coverageHints: ["Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Search open",
+    component: "Locava-Native/src/features/search/useSearchBootstrapPosts.ts",
+    userAction: "Open Search",
+    visualBehavior: "Render search shell plus bootstrap rails without waiting on optional expansions.",
+    expectedRouteNames: ["search.bootstrap.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{userId}", "collections/{collectionId}", "places_index/*"],
+    expectedCacheInvalidation: ["search/bootstrap", "search/results"],
+    routeNamePrefixes: ["search.bootstrap.get"],
+    fileIncludes: ["Locava-Native/src/features/search/useSearchBootstrapPosts.ts"],
+    coverageHints: ["Search discovery route test", "Real-user semantics"],
+  },
+  {
+    screen: "Search autofill",
+    component: "Locava-Native/src/features/search/useSearchAutofill.ts",
+    userAction: "Type in the Search box",
+    visualBehavior: "Show bounded live suggestions/autofill without blocking on heavy search work.",
+    expectedRouteNames: ["search.suggest.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{userId}", "collections/{collectionId}", "places_index/*"],
+    expectedCacheInvalidation: ["search/suggest"],
+    routeNamePrefixes: ["search.suggest.get"],
+    fileIncludes: ["Locava-Native/src/features/search/useSearchAutofill.ts", "Locava-Native/src/features/map/search/mapSearchSuggestionUtils.ts"],
+    coverageHints: ["Search discovery route test", "Full audit"],
+  },
+  {
+    screen: "Search users",
+    component: "Locava-Native/src/features/search/backendv2/searchV2.repository.ts",
+    userAction: "Switch to people results",
+    visualBehavior: "Render capped user rows with truthful follow state and pagination.",
+    expectedRouteNames: ["search.users.get"],
+    expectedSourceOfTruth: ["users/{userId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["search/users", "profile/bootstrap", "social/suggested-friends"],
+    routeNamePrefixes: ["search.users.get"],
+    fileIncludes: ["Locava-Native/src/features/search/backendv2/searchV2.repository.ts"],
+    functionNames: ["fetchUsers"],
+    coverageHints: ["Route test", "Real-user semantics"],
+  },
+  {
+    screen: "Final search results",
+    component: "Locava-Native/src/features/search/backendv2/searchV2.repository.ts",
+    userAction: "Submit or page final search results",
+    visualBehavior: "Show real post / collection results with truthful pagination.",
+    expectedRouteNames: ["search.results.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{userId}", "collections/{collectionId}", "places_index/*"],
+    expectedCacheInvalidation: ["search/results", "posts/detail", "collections/detail"],
+    routeNamePrefixes: ["search.results.get"],
+    fileIncludes: ["Locava-Native/src/features/search/backendv2/searchV2.repository.ts"],
+    functionNames: ["fetchResults"],
+    coverageHints: ["Route test", "Full audit"],
+  },
+  {
+    screen: "Profile",
+    component: "Locava-Native/src/features/profile/backendv2/profileV2.repository.ts",
+    userAction: "Open a profile",
+    visualBehavior: "Show profile shell first, then header counts and preview grid from source of truth.",
+    expectedRouteNames: ["profile.bootstrap.get"],
+    expectedSourceOfTruth: ["users/{userId}", "posts/{postId}"],
+    expectedCacheInvalidation: ["profile/bootstrap", "profile/grid", "social/suggested-friends"],
+    fileIncludes: ["Locava-Native/src/features/profile/backendv2/profileV2.repository.ts", "Locava-Native/src/features/userDisplay/backendv2/userDisplayV2.repository.ts", "Locava-Native/src/data/repos/profileRepo.ts"],
+    functionNames: ["fetchBootstrap", "bootstrapMe"],
+    coverageHints: ["Route test", "Real-user semantics"],
+  },
+  {
+    screen: "Profile grid",
+    component: "Locava-Native/src/features/profile/backendv2/profileV2.repository.ts",
+    userAction: "Scroll profile posts",
+    visualBehavior: "Page the profile grid without stale or duplicated posts.",
+    expectedRouteNames: ["profile.grid.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{userId}"],
+    expectedCacheInvalidation: ["profile/grid", "posts/detail"],
+    fileIncludes: ["Locava-Native/src/features/profile/backendv2/profileV2.repository.ts", "Locava-Native/src/features/userDisplay/backendv2/userDisplayV2.repository.ts"],
+    functionNames: ["fetchGridPage"],
+    coverageHints: ["Route test", "Full audit"],
+  },
+  {
+    screen: "Follow / unfollow",
+    component: "Locava-Native/src/data/repos/connectionsRepo.ts",
+    userAction: "Tap Follow or Following",
+    visualBehavior: "Update the follow button truthfully and reopen profile with persisted graph state.",
+    expectedRouteNames: ["users.follow.post", "users.unfollow.post"],
+    expectedSourceOfTruth: ["users/{viewerId}", "users/{targetUserId}", "follow_graph/*"],
+    expectedCacheInvalidation: ["profile/bootstrap", "social/suggested-friends", "user summaries"],
+    routeNamePrefixes: ["users.follow.post", "users.unfollow.post"],
+    fileIncludes: ["Locava-Native/src/data/repos/connectionsRepo.ts"],
+    functionNames: ["followUser", "unfollowUser"],
+    coverageHints: ["Mutations route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Suggested friends",
+    component: "Locava-Native/src/data/repos/connectionsRepo.ts",
+    userAction: "Open suggested friends rail",
+    visualBehavior: "Render real suggested users with capped summary payloads.",
+    expectedRouteNames: ["social.suggested_friends.get"],
+    expectedSourceOfTruth: ["users/{viewerId}", "users/{candidateUserId}"],
+    expectedCacheInvalidation: ["social/suggested-friends", "profile/bootstrap"],
+    routeNamePrefixes: ["social.suggested_friends.get"],
+    fileIncludes: ["Locava-Native/src/data/repos/connectionsRepo.ts", "Locava-Native/src/data/api/users.api.ts"],
+    functionNames: ["fetchSuggestedUsers", "fetchContactUsers"],
+    coverageHints: ["Social route test", "Real-user semantics"],
+  },
+  {
+    screen: "Contacts / suggested users modal",
+    component: "Locava-Native/src/features/findFriends/backendv2/directoryV2.repository.ts",
+    userAction: "Open the contacts or suggested users modal",
+    visualBehavior: "Show contact-backed user suggestions or truthful empty state.",
+    expectedRouteNames: ["directory.users.get", "social.contacts_sync.post"],
+    expectedSourceOfTruth: ["users/{viewerId}", "users/{candidateUserId}", "contacts_sync/*"],
+    expectedCacheInvalidation: ["directory/users", "social/suggested-friends"],
+    routeNamePrefixes: ["directory.users.get", "social.contacts_sync.post"],
+    fileIncludes: ["Locava-Native/src/features/findFriends/backendv2/directoryV2.repository.ts", "Locava-Native/src/data/api/users.api.ts"],
+    coverageHints: ["Directory users route test", "Social route test", "Full audit"],
+  },
+  {
+    screen: "Saves",
+    component: "Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts",
+    userAction: "Tap Save or Unsave",
+    visualBehavior: "Toggle saved state truthfully and reflect it when reopening the post / saves surfaces.",
+    expectedRouteNames: ["posts.save.post", "posts.unsave.post", "collections.saved.get"],
+    expectedSourceOfTruth: ["users/{viewerId}/savedPosts/*", "posts/{postId}"],
+    expectedCacheInvalidation: ["collections/saved", "posts/detail", "posts/card"],
+    routeNamePrefixes: ["posts.save.post", "posts.unsave.post", "collections.saved.get"],
+    fileIncludes: ["Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts"],
+    functionNames: ["savePost", "unsavePost"],
+    coverageHints: ["Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Collections list",
+    component: "Locava-Native/src/features/togo/backendv2/collectionsV2.repository.ts",
+    userAction: "Open Collections",
+    visualBehavior: "Show real viewer collections with truthful counts and pagination.",
+    expectedRouteNames: ["collections.list.get"],
+    expectedSourceOfTruth: ["collections/{collectionId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["collections/viewer", "collections/detail"],
+    routeNamePrefixes: ["collections.list.get"],
+    fileIncludes: ["Locava-Native/src/features/togo/backendv2/collectionsV2.repository.ts", "Locava-Native/src/features/togo/backendv2/collectionsEntitiesV2.repository.ts"],
+    coverageHints: ["Collections list route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Save sheet",
+    component: "Locava-Native/src/features/collections/CollectionsSheet.heavy.tsx",
+    userAction: "Open the save sheet for a post",
+    visualBehavior: "Show lightweight collection membership rows for that post only.",
+    expectedRouteNames: ["collections.save-sheet.get"],
+    expectedSourceOfTruth: ["collections/{collectionId}", "posts/{postId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["collections/viewer", "posts/detail", "posts/card"],
+    routeNamePrefixes: ["collections.save-sheet.get"],
+    fileIncludes: ["Locava-Native/src/features/collections/CollectionsSheet.heavy.tsx", "Locava-Native/src/features/togo/togo.api.ts"],
+    coverageHints: ["Full audit", "Collections saved route test"],
+  },
+  {
+    screen: "Create collection",
+    component: "Locava-Native/src/features/togo/backendv2/collectionsMutationsV2.repository.ts",
+    userAction: "Submit a new collection",
+    visualBehavior: "Create the collection and return to a list that immediately includes it.",
+    expectedRouteNames: ["collections.create.post"],
+    expectedSourceOfTruth: ["collections/{collectionId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["collections/viewer", "collections/detail"],
+    fileIncludes: ["Locava-Native/src/features/togo/backendv2/collectionsMutationsV2.repository.ts"],
+    functionNames: ["createCollection"],
+    coverageHints: ["Collections create route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Edit collection",
+    component: "Locava-Native/src/features/togo/backendv2/collectionsMutationsV2.repository.ts",
+    userAction: "Edit collection details",
+    visualBehavior: "Persist title/description/privacy changes and reopen the edited collection truthfully.",
+    expectedRouteNames: ["collections.update.post"],
+    expectedSourceOfTruth: ["collections/{collectionId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["collections/viewer", "collections/detail"],
+    fileIncludes: ["Locava-Native/src/features/togo/backendv2/collectionsMutationsV2.repository.ts"],
+    functionNames: ["editCollection", "setPrivacy"],
+    coverageHints: ["Collections update route test", "Full audit"],
+  },
+  {
+    screen: "Delete collection",
+    component: "Locava-Native/src/features/togo/backendv2/collectionsMutationsV2.repository.ts",
+    userAction: "Delete a collection",
+    visualBehavior: "Remove the collection from the list and prevent reopening deleted state as valid.",
+    expectedRouteNames: ["collections.delete.post"],
+    expectedSourceOfTruth: ["collections/{collectionId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["collections/viewer", "collections/detail"],
+    fileIncludes: ["Locava-Native/src/features/togo/backendv2/collectionsMutationsV2.repository.ts"],
+    functionNames: ["deleteCollection"],
+    coverageHints: ["Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Add / remove post from collection",
+    component: "Locava-Native/src/sheets/data/viewerCollections.store.ts",
+    userAction: "Toggle collection membership for a post",
+    visualBehavior: "Update the membership state immediately, then stay truthful after reopen.",
+    expectedRouteNames: ["collections.posts.add.post", "collections.posts.remove.delete"],
+    expectedSourceOfTruth: ["collections/{collectionId}", "posts/{postId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["collections/viewer", "collections/detail", "posts/detail"],
+    fileIncludes: ["Locava-Native/src/sheets/data/viewerCollections.store.ts", "Locava-Native/src/features/togo/togo.api.ts"],
+    functionNames: ["togglePostInCollection", "addPostToCollectionV2"],
+    coverageHints: ["Collections membership route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Comments sheet",
+    component: "Locava-Native/src/features/comments/backendv2/commentsV2.repository.ts",
+    userAction: "Open comments",
+    visualBehavior: "Show comment list/bootstrap with truthful pagination and deleted/missing handling.",
+    expectedRouteNames: ["comments.list.get"],
+    expectedSourceOfTruth: ["posts/{postId}/comments/{commentId}", "posts/{postId}"],
+    expectedCacheInvalidation: ["comments/list", "posts/detail"],
+    fileIncludes: ["Locava-Native/src/features/comments/backendv2/commentsV2.repository.ts"],
+    functionNames: ["list"],
+    coverageHints: ["Comments list route test"],
+  },
+  {
+    screen: "Comment create",
+    component: "Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts",
+    userAction: "Submit a new comment",
+    visualBehavior: "Persist the comment, increment count truthfully, and show it on reopen.",
+    expectedRouteNames: ["comments.create.post"],
+    expectedSourceOfTruth: ["posts/{postId}/comments/{commentId}", "posts/{postId}"],
+    expectedCacheInvalidation: ["comments/list", "posts/detail", "posts/card"],
+    routeNamePrefixes: ["comments.create.post"],
+    fileIncludes: ["Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts"],
+    functionNames: ["createComment"],
+    coverageHints: ["Comments route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Comment reply",
+    component: "Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts",
+    userAction: "Reply to a comment",
+    visualBehavior: "Persist reply threading and show the reply on reopen.",
+    expectedRouteNames: ["comments.create.post"],
+    expectedSourceOfTruth: ["posts/{postId}/comments/{commentId}", "posts/{postId}"],
+    expectedCacheInvalidation: ["comments/list", "posts/detail"],
+    routeNamePrefixes: ["comments.create.post"],
+    fileIncludes: ["Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts"],
+    functionNames: ["createComment"],
+    coverageHints: ["Comments route test"],
+  },
+  {
+    screen: "Comment like / unlike",
+    component: "Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts",
+    userAction: "Tap comment like / unlike",
+    visualBehavior: "Persist like state and reflect it after reopening the post detail.",
+    expectedRouteNames: ["comments.like.post"],
+    expectedSourceOfTruth: ["posts/{postId}/comments/{commentId}", "posts/{postId}"],
+    expectedCacheInvalidation: ["comments/list", "posts/detail"],
+    fileIncludes: ["Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts"],
+    functionNames: ["likeComment", "unlikeComment"],
+    coverageHints: ["Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Comment delete",
+    component: "Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts",
+    userAction: "Delete a comment",
+    visualBehavior: "Persist deletion, decrement counts truthfully, and keep deleted comments gone on reopen.",
+    expectedRouteNames: ["comments.delete.delete"],
+    expectedSourceOfTruth: ["posts/{postId}/comments/{commentId}", "posts/{postId}"],
+    expectedCacheInvalidation: ["comments/list", "posts/detail", "posts/card"],
+    routeNamePrefixes: ["comments.delete.delete"],
+    fileIncludes: ["Locava-Native/src/features/liftable/backendv2/viewerMutationsV2.repository.ts"],
+    functionNames: ["deleteComment"],
+    coverageHints: ["Comments route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Chat inbox",
+    component: "Locava-Native/src/features/chats/data/chatIndex.repository.ts",
+    userAction: "Open chats inbox",
+    visualBehavior: "Show lightweight conversation summaries with correct unread state.",
+    expectedRouteNames: ["chats.inbox.get"],
+    expectedSourceOfTruth: ["chats/{conversationId}", "chats/{conversationId}/messages/{messageId}", "users/{userId}"],
+    expectedCacheInvalidation: ["chats/inbox", "chats/thread"],
+    fileIncludes: ["Locava-Native/src/features/chats/data/chatIndex.repository.ts"],
+    functionNames: ["fetchChatInboxPage"],
+    coverageHints: ["Chats inbox route test", "Full audit"],
+  },
+  {
+    screen: "Create / get direct chat",
+    component: "Locava-Native/src/features/chats/data/newChat.api.ts",
+    userAction: "Start or reopen a direct chat",
+    visualBehavior: "Return the canonical direct conversation regardless of participant order.",
+    expectedRouteNames: ["chats.create_or_get.post"],
+    expectedSourceOfTruth: ["chats/{conversationId}", "users/{userId}"],
+    expectedCacheInvalidation: ["chats/inbox", "chats/thread"],
+    routeNamePrefixes: ["chats.create_or_get.post"],
+    fileIncludes: ["Locava-Native/src/features/chats/data/newChat.api.ts", "Locava-Native/src/sheets/data/shareSource.ts"],
+    functionNames: ["createOrGetChat"],
+    coverageHints: ["Chats create route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Send message",
+    component: "Locava-Native/src/features/chatThread/data/thread.send.ts",
+    userAction: "Send text/photo/gif message",
+    visualBehavior: "Persist the message, show it in-thread, and update inbox preview truthfully.",
+    expectedRouteNames: ["chats.sendtext.post"],
+    expectedSourceOfTruth: ["chats/{conversationId}", "chats/{conversationId}/messages/{messageId}", "users/{userId}"],
+    expectedCacheInvalidation: ["chats/thread", "chats/inbox"],
+    routeNamePrefixes: ["chats.sendtext.post"],
+    fileIncludes: ["Locava-Native/src/features/chatThread/data/thread.send.ts", "Locava-Native/src/sheets/data/shareSource.ts"],
+    coverageHints: ["Chats inbox route test", "Full audit", "Native: test:chat-mutations-state"],
+  },
+  {
+    screen: "Delete message",
+    component: "Locava-Native/src/features/chatThread/data/thread.deleteMessage.ts",
+    userAction: "Delete a message",
+    visualBehavior: "Persist deletion before success and keep inbox/thread truthful on reopen.",
+    expectedRouteNames: ["chats.message.delete"],
+    expectedSourceOfTruth: ["chats/{conversationId}/messages/{messageId}", "chats/{conversationId}"],
+    expectedCacheInvalidation: ["chats/thread", "chats/inbox"],
+    routeNamePrefixes: ["chats.message.delete"],
+    fileIncludes: ["Locava-Native/src/features/chatThread/data/thread.deleteMessage.ts"],
+    functionNames: ["deleteMessage"],
+    coverageHints: ["Full audit", "Native: test:chat-mutations-state"],
+  },
+  {
+    screen: "Mark unread / read",
+    component: "Locava-Native/src/features/chats/data/chatIndex.api.ts",
+    userAction: "Mark a chat unread or read",
+    visualBehavior: "Update unread badges truthfully in thread and inbox.",
+    expectedRouteNames: ["chats.markunread.post", "chats.markread.post"],
+    expectedSourceOfTruth: ["chats/{conversationId}", "users/{viewerId}"],
+    expectedCacheInvalidation: ["chats/inbox", "chats/thread"],
+    routeNamePrefixes: ["chats.markunread.post", "chats.markread.post"],
+    fileIncludes: ["Locava-Native/src/features/chats/data/chatIndex.api.ts", "Locava-Native/src/features/chats/data/chatMutations.repository.ts"],
+    coverageHints: ["Chats inbox route test", "Full audit", "Native: test:chat-mutations-state"],
+  },
+  {
+    screen: "Notifications list",
+    component: "Locava-Native/src/features/notifications/backendv2/notificationsV2.repository.ts",
+    userAction: "Open Notifications",
+    visualBehavior: "Show paged notifications with truthful unread state and targets.",
+    expectedRouteNames: ["notifications.list.get"],
+    expectedSourceOfTruth: ["users/{viewerId}/notifications/{notificationId}"],
+    expectedCacheInvalidation: ["notifications/list", "posts/detail", "profile/bootstrap"],
+    fileIncludes: ["Locava-Native/src/features/notifications/backendv2/notificationsV2.repository.ts", "Locava-Native/src/features/notifications/notifications.api.ts"],
+    functionNames: ["fetchList", "fetchNotifications", "fetchNotificationsBootstrap"],
+    coverageHints: ["Notifications route test", "Real-user semantics", "Native: test:notifications-state"],
+  },
+  {
+    screen: "Mark notification read",
+    component: "Locava-Native/src/features/notifications/backendv2/notificationsV2.repository.ts",
+    userAction: "Mark one or more notifications read",
+    visualBehavior: "Persist read state and update badges without lying about unread counts.",
+    expectedRouteNames: ["notifications.markread.post"],
+    expectedSourceOfTruth: ["users/{viewerId}/notifications/{notificationId}"],
+    expectedCacheInvalidation: ["notifications/list"],
+    routeNamePrefixes: ["notifications.markread.post"],
+    fileIncludes: ["Locava-Native/src/features/notifications/backendv2/notificationsV2.repository.ts"],
+    functionNames: ["markRead"],
+    coverageHints: ["Full audit", "Native: test:notifications-state"],
+  },
+  {
+    screen: "Mark all notifications read",
+    component: "Locava-Native/src/features/notifications/backendv2/notificationsV2.repository.ts",
+    userAction: "Mark all notifications read",
+    visualBehavior: "Clear unread state truthfully for the viewer.",
+    expectedRouteNames: ["notifications.markallread.post"],
+    expectedSourceOfTruth: ["users/{viewerId}/notifications/{notificationId}"],
+    expectedCacheInvalidation: ["notifications/list"],
+    routeNamePrefixes: ["notifications.markallread.post"],
+    fileIncludes: ["Locava-Native/src/features/notifications/backendv2/notificationsV2.repository.ts"],
+    functionNames: ["markAllRead"],
+    coverageHints: ["Full audit", "Native: test:notifications-state"],
+  },
+  {
+    screen: "Notification tap / deeplink",
+    component: "Locava-Native/src/features/notifications/notifications.api.ts",
+    userAction: "Tap a notification target",
+    visualBehavior: "Open the target post/profile/chat or show a safe invalid-target state.",
+    expectedRouteNames: ["notifications.list.get", "posts.detail.get", "profile.postdetail.get", "chats.thread.get"],
+    expectedSourceOfTruth: ["users/{viewerId}/notifications/{notificationId}", "posts/{postId}", "chats/{conversationId}"],
+    expectedCacheInvalidation: ["notifications/list", "posts/detail", "chats/thread", "profile/bootstrap"],
+    fileIncludes: ["Locava-Native/src/features/notifications/notifications.api.ts", "Locava-Native/src/features/posts/postDetail.store.ts"],
+    coverageHints: ["Real-user semantics"],
+    notes: ["Target routing is demo-critical because broken deep links present as dead taps or wrong destinations."],
+  },
+  {
+    screen: "Achievements screen",
+    component: "Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts",
+    userAction: "Open Achievements",
+    visualBehavior: "Show shell/bootstrap immediately and send opened telemetry truthfully.",
+    expectedRouteNames: ["achievements.bootstrap.get", "achievements.screenopened.post"],
+    expectedSourceOfTruth: ["users/{viewerId}/achievements/state", "users/{viewerId}/badges/*", "leagues/*"],
+    expectedCacheInvalidation: ["achievements/bootstrap", "achievements/status"],
+    routeNamePrefixes: ["achievements.bootstrap.get", "achievements.screenopened.post"],
+    fileIncludes: ["Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts"],
+    coverageHints: ["Achievements route test", "Full audit"],
+  },
+  {
+    screen: "Achievements leagues",
+    component: "Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts",
+    userAction: "Open leagues view",
+    visualBehavior: "Show real league tiers or truthful empty state without blocking the shell.",
+    expectedRouteNames: ["achievements.leagues.get"],
+    expectedSourceOfTruth: ["users/{viewerId}/achievements/state", "leagues/*"],
+    expectedCacheInvalidation: ["achievements/leagues"],
+    routeNamePrefixes: ["achievements.leagues.get"],
+    fileIncludes: ["Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts"],
+    functionNames: ["fetchAchievementsLeagues"],
+    coverageHints: ["Achievements route test", "Full audit"],
+  },
+  {
+    screen: "Achievements claimables",
+    component: "Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts",
+    userAction: "Open claimables",
+    visualBehavior: "Show claimable rewards from real Firebase state or a truthful empty state.",
+    expectedRouteNames: ["achievements.claimables.get"],
+    expectedSourceOfTruth: ["users/{viewerId}/achievements/state", "users/{viewerId}/badges/*"],
+    expectedCacheInvalidation: ["achievements/claimables"],
+    routeNamePrefixes: ["achievements.claimables.get"],
+    fileIncludes: ["Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts"],
+    functionNames: ["fetchAchievementsClaimables"],
+    coverageHints: ["Achievements route test", "Full audit"],
+  },
+  {
+    screen: "Leaderboard opened / ack",
+    component: "Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts",
+    userAction: "Open leaderboard / acknowledge leaderboard event",
+    visualBehavior: "Show real leaderboard rows and persist acknowledgment without fake badge data.",
+    expectedRouteNames: ["achievements.leaderboard.get", "achievements.leaderboardack.post"],
+    expectedSourceOfTruth: ["users/{viewerId}/achievements/state", "leagues/*"],
+    expectedCacheInvalidation: ["achievements/leaderboard", "achievements/status"],
+    routeNamePrefixes: ["achievements.leaderboard.get", "achievements.leaderboardack.post"],
+    fileIncludes: ["Locava-Native/src/features/achievements/backendv2/achievementsV2.repository.ts"],
+    coverageHints: ["Achievements route test", "Full audit"],
+  },
+  {
+    screen: "Posting flow",
+    component: "Locava-Native/src/features/post/upload/directPostUploadClient.ts",
+    userAction: "Create a new post",
+    visualBehavior: "Move through upload-session, media register, and operation polling with truthful progress.",
+    expectedRouteNames: ["posting.uploadsession.post", "posting.mediaregister.post", "posting.operationstatus.get"],
+    expectedSourceOfTruth: ["uploadOperations/{operationId}", "posts/{postId}", "storage/media/*"],
+    expectedCacheInvalidation: ["posting/operations", "profile/bootstrap", "feed/bootstrap", "map/markers"],
+    routeNamePrefixes: ["posting.uploadsession.post", "posting.mediaregister.post", "posting.operationstatus.get"],
+    fileIncludes: ["Locava-Native/src/features/post/upload/directPostUploadClient.ts", "Locava-Native/src/features/post/upload/postTask.reconcile.ts", "Locava-Native/src/features/post/upload/runPostUpload.ts"],
+    coverageHints: ["Posting route tests", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Media upload marked uploaded",
+    component: "Locava-Native/src/features/post/upload/directPostUploadClient.ts",
+    userAction: "Mark uploaded media as uploaded",
+    visualBehavior: "Only confirm uploaded once required media fields and public URL state are real.",
+    expectedRouteNames: ["posting.mediamarkuploaded.post"],
+    expectedSourceOfTruth: ["uploadOperations/{operationId}", "posts/{postId}", "storage/media/*"],
+    expectedCacheInvalidation: ["posting/operations", "posting/media"],
+    routeNamePrefixes: ["posting.mediamarkuploaded.post"],
+    fileIncludes: ["Locava-Native/src/features/post/upload/directPostUploadClient.ts"],
+    coverageHints: ["Posting media route test"],
+    notes: ["Current action audit previously only had manual coverage here; this row stays non-covered until automated evidence exists."],
+  },
+  {
+    screen: "Finalize post",
+    component: "Locava-Native/src/features/post/upload/directPostUploadClient.ts",
+    userAction: "Finalize a post",
+    visualBehavior: "Persist the canonical post and return a discoverable post id before success.",
+    expectedRouteNames: ["posting.finalize.post"],
+    expectedSourceOfTruth: ["uploadOperations/{operationId}", "posts/{postId}", "storage/media/*"],
+    expectedCacheInvalidation: ["posting/operations", "profile/bootstrap", "feed/bootstrap", "map/markers", "posts/detail"],
+    routeNamePrefixes: ["posting.finalize.post"],
+    fileIncludes: ["Locava-Native/src/features/post/upload/directPostUploadClient.ts"],
+    coverageHints: ["Posting route tests", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Profile after posting",
+    component: "Locava-Native/src/features/profile/backendv2/profileV2.repository.ts",
+    userAction: "Return to profile after posting",
+    visualBehavior: "Show the new post in the profile grid without manual refresh hacks.",
+    expectedRouteNames: ["posting.finalize.post", "profile.bootstrap.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{viewerId}", "uploadOperations/{operationId}"],
+    expectedCacheInvalidation: ["profile/bootstrap", "profile/grid"],
+    fileIncludes: ["Locava-Native/src/features/profile/backendv2/profileV2.repository.ts", "Locava-Native/src/features/post/upload/directPostUploadClient.ts"],
+    coverageHints: ["Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Feed after posting",
+    component: "Locava-Native/src/features/home/backendv2/feedV2.repository.ts",
+    userAction: "Return to feed after posting",
+    visualBehavior: "Show the new post where expected in feed surfaces after persistence.",
+    expectedRouteNames: ["posting.finalize.post", "feed.bootstrap.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{viewerId}", "uploadOperations/{operationId}"],
+    expectedCacheInvalidation: ["feed/bootstrap", "feed/page"],
+    fileIncludes: ["Locava-Native/src/features/home/backendv2/feedV2.repository.ts", "Locava-Native/src/features/post/upload/directPostUploadClient.ts"],
+    coverageHints: ["Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Map after posting",
+    component: "Locava-Native/src/features/map/backendv2/mapV2.repository.ts",
+    userAction: "Return to map after posting",
+    visualBehavior: "Show the new post as a marker when it is eligible for map display.",
+    expectedRouteNames: ["posting.finalize.post", "map.markers.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "uploadOperations/{operationId}"],
+    expectedCacheInvalidation: ["map/markers"],
+    fileIncludes: ["Locava-Native/src/features/map/backendv2/mapV2.repository.ts", "Locava-Native/src/features/post/upload/directPostUploadClient.ts"],
+    coverageHints: ["Full audit", "Native: test:map:v2-harness"],
+  },
+  {
+    screen: "Auth / session",
+    component: "Locava-Native/src/data/auth/signedInV2Bootstrap.ts",
+    userAction: "Cold start signed-in app session",
+    visualBehavior: "Resolve the viewer session and profile bootstrap without fake placeholder identity.",
+    expectedRouteNames: ["auth.session.get", "profile.bootstrap.get"],
+    expectedSourceOfTruth: ["users/{viewerId}"],
+    expectedCacheInvalidation: ["auth/viewer", "profile/bootstrap"],
+    routeNamePrefixes: ["auth.session.get"],
+    fileIncludes: ["Locava-Native/src/data/auth/signedInV2Bootstrap.ts"],
+    coverageHints: ["Auth bootstrap route test", "Full audit", "Real-user semantics"],
+  },
+  {
+    screen: "Onboarding",
+    component: "Locava-Native/src/auth/auth.api.ts",
+    userAction: "Check availability / create profile / sign in",
+    visualBehavior: "Keep onboarding truthfully connected to backendv2 auth/profile flows.",
+    expectedRouteNames: [
+      "auth.check_user_exists.get",
+      "auth.check_handle.get",
+      "auth.login.post",
+      "auth.register.post",
+      "auth.signin_google.post",
+      "auth.signin_apple.post",
+      "auth.profile_create.post",
+      "social.suggested_friends.get",
+    ],
+    expectedSourceOfTruth: ["users/{viewerId}"],
+    expectedCacheInvalidation: ["auth/viewer", "profile/bootstrap", "social/suggested-friends"],
+    fileIncludes: ["Locava-Native/src/auth/auth.api.ts", "Locava-Native/src/data/api/users.api.ts"],
+    coverageHints: ["Auth bootstrap route test", "Social route test"],
+  },
+  {
+    screen: "Blocked / deleted / private / missing post states",
+    component: "Locava-Native/src/features/posts/postDetail.store.ts",
+    userAction: "Open a non-readable post",
+    visualBehavior: "Show a truthful unavailable state instead of fake content or generic success.",
+    expectedRouteNames: ["posts.detail.get", "profile.postdetail.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{authorId}"],
+    expectedCacheInvalidation: ["posts/detail"],
+    fileIncludes: ["Locava-Native/src/features/posts/postDetail.store.ts", "Locava-Native/src/features/liftable/backendv2/postViewerDetailV2.repository.ts", "Locava-Native/src/features/profile/backendv2/profileV2.repository.ts"],
+    coverageHints: ["Post detail route tests", "Real-user semantics"],
+  },
+  {
+    screen: "Invalid deep links",
+    component: "Locava-Native/src/features/posts/postDetail.store.ts",
+    userAction: "Open an invalid post or notification deeplink",
+    visualBehavior: "Fail visibly and safely instead of surfacing a backend error or hanging shell.",
+    expectedRouteNames: ["posts.detail.get", "notifications.list.get"],
+    expectedSourceOfTruth: ["posts/{postId}", "users/{viewerId}/notifications/{notificationId}"],
+    expectedCacheInvalidation: ["posts/detail", "notifications/list"],
+    fileIncludes: ["Locava-Native/src/features/posts/postDetail.store.ts", "Locava-Native/src/features/notifications/notifications.api.ts"],
+    coverageHints: ["Real-user semantics"],
+  },
+  {
+    screen: "Offline / bad-network visible states",
+    component: "Locava-Native/src/data/backendv2/client.ts",
+    userAction: "Lose network on an already-migrated surface",
+    visualBehavior: "Show the existing strict-read/offline error state instead of fake success.",
+    expectedRouteNames: ["auth.session.get", "profile.bootstrap.get", "chats.inbox.get", "notifications.list.get"],
+    expectedSourceOfTruth: ["n/a"],
+    expectedCacheInvalidation: ["surface retry state"],
+    fileIncludes: [
+      "Locava-Native/src/data/backendv2/client.ts",
+      "Locava-Native/src/data/cutover/strictReadError.ts",
+      "Locava-Native/src/features/chats/data/chatIndex.repository.ts",
+      "Locava-Native/src/features/chatThread/data/thread.repository.ts",
+    ],
+    coverageHints: ["Source-level strict-read handling present"],
+    lowRisk: true,
+    notes: ["Existing visible error states are present, but this loop does not have dedicated end-to-end offline automation for every surface."],
+  },
+];
 
 function normalizeRoutePath(input: string): string {
   return input
@@ -754,13 +1425,158 @@ function summarize(actions: NativeActionRecord[]) {
   };
 }
 
-function buildMarkdown(actions: NativeActionRecord[]): MarkdownSummary {
+function formatCell(values: string[]): string {
+  const compact = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+  return compact.length > 0 ? compact.join("<br>") : "n/a";
+}
+
+function bySeverity(status: DemoCriticalStatus): number {
+  if (status === "BROKEN") return 0;
+  if (status === "MISSING_TEST") return 1;
+  if (status === "INTENTIONAL_LOW_RISK") return 2;
+  return 3;
+}
+
+function actionMatchesSpec(action: NativeActionRecord, spec: DemoCriticalSpec): boolean {
+  if (spec.expectedRouteNames.includes(action.routeName ?? "")) return true;
+  if (spec.routeNamePrefixes?.some((prefix) => (action.routeName ?? "").startsWith(prefix))) return true;
+  if (spec.normalizedPathPrefixes?.some((prefix) => (action.normalizedPath ?? "").startsWith(prefix))) return true;
+  if (spec.fileIncludes?.some((needle) => action.file.includes(needle))) return true;
+  if (spec.functionNames?.some((name) => action.functionName === name)) return true;
+  return false;
+}
+
+function resolveSpecCoverage(
+  spec: DemoCriticalSpec,
+  matchedActions: NativeActionRecord[],
+  coverageLookups: Awaited<ReturnType<typeof buildExistingCoverageLookups>>,
+): DemoCriticalRow {
+  const fullAuditStatuses = spec.expectedRouteNames
+    .map((routeName) => coverageLookups.fullAuditByRoute.get(routeName))
+    .filter((value): value is string => Boolean(value));
+  const semanticStatuses = spec.expectedRouteNames
+    .map((routeName) => coverageLookups.semanticsByPath.get(normalizeRoutePath(routeName)))
+    .filter((value): value is string => Boolean(value));
+  const architectureStatuses = spec.expectedRouteNames
+    .map((routeName) => coverageLookups.architectureByRoute.get(routeName))
+    .filter((value): value is string => Boolean(value));
+
+  for (const action of matchedActions) {
+    if (action.currentFullAuditCoverage) fullAuditStatuses.push(action.currentFullAuditCoverage);
+    if (action.currentSemanticCoverage) semanticStatuses.push(action.currentSemanticCoverage);
+    if (action.currentArchitectureCoverage) architectureStatuses.push(action.currentArchitectureCoverage);
+  }
+
+  const automatedCoverage = new Set<string>();
+  const notes = [...(spec.notes ?? [])];
+  const hasRouteTest = matchedActions.some((action) => action.hasRouteTest || action.classification === "COVERED_ROUTE_TEST");
+  const hasFullAuditPass = fullAuditStatuses.some((status) =>
+    status === "PASS" || status === "PASS_WITH_STAGED_HYDRATION" || status === "PASS_WITH_INTENTIONAL_LEGACY_PROXY",
+  );
+  const hasSemanticPass = semanticStatuses.some((status) => status.startsWith("SEMANTIC_PASS"));
+  const hasCoveredAction = matchedActions.some((action) =>
+    ["COVERED_FULL_AUDIT", "COVERED_ROUTE_TEST", "COVERED_SEMANTIC"].includes(action.classification),
+  );
+
+  if (hasRouteTest) automatedCoverage.add("Route test");
+  if (hasFullAuditPass) automatedCoverage.add(`Full audit: ${fullAuditStatuses.find((status) => status.startsWith("PASS"))}`);
+  if (hasSemanticPass) automatedCoverage.add(`Semantics: ${semanticStatuses.find((status) => status.startsWith("SEMANTIC_PASS"))}`);
+  if (matchedActions.some((action) => action.classification === "COVERED_MANUAL_ONLY")) {
+    automatedCoverage.add("Architecture audit");
+  }
+  for (const hint of spec.coverageHints ?? []) automatedCoverage.add(hint);
+
+  const brokenBecauseOfAction = matchedActions.some((action) =>
+    [
+      "STALE_V1_CALL",
+      "DOUBLE_FETCH_RISK",
+      "UNCOVERED_BACKEND_ACTION",
+      "UNCOVERED_NATIVE_ACTION",
+    ].includes(action.classification),
+  );
+  const brokenBecauseOfFullAudit = fullAuditStatuses.some((status) => status.startsWith("BROKEN_"));
+  const brokenBecauseOfSemantics = semanticStatuses.some((status) => status.startsWith("SEMANTIC_FAIL"));
+  const brokenBecauseOfArchitecture = architectureStatuses.some((status) => status.startsWith("ARCHITECTURE_FAIL"));
+
+  let status: DemoCriticalStatus = "COVERED";
+  if (brokenBecauseOfAction || brokenBecauseOfFullAudit || brokenBecauseOfSemantics || brokenBecauseOfArchitecture) {
+    status = "BROKEN";
+  } else if (spec.lowRisk) {
+    status = "INTENTIONAL_LOW_RISK";
+  } else if (!hasRouteTest && !hasFullAuditPass && !hasSemanticPass && !hasCoveredAction) {
+    status = "MISSING_TEST";
+  }
+
+  if (brokenBecauseOfAction) {
+    const brokenKinds = [...new Set(matchedActions.map((action) => action.classification).filter((classification) =>
+      ["STALE_V1_CALL", "DOUBLE_FETCH_RISK", "UNCOVERED_BACKEND_ACTION", "UNCOVERED_NATIVE_ACTION"].includes(classification),
+    ))];
+    notes.push(`Static scan still flags ${brokenKinds.join(", ")} on this surface.`);
+  }
+  if (brokenBecauseOfFullAudit) {
+    notes.push(`Latest grouped backend audit has ${[...new Set(fullAuditStatuses.filter((status) => status.startsWith("BROKEN_")))].join(", ")}.`);
+  }
+  if (brokenBecauseOfSemantics) {
+    notes.push(`Real-user semantics has ${[...new Set(semanticStatuses.filter((status) => status.startsWith("SEMANTIC_FAIL")))].join(", ")}.`);
+  }
+  if (brokenBecauseOfArchitecture) {
+    notes.push(`Architecture audit has ${[...new Set(architectureStatuses.filter((status) => status.startsWith("ARCHITECTURE_FAIL")))].join(", ")}.`);
+  }
+  if (status === "MISSING_TEST") {
+    notes.push("No automated route/full-audit/semantic coverage is attached to this user-visible surface yet.");
+  }
+
+  return {
+    screen: spec.screen,
+    component: spec.component,
+    userAction: spec.userAction,
+    visualBehavior: spec.visualBehavior,
+    expectedRoute: spec.expectedRouteSummary ?? spec.expectedRouteNames.join("<br>"),
+    expectedSourceOfTruth: spec.expectedSourceOfTruth,
+    expectedCacheInvalidation: spec.expectedCacheInvalidation,
+    existingCoverage: [...automatedCoverage],
+    status,
+    notes: [...new Set(notes)],
+    matchedActions,
+  };
+}
+
+function buildDemoCriticalRows(
+  actions: NativeActionRecord[],
+  coverageLookups: Awaited<ReturnType<typeof buildExistingCoverageLookups>>,
+): DemoCriticalRow[] {
+  return DEMO_CRITICAL_SPECS.map((spec) =>
+    resolveSpecCoverage(
+      spec,
+      actions.filter((action) => actionMatchesSpec(action, spec)),
+      coverageLookups,
+    ),
+  ).sort((a, b) => bySeverity(a.status) - bySeverity(b.status) || a.screen.localeCompare(b.screen));
+}
+
+function buildMarkdown(
+  actions: NativeActionRecord[],
+  coverageLookups: Awaited<ReturnType<typeof buildExistingCoverageLookups>>,
+): MarkdownSummary {
   const sorted = [...actions].sort((a, b) => {
     const surface = a.surface.localeCompare(b.surface);
     if (surface !== 0) return surface;
     return a.file.localeCompare(b.file) || a.line - b.line;
   });
   const counts = summarize(sorted);
+  const demoRows = buildDemoCriticalRows(sorted, coverageLookups);
+  const demoSummary = demoRows.reduce<Record<DemoCriticalStatus, number>>(
+    (acc, row) => {
+      acc[row.status] = (acc[row.status] ?? 0) + 1;
+      return acc;
+    },
+    {
+      BROKEN: 0,
+      COVERED: 0,
+      INTENTIONAL_LOW_RISK: 0,
+      MISSING_TEST: 0,
+    },
+  );
   const inventoryLines: string[] = [];
   const coverageLines: string[] = [];
 
@@ -771,7 +1587,18 @@ function buildMarkdown(actions: NativeActionRecord[]): MarkdownSummary {
   inventoryLines.push("## Scope");
   inventoryLines.push("");
   inventoryLines.push("- Exhaustive static scan of Native-side backend-triggering actions, handler entrypoints, refresh/pagination paths, and deep-link/notification-adjacent data fetches.");
+  inventoryLines.push("- Demo-critical surface rows below are hand-curated against the Native product surface and resolved against the latest backend audits so docs stay truthful when the raw static scan cannot fully recover a route string.");
   inventoryLines.push("- Local-only visual gestures are represented when they are attached to a backend-bearing surface or handler file; route-less UI chrome remains out of this inventory unless it gates backend data.");
+  inventoryLines.push("");
+  inventoryLines.push("## Demo-Critical Surface Matrix");
+  inventoryLines.push("");
+  inventoryLines.push("| Screen | Native screen/component/hook | User action | Expected visual behavior | Expected backend route | Expected source-of-truth read/write | Expected cache invalidation | Existing harness/test coverage | Status |");
+  inventoryLines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+  for (const row of demoRows) {
+    inventoryLines.push(
+      `| ${row.screen} | \`${row.component}\` | ${row.userAction} | ${row.visualBehavior} | ${row.expectedRoute} | ${formatCell(row.expectedSourceOfTruth)} | ${formatCell(row.expectedCacheInvalidation)} | ${formatCell(row.existingCoverage)} | \`${row.status}\` |`,
+    );
+  }
   inventoryLines.push("");
   inventoryLines.push("## Action Matrix");
   inventoryLines.push("");
@@ -786,6 +1613,23 @@ function buildMarkdown(actions: NativeActionRecord[]): MarkdownSummary {
   coverageLines.push("# Native Action Coverage Report - 2026-04-25");
   coverageLines.push("");
   coverageLines.push(`Generated: ${new Date().toISOString()}`);
+  coverageLines.push("");
+  coverageLines.push("## Demo-Critical Surface Summary");
+  coverageLines.push("");
+  coverageLines.push(`- BROKEN: ${demoSummary.BROKEN}`);
+  coverageLines.push(`- MISSING_TEST: ${demoSummary.MISSING_TEST}`);
+  coverageLines.push(`- INTENTIONAL_LOW_RISK: ${demoSummary.INTENTIONAL_LOW_RISK}`);
+  coverageLines.push(`- COVERED: ${demoSummary.COVERED}`);
+  coverageLines.push("");
+  coverageLines.push("## Demo-Critical Surface Status");
+  coverageLines.push("");
+  coverageLines.push("| Status | Screen | Native screen/component/hook | User action | Expected backend route | Existing harness/test coverage | Notes |");
+  coverageLines.push("| --- | --- | --- | --- | --- | --- | --- |");
+  for (const row of demoRows) {
+    coverageLines.push(
+      `| \`${row.status}\` | ${row.screen} | \`${row.component}\` | ${row.userAction} | ${row.expectedRoute} | ${formatCell(row.existingCoverage)} | ${formatCell(row.notes)} |`,
+    );
+  }
   coverageLines.push("");
   coverageLines.push("## Summary");
   coverageLines.push("");
@@ -854,7 +1698,7 @@ async function main() {
     routeSummary: counts.routeSummary,
     actions: sorted,
   };
-  const markdown = buildMarkdown(sorted);
+  const markdown = buildMarkdown(sorted, coverageLookups);
 
   await fs.mkdir(path.dirname(reportPath), { recursive: true });
   await fs.mkdir(path.dirname(coverageDocPath), { recursive: true });

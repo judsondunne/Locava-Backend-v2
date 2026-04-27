@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type RequestContext, getRequestContext, runWithRequestContext } from "../../observability/request-context.js";
 import { FeedRepository } from "./feed.repository.js";
+import { SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
 
 function withRequestContext<T>(fn: () => Promise<T>): Promise<T> {
   const ctx: RequestContext = {
@@ -35,7 +36,45 @@ describe("feed repository", () => {
             postId: `firestore-post-${slot}`,
             authorId: `firestore-author-${slot}`,
             slot,
-            updatedAtMs: 1_700_000_000_000 + idx
+            updatedAtMs: 1_700_000_000_000 + idx,
+            createdAtMs: 1_700_000_000_000 + idx,
+            mediaType: "image",
+            posterUrl: "https://example.com/poster.jpg",
+            firstAssetUrl: "https://example.com/asset.jpg",
+            title: `Firestore post ${slot}`,
+            description: "Realistic firestore row",
+            captionPreview: "Realistic firestore row",
+            tags: ["hiking"],
+            authorHandle: `author_${slot}`,
+            authorName: `Author ${slot}`,
+            authorPic: "https://example.com/author.jpg",
+            activities: ["hiking"],
+            address: "Easton, PA",
+            geo: {
+              lat: 40.68843,
+              long: -75.22073,
+              city: "Easton",
+              state: "Pennsylvania",
+              country: "United States",
+              geohash: "dr4e3x"
+            },
+            assets: [
+              {
+                id: `asset-${slot}`,
+                type: "image",
+                previewUrl: "https://example.com/asset.jpg",
+                posterUrl: "https://example.com/poster.jpg",
+                originalUrl: "https://example.com/original.jpg",
+                blurhash: null,
+                width: 1080,
+                height: 1920,
+                aspectRatio: 9 / 16,
+                orientation: "portrait"
+              }
+            ],
+            likeCount: 3,
+            commentCount: 1,
+            likedByUserIds: []
           };
         }),
         hasMore: true,
@@ -66,16 +105,14 @@ describe("feed repository", () => {
     } as never);
 
     await withRequestContext(async () => {
-      const bootstrap = await repository.getBootstrapCandidates("internal-viewer", 5);
-      const page = await repository.getFeedPage("internal-viewer", null, 5);
-      expect(bootstrap.length).toBeGreaterThan(0);
-      expect(page.items.length).toBeGreaterThan(0);
+      await expect(repository.getBootstrapCandidates("internal-viewer", 5)).rejects.toBeInstanceOf(SourceOfTruthRequiredError);
+      await expect(repository.getFeedPage("internal-viewer", null, 5)).rejects.toBeInstanceOf(SourceOfTruthRequiredError);
       const ctx = getRequestContext();
       expect(ctx?.fallbacks).toContain("feed_candidates_firestore_fallback");
       expect(ctx?.fallbacks).toContain("feed_page_firestore_fallback");
       expect(ctx?.timeouts).toContain("feed_candidates_firestore");
       expect(ctx?.timeouts).toContain("feed_page_firestore");
-      expect(ctx?.dbOps.queries).toBe(2);
+      expect(ctx?.dbOps.queries).toBe(0);
     });
   });
 
@@ -154,8 +191,9 @@ describe("feed repository", () => {
     );
 
     await withRequestContext(async () => {
-      const detail = await repository.getPostDetail("internal-viewer-feed-post-6", "internal-viewer");
-      expect(detail.postId).toBe("internal-viewer-feed-post-6");
+      await expect(repository.getPostDetail("internal-viewer-feed-post-6", "internal-viewer")).rejects.toBeInstanceOf(
+        SourceOfTruthRequiredError
+      );
       const ctx = getRequestContext();
       expect(ctx?.fallbacks).toContain("feed_detail_firestore_fallback");
       expect(ctx?.timeouts).toContain("feed_detail_firestore");
@@ -168,11 +206,12 @@ describe("feed repository", () => {
     } as never);
 
     await withRequestContext(async () => {
-      const summary = await repository.getPostCardSummary("internal-viewer", "aXngoh9jeqW35FNM3fq1w9aXdEh1-post-7");
-      const detail = await repository.getPostDetail("aXngoh9jeqW35FNM3fq1w9aXdEh1-post-7", "internal-viewer");
-      expect(summary.postId).toBe("aXngoh9jeqW35FNM3fq1w9aXdEh1-post-7");
-      expect(detail.postId).toBe("aXngoh9jeqW35FNM3fq1w9aXdEh1-post-7");
-      expect(detail.assets.length).toBeGreaterThan(0);
+      await expect(
+        repository.getPostCardSummary("internal-viewer", "aXngoh9jeqW35FNM3fq1w9aXdEh1-post-7")
+      ).rejects.toBeInstanceOf(SourceOfTruthRequiredError);
+      await expect(repository.getPostDetail("aXngoh9jeqW35FNM3fq1w9aXdEh1-post-7", "internal-viewer")).rejects.toBeInstanceOf(
+        SourceOfTruthRequiredError
+      );
     });
   });
 });

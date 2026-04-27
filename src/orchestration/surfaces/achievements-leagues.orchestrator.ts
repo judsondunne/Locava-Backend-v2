@@ -19,10 +19,10 @@ export class AchievementsLeaguesOrchestrator {
     const response: AchievementsLeaguesResponse = {
       routeName: "achievements.leagues.get",
       leagues,
-      degraded: false,
-      fallbacks: []
+      degraded: leagues.length === 0,
+      fallbacks: leagues.length === 0 ? ["achievement_leagues_staged"] : []
     };
-    await globalCache.set(cacheKey, response, 60_000);
+    await globalCache.set(cacheKey, response, response.degraded ? 5_000 : 10 * 60_000);
     return response;
   }
 }

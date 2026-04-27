@@ -5,6 +5,7 @@ import type { AchievementsClaimablesResponse } from "../../contracts/surfaces/ac
 import type { AchievementsLeaguesResponse } from "../../contracts/surfaces/achievements-leagues.contract.js";
 import type { AchievementsSnapshotResponse } from "../../contracts/surfaces/achievements-snapshot.contract.js";
 import type { AchievementsStatusResponse } from "../../contracts/surfaces/achievements-status.contract.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 import { projectCanonicalStatusFromSnapshot } from "../../repositories/surfaces/achievements.repository.js";
 import type { AchievementsService } from "../../services/surfaces/achievements.service.js";
@@ -58,16 +59,20 @@ export class AchievementsBootstrapOrchestrator {
     const claimablesCacheKey = buildCacheKey("bootstrap", ["achievements-claimables-v1", input.viewerId]);
     const leaguesCacheKey = buildCacheKey("bootstrap", ["achievements-leagues-v1"]);
     const statusCacheKey = buildCacheKey("bootstrap", ["achievements-status-v1", input.viewerId]);
-    const writes: Array<Promise<void>> = [
-      globalCache.set(cacheKey, response, 5_000),
-      globalCache.set(shellCacheKey, snapshotShell, 5_000),
-      globalCache.set(claimablesCacheKey, claimablesShell, 5_000),
-      globalCache.set(leaguesCacheKey, leaguesResponse, 60_000)
-    ];
-    if (!payload.degraded) {
-      writes.push(globalCache.set(statusCacheKey, statusResponse, 8_000));
-    }
-    await Promise.all(writes);
+    const bootstrapTtlMs = payload.degraded ? 5_000 : 60_000;
+    const leaguesTtlMs = payload.degraded ? 5_000 : 10 * 60_000;
+    await Promise.all([
+      globalCache.set(cacheKey, response, bootstrapTtlMs),
+      globalCache.set(claimablesCacheKey, claimablesShell, bootstrapTtlMs),
+      globalCache.set(leaguesCacheKey, leaguesResponse, leaguesTtlMs)
+    ]);
+    scheduleBackgroundWork(async () => {
+      const writes: Array<Promise<void>> = [globalCache.set(shellCacheKey, snapshotShell, bootstrapTtlMs)];
+      if (!payload.degraded) {
+        writes.push(globalCache.set(statusCacheKey, statusResponse, bootstrapTtlMs));
+      }
+      await Promise.all(writes);
+    });
     return response;
   }
 }

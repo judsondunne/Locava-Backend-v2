@@ -16,9 +16,32 @@ describe("v2 map markers route", () => {
     fetchAllMock.mockReset();
     await globalCache.del("map:markers:v1");
     await globalCache.del("map:markers:v2");
+    await globalCache.del("map:markers:v2:all");
     await globalCache.del("map:markers:v2:240");
     await globalCache.del("map:markers:v2:60");
   });
+
+  it("defaults to the full marker universe cache key when no limit is provided", async () => {
+    fetchAllMock.mockResolvedValue({
+      markers: [],
+      count: 0,
+      generatedAt: 123,
+      version: "map-markers-v2",
+      etag: "\"all\"",
+      queryCount: 1,
+      readCount: 0,
+      invalidCoordinateDrops: 0
+    });
+    const { createApp } = await import("../../app/createApp.js");
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v2/map/markers",
+      headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 5000 });
+  }, 15_000);
 
   it("returns marker records from source docs", async () => {
     fetchAllMock.mockResolvedValue({

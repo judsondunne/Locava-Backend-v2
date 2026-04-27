@@ -37,7 +37,7 @@ export class AchievementsLeaderboardOrchestrator {
       degraded: false,
       fallbacks: []
     };
-    await globalCache.set(cacheKey, response, 12_000);
+    void globalCache.set(cacheKey, response, 12_000);
     return response;
   }
 }

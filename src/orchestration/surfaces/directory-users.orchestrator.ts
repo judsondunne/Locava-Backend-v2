@@ -69,7 +69,7 @@ export class DirectoryUsersOrchestrator {
       degraded: false,
       fallbacks: []
     };
-    await globalCache.set(cacheKey, response, 8_000);
+    void globalCache.set(cacheKey, response, 8_000).catch(() => undefined);
     return response;
   }
 }

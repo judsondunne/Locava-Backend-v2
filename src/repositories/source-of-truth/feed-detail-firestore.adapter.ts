@@ -1,4 +1,5 @@
 import { getFirestoreSourceClient } from "./firestore-client.js";
+import { readMaybeMillis } from "./post-firestore-projection.js";
 
 export type FirestoreFeedDetailBundle = {
   post: {
@@ -14,6 +15,11 @@ export type FirestoreFeedDetailBundle = {
     tags?: string[];
     createdAtMs: number;
     updatedAtMs: number;
+    carouselFitWidth?: boolean;
+    layoutLetterbox?: boolean;
+    letterboxGradientTop?: string | null;
+    letterboxGradientBottom?: string | null;
+    letterboxGradients?: Array<{ top: string; bottom: string }>;
     mediaType: "image" | "video";
     thumbUrl: string;
     assets: Array<{
@@ -89,6 +95,13 @@ export class FeedDetailFirestoreAdapter {
           "displayPhotoLink",
           "photoLink",
           "assets",
+          "carouselFitWidth",
+          "layoutLetterbox",
+          "letterboxGradientTop",
+          "letterboxGradientBottom",
+          "letterboxGradients",
+          "letterbox_gradient_top",
+          "letterbox_gradient_bottom",
           "likeCount",
           "commentCount"
         )
@@ -149,39 +162,29 @@ export class FeedDetailFirestoreAdapter {
       const postData = postSnapshot.data() as PostDataShape;
       const userId = typeof postData.userId === "string" && postData.userId.trim() ? postData.userId.trim() : "";
       if (!userId) return null;
-      let userData: UserDataShape = {};
-      let liked = false;
-      let saved = false;
-      let relatedReads = 0;
-      let relatedQueries = 0;
-      try {
-        const [userDoc, likedDoc, savedDoc] = await withTimeout(
-          Promise.all([
-            this.db.collection("users").doc(userId).get(),
-            this.db.collection("posts").doc(postId).collection("likes").doc(viewerId).get(),
-            this.db.collection("users").doc(viewerId).collection("savedPosts").doc(postId).get()
-          ]),
-          FeedDetailFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
-          "feed-detail-firestore-related-by-id"
-        );
-        userData = (userDoc.data() ?? {}) as UserDataShape;
-        liked = likedDoc.exists;
-        saved = savedDoc.exists;
-        relatedReads = 3;
-        relatedQueries = 1;
-      } catch {
-        // Keep canonical post fields (title/address/activities/etc.) even if
-        // related viewer/author docs are slow.
-      }
-
+      const [likedDoc, savedDoc] = await withTimeout(
+        Promise.all([
+          this.db.collection("posts").doc(postId).collection("likes").doc(viewerId).get(),
+          this.db.collection("users").doc(viewerId).collection("savedPosts").doc(postId).get()
+        ]),
+        FeedDetailFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+        "feed-detail-firestore-viewer-state-by-id"
+      );
       return buildFeedDetailBundleFromParts({
         responsePostId: postId,
         postData,
-        userData,
-        liked,
-        saved,
-        queryCount: 1 + relatedQueries,
-        readCount: 1 + relatedReads
+        userData: {
+          handle: postData.userHandle,
+          name: postData.userName,
+          displayName: postData.userDisplayName,
+          profilePic: postData.userPic,
+          profilePicture: postData.userProfilePicture,
+          photo: postData.userPhoto
+        },
+        liked: likedDoc.exists,
+        saved: savedDoc.exists,
+        queryCount: 3,
+        readCount: 3
       });
     } catch {
       return null;
@@ -191,6 +194,12 @@ export class FeedDetailFirestoreAdapter {
 
 type PostDataShape = {
   userId?: string;
+  userHandle?: string;
+  userName?: string;
+  userDisplayName?: string;
+  userPic?: string;
+  userProfilePicture?: string;
+  userPhoto?: string;
   caption?: string;
   content?: string;
   title?: string;
@@ -202,6 +211,10 @@ type PostDataShape = {
   tags?: unknown[];
   createdAtMs?: number;
   updatedAtMs?: number;
+  time?: unknown;
+  createdAt?: unknown;
+  updatedAt?: unknown;
+  lastUpdated?: unknown;
   mediaType?: "image" | "video";
   thumbUrl?: string;
   displayPhotoLink?: string;
@@ -215,7 +228,15 @@ type PostDataShape = {
     variants?: Record<string, unknown>;
   }>;
   likeCount?: number;
+  likesCount?: number;
   commentCount?: number;
+  carouselFitWidth?: unknown;
+  layoutLetterbox?: unknown;
+  letterboxGradientTop?: unknown;
+  letterboxGradientBottom?: unknown;
+  letterbox_gradient_top?: unknown;
+  letterbox_gradient_bottom?: unknown;
+  letterboxGradients?: unknown;
 };
 
 type UserDataShape = {
@@ -247,6 +268,25 @@ function buildFeedDetailBundleFromParts(input: {
     throw new Error("feed_detail_missing_media");
   }
 
+  const createdAtMsCandidate =
+    typeof input.postData.createdAtMs === "number" && Number.isFinite(input.postData.createdAtMs) && input.postData.createdAtMs > 0
+      ? input.postData.createdAtMs
+      : readMaybeMillis(input.postData.time) ??
+        readMaybeMillis(input.postData.createdAt) ??
+        readMaybeMillis(input.postData.lastUpdated) ??
+        readMaybeMillis(input.postData.updatedAt) ??
+        (typeof input.postData.updatedAtMs === "number" ? input.postData.updatedAtMs : null);
+
+  const updatedAtMsCandidate =
+    typeof input.postData.updatedAtMs === "number" && Number.isFinite(input.postData.updatedAtMs) && input.postData.updatedAtMs > 0
+      ? input.postData.updatedAtMs
+      : readMaybeMillis(input.postData.lastUpdated) ??
+        readMaybeMillis(input.postData.updatedAt) ??
+        readMaybeMillis(input.postData.time) ??
+        readMaybeMillis(input.postData.createdAt) ??
+        (typeof input.postData.createdAtMs === "number" ? input.postData.createdAtMs : null);
+
+  const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(input.postData);
   return {
     post: {
       postId: input.responsePostId,
@@ -259,8 +299,13 @@ function buildFeedDetailBundleFromParts(input: {
       lat: normalizeNullableNumber(input.postData.lat),
       lng: normalizeNullableNumber(input.postData.long),
       tags: normalizeStringArray(input.postData.tags),
-      createdAtMs: normalizeTs(input.postData.createdAtMs ?? input.postData.updatedAtMs),
-      updatedAtMs: normalizeTs(input.postData.updatedAtMs ?? input.postData.createdAtMs),
+      createdAtMs: normalizeTs(createdAtMsCandidate),
+      updatedAtMs: normalizeTs(updatedAtMsCandidate),
+      carouselFitWidth: typeof input.postData.carouselFitWidth === "boolean" ? input.postData.carouselFitWidth : undefined,
+      layoutLetterbox: typeof input.postData.layoutLetterbox === "boolean" ? input.postData.layoutLetterbox : undefined,
+      letterboxGradientTop,
+      letterboxGradientBottom,
+      ...(letterboxGradients ? { letterboxGradients } : {}),
       mediaType,
       thumbUrl: normalizeThumbUrl(input.postData, thumbUrl),
       assets: normalizeAssets(input.responsePostId, mediaType, thumbUrl, input.postData.assets)
@@ -272,7 +317,7 @@ function buildFeedDetailBundleFromParts(input: {
       pic: normalizeNullable(input.userData.profilePic ?? input.userData.profilePicture ?? input.userData.photo)
     },
     social: {
-      likeCount: normalizeCounter(input.postData.likeCount),
+      likeCount: normalizeCounter(input.postData.likesCount ?? input.postData.likeCount),
       commentCount: normalizeCounter(input.postData.commentCount)
     },
     viewer: {
@@ -281,6 +326,46 @@ function buildFeedDetailBundleFromParts(input: {
     },
     queryCount: input.queryCount,
     readCount: input.readCount
+  };
+}
+
+function normalizeLetterboxHints(data: PostDataShape): {
+  letterboxGradientTop: string | null | undefined;
+  letterboxGradientBottom: string | null | undefined;
+  letterboxGradients: Array<{ top: string; bottom: string }> | undefined;
+} {
+  const topRaw =
+    typeof data.letterboxGradientTop === "string"
+      ? data.letterboxGradientTop
+      : typeof data.letterbox_gradient_top === "string"
+        ? data.letterbox_gradient_top
+        : null;
+  const bottomRaw =
+    typeof data.letterboxGradientBottom === "string"
+      ? data.letterboxGradientBottom
+      : typeof data.letterbox_gradient_bottom === "string"
+        ? data.letterbox_gradient_bottom
+        : null;
+  const top = topRaw?.trim() ? topRaw.trim() : null;
+  const bottom = bottomRaw?.trim() ? bottomRaw.trim() : null;
+
+  if (!Array.isArray(data.letterboxGradients)) {
+    return { letterboxGradientTop: top ?? undefined, letterboxGradientBottom: bottom ?? undefined, letterboxGradients: undefined };
+  }
+  const out: Array<{ top: string; bottom: string }> = [];
+  for (const entry of data.letterboxGradients) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as { top?: unknown; bottom?: unknown };
+    if (typeof e.top !== "string" || typeof e.bottom !== "string") continue;
+    const t = e.top.trim();
+    const b = e.bottom.trim();
+    if (!t || !b) continue;
+    out.push({ top: t, bottom: b });
+  }
+  return {
+    letterboxGradientTop: top ?? undefined,
+    letterboxGradientBottom: bottom ?? undefined,
+    letterboxGradients: out.length > 0 ? out : undefined
   };
 }
 

@@ -74,6 +74,8 @@ export const routeContracts: RouteContract[] = [
   { method: "GET", path: "/v2/search/users", description: "V2 search users/profiles results surface", tags: ["v2", "search", "users"], querySchema: { q: "string (1-80) required", cursor: "string optional", limit: "number (5-12) optional" } },
   { method: "GET", path: "/v2/search/suggest", description: "V2 search typing suggestions (users/activities/locations/sentences)", tags: ["v2", "search"], querySchema: { q: "string (1-80) required" } },
   { method: "GET", path: "/v2/search/bootstrap", description: "V2 search idle bootstrap rails and previews", tags: ["v2", "search"], querySchema: { q: "string (0-80) optional", limit: "number (1-80) optional" } },
+  { method: "GET", path: "/v2/search/mixes/bootstrap", description: "V2 search mixes bootstrap (mix shelves)", tags: ["v2", "search", "mixes"], querySchema: { lat: "number optional", lng: "number optional", limit: "number (1-24) optional", includeDebug: "0|1 optional" } },
+  { method: "POST", path: "/v2/search/mixes/feed", description: "V2 search mixes feed page", tags: ["v2", "search", "mixes"], bodySchema: { mixId: "string required", cursor: "string|null optional", limit: "number (4-36) optional", lat: "number|null optional", lng: "number|null optional", includeDebug: "boolean optional" } },
   {
     method: "GET",
     path: "/v2/social/suggested-friends",
@@ -133,6 +135,7 @@ export const routeContracts: RouteContract[] = [
   },
   { method: "POST", path: "/v2/posts/:postId/like", description: "V2 post like mutation", tags: ["v2", "mutation", "post"] },
   { method: "POST", path: "/v2/posts/:postId/unlike", description: "V2 post unlike mutation", tags: ["v2", "mutation", "post"] },
+  { method: "GET", path: "/v2/posts/:postId/likes", description: "V2 post likes list", tags: ["v2", "surface", "post"] },
   { method: "POST", path: "/v2/users/:userId/follow", description: "V2 user follow mutation", tags: ["v2", "mutation", "user"] },
   { method: "POST", path: "/v2/users/:userId/unfollow", description: "V2 user unfollow mutation", tags: ["v2", "mutation", "user"] },
   {

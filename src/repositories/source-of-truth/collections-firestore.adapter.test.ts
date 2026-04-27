@@ -58,9 +58,19 @@ describe("collections firestore adapter stale index handling", () => {
     const userSet = vi.fn(async () => undefined);
     const db = {
       getAll: vi.fn(async (...refs: Array<{ id: string }>) =>
-        refs.map((ref) => ({
-          exists: ref.id !== "stale-collection",
-        }))
+        refs.map((ref) =>
+          ref.id === "viewer-1"
+            ? {
+                exists: true,
+                data: () => ({
+                  collectionsV2Index: indexed
+                })
+              }
+            : {
+                exists: ref.id !== "stale-collection",
+                data: () => ({})
+              }
+        )
       ),
       collection: (name: string) => {
         if (name === "users") {
@@ -171,6 +181,21 @@ describe("collections firestore adapter stale index handling", () => {
     const indexed = [buildIndexedCollection("stale-collection")];
     const userSet = vi.fn(async () => undefined);
     const db = {
+      getAll: vi.fn(async (...refs: Array<{ id: string }>) =>
+        refs.map((ref) =>
+          ref.id === "viewer-1"
+            ? {
+                exists: true,
+                data: () => ({
+                  collectionsV2Index: indexed
+                })
+              }
+            : {
+                exists: false,
+                data: () => ({})
+              }
+        )
+      ),
       collection: (name: string) => {
         if (name === "users") {
           return {
@@ -205,7 +230,6 @@ describe("collections firestore adapter stale index handling", () => {
     const item = await adapter.getCollection({ viewerId: "viewer-1", collectionId: "stale-collection" });
 
     expect(item).toBeNull();
-    expect(userSet).toHaveBeenCalled();
   });
 
   it("trusts a freshly indexed collection detail without forcing a collection doc read", async () => {

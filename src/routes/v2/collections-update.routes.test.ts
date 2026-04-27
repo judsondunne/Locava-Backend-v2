@@ -39,6 +39,15 @@ describe("v2 collections update route", () => {
     expect(body.data.updatedCollection.id).toBe(collectionId);
     expect(body.data.updatedCollection.name).toBe("Weekend Spots");
     expect(body.data.updatedCollection.privacy).toBe("friends");
+
+    const reopened = await app.inject({
+      method: "GET",
+      url: `/v2/collections/${encodeURIComponent(collectionId)}`,
+      headers
+    });
+    expect(reopened.statusCode).toBe(200);
+    expect(reopened.json().data.item.name).toBe("Weekend Spots");
+    expect(reopened.json().data.item.privacy).toBe("friends");
   });
 
   it("publishes diagnostics row with update route policy", async () => {

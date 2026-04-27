@@ -1,7 +1,9 @@
 import { FieldValue, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
-import { incrementDbOps } from "../../observability/request-context.js";
+import { incrementDbOps, recordSurfaceTimings } from "../../observability/request-context.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
+import { withMutationLock } from "../../lib/mutation-lock.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { SourceOfTruthRequiredError } from "./strict-mode.js";
 
@@ -47,8 +49,9 @@ type StoredCollectionIndexRecord = Omit<FirestoreCollectionRecord, "permissions"
 type CursorPayload = { addedAt: string };
 const TEST_COLLECTION_RESETS = new Set<string>();
 const SEEDED_COLLECTIONS_BY_VIEWER = new Map<string, Map<string, FirestoreCollectionRecord>>();
+const RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER = new Map<string, Set<string>>();
 let SEEDED_COLLECTION_COUNTER = 1;
-const COLLECTION_INDEX_TRUST_TTL_MS = 2 * 60_000;
+const COLLECTION_INDEX_TRUST_TTL_MS = 10 * 60_000;
 
 function encodeCursor(input: CursorPayload): string {
   return Buffer.from(JSON.stringify(input), "utf8").toString("base64url");
@@ -112,13 +115,16 @@ function isAlreadyExistsError(error: unknown): boolean {
 }
 
 function mapCollectionDoc(doc: QueryDocumentSnapshot, viewerId: string): FirestoreCollectionRecord {
-  const data = doc.data() as Record<string, unknown>;
+  return mapCollectionData(doc.id, doc.data() as Record<string, unknown>, viewerId);
+}
+
+function mapCollectionData(docId: string, data: Record<string, unknown>, viewerId: string): FirestoreCollectionRecord {
   const ownerId = String(data.ownerId ?? data.userId ?? "");
   const collaborators = normalizeStringArray(data.collaborators);
   const isOwner = ownerId === viewerId;
   const isCollaborator = collaborators.includes(viewerId);
   return {
-    id: doc.id,
+    id: docId,
     ownerId,
     name: String(data.name ?? "Untitled collection"),
     description: typeof data.description === "string" ? data.description : undefined,
@@ -152,6 +158,29 @@ function mapCollectionDoc(doc: QueryDocumentSnapshot, viewerId: string): Firesto
     },
     kind: "backend",
   };
+}
+
+function markCollectionDeleted(viewerIds: string[], collectionId: string): void {
+  for (const viewerId of viewerIds.map((value) => value.trim()).filter(Boolean)) {
+    const deleted = RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER.get(viewerId) ?? new Set<string>();
+    deleted.add(collectionId);
+    RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER.set(viewerId, deleted);
+  }
+}
+
+function clearDeletedCollectionMark(viewerIds: string[], collectionId: string): void {
+  for (const viewerId of viewerIds.map((value) => value.trim()).filter(Boolean)) {
+    const deleted = RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER.get(viewerId);
+    if (!deleted) continue;
+    deleted.delete(collectionId);
+    if (deleted.size === 0) {
+      RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER.delete(viewerId);
+    }
+  }
+}
+
+function isCollectionMarkedDeleted(viewerId: string, collectionId: string): boolean {
+  return RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER.get(viewerId)?.has(collectionId) ?? false;
 }
 
 function isSystemOrGeneratedCollection(data: Record<string, unknown>): boolean {
@@ -204,10 +233,18 @@ function fromStoredCollectionIndexRecord(viewerId: string, row: StoredCollection
   };
 }
 
+function queueCacheWrite<T>(key: string, value: T, ttlMs: number): void {
+  void globalCache.set(key, value, ttlMs).catch(() => undefined);
+}
+
 export class CollectionsFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
   private static readonly INDEX_FIELD = "collectionsV2Index";
   private static readonly INDEXED_AT_FIELD = "collectionsV2IndexedAtMs";
+  private static readonly USER_INDEX_FIELD_MASK = [
+    CollectionsFirestoreAdapter.INDEX_FIELD,
+    CollectionsFirestoreAdapter.INDEXED_AT_FIELD
+  ];
 
   private useSeededCollections(): boolean {
     return process.env.NODE_ENV === "test" && this.db === null;
@@ -217,41 +254,41 @@ export class CollectionsFirestoreAdapter {
     return `collection:${collectionId}:viewer:${viewerId}`;
   }
 
+  private withCollectionMutationLock<T>(viewerId: string, collectionId: string, fn: () => Promise<T>): Promise<T> {
+    return withMutationLock(`collections:${viewerId}:${collectionId}`, fn);
+  }
+
+  getCollectionCacheKeyForViewer(viewerId: string, collectionId: string): string {
+    return this.collectionCacheKey(viewerId, collectionId);
+  }
+
   private requireDb() {
     if (!this.db) throw new SourceOfTruthRequiredError("collections_firestore_unavailable");
     return this.db;
   }
 
   private async readViewerCollectionsIndex(viewerId: string): Promise<FirestoreCollectionRecord[] | null> {
-    const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
-    if (cachedUserDoc !== undefined) {
-      const raw = cachedUserDoc[CollectionsFirestoreAdapter.INDEX_FIELD];
-      if (Array.isArray(raw)) {
-        const records = raw
-          .filter((row): row is StoredCollectionIndexRecord => Boolean(row && typeof row === "object"))
-          .map((row) => fromStoredCollectionIndexRecord(viewerId, row))
-          .sort(sortCollectionsDesc);
-        await Promise.all(
-          records.map((record) => globalCache.set(this.collectionCacheKey(viewerId, record.id), record, 30_000))
-        );
-        return records;
+    let cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
+    if (cachedUserDoc === undefined && this.db) {
+      const [userSnap] = await this.db.getAll(this.db.collection("users").doc(viewerId), {
+        fieldMask: [...CollectionsFirestoreAdapter.USER_INDEX_FIELD_MASK]
+      });
+      incrementDbOps("reads", userSnap?.exists ? 1 : 0);
+      if (userSnap?.exists) {
+        cachedUserDoc = (userSnap.data() as Record<string, unknown>) ?? {};
+        queueCacheWrite(entityCacheKeys.userFirestoreDoc(viewerId), cachedUserDoc, 25_000);
       }
     }
-
-    const db = this.requireDb();
-    const snap = await db.collection("users").doc(viewerId).get();
-    incrementDbOps("reads", snap.exists ? 1 : 0);
-    const data = (snap.data() ?? {}) as Record<string, unknown>;
-    await globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 25_000);
-    const raw = data[CollectionsFirestoreAdapter.INDEX_FIELD];
+    if (cachedUserDoc === undefined) {
+      return null;
+    }
+    const raw = cachedUserDoc[CollectionsFirestoreAdapter.INDEX_FIELD];
     if (!Array.isArray(raw)) return null;
     const records = raw
       .filter((row): row is StoredCollectionIndexRecord => Boolean(row && typeof row === "object"))
       .map((row) => fromStoredCollectionIndexRecord(viewerId, row))
       .sort(sortCollectionsDesc);
-    await Promise.all(
-      records.map((record) => globalCache.set(this.collectionCacheKey(viewerId, record.id), record, 30_000))
-    );
+    records.forEach((record) => queueCacheWrite(this.collectionCacheKey(viewerId, record.id), record, 30_000));
     return records;
   }
 
@@ -282,11 +319,9 @@ export class CollectionsFirestoreAdapter {
         [CollectionsFirestoreAdapter.INDEX_FIELD]: stored,
         [CollectionsFirestoreAdapter.INDEXED_AT_FIELD]: indexedAtMs
       },
-      25_000
+      300_000
     );
-    await Promise.all(
-      records.map((record) => globalCache.set(this.collectionCacheKey(viewerId, record.id), record, 30_000))
-    );
+    records.forEach((record) => queueCacheWrite(this.collectionCacheKey(viewerId, record.id), record, 30_000));
   }
 
   private async updateCachedViewerCollectionsIndex(
@@ -313,12 +348,14 @@ export class CollectionsFirestoreAdapter {
         },
         25_000
       );
-      await Promise.all(next.map((record) => globalCache.set(this.collectionCacheKey(viewerId, record.id), record, 30_000)));
+      next.forEach((record) => queueCacheWrite(this.collectionCacheKey(viewerId, record.id), record, 30_000));
     }
   }
 
   private persistViewerCollectionsIndexInBackground(viewerId: string, records: FirestoreCollectionRecord[]): void {
-    void this.writeViewerCollectionsIndex(viewerId, records, { persistToFirestore: true }).catch(() => undefined);
+    scheduleBackgroundWork(async () => {
+      await this.writeViewerCollectionsIndex(viewerId, records, { persistToFirestore: true });
+    });
   }
 
   private buildDefaultSavedCollectionRecord(
@@ -392,7 +429,6 @@ export class CollectionsFirestoreAdapter {
         "privacy",
         "isPublic",
         "collaborators",
-        "collaboratorInfo",
         "items",
         "itemsCount",
         "displayPhotoUrl",
@@ -402,7 +438,7 @@ export class CollectionsFirestoreAdapter {
         "updatedAt",
         "lastContentActivityAtMs"
       )
-      .limit(Math.max(limit * 3, limit))
+      .limit(Math.max(1, limit))
       .get();
     incrementDbOps("reads", collabSnap.docs.length);
     const merged = new Map<string, FirestoreCollectionRecord>();
@@ -440,7 +476,7 @@ export class CollectionsFirestoreAdapter {
       }
     });
     if (missing.length > 0) {
-      await Promise.all(missing.map((collectionId) => globalCache.del(this.collectionCacheKey(viewerId, collectionId))));
+      void Promise.all(missing.map((collectionId) => globalCache.del(this.collectionCacheKey(viewerId, collectionId)))).catch(() => undefined);
     }
     return missing;
   }
@@ -449,8 +485,10 @@ export class CollectionsFirestoreAdapter {
     return [...new Set(viewerIds.map((id) => id.trim()).filter(Boolean))];
   }
 
-  private async loadViewerCollectionsIndexForMutation(viewerId: string): Promise<FirestoreCollectionRecord[]> {
-    return (await this.readViewerCollectionsIndex(viewerId)) ?? (await this.queryViewerCollectionsFromFirestore(viewerId, 120));
+  private filterDeletedCollections(viewerId: string, collections: FirestoreCollectionRecord[]): FirestoreCollectionRecord[] {
+    const deleted = RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER.get(viewerId);
+    if (!deleted || deleted.size === 0) return collections;
+    return collections.filter((row) => !deleted.has(row.id));
   }
 
   private async upsertCollectionInViewerIndexes(
@@ -459,26 +497,64 @@ export class CollectionsFirestoreAdapter {
   ): Promise<void> {
     const unique = this.normalizeViewerIds(viewerIds);
     if (unique.length === 0) return;
-    const stored = toStoredCollectionIndexRecord(collection);
+    clearDeletedCollectionMark(unique, collection.id);
     for (const viewerId of unique) {
-      const current = await this.loadViewerCollectionsIndexForMutation(viewerId);
-      const next = current.filter((row) => row.id !== collection.id);
-      next.push(fromStoredCollectionIndexRecord(viewerId, stored));
-      next.sort(sortCollectionsDesc);
-      await this.writeViewerCollectionsIndex(viewerId, next, { persistToFirestore: false });
-      this.persistViewerCollectionsIndexInBackground(viewerId, next);
+      const viewerScopedCollection: FirestoreCollectionRecord = {
+        ...collection,
+        permissions: {
+          isOwner: collection.ownerId === viewerId,
+          isCollaborator: collection.collaborators.includes(viewerId),
+          canEdit: collection.ownerId === viewerId || collection.collaborators.includes(viewerId),
+          canDelete: collection.ownerId === viewerId,
+          canManageCollaborators: collection.ownerId === viewerId
+        }
+      };
+      queueCacheWrite(this.collectionCacheKey(viewerId, collection.id), viewerScopedCollection, 30_000);
+      const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
+      const raw = cachedUserDoc?.[CollectionsFirestoreAdapter.INDEX_FIELD];
+      if (Array.isArray(raw)) {
+        const next = raw
+          .filter((row): row is StoredCollectionIndexRecord => Boolean(row && typeof row === "object"))
+          .map((row) => fromStoredCollectionIndexRecord(viewerId, row))
+          .filter((row) => row.id !== collection.id);
+        next.push(viewerScopedCollection);
+        next.sort(sortCollectionsDesc);
+        await this.writeViewerCollectionsIndex(viewerId, next, { persistToFirestore: false });
+        this.persistViewerCollectionsIndexInBackground(viewerId, next);
+        continue;
+      }
+      scheduleBackgroundWork(async () => {
+        const current = (await this.readViewerCollectionsIndex(viewerId)) ?? (await this.queryViewerCollectionsFromFirestore(viewerId, 120));
+        const next = current.filter((row) => row.id !== collection.id);
+        next.push(viewerScopedCollection);
+        next.sort(sortCollectionsDesc);
+        await this.writeViewerCollectionsIndex(viewerId, next, { persistToFirestore: true });
+      });
     }
   }
 
   private async removeCollectionFromViewerIndexes(viewerIds: string[], collectionId: string): Promise<void> {
     const unique = this.normalizeViewerIds(viewerIds);
     if (unique.length === 0) return;
+    markCollectionDeleted(unique, collectionId);
     for (const viewerId of unique) {
-      const current = await this.loadViewerCollectionsIndexForMutation(viewerId);
-      const next = current.filter((row) => row.id !== collectionId);
-      await this.writeViewerCollectionsIndex(viewerId, next, { persistToFirestore: false });
-      this.persistViewerCollectionsIndexInBackground(viewerId, next);
-      await globalCache.del(this.collectionCacheKey(viewerId, collectionId));
+      const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
+      const raw = cachedUserDoc?.[CollectionsFirestoreAdapter.INDEX_FIELD];
+      if (Array.isArray(raw)) {
+        const next = raw
+          .filter((row): row is StoredCollectionIndexRecord => Boolean(row && typeof row === "object"))
+          .map((row) => fromStoredCollectionIndexRecord(viewerId, row))
+          .filter((row) => row.id !== collectionId);
+        await this.writeViewerCollectionsIndex(viewerId, next, { persistToFirestore: false });
+        this.persistViewerCollectionsIndexInBackground(viewerId, next);
+      } else {
+        scheduleBackgroundWork(async () => {
+          const current = (await this.readViewerCollectionsIndex(viewerId)) ?? (await this.queryViewerCollectionsFromFirestore(viewerId, 120));
+          const next = current.filter((row) => row.id !== collectionId);
+          await this.writeViewerCollectionsIndex(viewerId, next, { persistToFirestore: true });
+        });
+      }
+      void globalCache.del(this.collectionCacheKey(viewerId, collectionId)).catch(() => undefined);
     }
   }
 
@@ -494,7 +570,7 @@ export class CollectionsFirestoreAdapter {
     const indexed = await this.readViewerCollectionsIndex(viewerId);
     const indexedSaved = indexed?.find((row) => row.id === collectionId);
     if (indexedSaved) {
-      await globalCache.set(this.collectionCacheKey(viewerId, collectionId), indexedSaved, 30_000);
+      queueCacheWrite(this.collectionCacheKey(viewerId, collectionId), indexedSaved, 30_000);
       return indexedSaved;
     }
     const ref = db.collection("collections").doc(collectionId);
@@ -556,7 +632,7 @@ export class CollectionsFirestoreAdapter {
     }
     if (!snap.exists) throw new Error("default_saved_collection_unavailable");
     const mapped = mapCollectionDoc(snap as QueryDocumentSnapshot, viewerId);
-    await globalCache.set(this.collectionCacheKey(viewerId, collectionId), mapped, 30_000);
+    queueCacheWrite(this.collectionCacheKey(viewerId, collectionId), mapped, 30_000);
     await this.updateCachedViewerCollectionsIndex([viewerId], (current) => {
       const next = current.filter((row) => row.id !== mapped.id);
       next.push(mapped);
@@ -617,7 +693,8 @@ export class CollectionsFirestoreAdapter {
     );
     const items = Array.from(new Set((input.items ?? []).map((v) => String(v).trim()).filter(Boolean)));
     incrementDbOps("writes", 1);
-    await ref.set({
+    const firestoreWriteStartedAt = performance.now();
+    await ref.create({
       ownerId: input.viewerId,
       userId: input.viewerId,
       name: input.name,
@@ -633,6 +710,9 @@ export class CollectionsFirestoreAdapter {
       lastContentActivityByUserId: input.viewerId,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
+    });
+    recordSurfaceTimings({
+      collections_create_firestore_set_ms: performance.now() - firestoreWriteStartedAt
     });
     const nowIso = new Date().toISOString();
     const created: FirestoreCollectionRecord = {
@@ -658,7 +738,12 @@ export class CollectionsFirestoreAdapter {
       },
       kind: "backend",
     };
-    void globalCache.set(this.collectionCacheKey(input.viewerId, ref.id), created, 30_000);
+    clearDeletedCollectionMark(collaborators, ref.id);
+    const cacheWriteStartedAt = performance.now();
+    await globalCache.set(this.collectionCacheKey(input.viewerId, ref.id), created, 30_000);
+    recordSurfaceTimings({
+      collections_create_cache_set_ms: performance.now() - cacheWriteStartedAt
+    });
     void this.upsertCollectionInViewerIndexes(collaborators, created).catch(() => undefined);
     return created;
   }
@@ -672,37 +757,19 @@ export class CollectionsFirestoreAdapter {
     }
     const indexed = await this.readViewerCollectionsIndex(input.viewerId);
     if (indexed) {
-      const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId));
-      const indexedAtMs =
-        typeof cachedUserDoc?.[CollectionsFirestoreAdapter.INDEXED_AT_FIELD] === "number" &&
-        Number.isFinite(cachedUserDoc[CollectionsFirestoreAdapter.INDEXED_AT_FIELD] as number)
-          ? Math.floor(cachedUserDoc[CollectionsFirestoreAdapter.INDEXED_AT_FIELD] as number)
-          : null;
-      const indexedSlice = indexed.slice(0, input.limit);
-      const indexStillTrusted =
-        indexedAtMs != null &&
-        Date.now() - indexedAtMs <= COLLECTION_INDEX_TRUST_TTL_MS;
-      if (indexStillTrusted) {
-        return indexedSlice;
-      }
-      const missingIds = await this.findMissingCollectionIds(input.viewerId, indexedSlice.map((row) => row.id));
-      if (missingIds.length === 0) {
-        return indexedSlice;
-      }
-      const refreshed = await this.refreshViewerCollectionsIndexFromSource(
-        input.viewerId,
-        Math.max(input.limit, indexed.length)
-      );
-      return refreshed.slice(0, input.limit);
+      return this.filterDeletedCollections(input.viewerId, indexed).slice(0, input.limit);
     }
     const sorted = await this.refreshViewerCollectionsIndexFromSource(input.viewerId, input.limit);
-    return sorted.slice(0, input.limit);
+    return this.filterDeletedCollections(input.viewerId, sorted).slice(0, input.limit);
   }
 
   async getCollection(input: { viewerId: string; collectionId: string }): Promise<FirestoreCollectionRecord | null> {
     if (this.useSeededCollections()) {
       const record = this.ensureSeededCollectionsForViewer(input.viewerId).get(input.collectionId) ?? null;
       return record ? this.cloneCollection(record) : null;
+    }
+    if (isCollectionMarkedDeleted(input.viewerId, input.collectionId)) {
+      return null;
     }
     const db = this.requireDb();
     const cached = await globalCache.get<FirestoreCollectionRecord>(this.collectionCacheKey(input.viewerId, input.collectionId));
@@ -714,7 +781,7 @@ export class CollectionsFirestoreAdapter {
       const rawIndexedAtMs = cachedUserDoc?.[CollectionsFirestoreAdapter.INDEXED_AT_FIELD];
       const indexedAtMs = typeof rawIndexedAtMs === "number" ? rawIndexedAtMs : null;
       if (indexedAtMs != null && Date.now() - indexedAtMs <= COLLECTION_INDEX_TRUST_TTL_MS) {
-        await globalCache.set(this.collectionCacheKey(input.viewerId, input.collectionId), indexedMatch, 30_000);
+        queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), indexedMatch, 30_000);
         return indexedMatch;
       }
     }
@@ -729,7 +796,7 @@ export class CollectionsFirestoreAdapter {
     const mapped = mapCollectionDoc(snap as QueryDocumentSnapshot, input.viewerId);
     if (!mapped.permissions.isOwner && !mapped.permissions.isCollaborator) return null;
     if (isSystemOrGeneratedCollection((snap.data() as Record<string, unknown>) ?? {})) return null;
-    await globalCache.set(this.collectionCacheKey(input.viewerId, input.collectionId), mapped, 30_000);
+    queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), mapped, 30_000);
     if (
       !indexedMatch ||
       indexedMatch.updatedAt !== mapped.updatedAt ||
@@ -738,6 +805,55 @@ export class CollectionsFirestoreAdapter {
     ) {
       void this.upsertCollectionInViewerIndexes(mapped.collaborators, mapped).catch(() => undefined);
     }
+    return mapped;
+  }
+
+  private async getCollectionForMutation(
+    input: { viewerId: string; collectionId: string },
+    options?: { selectFields?: string[] }
+  ): Promise<FirestoreCollectionRecord | null> {
+    if (this.useSeededCollections()) {
+      const record = this.ensureSeededCollectionsForViewer(input.viewerId).get(input.collectionId) ?? null;
+      return record ? this.cloneCollection(record) : null;
+    }
+    if (isCollectionMarkedDeleted(input.viewerId, input.collectionId)) {
+      return null;
+    }
+    const cached = await globalCache.get<FirestoreCollectionRecord>(this.collectionCacheKey(input.viewerId, input.collectionId));
+    if (cached && (cached.permissions.isOwner || cached.permissions.isCollaborator)) {
+      return cached;
+    }
+    const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId));
+    const cachedIndexRaw = cachedUserDoc?.[CollectionsFirestoreAdapter.INDEX_FIELD];
+    if (Array.isArray(cachedIndexRaw)) {
+      const indexedMatch =
+        cachedIndexRaw
+          .filter((row): row is StoredCollectionIndexRecord => Boolean(row && typeof row === "object"))
+          .map((row) => fromStoredCollectionIndexRecord(input.viewerId, row))
+          .find((row) => row.id === input.collectionId) ?? null;
+      if (indexedMatch && (indexedMatch.permissions.isOwner || indexedMatch.permissions.isCollaborator)) {
+        queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), indexedMatch, 30_000);
+        return indexedMatch;
+      }
+    }
+    const db = this.requireDb();
+    const ref = db.collection("collections").doc(input.collectionId);
+    const snap =
+      options?.selectFields && options.selectFields.length > 0
+        ? (
+            await db.getAll(ref, {
+              fieldMask: options.selectFields
+            })
+          )[0] ?? null
+        : await ref.get();
+    incrementDbOps("reads", snap?.exists ? 1 : 0);
+    if (!snap?.exists) {
+      return null;
+    }
+    const mapped = mapCollectionData(input.collectionId, (snap.data() as Record<string, unknown>) ?? {}, input.viewerId);
+    if (!mapped.permissions.isOwner && !mapped.permissions.isCollaborator) return null;
+    if (isSystemOrGeneratedCollection((snap.data() as Record<string, unknown>) ?? {})) return null;
+    queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), mapped, 30_000);
     return mapped;
   }
 
@@ -780,7 +896,7 @@ export class CollectionsFirestoreAdapter {
       return { changed: true, collection: this.cloneCollection(next), updatedFields };
     }
     const db = this.requireDb();
-    const existing = await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
+    const existing = await this.getCollectionForMutation({ viewerId: input.viewerId, collectionId: input.collectionId });
     if (!existing || !existing.permissions.isOwner) {
       return { changed: false, collection: null, updatedFields: [] };
     }
@@ -837,20 +953,14 @@ export class CollectionsFirestoreAdapter {
       return { changed: map.delete(input.collectionId) };
     }
     const db = this.requireDb();
-    const existing = await this.getCollection(input);
+    const existing = await this.getCollectionForMutation(input, {
+      selectFields: ["ownerId", "userId", "collaborators"]
+    });
     if (!existing || !existing.permissions.isOwner) return { changed: false };
-    const batch = db.batch();
-    let deletedEdges = 0;
-    if (existing.itemsCount > 0) {
-      const postsSnap = await db.collection("collections").doc(input.collectionId).collection("posts").get();
-      incrementDbOps("queries", 1);
-      incrementDbOps("reads", postsSnap.docs.length);
-      postsSnap.docs.forEach((doc) => batch.delete(doc.ref));
-      deletedEdges = postsSnap.docs.length;
-    }
-    batch.delete(db.collection("collections").doc(input.collectionId));
-    incrementDbOps("writes", deletedEdges + 1);
-    await batch.commit();
+    incrementDbOps("writes", 1);
+    await db.collection("collections").doc(input.collectionId).delete();
+    markCollectionDeleted(existing.collaborators, input.collectionId);
+    void globalCache.del(this.collectionCacheKey(input.viewerId, input.collectionId)).catch(() => undefined);
     void this.removeCollectionFromViewerIndexes(existing.collaborators, input.collectionId).catch(() => undefined);
     return { changed: true };
   }
@@ -881,8 +991,20 @@ export class CollectionsFirestoreAdapter {
       };
     }
     const db = this.requireDb();
-    const col = await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
+    let col = await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
     if (!col) throw new Error("collection_not_found");
+    if (col.items.length === 0 && col.itemsCount > 0) {
+      incrementDbOps("reads", 1);
+      const freshSnap = await db.collection("collections").doc(input.collectionId).get();
+      if (freshSnap.exists) {
+        const refreshed = mapCollectionDoc(freshSnap as QueryDocumentSnapshot, input.viewerId);
+        if (refreshed.permissions.isOwner || refreshed.permissions.isCollaborator) {
+          col = refreshed;
+          queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), refreshed, 30_000);
+          void this.upsertCollectionInViewerIndexes(refreshed.collaborators, refreshed).catch(() => undefined);
+        }
+      }
+    }
     if (Array.isArray(col.items) && col.items.length > 0) {
       let offset = 0;
       if (input.cursor) {
@@ -933,53 +1055,73 @@ export class CollectionsFirestoreAdapter {
     collectionId: string;
     postId: string;
   }): Promise<{ changed: boolean; collectionId: string }> {
-    if (this.useSeededCollections()) {
-      const map = this.ensureSeededCollectionsForViewer(input.viewerId);
-      const collection = map.get(input.collectionId);
+    return this.withCollectionMutationLock(input.viewerId, input.collectionId, async () => {
+      if (this.useSeededCollections()) {
+        const map = this.ensureSeededCollectionsForViewer(input.viewerId);
+        const collection = map.get(input.collectionId);
+        if (!collection || !collection.permissions.canEdit) return { changed: false, collectionId: input.collectionId };
+        if (collection.items.includes(input.postId)) return { changed: false, collectionId: input.collectionId };
+        const next: FirestoreCollectionRecord = {
+          ...collection,
+          items: [input.postId, ...collection.items],
+          itemsCount: collection.itemsCount + 1,
+          updatedAt: new Date().toISOString(),
+          lastContentActivityAtMs: Date.now()
+        };
+        map.set(input.collectionId, next);
+        return { changed: true, collectionId: input.collectionId };
+      }
+      const db = this.requireDb();
+      const collection = await this.getCollectionForMutation(
+        { viewerId: input.viewerId, collectionId: input.collectionId },
+        { selectFields: ["ownerId", "userId", "collaborators", "items", "itemsCount", "updatedAt", "lastContentActivityAtMs"] }
+      );
       if (!collection || !collection.permissions.canEdit) return { changed: false, collectionId: input.collectionId };
       if (collection.items.includes(input.postId)) return { changed: false, collectionId: input.collectionId };
-      const next: FirestoreCollectionRecord = {
+      const now = Date.now();
+      const trustedInlineItems = collection.items.length === collection.itemsCount;
+      if (trustedInlineItems) {
+        incrementDbOps("writes", 1);
+        await db.collection("collections").doc(input.collectionId).update({
+          items: FieldValue.arrayUnion(input.postId),
+          itemsCount: collection.itemsCount + 1,
+          lastContentActivityAtMs: now,
+          lastContentActivityByUserId: input.viewerId,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      } else {
+        const edgeRef = db.collection("collections").doc(input.collectionId).collection("posts").doc(input.postId);
+        incrementDbOps("writes", 2);
+        const batch = db.batch();
+        batch.create(edgeRef, {
+            postId: input.postId,
+            addedAt: FieldValue.serverTimestamp(),
+          });
+        batch.update(db.collection("collections").doc(input.collectionId), {
+            itemsCount: FieldValue.increment(1),
+            lastContentActivityAtMs: now,
+            lastContentActivityByUserId: input.viewerId,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        try {
+          await batch.commit();
+        } catch (error) {
+          if (isAlreadyExistsError(error)) return { changed: false, collectionId: input.collectionId };
+          throw error;
+        }
+      }
+      const nowIso = new Date(now).toISOString();
+      const updatedCollection: FirestoreCollectionRecord = {
         ...collection,
-        items: [input.postId, ...collection.items],
-        itemsCount: collection.itemsCount + 1,
-        updatedAt: new Date().toISOString(),
-        lastContentActivityAtMs: Date.now()
+        items: collection.items.includes(input.postId) ? collection.items : [input.postId, ...collection.items],
+        itemsCount: collection.items.includes(input.postId) ? collection.itemsCount : collection.itemsCount + 1,
+        updatedAt: nowIso,
+        lastContentActivityAtMs: now
       };
-      map.set(input.collectionId, next);
+      queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), updatedCollection, 30_000);
+      void this.upsertCollectionInViewerIndexes(collection.collaborators, updatedCollection).catch(() => undefined);
       return { changed: true, collectionId: input.collectionId };
-    }
-    const db = this.requireDb();
-    const collection = await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
-    if (!collection || !collection.permissions.canEdit) return { changed: false, collectionId: input.collectionId };
-    const edgeRef = db.collection("collections").doc(input.collectionId).collection("posts").doc(input.postId);
-    incrementDbOps("reads", 1);
-    const existing = await edgeRef.get();
-    if (existing.exists) return { changed: false, collectionId: input.collectionId };
-    const now = Date.now();
-    incrementDbOps("writes", 2);
-    await Promise.all([
-      edgeRef.set({
-        postId: input.postId,
-        addedAt: FieldValue.serverTimestamp(),
-      }),
-      db.collection("collections").doc(input.collectionId).update({
-        items: FieldValue.arrayUnion(input.postId),
-        itemsCount: FieldValue.increment(1),
-        lastContentActivityAtMs: now,
-        lastContentActivityByUserId: input.viewerId,
-        updatedAt: FieldValue.serverTimestamp(),
-      }),
-    ]);
-    const nowIso = new Date(now).toISOString();
-    const updatedCollection: FirestoreCollectionRecord = {
-      ...collection,
-      items: collection.items.includes(input.postId) ? collection.items : [input.postId, ...collection.items],
-      itemsCount: collection.items.includes(input.postId) ? collection.itemsCount : collection.itemsCount + 1,
-      updatedAt: nowIso,
-      lastContentActivityAtMs: now
-    };
-    void this.upsertCollectionInViewerIndexes(collection.collaborators, updatedCollection).catch(() => undefined);
-    return { changed: true, collectionId: input.collectionId };
+    });
   }
 
   async removePostFromCollection(input: {
@@ -987,194 +1129,212 @@ export class CollectionsFirestoreAdapter {
     collectionId: string;
     postId: string;
   }): Promise<{ changed: boolean; collectionId: string }> {
-    if (this.useSeededCollections()) {
-      const map = this.ensureSeededCollectionsForViewer(input.viewerId);
-      const collection = map.get(input.collectionId);
+    return this.withCollectionMutationLock(input.viewerId, input.collectionId, async () => {
+      if (this.useSeededCollections()) {
+        const map = this.ensureSeededCollectionsForViewer(input.viewerId);
+        const collection = map.get(input.collectionId);
+        if (!collection || !collection.permissions.canEdit) return { changed: false, collectionId: input.collectionId };
+        if (!collection.items.includes(input.postId)) return { changed: false, collectionId: input.collectionId };
+        const nextItems = collection.items.filter((postId) => postId !== input.postId);
+        const next: FirestoreCollectionRecord = {
+          ...collection,
+          items: nextItems,
+          itemsCount: nextItems.length,
+          updatedAt: new Date().toISOString(),
+          lastContentActivityAtMs: Date.now()
+        };
+        map.set(input.collectionId, next);
+        return { changed: true, collectionId: input.collectionId };
+      }
+      const db = this.requireDb();
+      const collection = await this.getCollectionForMutation(
+        { viewerId: input.viewerId, collectionId: input.collectionId },
+        { selectFields: ["ownerId", "userId", "collaborators", "items", "itemsCount", "updatedAt", "lastContentActivityAtMs"] }
+      );
       if (!collection || !collection.permissions.canEdit) return { changed: false, collectionId: input.collectionId };
-      if (!collection.items.includes(input.postId)) return { changed: false, collectionId: input.collectionId };
-      const nextItems = collection.items.filter((postId) => postId !== input.postId);
-      const next: FirestoreCollectionRecord = {
+      const trustedInlineItems = collection.items.length === collection.itemsCount;
+      if (!collection.items.includes(input.postId) && !trustedInlineItems) {
+        const edgeRef = db.collection("collections").doc(input.collectionId).collection("posts").doc(input.postId);
+        incrementDbOps("reads", 1);
+        const existing = await edgeRef.get();
+        if (!existing.exists) return { changed: false, collectionId: input.collectionId };
+      }
+      const now = Date.now();
+      if (trustedInlineItems) {
+        const nextItems = collection.items.filter((postId) => postId !== input.postId);
+        if (nextItems.length === collection.items.length) {
+          return { changed: false, collectionId: input.collectionId };
+        }
+        incrementDbOps("writes", 1);
+        await db.collection("collections").doc(input.collectionId).update({
+          items: nextItems,
+          itemsCount: nextItems.length,
+          lastContentActivityAtMs: now,
+          lastContentActivityByUserId: input.viewerId,
+          updatedAt: FieldValue.serverTimestamp()
+        });
+      } else {
+        const edgeRef = db.collection("collections").doc(input.collectionId).collection("posts").doc(input.postId);
+        incrementDbOps("writes", 2);
+        const batch = db.batch();
+        batch.delete(edgeRef);
+        batch.update(db.collection("collections").doc(input.collectionId), {
+            itemsCount: FieldValue.increment(-1),
+            lastContentActivityAtMs: now,
+            lastContentActivityByUserId: input.viewerId,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+        await batch.commit();
+      }
+      const nowIso = new Date(now).toISOString();
+      const updatedCollection: FirestoreCollectionRecord = {
         ...collection,
-        items: nextItems,
-        itemsCount: nextItems.length,
-        updatedAt: new Date().toISOString(),
-        lastContentActivityAtMs: Date.now()
+        items: collection.items.filter((postId) => postId !== input.postId),
+        itemsCount: Math.max(0, collection.itemsCount - 1),
+        updatedAt: nowIso,
+        lastContentActivityAtMs: now
       };
-      map.set(input.collectionId, next);
+      queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), updatedCollection, 30_000);
+      void this.upsertCollectionInViewerIndexes(collection.collaborators, updatedCollection).catch(() => undefined);
       return { changed: true, collectionId: input.collectionId };
-    }
-    const db = this.requireDb();
-    const collection = await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
-    if (!collection || !collection.permissions.canEdit) return { changed: false, collectionId: input.collectionId };
-    const edgeRef = db.collection("collections").doc(input.collectionId).collection("posts").doc(input.postId);
-    incrementDbOps("reads", 1);
-    const existing = await edgeRef.get();
-    if (!existing.exists) return { changed: false, collectionId: input.collectionId };
-    const now = Date.now();
-    incrementDbOps("writes", 2);
-    await Promise.all([
-      edgeRef.delete(),
-      db.collection("collections").doc(input.collectionId).update({
-        items: FieldValue.arrayRemove(input.postId),
-        itemsCount: FieldValue.increment(-1),
-        lastContentActivityAtMs: now,
-        lastContentActivityByUserId: input.viewerId,
-        updatedAt: FieldValue.serverTimestamp(),
-      }),
-    ]);
-    const nowIso = new Date(now).toISOString();
-    const updatedCollection: FirestoreCollectionRecord = {
-      ...collection,
-      items: collection.items.filter((postId) => postId !== input.postId),
-      itemsCount: Math.max(0, collection.itemsCount - 1),
-      updatedAt: nowIso,
-      lastContentActivityAtMs: now
-    };
-    void this.upsertCollectionInViewerIndexes(collection.collaborators, updatedCollection).catch(() => undefined);
-    return { changed: true, collectionId: input.collectionId };
+    });
   }
 
   async savePostToDefaultCollection(input: {
     viewerId: string;
     postId: string;
   }): Promise<{ collectionId: string; changed: boolean }> {
-    if (this.useSeededCollections()) {
-      const map = this.ensureSeededCollectionsForViewer(input.viewerId);
-      const collectionId = `saved-${input.viewerId}`;
-      const existing = map.get(collectionId) ?? this.buildDefaultSavedCollectionRecord(input.viewerId);
-      if (existing.items.includes(input.postId)) return { collectionId, changed: false };
-      const next: FirestoreCollectionRecord = {
-        ...existing,
-        items: [input.postId, ...existing.items],
-        itemsCount: existing.itemsCount + 1,
-        updatedAt: new Date().toISOString(),
-        lastContentActivityAtMs: Date.now()
-      };
-      map.set(collectionId, next);
-      return { collectionId, changed: true };
-    }
-    const db = this.requireDb();
     const collectionId = `saved-${input.viewerId}`;
-    const collectionRef = db.collection("collections").doc(collectionId);
-    const edgeRef = collectionRef.collection("posts").doc(input.postId);
-    const now = Date.now();
-    const batch = db.batch();
-    batch.create(edgeRef, {
-      postId: input.postId,
-      addedAt: FieldValue.serverTimestamp()
-    });
-    batch.set(
-      collectionRef,
-      {
-        ownerId: input.viewerId,
-        userId: input.viewerId,
-        name: "Saved",
-        description: "",
-        privacy: "private",
-        collaborators: [input.viewerId],
-        items: FieldValue.arrayUnion(input.postId),
-        itemsCount: FieldValue.increment(1),
-        lastContentActivityAtMs: now,
-        lastContentActivityByUserId: input.viewerId,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
-    try {
-      incrementDbOps("writes", 2);
-      await batch.commit();
-    } catch (error) {
-      if (isAlreadyExistsError(error)) {
+    return this.withCollectionMutationLock(input.viewerId, collectionId, async () => {
+      if (this.useSeededCollections()) {
+        const map = this.ensureSeededCollectionsForViewer(input.viewerId);
+        const existing = map.get(collectionId) ?? this.buildDefaultSavedCollectionRecord(input.viewerId);
+        if (existing.items.includes(input.postId)) return { collectionId, changed: false };
+        const next: FirestoreCollectionRecord = {
+          ...existing,
+          items: [input.postId, ...existing.items],
+          itemsCount: existing.itemsCount + 1,
+          updatedAt: new Date().toISOString(),
+          lastContentActivityAtMs: Date.now()
+        };
+        map.set(collectionId, next);
+        return { collectionId, changed: true };
+      }
+      const db = this.requireDb();
+      const collectionRef = db.collection("collections").doc(collectionId);
+      const now = Date.now();
+      const cachedCollection = await globalCache.get<FirestoreCollectionRecord>(this.collectionCacheKey(input.viewerId, collectionId));
+      if (cachedCollection?.items.includes(input.postId)) {
         return { collectionId, changed: false };
       }
-      throw error;
-    }
-
-    const cachedCollection =
-      (await globalCache.get<FirestoreCollectionRecord>(this.collectionCacheKey(input.viewerId, collectionId))) ??
-      this.buildDefaultSavedCollectionRecord(input.viewerId);
-    const updatedCollection: FirestoreCollectionRecord = {
-      ...cachedCollection,
-      items: cachedCollection.items.includes(input.postId) ? cachedCollection.items : [input.postId, ...cachedCollection.items],
-      itemsCount: cachedCollection.items.includes(input.postId) ? cachedCollection.itemsCount : cachedCollection.itemsCount + 1,
-      updatedAt: new Date(now).toISOString(),
-      lastContentActivityAtMs: now
-    };
-    void globalCache.set(this.collectionCacheKey(input.viewerId, collectionId), updatedCollection, 30_000);
-    void this.upsertCollectionInViewerIndexes([input.viewerId], updatedCollection).catch(() => undefined);
-    return { collectionId, changed: true };
+      incrementDbOps("writes", 1);
+      await collectionRef.set(
+        {
+          ownerId: input.viewerId,
+          userId: input.viewerId,
+          name: "Saved",
+          description: "",
+          privacy: "private",
+          collaborators: [input.viewerId],
+          items: FieldValue.arrayUnion(input.postId),
+          lastContentActivityAtMs: now,
+          lastContentActivityByUserId: input.viewerId,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+      const baseCollection = cachedCollection ?? this.buildDefaultSavedCollectionRecord(input.viewerId);
+      const updatedCollection: FirestoreCollectionRecord = {
+        ...baseCollection,
+        items: baseCollection.items.includes(input.postId) ? baseCollection.items : [input.postId, ...baseCollection.items],
+        itemsCount: baseCollection.items.includes(input.postId) ? baseCollection.itemsCount : baseCollection.itemsCount + 1,
+        updatedAt: new Date(now).toISOString(),
+        lastContentActivityAtMs: now
+      };
+      queueCacheWrite(this.collectionCacheKey(input.viewerId, collectionId), updatedCollection, 30_000);
+      void this.upsertCollectionInViewerIndexes([input.viewerId], updatedCollection).catch(() => undefined);
+      return { collectionId, changed: true };
+    });
   }
 
   async unsavePostFromDefaultCollection(input: {
     viewerId: string;
     postId: string;
   }): Promise<{ collectionId: string; changed: boolean }> {
-    if (this.useSeededCollections()) {
-      const map = this.ensureSeededCollectionsForViewer(input.viewerId);
-      const collectionId = `saved-${input.viewerId}`;
-      const existing = map.get(collectionId) ?? this.buildDefaultSavedCollectionRecord(input.viewerId);
-      if (!existing.items.includes(input.postId)) return { collectionId, changed: false };
-      const nextItems = existing.items.filter((postId) => postId !== input.postId);
-      const next: FirestoreCollectionRecord = {
-        ...existing,
-        items: nextItems,
-        itemsCount: nextItems.length,
-        updatedAt: new Date().toISOString(),
-        lastContentActivityAtMs: Date.now()
-      };
-      map.set(collectionId, next);
-      return { collectionId, changed: true };
-    }
     const collectionId = `saved-${input.viewerId}`;
-    const db = this.requireDb();
-    const collectionRef = db.collection("collections").doc(collectionId);
-    const edgeRef = collectionRef.collection("posts").doc(input.postId);
-    const cachedCollection =
-      (await globalCache.get<FirestoreCollectionRecord>(this.collectionCacheKey(input.viewerId, collectionId))) ??
-      (await this.readViewerCollectionsIndex(input.viewerId))?.find((row) => row.id === collectionId) ??
-      null;
-    const cachedContainsPost = Boolean(cachedCollection?.items.includes(input.postId));
-    if (!cachedContainsPost) {
-      incrementDbOps("reads", 1);
-      const existing = await edgeRef.get();
-      if (!existing.exists) return { collectionId, changed: false };
-    }
+    return this.withCollectionMutationLock(input.viewerId, collectionId, async () => {
+      if (this.useSeededCollections()) {
+        const map = this.ensureSeededCollectionsForViewer(input.viewerId);
+        const existing = map.get(collectionId) ?? this.buildDefaultSavedCollectionRecord(input.viewerId);
+        if (!existing.items.includes(input.postId)) return { collectionId, changed: false };
+        const nextItems = existing.items.filter((postId) => postId !== input.postId);
+        const next: FirestoreCollectionRecord = {
+          ...existing,
+          items: nextItems,
+          itemsCount: nextItems.length,
+          updatedAt: new Date().toISOString(),
+          lastContentActivityAtMs: Date.now()
+        };
+        map.set(collectionId, next);
+        return { collectionId, changed: true };
+      }
+      const db = this.requireDb();
+      const collectionRef = db.collection("collections").doc(collectionId);
+      const cachedCollection = await this.getCollectionForMutation(
+        { viewerId: input.viewerId, collectionId },
+        { selectFields: ["ownerId", "userId", "collaborators", "items", "itemsCount", "updatedAt", "lastContentActivityAtMs"] }
+      );
+      if (!cachedCollection) {
+        return { collectionId, changed: false };
+      }
+      const trustedInlineItems = Boolean(
+        cachedCollection && cachedCollection.items.length === cachedCollection.itemsCount
+      );
+      const cachedContainsPost = Boolean(cachedCollection?.items.includes(input.postId));
+      if (trustedInlineItems) {
+        if (!cachedContainsPost) {
+          return { collectionId, changed: false };
+        }
+      } else if (!cachedContainsPost) {
+        const edgeRef = collectionRef.collection("posts").doc(input.postId);
+        incrementDbOps("reads", 1);
+        const existing = await edgeRef.get();
+        if (!existing.exists) return { collectionId, changed: false };
+      }
 
-    const now = Date.now();
-    const batch = db.batch();
-    batch.delete(edgeRef);
-    batch.set(
-      collectionRef,
-      {
-        ownerId: input.viewerId,
-        userId: input.viewerId,
-        name: "Saved",
-        description: "",
-        privacy: "private",
-        collaborators: [input.viewerId],
-        items: FieldValue.arrayRemove(input.postId),
-        itemsCount: FieldValue.increment(-1),
-        lastContentActivityAtMs: now,
-        lastContentActivityByUserId: input.viewerId,
-        updatedAt: FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
-    incrementDbOps("writes", 2);
-    await batch.commit();
+      const now = Date.now();
+      const nextItems = cachedCollection.items.filter((postId) => postId !== input.postId);
+      incrementDbOps("writes", 1);
+      await collectionRef.set(
+        {
+          ownerId: input.viewerId,
+          userId: input.viewerId,
+          name: "Saved",
+          description: "",
+          privacy: "private",
+          collaborators: [input.viewerId],
+          items: nextItems,
+          itemsCount: nextItems.length,
+          lastContentActivityAtMs: now,
+          lastContentActivityByUserId: input.viewerId,
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
 
-    const nextCollection = cachedCollection ?? this.buildDefaultSavedCollectionRecord(input.viewerId);
-    const updatedCollection: FirestoreCollectionRecord = {
-      ...nextCollection,
-      items: nextCollection.items.filter((postId) => postId !== input.postId),
-      itemsCount: Math.max(0, nextCollection.itemsCount - (nextCollection.items.includes(input.postId) ? 1 : 0)),
-      updatedAt: new Date(now).toISOString(),
-      lastContentActivityAtMs: now
-    };
-    void globalCache.set(this.collectionCacheKey(input.viewerId, collectionId), updatedCollection, 30_000);
-    void this.upsertCollectionInViewerIndexes([input.viewerId], updatedCollection).catch(() => undefined);
-    return { collectionId, changed: true };
+      const nextCollection = cachedCollection ?? this.buildDefaultSavedCollectionRecord(input.viewerId);
+      const updatedCollection: FirestoreCollectionRecord = {
+        ...nextCollection,
+        items: nextCollection.items.filter((postId) => postId !== input.postId),
+        itemsCount: Math.max(0, nextCollection.itemsCount - (nextCollection.items.includes(input.postId) ? 1 : 0)),
+        updatedAt: new Date(now).toISOString(),
+        lastContentActivityAtMs: now
+      };
+      queueCacheWrite(this.collectionCacheKey(input.viewerId, collectionId), updatedCollection, 30_000);
+      void this.upsertCollectionInViewerIndexes([input.viewerId], updatedCollection).catch(() => undefined);
+      return { collectionId, changed: true };
+    });
   }
 
   async getPostSaveState(input: {

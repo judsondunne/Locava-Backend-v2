@@ -22,7 +22,7 @@ export const entityCacheKeys = {
     return `user:${userId}:firestoreDoc`;
   },
   userPostCount(userId: string): string {
-    return `user:${userId}:postCount`;
+    return `user:${userId}:postCount:v2`;
   },
   notificationsUnreadCount(userId: string): string {
     return `user:${userId}:notificationsUnreadCount`;
@@ -79,6 +79,11 @@ export function unlinkPostFromAuthorIndex(postId: string): void {
 
 export function getKnownAuthorUserIdForPost(postId: string): string | null {
   return postAuthorIndex.get(postId) ?? null;
+}
+
+export function resetEntityCacheDebugState(): void {
+  authorPostIndex.clear();
+  postAuthorIndex.clear();
 }
 
 function indexEntityForInvalidation(key: string, value: unknown): void {

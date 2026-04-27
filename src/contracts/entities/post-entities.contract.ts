@@ -30,6 +30,18 @@ export const PostCardSummarySchema = z.object({
   author: AuthorSummarySchema,
   activities: z.array(z.string()).optional(),
   address: z.string().nullable().optional(),
+  carouselFitWidth: z.boolean().optional(),
+  layoutLetterbox: z.boolean().optional(),
+  letterboxGradientTop: z.string().nullable().optional(),
+  letterboxGradientBottom: z.string().nullable().optional(),
+  letterboxGradients: z
+    .array(
+      z.object({
+        top: z.string(),
+        bottom: z.string()
+      })
+    )
+    .optional(),
   geo: z
     .object({
       lat: z.number().nullable(),
@@ -62,6 +74,7 @@ export const PostCardSummarySchema = z.object({
   media: MediaStartupHintsSchema,
   social: SocialSummarySchema,
   viewer: ViewerPostStateSchema,
+  createdAtMs: z.number().int().nonnegative(),
   updatedAtMs: z.number().int().nonnegative()
 });
 
@@ -79,6 +92,18 @@ export const PostDetailSchema = z.object({
   userId: z.string(),
   caption: z.string().nullable(),
   createdAtMs: z.number().int().nonnegative(),
+  carouselFitWidth: z.boolean().optional(),
+  layoutLetterbox: z.boolean().optional(),
+  letterboxGradientTop: z.string().nullable().optional(),
+  letterboxGradientBottom: z.string().nullable().optional(),
+  letterboxGradients: z
+    .array(
+      z.object({
+        top: z.string(),
+        bottom: z.string()
+      })
+    )
+    .optional(),
   mediaType: z.enum(["image", "video"]),
   thumbUrl: z.string().url(),
   assets: z.array(PostDetailAssetSchema),

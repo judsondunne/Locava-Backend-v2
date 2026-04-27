@@ -411,7 +411,20 @@ export function resolveLocationIntent(
 
   const aliasPlace = resolveAliasPlace(normalizedLocation);
   const stateName = resolveStateNameFromAny(normalizedLocation);
-  const directPlace = aliasPlace ?? resolvePlace?.(normalizedLocation) ?? null;
+  let directPlace = aliasPlace ?? resolvePlace?.(normalizedLocation) ?? null;
+
+  // If the user is typing a prefix of a US state (ex: "ver" => "Vermont"),
+  // prefer interpreting it as the state instead of snapping to a town match
+  // (ex: Burlington, Vermont). This keeps generated collections stable and
+  // avoids surprising "in Burlington" mixes before the user actually typed it.
+  if (stateName) {
+    const normalizedState = normalizeSearchText(stateName);
+    const isPrefixOfState = normalizedLocation.length >= 2 && normalizedState.startsWith(normalizedLocation);
+    const isFullState = normalizedLocation === normalizedState;
+    if (isPrefixOfState && !isFullState) {
+      directPlace = null;
+    }
+  }
 
   if (!directPlace && !stateName) return null;
 

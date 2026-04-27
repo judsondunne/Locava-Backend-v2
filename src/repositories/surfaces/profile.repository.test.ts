@@ -65,7 +65,7 @@ describe("profile repository", () => {
     });
   });
 
-  it("falls back on timeout/failure", async () => {
+  it("fails closed when the firestore adapter times out", async () => {
     const repository = new ProfileRepository({
       isEnabled: () => true,
       getProfileHeader: async () => {
@@ -81,13 +81,8 @@ describe("profile repository", () => {
     } as never);
 
     await withRequestContext(async () => {
-      const header = await repository.getProfileHeader("u-2");
-      const preview = await repository.getGridPreview("u-2", 6);
-      expect(header.userId).toBe("u-2");
-      expect(preview.items.length).toBeGreaterThan(0);
+      await expect(repository.getProfileHeader("u-2")).rejects.toThrow("profile-firestore-header_timeout");
       const ctx = getRequestContext();
-      expect(ctx?.fallbacks).toContain("profile_header_firestore_fallback");
-      expect(ctx?.fallbacks).toContain("profile_grid_preview_firestore_fallback");
       expect(ctx?.timeouts).toContain("profile_header_firestore");
     });
   });

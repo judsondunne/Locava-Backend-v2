@@ -38,9 +38,10 @@ describe("v2 search results route", () => {
   });
 
   it("supports cursor pagination and echoes cursorIn", async () => {
+    const query = "deterministic";
     const first = await app.inject({
       method: "GET",
-      url: "/v2/search/results?q=coffee&limit=6",
+      url: `/v2/search/results?q=${encodeURIComponent(query)}&limit=6`,
       headers: {
         "x-viewer-id": "internal-viewer",
         "x-viewer-roles": "internal"
@@ -54,7 +55,7 @@ describe("v2 search results route", () => {
 
     const second = await app.inject({
       method: "GET",
-      url: `/v2/search/results?q=coffee&limit=6&cursor=${encodeURIComponent(nextCursor)}`,
+      url: `/v2/search/results?q=${encodeURIComponent(query)}&limit=6&cursor=${encodeURIComponent(nextCursor)}`,
       headers: {
         "x-viewer-id": "internal-viewer",
         "x-viewer-roles": "internal"

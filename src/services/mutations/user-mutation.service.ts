@@ -9,7 +9,9 @@ export class UserMutationService {
   async followUser(viewerId: string, userId: string) {
     return dedupeInFlight(`mutation:user-follow:${viewerId}:${userId}`, () =>
       withConcurrencyLimit("mutation-user-follow", 8, () =>
-        withMutationLock(`user-mutation:${viewerId}:${userId}`, () => this.repository.followUser(viewerId, userId))
+        withMutationLock(`mutation-user-follow-graph:${viewerId}:${userId}`, () =>
+          this.repository.followUser(viewerId, userId)
+        )
       )
     );
   }
@@ -17,7 +19,9 @@ export class UserMutationService {
   async unfollowUser(viewerId: string, userId: string) {
     return dedupeInFlight(`mutation:user-unfollow:${viewerId}:${userId}`, () =>
       withConcurrencyLimit("mutation-user-unfollow", 8, () =>
-        withMutationLock(`user-mutation:${viewerId}:${userId}`, () => this.repository.unfollowUser(viewerId, userId))
+        withMutationLock(`mutation-user-follow-graph:${viewerId}:${userId}`, () =>
+          this.repository.unfollowUser(viewerId, userId)
+        )
       )
     );
   }

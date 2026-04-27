@@ -11,10 +11,13 @@ import { mutationStateRepository } from "../../repositories/mutations/mutation-s
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { mergeUserDocumentWritePayload } from "../../repositories/source-of-truth/user-document-firestore.adapter.js";
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
+import { readMaybeMillis } from "../../repositories/source-of-truth/post-firestore-projection.js";
 import { getWasabiConfigOrNull, uploadPostSessionStagingFromBuffer } from "../../services/storage/wasabi-staging.service.js";
 import { wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
 import { mapV2NotificationListToLegacyItems } from "./map-v2-notification-to-legacy-product.js";
 import { postingMutationRepository } from "../../repositories/mutations/posting-mutation.repository.js";
+import { CompatPostsBatchOrchestrator } from "../../orchestration/compat/posts-batch.orchestrator.js";
+import { CompatUserFullOrchestrator } from "../../orchestration/compat/user-full.orchestrator.js";
 
 function applyViewerPatch(base: ProductCompatViewer, patch: Record<string, unknown>): ProductCompatViewer {
   const next: ProductCompatViewer = { ...base };
@@ -37,6 +40,17 @@ function applyViewerPatch(base: ProductCompatViewer, patch: Record<string, unkno
   return next;
 }
 
+function normalizeCompatPostRow(row: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...row };
+  for (const key of ["time", "time-created", "createdAt", "lastUpdated", "updatedAt", "updatedAtMs", "createdAtMs"]) {
+    const millis = readMaybeMillis(next[key]);
+    if (millis != null) {
+      next[key] = millis;
+    }
+  }
+  return next;
+}
+
 /**
  * Legacy-shaped HTTP endpoints used when `EXPO_PUBLIC_BACKEND_URL` points at Backendv2.
  * Several paths forward to canonical `/v2/*` routes or Firestore. Product upload staging lives in
@@ -46,8 +60,48 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
   await app.register(multipart, {
     limits: { fileSize: 25 * 1024 * 1024, files: 1 }
   });
-  const db = getFirestoreSourceClient();
+  const db = _env.FIRESTORE_SOURCE_ENABLED ? getFirestoreSourceClient() : null;
   const collectionsAdapter = new CollectionsFirestoreAdapter();
+  const postsBatchOrchestrator = new CompatPostsBatchOrchestrator();
+  const userFullOrchestrator = new CompatUserFullOrchestrator();
+  const userFullCache = new Map<string, { expiresAtMs: number; payload: { success: true; userData: Record<string, unknown> } }>();
+  const STORY_USERS_CACHE_TTL_MS = 60_000;
+  const storyFollowingCache = new Map<string, { expiresAtMs: number; ids: string[] }>();
+  const storyRecentPostsCache = new Map<
+    string,
+    {
+      expiresAtMs: number;
+      rows: Array<{ userId: string; postId: string; thumbUrl: string }>;
+    }
+  >();
+
+  async function loadFollowingIdsCached(viewerId: string): Promise<string[]> {
+    const cached = storyFollowingCache.get(viewerId);
+    if (cached && cached.expiresAtMs > Date.now()) return cached.ids;
+    const ids = await loadFollowingIds(viewerId);
+    storyFollowingCache.set(viewerId, { expiresAtMs: Date.now() + STORY_USERS_CACHE_TTL_MS, ids });
+    return ids;
+  }
+
+  async function loadRecentPostsForStoryUsers(): Promise<Array<{ userId: string; postId: string; thumbUrl: string }>> {
+    if (!db) return [];
+    const cacheKey = "global";
+    const cached = storyRecentPostsCache.get(cacheKey);
+    if (cached && cached.expiresAtMs > Date.now()) return cached.rows;
+    const snap = await db.collection("posts").orderBy("time", "desc").limit(600).get();
+    const rows: Array<{ userId: string; postId: string; thumbUrl: string }> = [];
+    for (const doc of snap.docs) {
+      const data = doc.data() as Record<string, unknown>;
+      const userId = String(data.userId ?? "").trim();
+      if (!userId) continue;
+      const postId = String(data.postId ?? doc.id).trim();
+      if (!postId) continue;
+      const thumbUrl = String(data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? "").trim();
+      rows.push({ userId, postId, thumbUrl });
+    }
+    storyRecentPostsCache.set(cacheKey, { expiresAtMs: Date.now() + STORY_USERS_CACHE_TTL_MS, rows });
+    return rows;
+  }
   type MixSpec = {
     kind: "mix_spec_v1";
     id: string;
@@ -72,6 +126,24 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     string,
     { expiresAt: number; payload: { success: true; posts: Array<Record<string, unknown>>; nextCursor: string | null; hasMore: boolean } }
   >();
+  const viewerCoordsCache = new Map<string, { expiresAtMs: number; lat: number; lng: number }>();
+  const VIEWER_COORDS_TTL_MS = 2 * 60_000;
+
+  function noteViewerCoords(viewerId: string, lat?: number, lng?: number): void {
+    if (!viewerId) return;
+    if (!(typeof lat === "number" && Number.isFinite(lat) && typeof lng === "number" && Number.isFinite(lng))) return;
+    viewerCoordsCache.set(viewerId, { expiresAtMs: Date.now() + VIEWER_COORDS_TTL_MS, lat, lng });
+  }
+
+  function getViewerCoordsFallback(viewerId: string): { lat: number; lng: number } | null {
+    const cached = viewerCoordsCache.get(viewerId);
+    if (!cached) return null;
+    if (cached.expiresAtMs <= Date.now()) {
+      viewerCoordsCache.delete(viewerId);
+      return null;
+    }
+    return { lat: cached.lat, lng: cached.lng };
+  }
 
   async function loadUsersByIds(userIds: string[]): Promise<Array<Record<string, unknown>>> {
     const uniqueIds = [...new Set(userIds.filter((id) => typeof id === "string" && id.length > 0))];
@@ -211,7 +283,7 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
         const topLevelSnap = await db.collection("posts").doc(postId).get();
         topLevelPostExists = topLevelSnap.exists;
         if (topLevelSnap.exists) {
-          row = topLevelSnap.data() as Record<string, unknown>;
+          row = normalizeCompatPostRow(topLevelSnap.data() as Record<string, unknown>);
           source = "posts_collection";
         }
       } catch (error) {
@@ -292,6 +364,22 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       }
     }
     if (!row) {
+      if (!db) {
+        return reply.status(503).send({
+          success: false,
+          error: "Firestore unavailable",
+          diagnostics: {
+            routeName: "compat.api.posts.detail",
+            postId,
+            viewerId,
+            source,
+            topLevelPostExists,
+            operationFallbackAttempted,
+            operationFallbackHit,
+            reason: "firestore_unavailable"
+          },
+        });
+      }
       request.log.warn(
         {
           routeName: "compat.api.posts.detail",
@@ -339,6 +427,20 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
         operationFallbackHit,
       },
     });
+  });
+
+  app.post<{ Body: { postIds?: unknown } }>("/api/posts/batch", async (request, reply) => {
+    const raw = (request.body as Record<string, unknown> | undefined)?.postIds;
+    const postIds = Array.isArray(raw) ? raw.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
+    if (postIds.length === 0) {
+      return reply.status(400).send({ success: false, error: "postIds required" });
+    }
+    try {
+      const payload = await postsBatchOrchestrator.run({ postIds });
+      return reply.send(payload);
+    } catch {
+      return reply.status(503).send({ success: false, error: "upstream_unavailable" });
+    }
   });
 
   app.get("/api/config/video-compression", async (request, reply) => {
@@ -395,32 +497,24 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     const offset = decodeStoryCursor(input.cursor);
     const seenPostIds = new Set((input.seenPostIds ?? []).map((id) => String(id).trim()).filter(Boolean));
     const suggestedUserIds = (input.suggestedUserIds ?? []).map((id) => String(id).trim()).filter(Boolean);
-    const followingIds = await loadFollowingIds(input.viewerId);
+    const followingIds = await loadFollowingIdsCached(input.viewerId);
     const candidateUserIds = new Set<string>([...followingIds, ...suggestedUserIds].filter(Boolean));
 
+    const recentPosts = await loadRecentPostsForStoryUsers();
     // Fallback candidate pool: most recent posters if social graph is sparse.
     if (candidateUserIds.size === 0) {
-      const recent = await db.collection("posts").orderBy("time", "desc").limit(200).get();
-      for (const doc of recent.docs) {
-        const data = doc.data() as Record<string, unknown>;
-        const userId = String(data.userId ?? "").trim();
-        if (userId) candidateUserIds.add(userId);
+      for (const row of recentPosts.slice(0, 250)) {
+        if (row.userId) candidateUserIds.add(row.userId);
       }
     }
 
-    const postsSnap = await db.collection("posts").orderBy("time", "desc").limit(500).get();
     const latestByUser = new Map<string, { postId: string; thumbUrl: string }>();
-    for (const doc of postsSnap.docs) {
-      const data = doc.data() as Record<string, unknown>;
-      const userId = String(data.userId ?? "").trim();
+    for (const row of recentPosts) {
+      const userId = row.userId;
       if (!userId || !candidateUserIds.has(userId) || latestByUser.has(userId)) continue;
-      const thumbUrl = String(
-        data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? "",
-      ).trim();
-      const postId = String(data.postId ?? doc.id).trim();
-      if (!postId || seenPostIds.has(postId)) continue;
-      latestByUser.set(userId, { postId, thumbUrl });
-      if (latestByUser.size >= Math.max(120, offset + safeLimit + 20)) break;
+      if (!row.postId || seenPostIds.has(row.postId)) continue;
+      latestByUser.set(userId, { postId: row.postId, thumbUrl: row.thumbUrl });
+      if (latestByUser.size >= Math.max(140, offset + safeLimit + 24)) break;
     }
 
     const orderedUserIds = [...latestByUser.keys()];
@@ -789,6 +883,40 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     });
   });
 
+  app.get<{ Params: { userId: string }; Querystring: { compact?: string } }>(
+    "/api/users/:userId/full",
+    async (request, reply) => {
+      const viewerId = resolveCompatViewerId(request);
+      const targetUserId = String(request.params.userId ?? "").trim();
+      const compact = String(request.query.compact ?? "").trim() === "1";
+      if (!targetUserId) return reply.status(400).send({ success: false, error: "userId required" });
+
+      const cacheKey = `${viewerId}:${targetUserId}:compact=${compact ? "1" : "0"}`;
+      const cached = userFullCache.get(cacheKey);
+      if (cached && cached.expiresAtMs > Date.now()) {
+        return reply.send(cached.payload);
+      }
+
+      try {
+        const v2 = await callV2GetOrThrow(
+          `/v2/profiles/${encodeURIComponent(targetUserId)}/bootstrap?gridLimit=6`,
+          viewerId,
+          "/api/users/:userId/full"
+        );
+        const bootstrap = (v2.data as Record<string, unknown> | undefined) ?? {};
+        const payload = await userFullOrchestrator.run({
+          viewerId,
+          targetUserId,
+          profileBootstrap: bootstrap,
+        });
+        userFullCache.set(cacheKey, { expiresAtMs: Date.now() + (compact ? 120_000 : 60_000), payload });
+        return reply.send(payload);
+      } catch {
+        return reply.status(503).send({ success: false, error: "upstream_unavailable" });
+      }
+    }
+  );
+
   /**
    * Monolith: PATCH whitelist fields → { viewer, etag }. Native `commitPatchToServer` expects 200 + body.
    * Identity must match the signed-in user (see `resolveCompatViewerId` + native `x-viewer-id` for `/api/v1/product/`).
@@ -941,36 +1069,80 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     });
   });
 
-  app.post<{ Body: { limit?: number } }>("/api/v1/product/mixes/feed", async (request, reply) => {
+  app.post<{
+    Body: {
+      mixSpec?: MixSpec;
+      cursor?: string | null;
+      limit?: number;
+      lat?: number;
+      lng?: number;
+    };
+  }>("/api/v1/product/mixes/feed", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
     const limit = Math.max(1, Math.min(30, Number(request.body?.limit ?? 20) || 20));
-    const v2 = await callV2PostOrThrow("/v2/mixes/feed", viewerId, "/api/v1/product/mixes/feed", { limit });
-    const data = (v2.data as Record<string, unknown> | undefined) ?? {};
-    return reply.send({
-      success: true,
-      posts: (data.posts ?? []) as Array<Record<string, unknown>>,
-      nextCursor: (data.nextCursor as string | null | undefined) ?? null,
-      hasMore: Boolean(data.hasMore ?? false),
-      rankingVersion: String(data.rankingVersion ?? "mix_v1")
-    });
+    const lat = Number.isFinite(Number(request.body?.lat)) ? Number(request.body!.lat) : undefined;
+    const lng = Number.isFinite(Number(request.body?.lng)) ? Number(request.body!.lng) : undefined;
+    noteViewerCoords(viewerId, lat, lng);
+    const body: Record<string, unknown> = {
+      limit,
+      ...(request.body?.mixSpec ? { mixSpec: request.body.mixSpec } : {}),
+      ...(typeof request.body?.cursor === "string" && request.body.cursor.trim()
+        ? { cursor: request.body.cursor.trim() }
+        : {}),
+      ...(lat != null ? { lat } : {}),
+      ...(lng != null ? { lng } : {}),
+    };
+    try {
+      const v2 = await callV2PostOrThrow("/v2/mixes/feed", viewerId, "/api/v1/product/mixes/feed", body);
+      const data = (v2.data as Record<string, unknown> | undefined) ?? {};
+      return reply.send({
+        success: true,
+        posts: (data.posts ?? []) as Array<Record<string, unknown>>,
+        nextCursor: (data.nextCursor as string | null | undefined) ?? null,
+        hasMore: Boolean(data.hasMore ?? false),
+        rankingVersion: String(data.rankingVersion ?? "mix_v1")
+      });
+    } catch (error) {
+      request.log.warn({ routeName: "compat.api.mixes.feed", error }, "mixes feed compat stub failed");
+      return reply.status(503).send({ success: false, error: "mixes_feed_unavailable" });
+    }
   });
 
-  app.post<{ Body: { limit?: number } }>("/api/v1/product/mixes/area", async (request, reply) => {
+  app.post<{ Body: { limit?: number; lat?: number; lng?: number } }>("/api/v1/product/mixes/area", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
     const limit = Math.max(1, Math.min(30, Number(request.body?.limit ?? 20) || 20));
-    const v2 = await callV2PostOrThrow("/v2/mixes/area", viewerId, "/api/v1/product/mixes/area", { limit });
-    const data = (v2.data as Record<string, unknown> | undefined) ?? {};
-    return reply.send({
-      success: true,
-      townDisplayName: String(data.townDisplayName ?? "Near you"),
-      posts: (data.posts ?? []) as Array<Record<string, unknown>>,
-      showNearYouCopy: Boolean(data.showNearYouCopy ?? true)
-    });
+    const lat = Number.isFinite(Number(request.body?.lat)) ? Number(request.body!.lat) : undefined;
+    const lng = Number.isFinite(Number(request.body?.lng)) ? Number(request.body!.lng) : undefined;
+    noteViewerCoords(viewerId, lat, lng);
+    const body: Record<string, unknown> = {
+      limit,
+      ...(lat != null ? { lat } : {}),
+      ...(lng != null ? { lng } : {}),
+    };
+    try {
+      const v2 = await callV2PostOrThrow("/v2/mixes/area", viewerId, "/api/v1/product/mixes/area", body);
+      const data = (v2.data as Record<string, unknown> | undefined) ?? {};
+      return reply.send({
+        success: true,
+        townDisplayName: String(data.townDisplayName ?? "Near you"),
+        posts: (data.posts ?? []) as Array<Record<string, unknown>>,
+        showNearYouCopy: Boolean(data.showNearYouCopy ?? true)
+      });
+    } catch (error) {
+      request.log.warn({ routeName: "compat.api.mixes.area", error }, "mixes area compat stub failed");
+      return reply.status(503).send({ success: false, error: "mixes_area_unavailable" });
+    }
   });
 
   app.post<{
     Querystring: { limit?: string };
-    Body: { activities?: string[]; activityWeights?: Record<string, number>; cursor?: string | null };
+    Body: {
+      activities?: string[];
+      activityWeights?: Record<string, number>;
+      cursor?: string | null;
+      lat?: number;
+      lng?: number;
+    };
   }>("/api/posts/by-activities-smart", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
     const limit = Math.max(4, Math.min(40, Number(request.query.limit ?? 20) || 20));
@@ -994,13 +1166,38 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       limit,
       query,
       cursor: typeof request.body?.cursor === "string" ? request.body.cursor.trim() : "",
-      activities: uniqueTerms.slice(0, 4)
+      activities: uniqueTerms.slice(0, 4),
+      // Bucket coords so "near you" results are cacheable without exploding keys.
+      latBucket: Number.isFinite(Number(request.body?.lat))
+        ? Math.round(Number(request.body!.lat) * 10) / 10
+        : Number.isFinite(Number(request.headers["x-viewer-lat"]))
+          ? Math.round(Number(request.headers["x-viewer-lat"]) * 10) / 10
+          : null,
+      lngBucket: Number.isFinite(Number(request.body?.lng))
+        ? Math.round(Number(request.body!.lng) * 10) / 10
+        : Number.isFinite(Number(request.headers["x-viewer-lng"]))
+          ? Math.round(Number(request.headers["x-viewer-lng"]) * 10) / 10
+          : null,
     });
     const cached = activityPostsCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return reply.send(cached.payload);
     }
     const cursor = typeof request.body?.cursor === "string" ? request.body.cursor.trim() : "";
+    const cachedCoords = getViewerCoordsFallback(viewerId);
+    const lat =
+      Number.isFinite(Number(request.body?.lat))
+        ? Number(request.body!.lat)
+        : Number.isFinite(Number(request.headers["x-viewer-lat"]))
+          ? Number(request.headers["x-viewer-lat"])
+          : cachedCoords?.lat;
+    const lng =
+      Number.isFinite(Number(request.body?.lng))
+        ? Number(request.body!.lng)
+        : Number.isFinite(Number(request.headers["x-viewer-lng"]))
+          ? Number(request.headers["x-viewer-lng"])
+          : cachedCoords?.lng;
+    noteViewerCoords(viewerId, lat, lng);
     const primaryActivity = uniqueTerms[0] ?? "";
     let posts: Array<Record<string, unknown>> = [];
     let nextCursor: string | null = null;
@@ -1026,7 +1223,9 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
         const mixFeed = await callV2PostOrThrow("/v2/mixes/feed", viewerId, "/api/posts/by-activities-smart", {
           mixSpec,
           limit,
-          ...(cursor ? { cursor } : {})
+          ...(cursor ? { cursor } : {}),
+          ...(lat != null ? { lat } : {}),
+          ...(lng != null ? { lng } : {}),
         });
         const feedData = (mixFeed.data as Record<string, unknown> | undefined) ?? {};
         posts = ((feedData.posts ?? []) as Array<Record<string, unknown>>).map((item) => postToSearchRow(item));
@@ -1037,7 +1236,9 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       }
     }
     if (posts.length === 0) {
-      const path = `/v2/search/results?q=${encodeURIComponent(query)}&limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`;
+      const path = `/v2/search/results?q=${encodeURIComponent(query)}&limit=${limit}${
+        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+      }${lat != null ? `&lat=${encodeURIComponent(String(lat))}` : ""}${lng != null ? `&lng=${encodeURIComponent(String(lng))}` : ""}`;
       const v2 = await callV2GetOrThrow(path, viewerId, "/api/posts/by-activities-smart");
       const data = (v2.data as Record<string, unknown> | undefined) ?? {};
       posts = ((data.items ?? []) as Array<Record<string, unknown>>).map((item) => postToSearchRow(item));
@@ -1046,7 +1247,12 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       hasMore = Boolean(page.hasMore ?? false);
     }
     if (posts.length === 0) {
-      const bootstrap = await callV2Get(`/v2/search/bootstrap?q=${encodeURIComponent(query)}&limit=${Math.max(8, limit)}`, viewerId);
+      const bootstrap = await callV2Get(
+        `/v2/search/bootstrap?q=${encodeURIComponent(query)}&limit=${Math.max(8, limit)}${
+          lat != null ? `&lat=${encodeURIComponent(String(lat))}` : ""
+        }${lng != null ? `&lng=${encodeURIComponent(String(lng))}` : ""}`,
+        viewerId
+      );
       const bootstrapData = ((bootstrap?.data as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
       posts = ((bootstrapData.posts ?? []) as Array<Record<string, unknown>>).map((item) => postToSearchRow(item));
     }
@@ -1160,6 +1366,103 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       relatedActivities: (data.relatedActivities ?? []) as Array<string>
     });
   });
+
+  /**
+   * Web (Next) uses `/api/search/suggest` (not product-scoped). Keep parity by forwarding to the
+   * canonical v2 suggest surface and returning the legacy-shaped payload (success + suggestions + timings).
+   */
+  app.post<{ Body: { query?: string; userContext?: Record<string, unknown> } }>("/api/search/suggest", async (request, reply) => {
+    const startedAt = Date.now();
+    const q = String(request.body?.query ?? "").trim().toLowerCase();
+    if (!q) {
+      return reply.send({
+        success: true,
+        suggestions: [],
+        detectedActivity: null,
+        relatedActivities: [],
+        responseTime: Date.now() - startedAt,
+        serverTimings: { totalMs: Date.now() - startedAt }
+      });
+    }
+    const viewerId = resolveCompatViewerId(request);
+    const lat = Number((request.body?.userContext as Record<string, unknown> | undefined)?.lat);
+    const lng = Number((request.body?.userContext as Record<string, unknown> | undefined)?.lng);
+    const v2Path = `/v2/search/suggest?q=${encodeURIComponent(q)}${
+      Number.isFinite(lat) && Number.isFinite(lng)
+        ? `&lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
+        : ""
+    }`;
+    const v2 = await callV2GetOrThrow(v2Path, viewerId, "/api/search/suggest");
+    const data = (v2.data as Record<string, unknown> | undefined) ?? {};
+    const durationMs = Date.now() - startedAt;
+    return reply.send({
+      success: true,
+      suggestions: (data.suggestions ?? []) as Array<Record<string, unknown>>,
+      detectedActivity: (data.detectedActivity as string | null | undefined) ?? null,
+      relatedActivities: (data.relatedActivities ?? []) as Array<string>,
+      responseTime: durationMs,
+      serverTimings: { totalMs: durationMs }
+    });
+  });
+
+  /**
+   * Public QA fixtures used by the SearchAutofillLab quick picks.
+   */
+  app.get("/api/v1/product/search/test/partial-query-fixtures", async (_request, reply) =>
+    reply.send({
+      success: true,
+      description: "Half-typed strings to verify suggest completions (towns, templates, activities).",
+      queries: [
+        "best hikes i",
+        "best swimming ho",
+        "hiking in ve",
+        "swim in eas",
+        "coffee near m",
+        "trail ",
+        "waterfall ne"
+      ]
+    })
+  );
+
+  /**
+   * Dev benchmark adapter used by SearchAutofillLab for committed results.
+   * Matches the monolith route shape but forwards to `/v2/search/bootstrap`.
+   */
+  app.post<{ Body: { query?: string; limit?: number; lat?: number; lng?: number; userContext?: { lat?: number; lng?: number } } }>(
+    "/api/v1/product/search/test/bootstrap-cards",
+    async (request, reply) => {
+      const startedAt = Date.now();
+      const query = String(request.body?.query ?? "").trim();
+      const limit = Math.max(1, Math.min(80, Number(request.body?.limit ?? 48) || 48));
+      const viewerId = resolveCompatViewerId(request);
+      const uc = request.body?.userContext ?? {};
+      const lat = Number(request.body?.lat ?? uc?.lat);
+      const lng = Number(request.body?.lng ?? uc?.lng);
+      const v2Path = `/v2/search/bootstrap?q=${encodeURIComponent(query)}&limit=${limit}${
+        Number.isFinite(lat) && Number.isFinite(lng)
+          ? `&lat=${encodeURIComponent(String(lat))}&lng=${encodeURIComponent(String(lng))}`
+          : ""
+      }`;
+      const v2 = await callV2GetOrThrow(v2Path, viewerId, "/api/v1/product/search/test/bootstrap-cards");
+      const data = (v2.data as Record<string, unknown> | undefined) ?? {};
+      const durationMs = Date.now() - startedAt;
+      return reply.send({
+        success: true,
+        posts: (data.posts ?? []) as Array<Record<string, unknown>>,
+        parsedSummary: (data.parsedSummary ?? null) as Record<string, unknown> | null,
+        responseTimeMs: durationMs,
+        serverTimings: { totalMs: durationMs },
+        parity: {
+          endpoint: "/api/v1/product/search/test/bootstrap-cards",
+          nativeEquivalentEndpoint: "/api/v1/product/search/bootstrap",
+          coreLogic: "v2_search_bootstrap",
+          fastOnly: true,
+          cardSemantics: "search_bootstrap_cards",
+          authMode: "dev_benchmark_adapter"
+        }
+      });
+    }
+  );
 
   app.get<{ Querystring: { page?: string; limit?: string } }>("/api/v1/product/notifications", async (request, reply) => {
     const limit = Math.max(1, Math.min(50, Number(request.query.limit ?? 20) || 20));
