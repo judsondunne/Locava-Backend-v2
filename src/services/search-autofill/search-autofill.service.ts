@@ -276,11 +276,9 @@ function addSentenceSuggestions(input: {
 }
 
 export class SearchAutofillService {
-  private readonly discovery: Pick<SearchDiscoveryService, "parseIntent" | "searchUsersForQuery" | "loadLocationSuggestions">;
+  private readonly discovery: SearchDiscoveryService;
 
-  constructor(deps?: {
-    discovery?: Pick<SearchDiscoveryService, "parseIntent" | "searchUsersForQuery" | "loadLocationSuggestions">;
-  }) {
+  constructor(deps?: { discovery?: SearchDiscoveryService }) {
     this.discovery = deps?.discovery ?? new SearchDiscoveryService();
   }
 
@@ -396,6 +394,8 @@ export class SearchAutofillService {
     lat?: number | null;
     lng?: number | null;
     mode?: "social" | "default";
+    /** When set, location- or "in …" queries can include matching public collections. */
+    viewerId?: string | null;
   }): Promise<{
     routeName: "search.suggest.get";
     suggestions: SuggestRow[];
@@ -513,7 +513,40 @@ export class SearchAutofillService {
       placeContext,
       relatedActivities: inferredRelated,
     });
-    const merged = [...generatedMixes, ...ranked].slice(0, 12);
+    let merged = [...generatedMixes, ...ranked].slice(0, 12);
+
+    const viewerId = String(input.viewerId ?? "").trim();
+    if (viewerId && (query.includes(" in ") || Boolean(intent.location))) {
+      try {
+        const cols = await this.discovery.searchCollections({
+          viewerId,
+          query,
+          limit: 8
+        });
+        const colRows: SuggestRow[] = (Array.isArray(cols) ? cols : []).slice(0, 5).map((c) => {
+          const rec = c as Record<string, unknown>;
+          const id = String(rec.id ?? rec.collectionId ?? "").trim();
+          const title = String(rec.title ?? "").trim();
+          const coverUri = typeof rec.coverUri === "string" && rec.coverUri.trim() ? rec.coverUri.trim() : null;
+          return {
+            text: title || "Collection",
+            type: "collection",
+            suggestionType: "collection",
+            badge: "Collection",
+            data: {
+              collectionId: id,
+              title,
+              coverUri,
+              postCount: rec.postCount
+            },
+            confidence: 0.87
+          };
+        });
+        merged = [...colRows, ...merged].slice(0, 14);
+      } catch {
+        // Collections are optional; never fail autofill on collection lookup.
+      }
+    }
 
     return {
       routeName: "search.suggest.get",

@@ -42,12 +42,19 @@ const EnvSchema = z.object({
    * - Auth routes can forward to the monolith (see `legacy-monolith-auth-proxy.routes.ts` if wired).
    * - **Product upload post-creation** (`create-from-staged`, multipart `create-with-files`, Commons moderation)
    *   forwards from `/api/v1/product/upload/*` via `@fastify/http-proxy` while staging/presign stay native on v2.
+   *   `POST /v2/posting/finalize` is native by default. Set `POSTING_FINALIZE_USE_LEGACY_PROXY=1` to forward
+   *   `create-from-staged` to this origin (requires publish auth). Leave unset for Backendv2-owned finalize.
    */
   LEGACY_MONOLITH_PROXY_BASE_URL: z.string().url().optional(),
   /** Dev/test only: allow unauthenticated clients to hit /v2/posts/* routes. */
   ALLOW_PUBLIC_POSTING_TEST: z.coerce.boolean().default(false),
   /** Optional shared bearer token used by Backendv2 when forwarding publish to legacy monolith. */
-  LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN: z.string().optional()
+  LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN: z.string().optional(),
+  /** Cloud Function / Run URL for `video-processor` (native finalize enqueues a Cloud Task to this target). */
+  VIDEO_PROCESSOR_FUNCTION_URL: z.string().url().optional(),
+  /** Cloud Tasks queue for video jobs (default matches classic monolith). */
+  VIDEO_PROCESSING_CLOUD_TASKS_QUEUE: z.string().optional(),
+  VIDEO_PROCESSING_CLOUD_TASKS_LOCATION: z.string().optional()
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

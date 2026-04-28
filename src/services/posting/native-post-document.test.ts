@@ -1,0 +1,94 @@
+import { describe, expect, it } from "vitest";
+import { Timestamp } from "firebase-admin/firestore";
+import { assemblePostAssetsFromStagedItems } from "./assemblePostAssets.js";
+import { buildNativePostDocument, validateNativePostDocumentForWrite } from "./buildPostDocument.js";
+
+describe("native post document (finalize parity)", () => {
+  const nowTs = Timestamp.fromMillis(1_777_333_000_000);
+  const baseInput = {
+    postId: "post_fixture_abc",
+    effectiveUserId: "user_1",
+    viewerId: "user_1",
+    sessionId: "ups_1",
+    stagedSessionId: "ps_1",
+    idempotencyKey: "idem",
+    nowMs: 1_777_333_000_000,
+    nowTs,
+    user: { handle: "h", name: "N", profilePic: "https://cdn.example.com/p.jpg" },
+    title: "T",
+    content: "C",
+    activities: ["hike"],
+    lat: 40.7,
+    lng: -75.2,
+    address: "Easton, Pennsylvania",
+    privacy: "Public Spot",
+    tags: [] as Array<Record<string, unknown>>,
+    texts: [] as unknown[],
+    recordings: [] as unknown[],
+    geo: {
+      cityRegionId: "US-Pennsylvania-Easton",
+      stateRegionId: "US-Pennsylvania",
+      countryRegionId: "US",
+      geohash: "dr4e3x",
+      geoData: { country: "United States", state: "Pennsylvania", city: "Easton" }
+    }
+  };
+
+  it("builds a photo post with thumb/sm/md/lg variants and assetsReady true", () => {
+    const assembled = assemblePostAssetsFromStagedItems("post_fixture_abc", [
+      {
+        index: 0,
+        assetType: "photo",
+        assetId: "image_x_0",
+        originalUrl: "https://cdn.example.com/original.jpg"
+      }
+    ]);
+    const doc = buildNativePostDocument({ ...baseInput, assembled });
+    validateNativePostDocumentForWrite(doc);
+    expect(doc.assetsReady).toBe(true);
+    expect(doc.mediaType).toBe("image");
+    expect(doc.videoProcessingStatus).toBeUndefined();
+    const v = (doc.assets as { variants: Record<string, unknown> }[])[0]?.variants ?? {};
+    expect(v.thumb).toBeTruthy();
+    expect(v.sm).toBeTruthy();
+    expect(v.md).toBeTruthy();
+    expect(v.lg).toBeTruthy();
+  });
+
+  it("builds a video post with placeholder variants, pending processing, and playback URLs", () => {
+    const assembled = assemblePostAssetsFromStagedItems("post_fixture_vid", [
+      {
+        index: 0,
+        assetType: "video",
+        assetId: "video_x_0",
+        originalUrl: "https://cdn.example.com/full.mp4",
+        posterUrl: "https://cdn.example.com/poster.jpg"
+      }
+    ]);
+    const doc = buildNativePostDocument({ ...baseInput, postId: "post_fixture_vid", assembled });
+    validateNativePostDocumentForWrite(doc);
+    expect(doc.assetsReady).toBe(false);
+    expect(doc.mediaType).toBe("video");
+    expect(doc.videoProcessingStatus).toBe("pending");
+    const asset = (doc.assets as Record<string, unknown>[])[0] as {
+      variants: Record<string, string>;
+      original: string;
+    };
+    expect(asset.variants.main720).toBe(asset.original);
+    expect(asset.variants.poster).toBe("https://cdn.example.com/poster.jpg");
+    expect(doc.playbackLabStatus).toBe("pending");
+  });
+
+  it("rejects staging URLs in manifest", () => {
+    expect(() =>
+      assemblePostAssetsFromStagedItems("post_x", [
+        {
+          index: 0,
+          assetType: "video",
+          originalUrl: "https://x.com/postSessionStaging/foo.mp4",
+          posterUrl: "https://x.com/p.jpg"
+        }
+      ])
+    ).toThrow(/publish_staging_url_not_promoted/);
+  });
+});

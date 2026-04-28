@@ -35,6 +35,9 @@ describe("v2 mutation routes + invalidation", () => {
     expect(body.data.routeName).toBe("posts.like.post");
     expect(body.data.postId).toBe(postId);
     expect(body.data.liked).toBe(true);
+    expect(typeof body.data.likeCount).toBe("number");
+    expect(Number.isFinite(body.data.likeCount)).toBe(true);
+    expect(body.data.viewerState?.liked).toBe(true);
     expect(body.data.invalidation.invalidatedKeysCount).toBeGreaterThanOrEqual(4);
     expect(body.data.invalidation.invalidationTypes).toContain("post.social");
     expect(body.data.invalidation.invalidationTypes).toContain("post.viewer_state");

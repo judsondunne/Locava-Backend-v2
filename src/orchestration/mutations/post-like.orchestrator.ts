@@ -1,8 +1,10 @@
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
-import { recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
+import { incrementDbOps, recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
+import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import type { PostMutationService } from "../../services/mutations/post-mutation.service.js";
 import { notificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
 import { NotificationsService } from "../../services/surfaces/notifications.service.js";
+import { readPostLikeCountFromFirestoreData } from "./post-document-like-count.js";
 
 const notificationsService = new NotificationsService(notificationsRepository);
 
@@ -49,10 +51,21 @@ export class PostLikeOrchestrator {
         targetId: postId
       });
     }
+    let likeCount = 0;
+    const db = getFirestoreSourceClient();
+    if (db) {
+      const snap = await db.collection("posts").doc(postId).get();
+      incrementDbOps("reads", snap.exists ? 1 : 0);
+      const d = (snap.data() ?? {}) as Record<string, unknown>;
+      likeCount = readPostLikeCountFromFirestoreData(d);
+    }
     return {
       routeName: "posts.like.post" as const,
       postId: mutation.postId,
       liked: mutation.liked,
+      likeCount,
+      viewerState: { liked: mutation.liked },
+      idempotency: { replayed: !mutation.changed },
       invalidation: {
         invalidatedKeysCount: invalidation.invalidatedKeys.length,
         invalidationTypes: invalidation.invalidationTypes

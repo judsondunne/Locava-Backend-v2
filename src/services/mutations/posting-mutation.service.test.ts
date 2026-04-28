@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { enqueueVideoProcessingCloudTaskMock } = vi.hoisted(() => ({
+  enqueueVideoProcessingCloudTaskMock: vi.fn().mockResolvedValue({ ok: true, taskName: "tasks/mock" })
+}));
+
+vi.mock("../posting/video-processing-cloud-task.service.js", () => ({
+  enqueueVideoProcessingCloudTask: enqueueVideoProcessingCloudTaskMock
+}));
+
 const finalizePostingMock = vi.fn();
 const listSessionMediaMock = vi.fn();
 const markOperationCompletedMock = vi.fn();
@@ -7,6 +15,8 @@ const markOperationFailedMock = vi.fn();
 const processPostCreatedMock = vi.fn();
 
 const firestoreGetMock = vi.fn();
+const firestoreCreateMock = vi.fn().mockResolvedValue(undefined);
+const firestoreUpdateMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("../../repositories/mutations/posting-mutation.repository.js", () => ({
   postingMutationRepository: {
@@ -22,6 +32,8 @@ vi.mock("../../repositories/source-of-truth/firestore-client.js", () => ({
     collection: () => ({
       doc: () => ({
         get: firestoreGetMock,
+        create: firestoreCreateMock,
+        update: firestoreUpdateMock,
       }),
     }),
   }),
@@ -36,7 +48,7 @@ vi.mock("./posting-achievements.service.js", () => ({
 describe("PostingMutationService finalize parity", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalLegacyBase = process.env.LEGACY_MONOLITH_PROXY_BASE_URL;
-  const originalForceLegacyProxy = process.env.POSTING_FINALIZE_FORCE_LEGACY_PROXY;
+  const originalUseLegacyProxy = process.env.POSTING_FINALIZE_USE_LEGACY_PROXY;
 
   beforeEach(() => {
     finalizePostingMock.mockReset();
@@ -45,6 +57,10 @@ describe("PostingMutationService finalize parity", () => {
     markOperationFailedMock.mockReset();
     processPostCreatedMock.mockReset();
     firestoreGetMock.mockReset();
+    firestoreCreateMock.mockReset();
+    firestoreUpdateMock.mockReset();
+    enqueueVideoProcessingCloudTaskMock.mockReset();
+    enqueueVideoProcessingCloudTaskMock.mockResolvedValue({ ok: true, taskName: "tasks/mock" });
     processPostCreatedMock.mockResolvedValue({
       xpGained: 50,
       newTotalXP: 1050,
@@ -61,13 +77,13 @@ describe("PostingMutationService finalize parity", () => {
 
     process.env.NODE_ENV = "development";
     process.env.LEGACY_MONOLITH_PROXY_BASE_URL = "http://legacy.test";
-    process.env.POSTING_FINALIZE_FORCE_LEGACY_PROXY = "1";
+    process.env.POSTING_FINALIZE_USE_LEGACY_PROXY = "1";
   });
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
     process.env.LEGACY_MONOLITH_PROXY_BASE_URL = originalLegacyBase;
-    process.env.POSTING_FINALIZE_FORCE_LEGACY_PROXY = originalForceLegacyProxy;
+    process.env.POSTING_FINALIZE_USE_LEGACY_PROXY = originalUseLegacyProxy;
     vi.unstubAllGlobals();
   });
 
@@ -234,5 +250,186 @@ describe("PostingMutationService finalize parity", () => {
         posterUrl: "https://cdn.example.com/poster.jpg",
       },
     ]);
+  });
+
+  it("throws when POSTING_FINALIZE_USE_LEGACY_PROXY is set but monolith URL is missing", async () => {
+    process.env.POSTING_FINALIZE_USE_LEGACY_PROXY = "1";
+    delete process.env.LEGACY_MONOLITH_PROXY_BASE_URL;
+
+    finalizePostingMock.mockResolvedValue({
+      session: {
+        sessionId: "ups_x",
+        viewerId: "viewer-1",
+        clientSessionKey: "k",
+        mediaCountHint: 1,
+        createdAtMs: 1,
+        expiresAtMs: 2,
+        state: "finalized",
+      },
+      operation: {
+        operationId: "pop_x",
+        viewerId: "viewer-1",
+        sessionId: "ups_x",
+        postId: "",
+        idempotencyKey: "idem-x",
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        state: "processing",
+        pollCount: 0,
+        pollAfterMs: 1500,
+        terminalReason: "processing",
+        retryCount: 0,
+        completionInvalidatedAtMs: null,
+      },
+      idempotent: false,
+    });
+    listSessionMediaMock.mockResolvedValue([
+      {
+        mediaId: "pmd_x",
+        viewerId: "viewer-1",
+        sessionId: "ups_x",
+        assetIndex: 0,
+        assetType: "video",
+        expectedObjectKey: "videos/x.mp4",
+        state: "uploaded",
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        uploadedAtMs: 1,
+        readyAtMs: null,
+        pollCount: 0,
+        pollAfterMs: 1500,
+        failureReason: null,
+        clientMediaKey: "m1",
+      },
+    ]);
+
+    const { PostingMutationService } = await import("./posting-mutation.service.js");
+    const service = new PostingMutationService();
+    await expect(
+      service.finalizePosting({
+        viewerId: "viewer-1",
+        sessionId: "ups_x",
+        idempotencyKey: "idem-x",
+        mediaCount: 1,
+        authorizationHeader: "Bearer t",
+      })
+    ).rejects.toThrow(/publish_requires_legacy_proxy_config/);
+    expect(markOperationFailedMock).toHaveBeenCalled();
+  });
+
+  it("writes native rich post via Firestore when legacy proxy is not enabled", async () => {
+    delete process.env.POSTING_FINALIZE_USE_LEGACY_PROXY;
+    process.env.LEGACY_MONOLITH_PROXY_BASE_URL = "http://legacy.test";
+
+    finalizePostingMock.mockResolvedValue({
+      session: {
+        sessionId: "ups_native",
+        viewerId: "viewer-1",
+        clientSessionKey: "k",
+        mediaCountHint: 1,
+        createdAtMs: 1,
+        expiresAtMs: 2,
+        state: "finalized",
+      },
+      operation: {
+        operationId: "pop_native",
+        viewerId: "viewer-1",
+        sessionId: "ups_native",
+        postId: "",
+        idempotencyKey: "idem-native",
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        state: "processing",
+        pollCount: 0,
+        pollAfterMs: 1500,
+        terminalReason: "processing",
+        retryCount: 0,
+        completionInvalidatedAtMs: null,
+      },
+      idempotent: false,
+    });
+    listSessionMediaMock.mockResolvedValue([
+      {
+        mediaId: "pmd_native",
+        viewerId: "viewer-1",
+        sessionId: "ups_native",
+        assetIndex: 0,
+        assetType: "video",
+        expectedObjectKey: "videos/video_native_0.mp4",
+        state: "uploaded",
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        uploadedAtMs: 1,
+        readyAtMs: null,
+        pollCount: 0,
+        pollAfterMs: 1500,
+        failureReason: null,
+        clientMediaKey: "m1",
+      },
+    ]);
+    markOperationCompletedMock.mockImplementation(async ({ operationId, postId }) => ({
+      operationId,
+      viewerId: "viewer-1",
+      sessionId: "ups_native",
+      postId,
+      idempotencyKey: "idem-native",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      state: "processing",
+      pollCount: 0,
+      pollAfterMs: 1500,
+      terminalReason: "processing",
+      retryCount: 0,
+      completionInvalidatedAtMs: null,
+    }));
+    firestoreGetMock.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        handle: "native",
+        name: "Native User",
+        profilePic: "https://cdn.example.com/u.jpg",
+      }),
+    });
+
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { PostingMutationService } = await import("./posting-mutation.service.js");
+    const service = new PostingMutationService();
+    const result = await service.finalizePosting({
+      viewerId: "viewer-1",
+      sessionId: "ups_native",
+      stagedSessionId: "stage_native",
+      stagedItems: [
+        {
+          index: 0,
+          assetType: "video",
+          assetId: "video_native_0",
+          originalKey: "videos/video_native_0.mp4",
+          originalUrl: "https://cdn.example.com/native.mp4",
+          posterKey: "videos/video_native_0_poster.jpg",
+          posterUrl: "https://cdn.example.com/native_poster.jpg",
+        },
+      ],
+      idempotencyKey: "idem-native",
+      mediaCount: 1,
+      userId: "viewer-1",
+    });
+
+    expect(result.operation.postId.length).toBeGreaterThan(0);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(firestoreCreateMock).toHaveBeenCalled();
+    const created = firestoreCreateMock.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(created.assetsReady).toBe(false);
+    expect(created.videoProcessingStatus).toBe("pending");
+    const assets = created.assets as Array<{ type: string; variants: Record<string, string> }>;
+    expect(assets[0]?.variants?.main720).toBe("https://cdn.example.com/native.mp4");
+    expect(enqueueVideoProcessingCloudTaskMock).toHaveBeenCalled();
+    expect(firestoreUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        videoProcessingStatus: "processing",
+        videoProcessingProgress: { totalVideos: 1, processedVideos: 0 }
+      })
+    );
   });
 });

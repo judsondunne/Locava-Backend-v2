@@ -49,6 +49,14 @@ describe("v2 map bootstrap route", () => {
     expect(wide.statusCode).toBe(200);
     expect(wide.json().data.query.limit).toBe(300);
 
+    const large = await app.inject({
+      method: "GET",
+      url: `/v2/map/bootstrap?bbox=${encodeURIComponent("-125.0,24.0,-66.0,49.0")}&limit=2500`,
+      headers: viewerHeaders
+    });
+    expect(large.statusCode).toBe(200);
+    expect(large.json().data.query.limit).toBe(2500);
+
     const bad = await app.inject({
       method: "GET",
       url: `/v2/map/bootstrap?bbox=${encodeURIComponent("bad,bounds")}&limit=120`,

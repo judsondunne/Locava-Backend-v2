@@ -70,6 +70,13 @@ export const routeContracts: RouteContract[] = [
   { method: "GET", path: "/v2/profiles/:userId/bootstrap", description: "V2 profile bootstrap surface", tags: ["v2", "profile"], querySchema: { gridLimit: "number (6-18) optional", debugSlowDeferredMs: "number (0-2000) optional" } },
   { method: "GET", path: "/v2/profiles/:userId/grid", description: "V2 profile grid pagination surface", tags: ["v2", "profile"], querySchema: { cursor: "string optional", limit: "number (6-24) optional" } },
   { method: "GET", path: "/v2/profiles/:userId/posts/:postId/detail", description: "V2 profile post detail hydration surface", tags: ["v2", "profile", "post"], querySchema: { debugSlowDeferredMs: "number (0-2000) optional" } },
+  {
+    method: "GET",
+    path: "/v2/social/batch",
+    description: "V2 batched post social counts + viewer like/save flags (compat with legacy social batch)",
+    tags: ["v2", "social", "post"],
+    querySchema: { postIds: "string|string[] repeated optional" }
+  },
   { method: "GET", path: "/v2/search/results", description: "V2 search committed results surface", tags: ["v2", "search"], querySchema: { q: "string (2-80) required", cursor: "string optional", limit: "number (4-12) optional" } },
   { method: "GET", path: "/v2/search/users", description: "V2 search users/profiles results surface", tags: ["v2", "search", "users"], querySchema: { q: "string (1-80) required", cursor: "string optional", limit: "number (5-12) optional" } },
   { method: "GET", path: "/v2/search/suggest", description: "V2 search typing suggestions (users/activities/locations/sentences)", tags: ["v2", "search"], querySchema: { q: "string (1-80) required" } },

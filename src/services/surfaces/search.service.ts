@@ -134,7 +134,8 @@ export class SearchService {
               lng
             })
           : [];
-        const useFastPosts = canUseFastPosts;
+        // Fast path must never replace the repository with an empty page when structured intent exists.
+        const useFastPosts = canUseFastPosts && fastPosts.length > 0;
         const postsPage = wantedTypes.has("posts") && !useFastPosts
           ? await this.repository.getSearchResultsPage({
               viewerId,

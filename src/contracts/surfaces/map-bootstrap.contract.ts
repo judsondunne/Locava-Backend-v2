@@ -9,7 +9,7 @@ export const MapBootstrapQuerySchema = z.object({
       /^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/,
       "bbox must be minLng,minLat,maxLng,maxLat"
     ),
-  limit: z.coerce.number().int().min(20).max(300).default(120)
+  limit: z.coerce.number().int().min(20).max(5000).default(120)
 });
 
 export const MapBootstrapResponseSchema = z.object({

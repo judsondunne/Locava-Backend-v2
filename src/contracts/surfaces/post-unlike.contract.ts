@@ -9,6 +9,9 @@ export const PostUnlikeResponseSchema = z.object({
   routeName: z.literal("posts.unlike.post"),
   postId: z.string(),
   liked: z.boolean(),
+  likeCount: z.number().int().nonnegative(),
+  viewerState: z.object({ liked: z.boolean() }),
+  idempotency: z.object({ replayed: z.boolean() }),
   invalidation: z.object({
     invalidatedKeysCount: z.number().int().nonnegative(),
     invalidationTypes: z.array(z.string())

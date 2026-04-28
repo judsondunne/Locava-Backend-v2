@@ -830,6 +830,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
   },
+  "social.batch.get": {
+    routeName: "social.batch.get",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 90, p95Ms: 220 },
+      dbOps: { maxReadsCold: 120, maxQueriesCold: 12, expectedReadsWarm: 8, expectedQueriesWarm: 2 },
+      payload: { maxBytes: 48_000, targetBytes: 18_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
   "social.suggested_friends.get": {
     routeName: "social.suggested_friends.get",
     priority: "critical_interactive",

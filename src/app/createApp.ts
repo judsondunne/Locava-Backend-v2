@@ -23,6 +23,7 @@ import { registerV2SearchUsersRoutes } from "../routes/v2/search-users.routes.js
 import { registerV2SearchDiscoveryRoutes } from "../routes/v2/search-discovery.routes.js";
 import { registerV2SearchMixesRoutes } from "../routes/v2/search-mixes.routes.js";
 import { registerV2PlacesReverseGeocodeRoutes } from "../routes/v2/places-reverse-geocode.routes.js";
+import { registerV2SocialBatchRoutes } from "../routes/v2/social-batch.routes.js";
 import { registerV2PostLikeRoutes } from "../routes/v2/post-like.routes.js";
 import { registerV2PostLikesRoutes } from "../routes/v2/post-likes.routes.js";
 import { registerV2UserFollowRoutes } from "../routes/v2/user-follow.routes.js";
@@ -104,6 +105,14 @@ import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
 function classifyError(error: unknown): { code: string; statusCode: number; details?: unknown } {
   if (error instanceof ZodError) {
     return { code: "validation_error", statusCode: 400, details: error.flatten() };
+  }
+
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    (error as { code?: string }).code === "FST_ERR_CTP_BODY_TOO_LARGE"
+  ) {
+    return { code: "payload_too_large", statusCode: 413 };
   }
 
   if (error instanceof Error && error.name === "AbortError") {
@@ -350,6 +359,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2SearchDiscoveryRoutes);
   app.register(registerV2SearchMixesRoutes);
   app.register(registerV2PlacesReverseGeocodeRoutes);
+  app.register(registerV2SocialBatchRoutes);
   app.register(registerV2PostLikeRoutes);
   app.register(registerV2PostLikesRoutes);
   app.register(registerV2PostUnlikeRoutes);

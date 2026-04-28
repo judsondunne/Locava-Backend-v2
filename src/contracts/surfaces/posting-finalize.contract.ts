@@ -2,6 +2,14 @@ import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { AchievementDeltaSchema } from "../entities/achievement-entities.contract.js";
 
+/** Fastify `bodyLimit` for POST /v2/posting/finalize — must exceed worst-case JSON for base64 fields below. */
+const DISPLAY_PHOTO_B64_MAX = 6_000_000;
+const VIDEO_POSTER_B64_MAX_EACH = 2_500_000;
+const VIDEO_POSTER_SLOTS = 20;
+export const POSTING_FINALIZE_BODY_LIMIT_BYTES = Math.ceil(
+  (DISPLAY_PHOTO_B64_MAX + VIDEO_POSTER_SLOTS * VIDEO_POSTER_B64_MAX_EACH + 512_000) * 1.05
+);
+
 export const PostingFinalizeBodySchema = z.object({
   sessionId: z.string().min(6),
   stagedSessionId: z.string().min(6).optional(),
@@ -32,8 +40,8 @@ export const PostingFinalizeBodySchema = z.object({
   tags: z.array(z.record(z.string(), z.unknown())).optional(),
   texts: z.array(z.unknown()).optional(),
   recordings: z.array(z.unknown()).optional(),
-  displayPhotoBase64: z.string().max(6_000_000).optional(),
-  videoPostersBase64: z.array(z.string().max(2_500_000).nullable()).max(20).optional()
+  displayPhotoBase64: z.string().max(DISPLAY_PHOTO_B64_MAX).optional(),
+  videoPostersBase64: z.array(z.string().max(VIDEO_POSTER_B64_MAX_EACH).nullable()).max(VIDEO_POSTER_SLOTS).optional()
 });
 
 export const PostingFinalizeResponseSchema = z.object({

@@ -2238,14 +2238,94 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       : Array.isArray(body.ids)
         ? (body.ids as unknown[]).filter((id): id is string => typeof id === "string")
         : [];
-    const states: Record<string, { liked: boolean; saved: boolean }> = {};
-    for (const postId of postIds) {
-      states[postId] = {
-        liked: mutationStateRepository.hasViewerLikedPost(viewerId, postId),
-        saved: mutationStateRepository.resolveViewerSavedPost(viewerId, postId, false)
-      };
+    const unique = [...new Set(postIds.map((v) => String(v ?? "").trim()).filter(Boolean))].slice(0, 60);
+    if (unique.length === 0) return reply.send({ success: true, items: [] });
+
+    const postsBatch = new CompatPostsBatchOrchestrator();
+    const posts = (await postsBatch.run({ postIds: unique })).posts;
+    const byId = new Map(posts.map((p) => [String((p as any).postId ?? (p as any).id ?? ""), p]));
+
+    const items = unique
+      .map((postId) => {
+        const row = byId.get(postId) as Record<string, unknown> | undefined;
+        const likeCountRaw = row?.likeCount ?? row?.likesCount;
+        const commentCountRaw = row?.commentCount ?? row?.commentsCount;
+        const likeCount = typeof likeCountRaw === "number" && Number.isFinite(likeCountRaw) ? Math.max(0, likeCountRaw) : 0;
+        const commentCount =
+          typeof commentCountRaw === "number" && Number.isFinite(commentCountRaw) ? Math.max(0, commentCountRaw) : 0;
+        return {
+          postId,
+          likeCount,
+          commentCount,
+          viewerHasLiked: mutationStateRepository.hasViewerLikedPost(viewerId, postId),
+          viewerHasSaved: mutationStateRepository.resolveViewerSavedPost(viewerId, postId, false)
+        };
+      })
+      .filter((it) => it.postId);
+
+    request.log.info(
+      {
+        route: "/api/v1/product/social/batch",
+        compat: true,
+        requested: unique.length,
+        returned: items.length
+      },
+      "SOCIAL_BATCH"
+    );
+    return reply.send({ success: true, items });
+  });
+
+  app.get<{ Querystring: Record<string, unknown> }>("/api/v1/product/social/batch", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const raw = request.query ?? {};
+    const postIds: string[] = [];
+    const q = raw as any;
+    const rawIds = q.postIds ?? q.ids ?? q.postId ?? q.id;
+    if (Array.isArray(rawIds)) {
+      for (const v of rawIds) {
+        if (typeof v === "string" && v.trim()) postIds.push(v.trim());
+      }
+    } else if (typeof rawIds === "string" && rawIds.trim()) {
+      // Support comma-separated, just in case a caller passes `postIds=a,b,c`
+      const parts = rawIds.split(",").map((s) => s.trim()).filter(Boolean);
+      postIds.push(...parts);
     }
-    return reply.send({ success: true, states });
+    const unique = [...new Set(postIds.map((v) => String(v ?? "").trim()).filter(Boolean))].slice(0, 60);
+    if (unique.length === 0) return reply.send({ success: true, items: [] });
+
+    const postsBatch = new CompatPostsBatchOrchestrator();
+    const posts = (await postsBatch.run({ postIds: unique })).posts;
+    const byId = new Map(posts.map((p) => [String((p as any).postId ?? (p as any).id ?? ""), p]));
+
+    const items = unique
+      .map((postId) => {
+        const row = byId.get(postId) as Record<string, unknown> | undefined;
+        const likeCountRaw = row?.likeCount ?? row?.likesCount;
+        const commentCountRaw = row?.commentCount ?? row?.commentsCount;
+        const likeCount = typeof likeCountRaw === "number" && Number.isFinite(likeCountRaw) ? Math.max(0, likeCountRaw) : 0;
+        const commentCount =
+          typeof commentCountRaw === "number" && Number.isFinite(commentCountRaw) ? Math.max(0, commentCountRaw) : 0;
+        return {
+          postId,
+          likeCount,
+          commentCount,
+          viewerHasLiked: mutationStateRepository.hasViewerLikedPost(viewerId, postId),
+          viewerHasSaved: mutationStateRepository.resolveViewerSavedPost(viewerId, postId, false)
+        };
+      })
+      .filter((it) => it.postId);
+
+    request.log.info(
+      {
+        route: "/api/v1/product/social/batch",
+        compat: true,
+        method: "GET",
+        requested: unique.length,
+        returned: items.length
+      },
+      "SOCIAL_BATCH"
+    );
+    return reply.send({ success: true, items });
   });
 
   app.post<{ Body: Record<string, unknown> }>("/api/v1/product/social/toggle-like", async (request, reply) => {
@@ -2284,7 +2364,7 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
   app.get<{ Querystring: { bbox?: string; limit?: string } }>("/api/v1/product/map/bootstrap", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
     const bbox = String(request.query.bbox ?? "-125.0,24.0,-66.0,49.0");
-    const limit = Math.max(1, Math.min(300, Number(request.query.limit ?? 120) || 120));
+    const limit = Math.max(1, Math.min(5000, Number(request.query.limit ?? 120) || 120));
     const v2 = await callV2GetOrThrow(
       `/v2/map/bootstrap?bbox=${encodeURIComponent(bbox)}&limit=${limit}`,
       viewerId,

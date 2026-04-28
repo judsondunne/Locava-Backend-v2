@@ -349,6 +349,7 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
         lat: Number.isFinite(query.lat) ? Number(query.lat) : null,
         lng: Number.isFinite(query.lng) ? Number(query.lng) : null,
         mode: "social",
+        viewerId: viewer.viewerId
       });
       suggestCache.set(cacheKey, { expiresAtMs: Date.now() + SUGGEST_CACHE_TTL_MS, payload });
       trimSuggestCache();
@@ -486,6 +487,18 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
         });
 
         const hasMore = payload.hasMore;
+        request.log.info(
+          {
+            event: "MIX_FEED_V2",
+            mixId,
+            seedActivity,
+            cursorOffset,
+            limit,
+            postsReturned: Array.isArray(payload.posts) ? payload.posts.length : 0,
+            hasMore
+          },
+          "mix feed v2"
+        );
         return success({
           routeName: "mixes.feed.post",
           posts: payload.posts,

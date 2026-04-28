@@ -25,6 +25,16 @@ export async function registerV2MapBootstrapRoutes(app: FastifyInstance): Promis
         bbox: query.bbox,
         limit: query.limit
       });
+      request.log.info(
+        {
+          event: "MAP_BOOTSTRAP_V2",
+          bbox: query.bbox,
+          requestedLimit: query.limit,
+          returnedMarkers: payload.markers?.length ?? payload.page?.count ?? 0,
+          hasMore: payload.page?.hasMore ?? false
+        },
+        "map bootstrap v2"
+      );
       return success(payload);
     } catch (error) {
       if (error instanceof MapRepositoryError && error.code === "invalid_bbox") {

@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { buildViewerContext } from "../../auth/viewer-context.js";
-import { postingFinalizeContract, PostingFinalizeBodySchema } from "../../contracts/surfaces/posting-finalize.contract.js";
+import {
+  postingFinalizeContract,
+  PostingFinalizeBodySchema,
+  POSTING_FINALIZE_BODY_LIMIT_BYTES
+} from "../../contracts/surfaces/posting-finalize.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
@@ -12,7 +16,7 @@ export async function registerV2PostingFinalizeRoutes(app: FastifyInstance): Pro
   const service = new PostingMutationService();
   const orchestrator = new PostingFinalizeOrchestrator(service);
 
-  app.post(postingFinalizeContract.path, async (request, reply) => {
+  app.post(postingFinalizeContract.path, { bodyLimit: POSTING_FINALIZE_BODY_LIMIT_BYTES }, async (request, reply) => {
     const viewer = buildViewerContext(request);
     if (!canUseV2Surface("posting", viewer.roles)) {
       return reply.status(403).send(failure("v2_surface_disabled", "Posting v2 surface is not enabled for this viewer"));

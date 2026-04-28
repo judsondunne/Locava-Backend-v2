@@ -1,5 +1,5 @@
 import type { MixDefinition } from "./mixRegistry.service.js";
-import { PostDiscoveryRepository } from "../../repositories/postDiscovery.repository.js";
+import { PostDiscoveryRepository, type MixPostCandidate } from "../../repositories/postDiscovery.repository.js";
 import { MixRankingService, type RankedMixPost } from "./mixRanking.service.js";
 import { MixesRepository } from "../../repositories/mixes.repository.js";
 
@@ -70,12 +70,71 @@ export class MixGenerationService {
       });
     }
 
-    const ranked = this.ranking.rank({
+    let ranked = this.ranking.rank({
       mix: input.mix,
       candidates: candidates as any,
       viewerCoords: input.viewerCoords,
       includeDebug: Boolean(input.includeDebug),
     });
+
+    const minRanked = Math.min(8, Math.max(4, input.limit));
+    if (ranked.length < minRanked && (input.mix.activityFilters?.length ?? 0) > 0) {
+      const relaxed = this.ranking.rank({
+        mix: { ...input.mix, activityFilters: [] },
+        candidates: candidates as any,
+        viewerCoords: input.viewerCoords,
+        includeDebug: Boolean(input.includeDebug),
+      });
+      const seen = new Set(ranked.map((r) => String((r.post as any)?.postId ?? (r.post as any)?.id ?? "")));
+      for (const row of relaxed) {
+        const pid = String((row.post as any)?.postId ?? (row.post as any)?.id ?? "");
+        if (!pid || seen.has(pid)) continue;
+        ranked.push(row);
+        seen.add(pid);
+        if (ranked.length >= input.poolLimit) break;
+      }
+    }
+
+    if (ranked.length < minRanked && input.mix.seed.kind !== "friends") {
+      const broader = await this.postsRepo.searchPostsForSeed({
+        seedQuery: "near me",
+        lat: input.viewerCoords?.lat ?? null,
+        lng: input.viewerCoords?.lng ?? null,
+        limit: Math.min(240, input.poolLimit * 2)
+      });
+      const byId = new Map<string, MixPostCandidate>();
+      for (const row of candidates as MixPostCandidate[]) {
+        const id = String((row as any)?.postId ?? (row as any)?.id ?? "");
+        if (id) byId.set(id, row as MixPostCandidate);
+      }
+      for (const row of broader as MixPostCandidate[]) {
+        const id = String((row as any)?.postId ?? (row as any)?.id ?? "");
+        if (id && !byId.has(id)) byId.set(id, row as MixPostCandidate);
+      }
+      const merged = [...byId.values()];
+      ranked = this.ranking.rank({
+        mix: { ...input.mix, activityFilters: input.mix.activityFilters?.length ? input.mix.activityFilters : [] },
+        candidates: merged as any,
+        viewerCoords: input.viewerCoords,
+        includeDebug: Boolean(input.includeDebug),
+      });
+      if (ranked.length < minRanked && (input.mix.activityFilters?.length ?? 0) > 0) {
+        const relaxed2 = this.ranking.rank({
+          mix: { ...input.mix, activityFilters: [] },
+          candidates: merged as any,
+          viewerCoords: input.viewerCoords,
+          includeDebug: Boolean(input.includeDebug),
+        });
+        const seen2 = new Set(ranked.map((r) => String((r.post as any)?.postId ?? (r.post as any)?.id ?? "")));
+        for (const row of relaxed2) {
+          const pid = String((row.post as any)?.postId ?? (row.post as any)?.id ?? "");
+          if (!pid || seen2.has(pid)) continue;
+          ranked.push(row);
+          seen2.add(pid);
+          if (ranked.length >= input.poolLimit) break;
+        }
+      }
+    }
 
     // The caller paginates over the ranked pool; do not truncate to a single page here.
     return { ranked: ranked.slice(0, Math.max(1, input.poolLimit)), candidateCount: candidates.length };

@@ -9,8 +9,18 @@ import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { AuthBootstrapFirestoreAdapter } from "../../repositories/source-of-truth/auth-bootstrap-firestore.adapter.js";
+import { encodeGeohash } from "../../lib/latlng-geohash.js";
+import { buildCityRegionId, buildStateRegionId } from "../../lib/search-query-intent.js";
 import { readWasabiConfigFromEnv } from "../storage/wasabi-config.js";
 import { buildFinalizedSessionAssetPlan } from "../storage/wasabi-presign.service.js";
+import { assemblePostAssetsFromStagedItems } from "../posting/assemblePostAssets.js";
+import {
+  buildNativePostDocument,
+  validateNativePostDocumentForWrite,
+  type NativePostGeoBlock
+} from "../posting/buildPostDocument.js";
+import { enqueueVideoProcessingCloudTask } from "../posting/video-processing-cloud-task.service.js";
+import { searchPlacesIndexService } from "../surfaces/search-places-index.service.js";
 import { postingAchievementsService } from "./posting-achievements.service.js";
 import type { AchievementDelta } from "../../contracts/entities/achievement-entities.contract.js";
 import {
@@ -637,36 +647,12 @@ export class PostingMutationService {
       (process.env.LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN?.trim()
         ? `Bearer ${process.env.LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN.trim()}`
         : "");
-    const forceLegacyProxy = process.env.POSTING_FINALIZE_FORCE_LEGACY_PROXY === "1";
-    if (!forceLegacyProxy || !base || !authHeader) {
-      const beforeDirectPublish = debugTimings ? Date.now() : 0;
-      const postId = await this.publishCanonicalPostDirect({
-        viewerId: input.viewerId,
-        effectiveUserId: viewer,
-        sessionId: input.sessionId,
-        stagedSessionId: canonicalSessionId,
-        idempotencyKey: input.idempotencyKey,
-        title: input.title,
-        content: input.content,
-        activities: Array.isArray(input.activities) ? input.activities : [],
-        lat: input.lat,
-        long: input.long,
-        address: input.address,
-        privacy: input.privacy,
-        stagedItems
-      });
-      if (debugTimings) {
-        console.info("[posting.finalize.timing] publishCanonicalPostDirect", { ms: Date.now() - beforeDirectPublish });
-      }
-      if (process.env.NODE_ENV !== "test") {
-        this.scheduleCanonicalMediaVerification(postId);
-      }
-      if (debugTimings) {
-        console.info("[posting.finalize.timing] direct-path-total", { ms: Date.now() - startedAt });
-      }
-      return postId;
-    }
-    const body: Record<string, unknown> = {
+    const useLegacyCreateFromStaged =
+      process.env.POSTING_FINALIZE_USE_LEGACY_PROXY === "1" && Boolean(base && authHeader);
+
+    if (useLegacyCreateFromStaged) {
+      const legacyBase = base as string;
+      const body: Record<string, unknown> = {
       sessionId: canonicalSessionId,
       userId: viewer,
       title: input.title ?? "",
@@ -689,7 +675,7 @@ export class PostingMutationService {
       ...(Array.isArray(input.videoPostersBase64) ? { videoPostersBase64: input.videoPostersBase64 } : {}),
       idempotencyKey: createHash("sha256").update(`${viewer}:${input.idempotencyKey}`).digest("hex")
     };
-    const url = `${base.replace(/\/+$/, "")}/api/v1/product/upload/create-from-staged`;
+      const url = `${legacyBase.replace(/\/+$/, "")}/api/v1/product/upload/create-from-staged`;
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -708,10 +694,86 @@ export class PostingMutationService {
     if (debugTimings) {
       console.info("[posting.finalize.timing] legacy-proxy-total", { ms: Date.now() - startedAt });
     }
+    console.info("[posting.finalize]", {
+      event: "finalize_path",
+      finalizePath: "legacy_proxy",
+      postId: payload.postId,
+      sessionIdPrefix: input.sessionId.slice(0, 8)
+    });
     return payload.postId;
+    }
+
+    if (process.env.POSTING_FINALIZE_USE_LEGACY_PROXY === "1" && (!base || !authHeader)) {
+      throw new Error(
+        "publish_requires_legacy_proxy_config: POSTING_FINALIZE_USE_LEGACY_PROXY=1 requires LEGACY_MONOLITH_PROXY_BASE_URL and publish Authorization (or LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN)."
+      );
+    }
+
+    const beforeNative = debugTimings ? Date.now() : 0;
+    const postId = await this.publishNativeCanonicalPost({
+      viewerId: input.viewerId,
+      effectiveUserId: viewer,
+      sessionId: input.sessionId,
+      stagedSessionId: canonicalSessionId,
+      idempotencyKey: input.idempotencyKey,
+      title: input.title,
+      content: input.content,
+      activities: Array.isArray(input.activities) ? input.activities : [],
+      lat: input.lat,
+      long: input.long,
+      address: input.address,
+      privacy: input.privacy,
+      tags: Array.isArray(input.tags) ? input.tags : [],
+      texts: Array.isArray(input.texts) ? input.texts : [],
+      recordings: Array.isArray(input.recordings) ? input.recordings : [],
+      stagedItems
+    });
+    if (debugTimings) {
+      console.info("[posting.finalize.timing] publishNativeCanonicalPost", { ms: Date.now() - beforeNative });
+    }
+    if (process.env.NODE_ENV !== "test") {
+      this.scheduleCanonicalMediaVerification(postId);
+    }
+    if (debugTimings) {
+      console.info("[posting.finalize.timing] native-path-total", { ms: Date.now() - startedAt });
+    }
+    return postId;
   }
 
-  private async publishCanonicalPostDirect(input: {
+  private resolveFinalizeGeo(lat: number, lng: number, address: string): NativePostGeoBlock {
+    const geohash = lat === 0 && lng === 0 ? "" : encodeGeohash(lat, lng, 9);
+    const match =
+      lat !== 0 || lng !== 0 ? searchPlacesIndexService.reverseLookup(lat, lng) : null;
+    if (match) {
+      const gLat = match.lat ?? lat;
+      const gLng = match.lng ?? lng;
+      return {
+        cityRegionId: match.cityRegionId,
+        stateRegionId: match.stateRegionId,
+        countryRegionId: match.countryCode,
+        geohash: geohash || encodeGeohash(gLat, gLng, 9),
+        geoData: {
+          country: "United States",
+          state: match.stateName,
+          city: match.text
+        }
+      };
+    }
+    const parts = address.split(",").map((s) => s.trim()).filter(Boolean);
+    const city = parts[0] || "Unknown";
+    const state = parts[1] || "Unknown";
+    const country = parts[2] || "United States";
+    const countryCode = "US";
+    return {
+      cityRegionId: buildCityRegionId(countryCode, state, city),
+      stateRegionId: buildStateRegionId(countryCode, state),
+      countryRegionId: countryCode,
+      geohash,
+      geoData: { country, state, city }
+    };
+  }
+
+  private async publishNativeCanonicalPost(input: {
     viewerId: string;
     effectiveUserId: string;
     sessionId: string;
@@ -719,11 +781,14 @@ export class PostingMutationService {
     idempotencyKey: string;
     title?: string;
     content?: string;
-    activities?: string[];
+    activities: string[];
     lat?: number | string;
     long?: number | string;
     address?: string;
     privacy?: string;
+    tags: Array<Record<string, unknown>>;
+    texts: unknown[];
+    recordings: unknown[];
     stagedItems: Array<{
       index: number;
       assetType: "photo" | "video";
@@ -757,83 +822,76 @@ export class PostingMutationService {
         };
       }
     }
-    if (debugTimings) {
-      console.info("[posting.finalize.timing] publishCanonicalPostDirect:cacheLookup", { ms: Date.now() - startedAt, hit: !!userData });
-    }
     if (!userData) {
       userData = (await this.ensureViewerDocCached(input.viewerId)) ?? {};
-      if (debugTimings) {
-        console.info("[posting.finalize.timing] publishCanonicalPostDirect:userDocRead", { ms: Date.now() - startedAt });
-      }
     }
     const now = Date.now();
     const nowTs = Timestamp.fromMillis(now);
     const postId = `post_${createHash("sha1").update(`${input.viewerId}:${input.idempotencyKey}`).digest("hex").slice(0, 16)}`;
     const lat = normalizeNumber(input.lat);
     const lng = normalizeNumber(input.long);
-    const primaryItem = input.stagedItems[0];
-    const primaryPosterUrl = primaryItem?.posterUrl?.trim() || primaryItem?.originalUrl?.trim() || "";
-    const primaryMediaType = primaryItem?.assetType === "video" ? "video" : "image";
-    const activities = (input.activities ?? []).map((value) => String(value ?? "").trim()).filter(Boolean);
-    const postDoc: Record<string, unknown> = {
+    const activities = input.activities.map((value) => String(value ?? "").trim()).filter(Boolean);
+    const assembled = assemblePostAssetsFromStagedItems(postId, input.stagedItems);
+    const geo = this.resolveFinalizeGeo(lat, lng, input.address ?? "");
+    const postDoc = buildNativePostDocument({
       postId,
-      userId: input.effectiveUserId,
-      title: input.title ?? "",
-      content: input.content ?? "",
-      caption: input.content ?? input.title ?? "",
-      description: input.content ?? "",
-      activities,
+      effectiveUserId: input.effectiveUserId,
+      viewerId: input.viewerId,
+      sessionId: input.sessionId,
+      stagedSessionId: input.stagedSessionId,
+      idempotencyKey: input.idempotencyKey,
+      nowMs: now,
+      nowTs,
+      user: {
+        handle: typeof userData.handle === "string" ? userData.handle : "",
+        name:
+          typeof userData.name === "string"
+            ? userData.name
+            : typeof userData.displayName === "string"
+              ? userData.displayName
+              : "",
+        profilePic:
+          typeof userData.profilePic === "string"
+            ? userData.profilePic
+            : typeof userData.profilePicSmall === "string"
+              ? userData.profilePicSmall
+              : ""
+      },
+      title: input.title,
+      content: input.content,
+      activities: activities.length > 0 ? activities : ["misc"],
       lat,
-      long: lng,
       lng,
       address: input.address ?? "",
       privacy: input.privacy ?? "Public Spot",
-      mediaType: primaryMediaType,
-      thumbUrl: primaryPosterUrl,
-      displayPhotoLink: primaryPosterUrl,
-      createdAtMs: now,
-      updatedAtMs: now,
-      createdAt: nowTs,
-      updatedAt: nowTs,
-      lastUpdated: nowTs,
-      time: nowTs,
-      "time-created": nowTs,
-      likesCount: 0,
-      likeCount: 0,
-      commentsCount: 0,
-      commentCount: 0,
-      likedBy: [],
-      comments: [],
-      userHandle: typeof userData.handle === "string" ? userData.handle : "",
-      userName: typeof userData.name === "string" ? userData.name : typeof userData.displayName === "string" ? userData.displayName : "",
-      userPic:
-        typeof userData.profilePic === "string"
-          ? userData.profilePic
-          : typeof userData.profilePicSmall === "string"
-            ? userData.profilePicSmall
-            : "",
-      assets: input.stagedItems.map((item) => ({
-        id: item.assetId ?? `${postId}_asset_${item.index}`,
-        type: item.assetType === "video" ? "video" : "image",
-        original: item.originalUrl ?? "",
-        poster: item.posterUrl ?? item.originalUrl ?? "",
-        thumbnail: item.posterUrl ?? item.originalUrl ?? "",
-        variants:
-          item.assetType === "video"
-            ? {
-                poster: item.posterUrl ?? item.originalUrl ?? ""
-              }
-            : {
-                sm: item.originalUrl ?? "",
-                md: item.originalUrl ?? "",
-                lg: item.originalUrl ?? ""
-              }
-      })),
-      sessionId: input.sessionId,
-      stagedSessionId: input.stagedSessionId
-    };
+      tags: input.tags,
+      texts: input.texts,
+      recordings: input.recordings,
+      assembled,
+      geo
+    });
+    validateNativePostDocumentForWrite(postDoc);
+
+    const firstVideo = assembled.assets.find((a) => String((a as { type?: string }).type).toLowerCase() === "video") as
+      | {
+          poster?: string;
+          variants?: { main720?: string; main720Avc?: string; poster?: string };
+          original?: string;
+        }
+      | undefined;
+    const playbackUrlPresent = Boolean(
+      firstVideo &&
+        (String(firstVideo.variants?.main720 ?? "").trim() ||
+          String(firstVideo.variants?.main720Avc ?? "").trim() ||
+          String(firstVideo.original ?? "").trim())
+    );
+    const posterPresent = Boolean(
+      firstVideo &&
+        (String(firstVideo.variants?.poster ?? "").trim() || String(firstVideo.poster ?? "").trim())
+    );
 
     const postRef = db.collection("posts").doc(postId);
+    let createdNewPost = true;
     try {
       await postRef.create(postDoc);
     } catch (error) {
@@ -841,7 +899,61 @@ export class PostingMutationService {
       if (!message.includes("ALREADY_EXISTS")) {
         throw error;
       }
+      createdNewPost = false;
     }
+
+    let videoTaskEnqueued = false;
+    let videoTaskReason: string | undefined;
+    if (createdNewPost && assembled.hasVideo) {
+      const videoAssets = assembled.assets
+        .filter((a) => String((a as { type?: string }).type).toLowerCase() === "video")
+        .map((a) => {
+          const row = a as { id?: string; original?: string };
+          return { id: String(row.id ?? "").trim(), original: String(row.original ?? "").trim() };
+        })
+        .filter((a) => a.id.length > 0 && a.original.length > 0);
+      if (videoAssets.length > 0) {
+        const taskResult = await enqueueVideoProcessingCloudTask({
+          postId,
+          userId: input.effectiveUserId,
+          videoAssets,
+          correlationId: input.sessionId
+        });
+        if (taskResult.ok) {
+          videoTaskEnqueued = true;
+          await postRef.update({
+            videoProcessingStatus: "processing",
+            videoProcessingProgress: {
+              totalVideos: videoAssets.length,
+              processedVideos: 0
+            }
+          });
+        } else {
+          videoTaskReason = taskResult.reason;
+          console.warn("[posting.finalize] video_processing_task_not_enqueued", {
+            postId,
+            reason: taskResult.reason
+          });
+        }
+      }
+    }
+
+    console.info("[posting.finalize]", {
+      event: "native_canonical_post",
+      finalizePath: "native_v2",
+      postId,
+      mediaCount: input.stagedItems.length,
+      mediaTypes: input.stagedItems.map((r) => r.assetType),
+      hasVideo: assembled.hasVideo,
+      assetsReady: postDoc.assetsReady,
+      variantCount: assembled.variantUrlCount,
+      posterPresent,
+      playbackUrlPresent,
+      videoTaskEnqueued,
+      ...(videoTaskReason ? { videoTaskReason } : {}),
+      sessionIdPrefix: input.sessionId.slice(0, 8)
+    });
+
     this.scheduleFinalizeSupplementaryWrites({
       viewerId: input.viewerId,
       postId,
@@ -849,7 +961,7 @@ export class PostingMutationService {
       nowTs
     });
     if (debugTimings) {
-      console.info("[posting.finalize.timing] publishCanonicalPostDirect:canonicalCreate", { ms: Date.now() - startedAt });
+      console.info("[posting.finalize.timing] publishNativeCanonicalPost:canonicalCreate", { ms: Date.now() - startedAt });
     }
     return postId;
   }
