@@ -72,7 +72,7 @@ describe("search repository", () => {
     });
   });
 
-  it("fails closed on firestore timeout instead of fabricating fallback rows", async () => {
+  it("degrades on firestore timeout with explicit fallback", async () => {
     const repository = new SearchRepository({
       isEnabled: () => true,
       searchResultsPage: async () => {
@@ -81,16 +81,18 @@ describe("search repository", () => {
     } as never);
 
     await withRequestContext(async () => {
-      await expect(
-        repository.getSearchResultsPage({
-          viewerId: "internal-viewer",
-          query: "hike",
-          cursor: null,
-          limit: 6,
-          lat: null,
-          lng: null
-        })
-      ).rejects.toBeInstanceOf(SourceOfTruthRequiredError);
+      const page = await repository.getSearchResultsPage({
+        viewerId: "internal-viewer",
+        query: "hike",
+        cursor: null,
+        limit: 6,
+        lat: null,
+        lng: null,
+        includeDebug: true,
+      });
+      expect(page.items).toEqual([]);
+      expect(page.hasMore).toBe(false);
+      expect(page.nextCursor).toBe(null);
       const ctx = getRequestContext();
       expect(ctx?.fallbacks).toContain("search_results_firestore_fallback");
       expect(ctx?.timeouts).toContain("search_results_firestore");

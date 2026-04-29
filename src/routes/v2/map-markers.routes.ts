@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { globalCache } from "../../cache/global-cache.js";
+import { buildViewerContext } from "../../auth/viewer-context.js";
 import { loadEnv } from "../../config/env.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName, recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
@@ -12,13 +13,20 @@ const adapter = new MapMarkersFirestoreAdapter();
 export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<void> {
   app.get(mapMarkersContract.path, async (request, reply) => {
     setRouteName(mapMarkersContract.routeName);
+    const viewer = buildViewerContext(request);
     const query = mapMarkersContract.query.parse(request.query);
     const maxDocs = Math.min(env.MAP_MARKERS_MAX_DOCS, 10_000);
     const hasExplicitLimit = query.limit != null;
     const limit = hasExplicitLimit
       ? Math.max(20, Math.min(maxDocs, Number(query.limit) || maxDocs))
       : maxDocs;
-    const cacheKey = !hasExplicitLimit || limit >= maxDocs ? "map:markers:v2:all" : `map:markers:v2:${limit}`;
+    const ownerId = query.ownerId?.trim() || null;
+    const includeNonPublic = Boolean(ownerId && viewer.viewerId === ownerId);
+    const cacheKeyBase = ownerId
+      ? `map:markers:v2:owner:${includeNonPublic ? "self" : "public"}:${ownerId}`
+      : "map:markers:v2:all";
+    const cacheKey =
+      ownerId || !hasExplicitLimit || limit >= maxDocs ? cacheKeyBase : `${cacheKeyBase}:${limit}`;
     const ifNoneMatch = request.headers["if-none-match"];
     const cached = await globalCache.get<MapMarkersResponse>(cacheKey);
     if (cached) {
@@ -34,7 +42,9 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     }
     recordCacheMiss();
     try {
-      const dataset = await adapter.fetchAll({ maxDocs: limit });
+      const dataset = ownerId
+        ? await adapter.fetchByOwner({ ownerId, maxDocs: limit, includeNonPublic })
+        : await adapter.fetchAll({ maxDocs: limit });
       const payload: MapMarkersResponse = {
         routeName: "map.markers.get",
         markers: dataset.markers,

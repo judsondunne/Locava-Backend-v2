@@ -41,7 +41,9 @@ export const PostingFinalizeBodySchema = z.object({
   texts: z.array(z.unknown()).optional(),
   recordings: z.array(z.unknown()).optional(),
   displayPhotoBase64: z.string().max(DISPLAY_PHOTO_B64_MAX).optional(),
-  videoPostersBase64: z.array(z.string().max(VIDEO_POSTER_B64_MAX_EACH).nullable()).max(VIDEO_POSTER_SLOTS).optional()
+  videoPostersBase64: z.array(z.string().max(VIDEO_POSTER_B64_MAX_EACH).nullable()).max(VIDEO_POSTER_SLOTS).optional(),
+  /** Optional: legends staged preview id to commit after post creation. */
+  legendStageId: z.string().min(8).max(128).optional()
 });
 
 export const PostingFinalizeResponseSchema = z.object({

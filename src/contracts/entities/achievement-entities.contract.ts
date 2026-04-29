@@ -75,6 +75,47 @@ export const AchievementPendingLeaderboardEventSchema = z.object({
   cityName: z.string().nullable()
 });
 
+export const LegendTopUserRowSchema = z.object({
+  userId: z.string(),
+  count: z.number().int().nonnegative()
+});
+
+export const AchievementLegendScopeSummarySchema = z.object({
+  scopeId: z.string(),
+  scopeType: z.string(),
+  title: z.string(),
+  subtitle: z.string(),
+  totalPosts: z.number().int().nonnegative(),
+  leaderUserId: z.string().nullable(),
+  leaderCount: z.number().int().nonnegative(),
+  viewerCount: z.number().int().nonnegative(),
+  viewerRank: z.number().int().positive().nullable(),
+  deltaToLeader: z.number().int().nonnegative()
+});
+
+export const AchievementLegendAwardSchema = z.object({
+  awardId: z.string(),
+  awardType: z.string(),
+  scopeId: z.string(),
+  scopeType: z.string(),
+  title: z.string(),
+  subtitle: z.string(),
+  postId: z.string(),
+  previousRank: z.number().int().positive().nullable(),
+  newRank: z.number().int().positive().nullable(),
+  userCount: z.number().int().nonnegative(),
+  leaderCount: z.number().int().nonnegative(),
+  deltaToLeader: z.number().int().nonnegative(),
+  createdAt: z.unknown().optional(),
+  seen: z.boolean().optional()
+});
+
+export const AchievementLegendsSliceSchema = z.object({
+  activeLegends: z.array(AchievementLegendScopeSummarySchema).max(12),
+  closeToLegends: z.array(AchievementLegendScopeSummarySchema).max(12),
+  recentAwards: z.array(AchievementLegendAwardSchema).max(20)
+});
+
 export const AchievementSnapshotSchema = z.object({
   xp: AchievementXpSchema,
   streak: AchievementStreakSchema,
@@ -83,6 +124,7 @@ export const AchievementSnapshotSchema = z.object({
   challenges: z.array(AchievementChallengeSummarySchema),
   weeklyCapturesWeekOf: z.string().nullable(),
   weeklyCaptures: z.array(AchievementWeeklyCaptureSummarySchema),
+  legends: AchievementLegendsSliceSchema.optional(),
   badges: z.array(AchievementBadgeSummarySchema),
   pendingLeaderboardEvent: AchievementPendingLeaderboardEventSchema.nullable()
 });

@@ -108,8 +108,9 @@ export class SearchService {
     lat: number | null;
     lng: number | null;
     wantedTypes: Set<string>;
+    includeDebug?: boolean;
   }) {
-    const { viewerId, query, cursor, limit, lat, lng, wantedTypes } = input;
+    const { viewerId, query, cursor, limit, lat, lng, wantedTypes, includeDebug = false } = input;
     const normalized = query.trim().toLowerCase();
     const cursorPart = cursor ?? "start";
     const geoKey =
@@ -124,39 +125,67 @@ export class SearchService {
           fallbacks.push("near_me_viewer_location_unavailable");
         }
         const canUseFastPosts =
+          this.discoveryService.isEnabled() &&
+          process.env.FIRESTORE_TEST_MODE !== "emulator" &&
           wantedTypes.has("posts") &&
           cursor == null &&
           (parsedIntent.activity != null || parsedIntent.location != null || parsedIntent.nearMe);
         const fastPosts = canUseFastPosts
-          ? await this.discoveryService.searchPostsForQuery(normalized, {
-              limit,
-              lat,
-              lng
-            })
+          ? await this.discoveryService
+              .searchPostsForQuery(normalized, {
+                limit,
+                lat,
+                lng
+              })
+              .catch(() => [])
           : [];
         // Fast path must never replace the repository with an empty page when structured intent exists.
         const useFastPosts = canUseFastPosts && fastPosts.length > 0;
-        const postsPage = wantedTypes.has("posts") && !useFastPosts
-          ? await this.repository.getSearchResultsPage({
-              viewerId,
-              query: canonicalizeQuery(normalized),
-              cursor,
-              limit,
-              lat,
-              lng
-            })
-          : {
-              query: normalized,
-              cursorIn: cursor,
-              items: [],
-              hasMore: false,
-              nextCursor: null
-            };
-        const postsSource = useFastPosts ? fastPosts : postsPage.items;
+        const postsPage =
+          wantedTypes.has("posts") && !useFastPosts
+            ? await this.repository.getSearchResultsPage({
+                viewerId,
+                query: canonicalizeQuery(normalized),
+                cursor,
+                limit,
+                lat,
+                lng,
+                includeDebug,
+              })
+            : {
+                query: normalized,
+                cursorIn: cursor,
+                items: [],
+                hasMore: false,
+                nextCursor: null
+              };
+        // Final safety net: if repo returns empty due to fallback/unavailability, try the fast discovery path
+        // for the first page so the UI doesn't show a blank posts rail.
+        let postsSource = useFastPosts ? fastPosts : postsPage.items;
+        if (
+          wantedTypes.has("posts") &&
+          postsSource.length === 0 &&
+          cursor == null &&
+          (parsedIntent.activity != null || parsedIntent.location != null || parsedIntent.nearMe)
+        ) {
+          if (!this.discoveryService.isEnabled()) {
+            fallbacks.push("search_results_discovery_unavailable");
+          } else
+          try {
+            const recovered = await this.discoveryService.searchPostsForQuery(normalized, { limit, lat, lng });
+            if (recovered.length > 0) {
+              fallbacks.push("search_results_fast_posts_recovery");
+              postsSource = recovered;
+            }
+          } catch {
+            // ignore
+          }
+        }
         const posts = postsSource
-          .filter((row) => isUrl(String(row.thumbUrl || row.displayPhotoLink || "")))
-          .slice(0, limit)
-          .map((row, index) => this.toPostCardSummary(row, index, normalized, viewerId));
+          .slice(0, Math.max(limit * 2, limit + 2))
+          .map((row, index) => this.toPostCardSummary(row, index, normalized, viewerId))
+          .filter((row) => isUrl(String(row.media?.posterUrl ?? "")))
+          .slice(0, limit);
 
         const mixActivities = parsedIntent.activity?.queryActivities.length
           ? parsedIntent.activity.queryActivities
@@ -204,6 +233,32 @@ export class SearchService {
             sort: "search_ranked_v1" as const
           },
           items: wantedTypes.has("posts") ? posts : [],
+          ...(includeDebug
+            ? {
+                debugSearch: {
+                  rawQuery: query,
+                  parsedActivityKeys: parsedIntent.activity?.queryActivities ?? [],
+                  parsedLocation: parsedIntent.nearMe
+                    ? { kind: "near_me" }
+                    : parsedIntent.location
+                      ? {
+                          kind: parsedIntent.location.cityRegionId ? "city" : "state",
+                          displayText: parsedIntent.location.displayText,
+                          cityRegionId: parsedIntent.location.cityRegionId,
+                          stateRegionId: parsedIntent.location.stateRegionId,
+                        }
+                      : null,
+                  nearMeCoordinatesUsed:
+                    parsedIntent.nearMe && typeof lat === "number" && typeof lng === "number" ? { lat, lng } : null,
+                  returnedCount: posts.length,
+                  cursorIn: cursor,
+                  nextCursor: useFastPosts ? null : postsPage.nextCursor,
+                  hasMore: useFastPosts ? false : postsPage.hasMore,
+                  fallbacks,
+                  repoDebug: (postsPage as any)?.debug ?? undefined,
+                },
+              }
+            : {}),
           sections: {
             posts: {
               items: wantedTypes.has("posts") ? posts : [],

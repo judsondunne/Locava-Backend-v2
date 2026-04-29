@@ -36,6 +36,11 @@ function postAsset(postId: string, kind: "image" | "video" = "image") {
   ];
 }
 
+function geohashFor(_lat: number, _lng: number, _precision = 5): string {
+  // Deterministic tests do not need real geohash precision; nearby mix uses a bounded fallback.
+  return "dr4e3x";
+}
+
 function buildUserDoc(input: {
   userId: string;
   handle: string;
@@ -95,6 +100,9 @@ function buildPostDoc(input: {
   privacy?: "public" | "private";
 }): SeedDoc {
   const mediaType = input.feedSlot && input.feedSlot % 5 === 0 ? "video" : "image";
+  const lat = input.lat ?? 40.68843;
+  const lng = input.lng ?? -75.22073;
+  const gh = geohashFor(lat, lng, 5);
   return {
     path: `posts/${input.postId}`,
     data: {
@@ -126,14 +134,15 @@ function buildPostDoc(input: {
       commentsCount: 1,
       likes: [],
       address: "Easton, PA",
-      lat: input.lat ?? 40.68843,
-      lng: input.lng ?? -75.22073,
-      long: input.lng ?? -75.22073,
-      geohash: "dr4e3x",
+      lat,
+      lng,
+      long: lng,
+      geohash: gh,
       geoData: {
         city: "Easton",
         state: "Pennsylvania",
-        country: "United States"
+        country: "United States",
+        geohash: gh,
       },
       cityRegionId: input.cityRegionId ?? "us:pennsylvania:easton",
       stateRegionId: input.stateRegionId ?? "us:pennsylvania",
@@ -186,6 +195,76 @@ function buildSavedCollectionIndexRecord(viewerId: string, items: string[]) {
     updatedAt: iso(BASE_MS - 5_000),
     lastContentActivityAtMs: BASE_MS - 5_000,
     kind: "backend"
+  };
+}
+
+function buildTruthPostDoc(input: {
+  postId: string;
+  createdAtMs: number;
+  activities: string[];
+  stateRegionId: string;
+  cityRegionId?: string;
+  title?: string;
+  caption?: string;
+  lat: number;
+  lng: number;
+  hasMedia: boolean;
+  mediaType?: "image" | "video";
+}): SeedDoc {
+  const userId = "internal-viewer";
+  const handle = "internal.viewer";
+  const name = "Internal Viewer";
+  const mediaType = input.mediaType ?? "image";
+  const hasMedia = input.hasMedia;
+  const gh = geohashFor(input.lat, input.lng, 5);
+  return {
+    path: `posts/${input.postId}`,
+    data: {
+      userId,
+      ownerId: userId,
+      userHandle: handle,
+      userName: name,
+      userPic: pic(userId),
+      title: input.title ?? input.postId,
+      caption: input.caption ?? "",
+      description: input.caption ?? "",
+      content: input.caption ?? "",
+      activities: input.activities,
+      tags: input.activities.map((activity) => activity.replace(/\s+/g, "_")),
+      mediaType,
+      thumbUrl: hasMedia ? `https://cdn.locava.test/posts/${encodeURIComponent(input.postId)}/thumb.jpg` : "",
+      displayPhotoLink: hasMedia ? `https://cdn.locava.test/posts/${encodeURIComponent(input.postId)}/display.jpg` : "",
+      photoLink: hasMedia ? `https://cdn.locava.test/posts/${encodeURIComponent(input.postId)}/display.jpg` : "",
+      assets: hasMedia ? postAsset(input.postId, mediaType) : [],
+      assetsReady: hasMedia,
+      time: input.createdAtMs,
+      createdAtMs: input.createdAtMs,
+      updatedAtMs: input.createdAtMs + 30_000,
+      lastUpdated: input.createdAtMs + 30_000,
+      likeCount: 0,
+      likesCount: 0,
+      commentCount: 0,
+      commentsCount: 0,
+      address: "Truth Harness",
+      lat: input.lat,
+      lng: input.lng,
+      long: input.lng,
+      geohash: gh,
+      geoData: {
+        city: "Truth",
+        state: "Truth",
+        country: "United States",
+        geohash: gh,
+      },
+      cityRegionId: input.cityRegionId ?? null,
+      stateRegionId: input.stateRegionId,
+      countryRegionId: "us",
+      privacy: "public",
+      deleted: false,
+      isDeleted: false,
+      archived: false,
+      hidden: false
+    }
   };
 }
 
@@ -599,6 +678,141 @@ export function buildSeedDocs(): SeedDoc[] {
 
   docs.push(...buildNotificationDocs("internal-viewer", 25));
   docs.push(...buildNotificationDocs("user-4", 25));
+
+  // ---------------------------------------------------------------------------
+  // Search Truth Harness dataset (deterministic, independent of other tests)
+  // ---------------------------------------------------------------------------
+  const TRUTH_BASE = BASE_MS - 60 * 60_000;
+  const viewerLat = 40.68843;
+  const viewerLng = -75.22073;
+  // Use the same regionId style as the rest of the deterministic seed fixtures.
+  const vtState = "us:vermont";
+  const vtBurl = "us:vermont:burlington";
+  const paState = "us:pennsylvania";
+  const paEaston = "us:pennsylvania:easton";
+
+  const addTruthSeries = (count: number, build: (i: number) => SeedDoc) => {
+    for (let i = 1; i <= count; i += 1) docs.push(build(i));
+  };
+
+  addTruthSeries(40, (i) =>
+    buildTruthPostDoc({
+      postId: `truth-swim-vt-${String(i).padStart(3, "0")}`,
+      createdAtMs: TRUTH_BASE + i * 60_000,
+      activities: ["swimming"],
+      stateRegionId: vtState,
+      cityRegionId: i <= 10 ? vtBurl : undefined,
+      title: `Swimming VT ${i}`,
+      caption: "swimming in vermont",
+      lat: 44.4759 + i * 0.001,
+      lng: -73.2121 + i * 0.001,
+      hasMedia: true,
+      mediaType: i % 5 === 0 ? "video" : "image",
+    }),
+  );
+
+  addTruthSeries(20, (i) =>
+    buildTruthPostDoc({
+      postId: `truth-swim-pa-${String(i).padStart(3, "0")}`,
+      createdAtMs: TRUTH_BASE + (200 + i) * 60_000,
+      activities: ["swimming"],
+      stateRegionId: paState,
+      cityRegionId: paEaston,
+      title: `Swimming PA ${i}`,
+      caption: "swimming in pennsylvania",
+      lat: viewerLat + i * 0.002,
+      lng: viewerLng + i * 0.002,
+      hasMedia: true,
+      mediaType: "image",
+    }),
+  );
+
+  addTruthSeries(25, (i) =>
+    buildTruthPostDoc({
+      postId: `truth-hike-vt-${String(i).padStart(3, "0")}`,
+      createdAtMs: TRUTH_BASE + (400 + i) * 60_000,
+      activities: ["hiking"],
+      stateRegionId: vtState,
+      cityRegionId: i <= 6 ? vtBurl : undefined,
+      title: `Hiking VT ${i}`,
+      caption: "hiking in vermont",
+      lat: 44.0 + i * 0.003,
+      lng: -72.7 + i * 0.002,
+      hasMedia: true,
+      mediaType: "image",
+    }),
+  );
+
+  const nearOffsets = [
+    { id: "near-1", dLat: 0.01, dLng: 0.0 },
+    { id: "near-2", dLat: 0.0, dLng: 0.01 },
+    { id: "near-3", dLat: -0.01, dLng: 0.0 },
+    { id: "near-4", dLat: 0.0, dLng: -0.01 },
+    { id: "mid-1", dLat: 0.25, dLng: 0.0 },
+    { id: "mid-2", dLat: 0.0, dLng: 0.25 },
+    { id: "far-1", dLat: 1.0, dLng: 0.0 },
+    { id: "far-2", dLat: 0.0, dLng: 1.0 },
+    { id: "too-far-1", dLat: 2.6, dLng: 0.0 },
+    { id: "too-far-2", dLat: 0.0, dLng: 2.6 },
+  ];
+  for (let i = 0; i < nearOffsets.length; i += 1) {
+    const o = nearOffsets[i]!;
+    docs.push(
+      buildTruthPostDoc({
+        postId: `truth-swim-${o.id}`,
+        createdAtMs: TRUTH_BASE + (700 + i) * 60_000,
+        activities: ["swimming"],
+        stateRegionId: paState,
+        cityRegionId: paEaston,
+        title: `Near me swim ${o.id}`,
+        caption: "swimming near me",
+        lat: viewerLat + o.dLat,
+        lng: viewerLng + o.dLng,
+        hasMedia: true,
+        mediaType: i % 3 === 0 ? "video" : "image",
+      }),
+    );
+  }
+
+  addTruthSeries(6, (i) =>
+    buildTruthPostDoc({
+      postId: `truth-nomedia-${String(i).padStart(3, "0")}`,
+      createdAtMs: TRUTH_BASE + (800 + i) * 60_000,
+      activities: i % 2 === 0 ? ["swimming"] : ["hiking"],
+      stateRegionId: vtState,
+      cityRegionId: vtBurl,
+      title: `No media ${i}`,
+      caption: "missing media",
+      lat: 44.4759 + i * 0.001,
+      lng: -73.2121 + i * 0.001,
+      hasMedia: false,
+      mediaType: "image",
+    }),
+  );
+
+  // Ensure bootstrap has at least 6 distinct inventory activities with real covers.
+  addTruthSeries(4, (i) =>
+    buildTruthPostDoc({
+      postId: `truth-park-${String(i).padStart(3, "0")}`,
+      createdAtMs: TRUTH_BASE + (860 + i) * 60_000,
+      activities: ["park"],
+      stateRegionId: paState,
+      cityRegionId: paEaston,
+      title: `Park ${i}`,
+      caption: "park near me",
+      lat: viewerLat + i * 0.003,
+      lng: viewerLng - i * 0.003,
+      hasMedia: true,
+      mediaType: "image",
+    }),
+  );
+
+  // Following subcollection edges for Friends Mix tests (Backendv2 source-of-truth).
+  // internal-viewer follows author-24 and author-25 (both have posts seeded above).
+  docs.push(
+    { path: "users/internal-viewer/following/author-24", data: { userId: "author-24", createdAt: iso(BASE_MS - 10_000), updatedAt: iso(BASE_MS - 10_000) } },
+    { path: "users/internal-viewer/following/author-25", data: { userId: "author-25", createdAt: iso(BASE_MS - 9_000), updatedAt: iso(BASE_MS - 9_000) } },
+  );
 
   return docs;
 }

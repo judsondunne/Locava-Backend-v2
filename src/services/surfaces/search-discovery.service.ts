@@ -85,6 +85,7 @@ const DISCOVERY_POST_SELECT_FIELDS = [
   "thumbUrl",
   "displayPhotoLink",
   "photoLink",
+  "assets",
   "mediaType",
   "likesCount",
   "likeCount",
@@ -99,6 +100,21 @@ const DISCOVERY_POST_SELECT_FIELDS = [
   "stateRegionId",
   "cityRegionId",
 ] as const;
+
+function resolveDiscoveryThumbUrl(data: Record<string, unknown>): string {
+  const direct = String(data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? "").trim();
+  if (/^https?:\/\//i.test(direct)) return direct;
+  const assets = data.assets;
+  if (Array.isArray(assets) && assets[0] && typeof assets[0] === "object") {
+    const a0 = assets[0] as Record<string, unknown>;
+    const candidates = [a0.poster, a0.thumbnail, a0.original, (a0.variants as any)?.poster];
+    for (const c of candidates) {
+      const u = typeof c === "string" ? c.trim() : "";
+      if (/^https?:\/\//i.test(u)) return u;
+    }
+  }
+  return "";
+}
 
 function hasLikelyActivityTagSpam(activities: string[]): boolean {
   const uniqueCount = new Set(activities).size;
@@ -151,7 +167,11 @@ function activityKeysMatch(candidate: string, key: string): boolean {
 }
 
 export class SearchDiscoveryService {
-  private readonly db = getFirestoreSourceClient();
+  // Resolve dynamically so tests that toggle FIRESTORE_TEST_MODE in separate runs
+  // don't get stuck with a cached null client.
+  private get db() {
+    return getFirestoreSourceClient();
+  }
   private readonly collectionsAdapter = new CollectionsFirestoreAdapter();
   private readonly usersAdapter = new SearchUsersFirestoreAdapter();
   private static readonly FIRESTORE_TIMEOUT_MS = 800;
@@ -170,6 +190,10 @@ export class SearchDiscoveryService {
   private requireDb() {
     if (!this.db) throw new SourceOfTruthRequiredError("search_discovery_firestore_unavailable");
     return this.db;
+  }
+
+  isEnabled(): boolean {
+    return this.db !== null;
   }
 
   resolvePlace(normalizedQuery: string): SearchIndexedPlaceLike | null {
@@ -1061,7 +1085,7 @@ export class SearchDiscoveryService {
 
   private mapDiscoveryPost(postId: string, data: Record<string, unknown>): DiscoveryPost {
     const activities = Array.isArray(data.activities) ? data.activities.map((a) => String(a)).filter(Boolean) : [];
-    const thumb = String(data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? "").trim();
+    const thumb = resolveDiscoveryThumbUrl(data);
     const mediaType =
       String(data.mediaType ?? "").toLowerCase() === "video"
         ? "video"

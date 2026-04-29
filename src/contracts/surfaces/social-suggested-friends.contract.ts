@@ -19,8 +19,17 @@ export const SocialSuggestedFriendsResponseSchema = z.object({
       handle: z.string().nullable(),
       name: z.string().nullable(),
       profilePic: z.string().nullable(),
-      reason: z.enum(["contacts", "suggested", "mutuals", "popular", "nearby", "new_user_seed"]),
+      reason: z.enum(["contacts", "referral", "groups", "mutuals", "popular", "nearby", "all_users"]),
+      reasonLabel: z.string().max(120).nullable().optional(),
       mutualCount: z.number().int().nonnegative().optional(),
+      mutualPreview: z
+        .array(
+          z.object({
+            userId: z.string().min(1),
+            handle: z.string().nullable().optional()
+          })
+        )
+        .optional(),
       isFollowing: z.boolean(),
       followerCount: z.number().int().nonnegative().optional(),
       score: z.number().optional()

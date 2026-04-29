@@ -10,8 +10,10 @@ export type UserSuggestionSummary = {
   handle: string | null;
   name: string | null;
   profilePic: string | null;
-  reason: "contacts" | "suggested" | "mutuals" | "popular" | "nearby" | "new_user_seed";
+  reason: "contacts" | "referral" | "groups" | "mutuals" | "popular" | "nearby" | "all_users";
+  reasonLabel?: string | null;
   mutualCount?: number;
+  mutualPreview?: Array<{ userId: string; handle?: string | null }>;
   isFollowing: boolean;
   followerCount?: number;
   score?: number;
@@ -23,6 +25,9 @@ export type SuggestedFriendsOptions = {
   includeMutuals?: boolean;
   includePopular?: boolean;
   includeNearby?: boolean;
+  includeGroups?: boolean;
+  includeReferral?: boolean;
+  includeAllUsersFallback?: boolean;
   excludeAlreadyFollowing?: boolean;
   excludeBlocked?: boolean;
   surface?: "onboarding" | "profile" | "search" | "home" | "notifications" | "generic";
@@ -34,12 +39,41 @@ type ViewerGraph = {
   contactUsers: string[];
   contactUserSummaries: UserSuggestionSummary[];
   phoneContacts: string[];
+  branchCandidateUserIds: string[];
 };
 
 const DEFAULT_LIMIT = 20;
 
-function normalizePhone(value: string): string {
-  return value.replace(/[^0-9]/g, "").slice(-10);
+/**
+ * Phone normalization for matching contacts against stored `users.phoneNumber`.
+ *
+ * Many contacts store NANP numbers inconsistently ("+1…", "(555)…", "1555…", etc).
+ * We previously compared using only `slice(-10)`, which can miss legitimate matches when the
+ * underlying stored field includes/excludes a leading country digit differently than the contact row.
+ */
+function normalizePhoneCandidates(raw: string): string[] {
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (!digits) return [];
+
+  const out = new Set<string>();
+  const push = (v: string) => {
+    if (v.length === 10) out.add(v);
+  };
+
+  if (digits.length >= 10) {
+    push(digits.slice(-10));
+  }
+  if (digits.length === 11 && digits.startsWith("1")) {
+    push(digits.slice(1));
+  }
+  if (digits.length > 11) {
+    const last10 = digits.slice(-10);
+    push(last10);
+    const last11 = digits.slice(-11);
+    if (last11.startsWith("1")) push(last11.slice(1));
+  }
+
+  return [...out];
 }
 
 function normalizeEmail(value: string): string {
@@ -85,7 +119,14 @@ export class SuggestedFriendsRepository {
   async loadViewerGraph(viewerId: string, options: { allowFirestore?: boolean } = {}): Promise<ViewerGraph> {
     const allowFirestore = options.allowFirestore ?? true;
     if (!this.db) {
-      return { following: new Set(), blocked: new Set(), contactUsers: [], contactUserSummaries: [], phoneContacts: [] };
+      return {
+        following: new Set(),
+        blocked: new Set(),
+        contactUsers: [],
+        contactUserSummaries: [],
+        phoneContacts: [],
+        branchCandidateUserIds: []
+      };
     }
     let data = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
     if (data === undefined && allowFirestore) {
@@ -96,7 +137,14 @@ export class SuggestedFriendsRepository {
       await globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), data, 25_000);
     }
     if (data === undefined) {
-      return { following: new Set(), blocked: new Set(), contactUsers: [], contactUserSummaries: [], phoneContacts: [] };
+      return {
+        following: new Set(),
+        blocked: new Set(),
+        contactUsers: [],
+        contactUserSummaries: [],
+        phoneContacts: [],
+        branchCandidateUserIds: []
+      };
     }
     const following = new Set<string>(Array.isArray(data.following) ? data.following.filter((v): v is string => typeof v === "string") : []);
     const blocked = new Set<string>(Array.isArray(data.blockedUsers) ? data.blockedUsers.filter((v): v is string => typeof v === "string") : []);
@@ -116,11 +164,20 @@ export class SuggestedFriendsRepository {
           .filter((row) => row.userId.length > 0)
       : [];
     const phoneContacts = Array.isArray(data.addressBookPhoneNumbers)
-      ? data.addressBookPhoneNumbers
-          .map((value) => (typeof value === "string" ? normalizePhone(value) : ""))
-          .filter((value) => value.length === 10)
+      ? (() => {
+          const set = new Set<string>();
+          for (const value of data.addressBookPhoneNumbers) {
+            if (typeof value !== "string") continue;
+            for (const candidate of normalizePhoneCandidates(value)) {
+              set.add(candidate);
+            }
+          }
+          return [...set];
+        })()
       : [];
-    return { following, blocked, contactUsers, contactUserSummaries, phoneContacts };
+
+    const branchCandidateUserIds = extractCandidateUserIdsFromBranchData((data.branchData ?? null) as unknown, { viewerId });
+    return { following, blocked, contactUsers, contactUserSummaries, phoneContacts, branchCandidateUserIds };
   }
 
   async syncContacts(input: {
@@ -132,8 +189,9 @@ export class SuggestedFriendsRepository {
     const emailSet = new Set<string>();
     for (const contact of input.contacts) {
       for (const phone of contact.phoneNumbers ?? []) {
-        const normalized = normalizePhone(phone);
-        if (normalized.length === 10) phoneSet.add(normalized);
+        for (const candidate of normalizePhoneCandidates(phone)) {
+          phoneSet.add(candidate);
+        }
       }
       for (const email of contact.emails ?? []) {
         const normalized = normalizeEmail(email);
@@ -142,30 +200,8 @@ export class SuggestedFriendsRepository {
     }
     const now = Date.now();
     if (!this.db) {
-      const localMatches: UserSuggestionSummary[] = [];
-      if (phoneSet.has("6507046433")) {
-        localMatches.push({
-          userId: "seed-contact-1",
-          handle: "testuser",
-          name: "Test User",
-          profilePic: null,
-          reason: "contacts",
-          isFollowing: false,
-          score: 1000
-        });
-      }
-      if (emailSet.has("test@example.com")) {
-        localMatches.push({
-          userId: "seed-email-1",
-          handle: "emailmatch",
-          name: "Email Match",
-          profilePic: null,
-          reason: "contacts",
-          isFollowing: false,
-          score: 1000
-        });
-      }
-      return { matchedUsers: localMatches, matchedCount: localMatches.length, syncedAt: now };
+      // No fake users when Firestore isn't available.
+      return { matchedUsers: [], matchedCount: 0, syncedAt: now };
     }
 
     const matchesByUser = new Map<string, UserSuggestionSummary>();
@@ -233,10 +269,14 @@ export class SuggestedFriendsRepository {
     const includeContacts = options.includeContacts ?? true;
     const includeMutuals = options.includeMutuals ?? true;
     const includePopular = options.includePopular ?? true;
-    const includeNearby = options.includeNearby ?? (surface === "onboarding");
+    const includeNearby = options.includeNearby ?? false;
+    const includeGroups = options.includeGroups ?? true;
+    const includeReferral = options.includeReferral ?? true;
+    const includeAllUsersFallback = options.includeAllUsersFallback ?? true;
     const excludeFollowing = options.excludeAlreadyFollowing ?? true;
     const excludeBlocked = options.excludeBlocked ?? true;
-    const viewer = await this.loadViewerGraph(viewerId, { allowFirestore: false });
+    // Must load viewer graph from Firestore (cached) for correct filtering and referrals.
+    const viewer = await this.loadViewerGraph(viewerId, { allowFirestore: true });
 
     const out = new Map<string, UserSuggestionSummary>();
     const add = (items: UserSuggestionSummary[]) => {
@@ -249,6 +289,25 @@ export class SuggestedFriendsRepository {
       }
     };
 
+    if (includeReferral && viewer.branchCandidateUserIds.length > 0) {
+      // Hydrate a tiny number of deep-link/referral candidates; these should always be prioritized.
+      const ids = viewer.branchCandidateUserIds.slice(0, 6).filter((id) => id !== viewerId);
+      if (this.db && ids.length > 0) {
+        const docs = await this.db.getAll(...ids.map((id) => this.db!.collection("users").doc(id)));
+        incrementDbOps("reads", docs.length);
+        add(
+          docs
+            .filter((doc) => doc.exists)
+            .map((doc) =>
+              ({
+                ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "referral", viewer.following.has(doc.id), 1400),
+                reasonLabel: "From an invite"
+              }) satisfies UserSuggestionSummary
+            )
+        );
+      }
+    }
+
     if (includeContacts && viewer.contactUserSummaries.length > 0) {
       add(viewer.contactUserSummaries.map((row) => ({ ...row, isFollowing: viewer.following.has(row.userId) })));
     }
@@ -259,16 +318,37 @@ export class SuggestedFriendsRepository {
             ...viewer.contactUsers.slice(0, Math.min(Math.max(safeLimit, 4), 6)).map((id) => this.db!.collection("users").doc(id))
           )
         : null;
+    // Mutuals: bounded + cheap. Read a few of the viewer's following docs and derive mutual candidates from their `following` arrays.
     const mutualsPromise =
       this.db && includeMutuals && viewer.following.size > 0
-        ? Promise.all(
-            [...viewer.following]
-              .slice(0, 1)
-              .map((fid) => this.db!.collection("users").doc(fid).collection("following").limit(2).get())
-          )
+        ? (async () => {
+            const seeds = [...viewer.following].slice(0, 6);
+            if (seeds.length === 0) return { counts: new Map<string, number>(), previewByCandidate: new Map<string, string[]>() };
+            const seedDocs = await this.db!.getAll(...seeds.map((id) => this.db!.collection("users").doc(id)));
+            incrementDbOps("reads", seedDocs.length);
+            const counts = new Map<string, number>();
+            const previewByCandidate = new Map<string, string[]>();
+            for (const doc of seedDocs) {
+              if (!doc.exists) continue;
+              const data = (doc.data() ?? {}) as Record<string, unknown>;
+              const followingArr = Array.isArray(data.following) ? data.following.filter((v): v is string => typeof v === "string") : [];
+              for (const cand of followingArr.slice(0, 80)) {
+                if (!cand || cand === viewerId) continue;
+                if (viewer.following.has(cand)) continue;
+                if (excludeBlocked && viewer.blocked.has(cand)) continue;
+                counts.set(cand, (counts.get(cand) ?? 0) + 1);
+                const prev = previewByCandidate.get(cand) ?? [];
+                if (prev.length < 5 && doc.id !== viewerId) {
+                  prev.push(doc.id);
+                  previewByCandidate.set(cand, prev);
+                }
+              }
+            }
+            return { counts, previewByCandidate };
+          })()
         : null;
 
-    const [contactDocs, mutualSnaps] = await Promise.all([contactsPromise, mutualsPromise]);
+    const [contactDocs, mutualDerived] = await Promise.all([contactsPromise, mutualsPromise]);
 
     if (contactDocs) {
       incrementDbOps("reads", contactDocs.length);
@@ -294,25 +374,87 @@ export class SuggestedFriendsRepository {
       })().catch(() => undefined);
     }
 
-    if (mutualSnaps) {
-      incrementDbOps("queries", mutualSnaps.length);
-      mutualSnaps.forEach((snap) => incrementDbOps("reads", snap.size));
-      mutualSnaps.forEach((q) => {
-        q.docs.forEach((doc) => {
-          const current = out.get(doc.id);
-          const mutual = (current?.mutualCount ?? 0) + 1;
-          out.set(doc.id, {
-            userId: doc.id,
-            handle: current?.handle ?? null,
-            name: current?.name ?? null,
-            profilePic: current?.profilePic ?? null,
-            reason: "mutuals",
-            mutualCount: mutual,
-            isFollowing: viewer.following.has(doc.id),
-            score: 900 + mutual
+    if (mutualDerived && this.db) {
+      const sortedCandidates = [...mutualDerived.counts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 30);
+      const candidateIds = sortedCandidates.map(([id]) => id);
+      if (candidateIds.length > 0) {
+        const docs = await this.db.getAll(...candidateIds.map((id) => this.db!.collection("users").doc(id)));
+        incrementDbOps("reads", docs.length);
+        const previewIds = [...new Set(sortedCandidates.flatMap(([id]) => mutualDerived.previewByCandidate.get(id) ?? []))].slice(0, 20);
+        const previewProfiles =
+          previewIds.length > 0
+            ? await this.db
+                .getAll(...previewIds.map((id) => this.db!.collection("users").doc(id)))
+                .then((snaps) => {
+                  incrementDbOps("reads", snaps.length);
+                  const map = new Map<string, { handle: string | null }>();
+                  snaps.forEach((s) => {
+                    const d = (s.data() ?? {}) as Record<string, unknown>;
+                    const h = typeof d.handle === "string" ? d.handle.replace(/^@+/, "").trim() : null;
+                    map.set(s.id, { handle: h || null });
+                  });
+                  return map;
+                })
+                .catch(() => new Map<string, { handle: string | null }>())
+            : new Map<string, { handle: string | null }>();
+        const byId = new Map(docs.filter((d) => d.exists).map((d) => [d.id, d.data() as Record<string, unknown>]));
+        const mutualSummaries: UserSuggestionSummary[] = [];
+        for (const [id, count] of sortedCandidates) {
+          const data = byId.get(id);
+          if (!data) continue;
+          const preview = (mutualDerived.previewByCandidate.get(id) ?? []).slice(0, 3).map((uid) => ({
+            userId: uid,
+            handle: previewProfiles.get(uid)?.handle ?? null
+          }));
+          mutualSummaries.push({
+            ...toSummary(id, data, "mutuals", viewer.following.has(id), 1100 + count),
+            mutualCount: count,
+            mutualPreview: preview,
+            reasonLabel: count === 1 ? "1 mutual" : `${count} mutuals`
           });
-        });
-      });
+        }
+        add(mutualSummaries);
+      }
+    }
+
+    if (includeGroups && this.db && out.size < safeLimit) {
+      // Shared communities/groups: suggest other members from groups the viewer is in.
+      const groupSnap = await this.db
+        .collection("product_groups")
+        .where("memberIds", "array-contains", viewerId)
+        .limit(10)
+        .get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", groupSnap.size);
+      const candidateIds: string[] = [];
+      const labelsByUser = new Map<string, string>();
+      for (const g of groupSnap.docs) {
+        const gd = g.data() as Record<string, unknown>;
+        const name = typeof gd.name === "string" ? gd.name.trim() : "a group";
+        const members = Array.isArray(gd.memberIds) ? gd.memberIds.filter((x): x is string => typeof x === "string") : [];
+        for (const uid of members) {
+          if (!uid || uid === viewerId) continue;
+          if (viewer.following.has(uid)) continue;
+          if (excludeBlocked && viewer.blocked.has(uid)) continue;
+          candidateIds.push(uid);
+          if (!labelsByUser.has(uid)) labelsByUser.set(uid, `In ${name}`);
+        }
+      }
+      const unique = [...new Set(candidateIds)].slice(0, 30);
+      if (unique.length > 0) {
+        const docs = await this.db.getAll(...unique.map((id) => this.db!.collection("users").doc(id)));
+        incrementDbOps("reads", docs.length);
+        add(
+          docs
+            .filter((doc) => doc.exists)
+            .map((doc) => ({
+              ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "groups", viewer.following.has(doc.id), 1000),
+              reasonLabel: labelsByUser.get(doc.id) ?? "In your communities"
+            }))
+        );
+      }
     }
 
     const needPopular = includePopular && out.size < safeLimit;
@@ -323,7 +465,7 @@ export class SuggestedFriendsRepository {
             .collection("users")
             .orderBy("postCount", "desc")
             .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers")
-            .limit(Math.min(Math.max(safeLimit - out.size, 2), 3))
+            .limit(Math.min(Math.max(safeLimit - out.size, 4), 12))
             .get()
         : null;
     const nearbyPromise =
@@ -342,7 +484,10 @@ export class SuggestedFriendsRepository {
       incrementDbOps("reads", popularSnap.size);
       add(
         popularSnap.docs.map((doc) =>
-          toSummary(doc.id, doc.data() as Record<string, unknown>, "popular", viewer.following.has(doc.id), 500)
+          ({
+            ...toSummary(doc.id, doc.data() as Record<string, unknown>, "popular", viewer.following.has(doc.id), 500),
+            reasonLabel: "Popular on Locava"
+          })
         )
       );
     }
@@ -357,20 +502,20 @@ export class SuggestedFriendsRepository {
       );
     }
 
-    const needOnboardingSeed = this.db && surface === "onboarding" && out.size === 0;
-    if (needOnboardingSeed) {
-      const seedSnap = await this.db
+    // Final fallback: return real eligible users when every signal is empty.
+    if (this.db && includeAllUsersFallback && out.size < safeLimit) {
+      const fallbackSnap = await this.db
         .collection("users")
-        .orderBy("postCount", "desc")
-        .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers")
-        .limit(Math.min(Math.max(safeLimit, 4), 8))
+        .orderBy("updatedAt", "desc")
+        .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
+        .limit(Math.min(60, Math.max(safeLimit * 2, 20)))
         .get();
       incrementDbOps("queries", 1);
-      incrementDbOps("reads", seedSnap.size);
+      incrementDbOps("reads", fallbackSnap.size);
       add(
-        seedSnap.docs.map((doc) => ({
-          ...toSummary(doc.id, doc.data() as Record<string, unknown>, "new_user_seed", viewer.following.has(doc.id), 700),
-          reason: "new_user_seed" as const
+        fallbackSnap.docs.map((doc) => ({
+          ...toSummary(doc.id, doc.data() as Record<string, unknown>, "all_users", viewer.following.has(doc.id), 200),
+          reasonLabel: "Suggested for you"
         }))
       );
     }
@@ -388,4 +533,43 @@ export class SuggestedFriendsRepository {
       .digest("hex");
     return { users, sourceBreakdown, generatedAt, etag };
   }
+}
+
+function extractCandidateUserIdsFromBranchData(
+  branchData: unknown,
+  options: { viewerId: string }
+): string[] {
+  if (!branchData || typeof branchData !== "object") return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (value: unknown) => {
+    if (typeof value !== "string") return;
+    const id = value.trim();
+    if (!id || id === options.viewerId) return;
+    // Firebase auth uids are typically >= 10 chars; keep heuristic loose but avoid obvious garbage.
+    if (id.length < 8 || id.length > 128) return;
+    if (seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  };
+  const walk = (obj: Record<string, unknown>, depth: number) => {
+    if (depth > 3) return;
+    for (const [k, v] of Object.entries(obj)) {
+      const key = k.toLowerCase();
+      if (key.includes("referr") || key.includes("inviter") || key.includes("sender") || key.endsWith("userid") || key.endsWith("user_id")) {
+        push(v);
+      }
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        walk(v as Record<string, unknown>, depth + 1);
+      }
+      if (Array.isArray(v)) {
+        for (const item of v.slice(0, 10)) {
+          if (typeof item === "string") push(item);
+          else if (item && typeof item === "object") walk(item as Record<string, unknown>, depth + 1);
+        }
+      }
+    }
+  };
+  walk(branchData as Record<string, unknown>, 0);
+  return out.slice(0, 10);
 }

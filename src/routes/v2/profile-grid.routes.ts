@@ -24,6 +24,7 @@ export async function registerV2ProfileGridRoutes(app: FastifyInstance): Promise
     setRouteName(profileGridContract.routeName);
 
     const payload = await orchestrator.run({
+      viewerId: viewer.viewerId,
       userId: params.userId,
       cursor: query.cursor ?? null,
       limit: query.limit

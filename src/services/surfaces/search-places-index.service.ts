@@ -222,7 +222,8 @@ class SearchPlacesIndexService {
     if (q.length < 2) return [];
     const seedMatches = this.searchSeeds(q, limit);
     if (!this.loaded) {
-      this.scheduleLoad();
+      const shouldSchedule = process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
+      if (shouldSchedule) this.scheduleLoad();
       return seedMatches;
     }
     const bucket = this.prefixMap.get(q.slice(0, 3)) ?? [];
@@ -236,7 +237,8 @@ class SearchPlacesIndexService {
     const normalized = normalizeSearchText(query);
     if (normalized.length < 2) return null;
     if (!this.loaded) {
-      this.scheduleLoad();
+      const shouldSchedule = process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
+      if (shouldSchedule) this.scheduleLoad();
       return this.seedExactMap.get(normalized) ?? null;
     }
     return this.seedExactMap.get(normalized) ?? this.exactMap.get(normalized) ?? null;

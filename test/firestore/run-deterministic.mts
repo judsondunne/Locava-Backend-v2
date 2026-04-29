@@ -27,6 +27,9 @@ const EMULATOR_FILES = [
   "src/routes/v2/profile.routes.test.ts",
   "src/routes/v2/search-results.routes.test.ts",
   "src/routes/v2/search-users.routes.test.ts",
+  "src/routes/v2/search-mixes.truth-v2.test.ts",
+  "src/debug/search-truth-harness.test.ts",
+  "src/debug/search-firestore-truth-seeded.test.ts",
   "src/routes/v2/social.routes.test.ts"
 ];
 
@@ -37,27 +40,39 @@ function sleep(ms: number): Promise<void> {
 function findOpenPort(start = 8080): Promise<number> {
   return new Promise((resolve, reject) => {
     const tryPort = (port: number) => {
-      const server = net.createServer();
-      server.unref();
-      server.on("error", (error: NodeJS.ErrnoException) => {
-        if (error.code === "EADDRINUSE") {
-          tryPort(port + 1);
-          return;
-        }
-        reject(error);
-      });
-      server.listen(port, () => {
-        const address = server.address();
-        const resolved =
-          address && typeof address === "object" && typeof address.port === "number" ? address.port : port;
-        server.close((closeError) => {
-          if (closeError) {
-            reject(closeError);
+      // The Firebase emulators consider a port "taken" if it is accepting connections on localhost.
+      // On macOS, binding probes can be misleading due to interface family + reuse behavior, so we
+      // check via connect() instead (matching emulator behavior).
+      const probeConnect = (host: "127.0.0.1" | "::1") =>
+        new Promise<"free" | "taken">((res) => {
+          const socket = net.connect({ port, host });
+          const finish = (result: "free" | "taken") => {
+            socket.removeAllListeners();
+            socket.destroy();
+            res(result);
+          };
+          socket.setTimeout(150);
+          socket.once("connect", () => finish("taken"));
+          socket.once("timeout", () => finish("free"));
+          socket.once("error", (err: NodeJS.ErrnoException) => {
+            if (err.code === "ECONNREFUSED" || err.code === "EHOSTUNREACH" || err.code === "ENETUNREACH") {
+              finish("free");
+              return;
+            }
+            // Unknown errors are treated as taken to avoid flaky emulator startup.
+            finish("taken");
+          });
+        });
+
+      Promise.all([probeConnect("127.0.0.1"), probeConnect("::1")])
+        .then(([v4, v6]) => {
+          if (v4 === "free" && v6 === "free") {
+            resolve(port);
             return;
           }
-          resolve(resolved);
-        });
-      });
+          tryPort(port + 1);
+        })
+        .catch(reject);
     };
     tryPort(start);
   });
@@ -74,7 +89,8 @@ function listTestFiles(dir: string): string[] {
       continue;
     }
     if (entry.endsWith(".test.ts")) {
-      out.push(path.relative(repoRoot, absolute));
+      // Normalize separators so EMULATOR_FILES matching is stable across platforms.
+      out.push(path.relative(repoRoot, absolute).split(path.sep).join("/"));
     }
   }
   return out;

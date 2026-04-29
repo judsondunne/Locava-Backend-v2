@@ -17,11 +17,13 @@ import { assemblePostAssetsFromStagedItems } from "../posting/assemblePostAssets
 import {
   buildNativePostDocument,
   validateNativePostDocumentForWrite,
-  type NativePostGeoBlock
+  type NativePostGeoBlock,
+  type NativePostUserSnapshot
 } from "../posting/buildPostDocument.js";
 import { enqueueVideoProcessingCloudTask } from "../posting/video-processing-cloud-task.service.js";
 import { searchPlacesIndexService } from "../surfaces/search-places-index.service.js";
 import { postingAchievementsService } from "./posting-achievements.service.js";
+import { legendService } from "../../domains/legends/legend.service.js";
 import type { AchievementDelta } from "../../contracts/entities/achievement-entities.contract.js";
 import {
   type PostingMediaRecord,
@@ -39,6 +41,44 @@ type FinalizeStagedItem = {
   posterKey?: string;
   posterUrl?: string;
 };
+
+function trimAuthorField(v: unknown): string {
+  if (typeof v !== "string") return "";
+  return v.trim();
+}
+
+/**
+ * A truthy cached user doc can still be `{}` or metadata-only, which previously skipped Firestore
+ * refresh and left userName / userHandle / userPic empty on native finalize.
+ */
+function userFirestoreDocHasAuthorDisplay(data: Record<string, unknown> | null | undefined): boolean {
+  if (!data || Object.keys(data).length === 0) return false;
+  if (trimAuthorField(data.handle).length > 0) return true;
+  if (trimAuthorField(data.name).length > 0) return true;
+  if (trimAuthorField(data.displayName).length > 0) return true;
+  for (const k of ["profilePic", "profilePicSmall", "profilePicLarge", "profilePicture", "photo", "photoURL"] as const) {
+    if (trimAuthorField(data[k]).length > 0) return true;
+  }
+  return false;
+}
+
+function buildNativeAuthorSnapshotFromUserDoc(data: Record<string, unknown>, effectiveUserId: string): NativePostUserSnapshot {
+  const handle = trimAuthorField(data.handle).replace(/^@+/, "");
+  const name = trimAuthorField(data.name) || trimAuthorField(data.displayName) || "";
+  let profilePic = "";
+  for (const k of ["profilePic", "profilePicSmall", "profilePicLarge", "profilePicture", "photo", "photoURL"] as const) {
+    const s = trimAuthorField(data[k]);
+    if (s) {
+      profilePic = s;
+      break;
+    }
+  }
+  return {
+    handle: handle || `user_${effectiveUserId.slice(0, 8)}`,
+    name: name || "Unknown User",
+    profilePic: profilePic || "/default-user.png"
+  };
+}
 
 export class PostingMutationService {
   private readonly completionTimers = new Map<string, true>();
@@ -84,6 +124,7 @@ export class PostingMutationService {
     recordings?: unknown[];
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
+    legendStageId?: string;
     authorizationHeader?: string;
   }): Promise<{
     session: UploadSessionRecord;
@@ -111,6 +152,11 @@ export class PostingMutationService {
           }
         }
         this.scheduleCompletionInvalidation(input.viewerId, result.operation.operationId);
+        this.scheduleLegendsCommit({
+          stageId: input.legendStageId,
+          postId: result.operation.postId,
+          userId: (input.userId?.trim() || input.viewerId).trim()
+        });
         return {
           ...result,
           canonicalCreated: true,
@@ -152,6 +198,11 @@ export class PostingMutationService {
           operationId: completed.operationId
         });
         this.scheduleCompletionInvalidation(input.viewerId, completed.operationId);
+        this.scheduleLegendsCommit({
+          stageId: input.legendStageId,
+          postId,
+          userId: (input.userId?.trim() || input.viewerId).trim()
+        });
         return {
           session: result.session,
           operation: completed,
@@ -165,6 +216,65 @@ export class PostingMutationService {
           reason: error instanceof Error ? error.message : "canonical_post_write_failed"
         });
         throw error;
+      }
+    });
+  }
+
+  private scheduleLegendsCommit(input: { stageId?: string; postId: string; userId: string }): void {
+    const stageId = input.stageId?.trim();
+    if (!input.postId || !input.userId) return;
+    scheduleBackgroundWork(async () => {
+      try {
+        if (stageId) {
+          await legendService.commitStagedPostLegend({
+            stageId,
+            post: { postId: input.postId, userId: input.userId }
+          });
+          return;
+        }
+        // Fallback: derive scopes from canonical post doc (single bounded read).
+        const db = getFirestoreSourceClient();
+        if (!db) return;
+        const postSnap = await db.collection("posts").doc(input.postId).get();
+        if (!postSnap.exists) return;
+        const data = postSnap.data() as Record<string, unknown> | undefined;
+        const geohash = typeof data?.geohash === "string" ? data.geohash : null;
+        const activities = Array.isArray(data?.activities) ? data!.activities.map((v) => String(v ?? "")).filter(Boolean) : [];
+        const city = typeof data?.city === "string" ? data.city : null;
+        const state = typeof data?.state === "string" ? data.state : null;
+        const region = typeof data?.region === "string" ? data.region : null;
+        await legendService.processPostCreated({
+          postId: input.postId,
+          userId: input.userId,
+          geohash,
+          activities,
+          city,
+          state,
+          region
+        });
+      } catch (error) {
+        console.warn("[posting.legends] commit failed", {
+          postId: input.postId,
+          userId: input.userId,
+          stageId: stageId ?? null,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        try {
+          const db = getFirestoreSourceClient();
+          if (!db) return;
+          await db.collection("legendPostResults").doc(input.postId).set(
+            {
+              postId: input.postId,
+              userId: input.userId,
+              status: "failed",
+              errorCode: "legends_commit_failed",
+              updatedAt: FieldValue.serverTimestamp()
+            },
+            { merge: true }
+          );
+        } catch {
+          // ignore
+        }
       }
     });
   }
@@ -273,7 +383,10 @@ export class PostingMutationService {
   }
 
   private shouldUseSynchronousFinalizeAchievements(): boolean {
-    return process.env.NODE_ENV === "test" || process.env.VITEST === "true";
+    if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") return true;
+    // Default to synchronous so the native "post success / claim XP" flow can display the real delta.
+    // Set POSTING_FINALIZE_ASYNC_ACHIEVEMENTS=1 to revert to the placeholder + background award behavior.
+    return process.env.POSTING_FINALIZE_ASYNC_ACHIEVEMENTS !== "1";
   }
 
   private scheduleViewerDocCacheWarm(viewerId: string): void {
@@ -578,7 +691,9 @@ export class PostingMutationService {
     if (process.env.NODE_ENV === "test") {
       return this.createCanonicalPostFallbackForTests(input);
     }
-    const viewer = input.userId?.trim() || input.viewerId;
+    // Security + correctness: the post author is always the authenticated viewer.
+    // Never allow client-provided `userId` to change post ownership.
+    const viewer = input.viewerId;
     const media = await postingMutationRepository.listSessionMedia({
       viewerId: input.viewerId,
       sessionId: input.sessionId,
@@ -807,14 +922,19 @@ export class PostingMutationService {
     const startedAt = debugTimings ? Date.now() : 0;
 
     let userData = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId))) ?? null;
-    if (!userData) {
+    if (!userFirestoreDocHasAuthorDisplay(userData)) {
       const cachedSummary =
         (await globalCache.get<{
           handle?: unknown;
           name?: unknown;
           pic?: unknown;
         }>(entityCacheKeys.userSummary(input.viewerId))) ?? null;
-      if (cachedSummary) {
+      if (
+        cachedSummary &&
+        (trimAuthorField(cachedSummary.handle).length > 0 ||
+          trimAuthorField(cachedSummary.name).length > 0 ||
+          trimAuthorField(cachedSummary.pic).length > 0)
+      ) {
         userData = {
           handle: typeof cachedSummary.handle === "string" ? cachedSummary.handle : "",
           name: typeof cachedSummary.name === "string" ? cachedSummary.name : "",
@@ -822,9 +942,10 @@ export class PostingMutationService {
         };
       }
     }
-    if (!userData) {
+    if (!userFirestoreDocHasAuthorDisplay(userData)) {
       userData = (await this.ensureViewerDocCached(input.viewerId)) ?? {};
     }
+    const authorSnapshot = buildNativeAuthorSnapshotFromUserDoc(userData ?? {}, input.effectiveUserId);
     const now = Date.now();
     const nowTs = Timestamp.fromMillis(now);
     const postId = `post_${createHash("sha1").update(`${input.viewerId}:${input.idempotencyKey}`).digest("hex").slice(0, 16)}`;
@@ -842,21 +963,7 @@ export class PostingMutationService {
       idempotencyKey: input.idempotencyKey,
       nowMs: now,
       nowTs,
-      user: {
-        handle: typeof userData.handle === "string" ? userData.handle : "",
-        name:
-          typeof userData.name === "string"
-            ? userData.name
-            : typeof userData.displayName === "string"
-              ? userData.displayName
-              : "",
-        profilePic:
-          typeof userData.profilePic === "string"
-            ? userData.profilePic
-            : typeof userData.profilePicSmall === "string"
-              ? userData.profilePicSmall
-              : ""
-      },
+      user: authorSnapshot,
       title: input.title,
       content: input.content,
       activities: activities.length > 0 ? activities : ["misc"],

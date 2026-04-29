@@ -21,6 +21,17 @@ type SendTextMessageInput = {
   text: string | null;
   photoUrl: string | null;
   gifUrl: string | null;
+  gif: null | {
+    provider: "giphy";
+    gifId: string;
+    title?: string;
+    previewUrl: string;
+    fixedHeightUrl?: string;
+    mp4Url?: string;
+    width?: number;
+    height?: number;
+    originalUrl?: string;
+  };
   postId: string | null;
   replyingToMessageId: string | null;
   clientMessageId: string | null;
@@ -625,28 +636,51 @@ export class ChatsRepository {
       };
       const seenBy = Array.isArray(data.seenBy) ? data.seenBy.filter((x): x is string => typeof x === "string") : [];
       const messageType = normalizeMessageType(data.type);
+      const photoUrl = typeof data.photoUrl === "string" && data.photoUrl.trim() ? data.photoUrl.trim() : null;
+      const postId = typeof data.postId === "string" && data.postId.trim() ? data.postId.trim() : null;
+      const gifUrlCandidate =
+        typeof data.gifUrl === "string" && data.gifUrl.trim()
+          ? data.gifUrl.trim()
+          : typeof data.gif === "string" && data.gif.trim()
+            ? data.gif.trim()
+            : null;
+      const gifObject =
+        data.gif && typeof data.gif === "object"
+          ? (data.gif as Record<string, unknown>)
+          : null;
+      const gif =
+        gifObject && typeof gifObject.previewUrl === "string" && gifObject.previewUrl.trim()
+          ? {
+              provider: "giphy" as const,
+              gifId: typeof gifObject.gifId === "string" && gifObject.gifId.trim() ? gifObject.gifId.trim() : doc.id,
+              title: typeof gifObject.title === "string" ? gifObject.title : undefined,
+              previewUrl: gifObject.previewUrl.trim(),
+              fixedHeightUrl: typeof gifObject.fixedHeightUrl === "string" ? gifObject.fixedHeightUrl : undefined,
+              mp4Url: typeof gifObject.mp4Url === "string" ? gifObject.mp4Url : undefined,
+              width: typeof gifObject.width === "number" && Number.isFinite(gifObject.width) ? Math.floor(gifObject.width) : undefined,
+              height: typeof gifObject.height === "number" && Number.isFinite(gifObject.height) ? Math.floor(gifObject.height) : undefined,
+              originalUrl: typeof gifObject.originalUrl === "string" ? gifObject.originalUrl : undefined
+            }
+          : gifUrlCandidate
+            ? {
+                provider: "giphy" as const,
+                gifId: doc.id,
+                previewUrl: gifUrlCandidate
+              }
+            : null;
+
       const text =
         messageType === "photo"
-          ? typeof data.photoUrl === "string"
-            ? data.photoUrl
-            : null
+          ? null
           : messageType === "gif"
-            ? typeof data.gif === "string"
-              ? data.gif
-              : typeof data.gifUrl === "string"
-                ? data.gifUrl
-                : typeof data.content === "string"
-                  ? data.content
-                  : null
-          : messageType === "post"
-            ? typeof data.postId === "string"
-              ? data.postId
-              : null
-            : typeof data.content === "string"
-              ? data.content
-              : typeof data.text === "string"
-                ? data.text
-                : null;
+            ? null
+            : messageType === "post"
+              ? null
+              : typeof data.content === "string"
+                ? data.content
+                : typeof data.text === "string"
+                  ? data.text
+                  : null;
       const rawReactions = data.reactions && typeof data.reactions === "object" ? (data.reactions as Record<string, unknown>) : {};
       const reactions: Record<string, string> = {};
       for (const [k, v] of Object.entries(rawReactions)) {
@@ -659,6 +693,9 @@ export class ChatsRepository {
         sender: { userId: sender.userId, handle: sender.handle, name: sender.name, pic: sender.pic },
         messageType,
         text,
+        photoUrl: messageType === "photo" ? photoUrl : undefined,
+        gif: messageType === "gif" ? gif : undefined,
+        postId: messageType === "post" ? postId : undefined,
         createdAtMs: toMillis(data.timestamp),
         replyToMessageId: typeof data.replyToMessageId === "string" ? data.replyToMessageId : null,
         seenBy,
@@ -785,6 +822,14 @@ export class ChatsRepository {
       seenBy: [input.viewerId]
     };
     if (input.messageType === "photo") messagePayload.photoUrl = input.photoUrl;
+    else if (input.messageType === "gif") {
+      if (input.gif && input.gif.previewUrl) {
+        messagePayload.gif = input.gif;
+      } else if (input.gifUrl) {
+        // Back-compat for older clients: store gifUrl for later hydration.
+        messagePayload.gifUrl = input.gifUrl;
+      }
+    }
     else if (input.messageType === "post") {
       if (!input.postId) throw new ChatsRepositoryError("conversation_not_found", "postId is required for post messages.");
       messagePayload.postId = input.postId;
@@ -831,12 +876,7 @@ export class ChatsRepository {
 
     if (key) this.clientMessageIndex.set(key, messageRef.id);
     const normalizedType = normalizeMessageType(type);
-    const outText =
-      normalizedType === "post"
-        ? input.postId
-        : typeof content === "string"
-          ? content
-          : null;
+    const outText = typeof content === "string" ? content : null;
     return {
       idempotent: false,
       message: {
@@ -845,7 +885,10 @@ export class ChatsRepository {
         senderId: input.viewerId,
         sender,
         messageType: normalizedType,
-        text: outText,
+        text: normalizedType === "text" || normalizedType === "message" ? outText : null,
+        photoUrl: normalizedType === "photo" ? input.photoUrl : undefined,
+        gif: normalizedType === "gif" ? (input.gif ?? (input.gifUrl ? { provider: "giphy" as const, gifId: messageRef.id, previewUrl: input.gifUrl } : null)) : undefined,
+        postId: normalizedType === "post" ? input.postId : undefined,
         createdAtMs: now.toMillis(),
         replyToMessageId: input.replyingToMessageId,
         seenBy: [input.viewerId]
@@ -1166,8 +1209,61 @@ export class ChatsRepository {
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
     await this.assertViewerMembership(input.viewerId, input.conversationId);
     const ref = this.db.collection("chats").doc(input.conversationId).collection("messages").doc(input.messageId);
-    incrementDbOps("writes", 1);
+    // Delete message and repair chat lastMessage projection if needed.
+    const now = Timestamp.now();
+    incrementDbOps("writes", 2);
     await ref.delete();
+    // Recompute last message preview (best-effort, avoids inbox showing a ghost message).
+    try {
+      incrementDbOps("queries", 1);
+      const snap = await this.db
+        .collection("chats")
+        .doc(input.conversationId)
+        .collection("messages")
+        .orderBy("timestamp", "desc")
+        .orderBy(FieldPath.documentId(), "desc")
+        .limit(1)
+        .get();
+      incrementDbOps("reads", snap.docs.length);
+      const last = snap.docs[0];
+      const chatRef = this.db.collection("chats").doc(input.conversationId);
+      if (!last) {
+        await chatRef.set(
+          {
+            lastMessageTime: now,
+            lastMessage: {
+              type: "message",
+              content: "Message unsent",
+              senderId: input.viewerId,
+              timestamp: now,
+              seenBy: [input.viewerId]
+            }
+          },
+          { merge: true }
+        );
+      } else {
+        const d = last.data() as Record<string, unknown>;
+        const type = typeof d.type === "string" ? d.type : "message";
+        const content = typeof d.content === "string" ? d.content : typeof d.text === "string" ? d.text : null;
+        const senderId = typeof d.senderId === "string" ? d.senderId : input.viewerId;
+        const ts = d.timestamp instanceof Timestamp ? d.timestamp : now;
+        await chatRef.set(
+          {
+            lastMessageTime: ts,
+            lastMessage: {
+              type,
+              content: type === "photo" ? "Sent a photo" : type === "gif" ? "Sent a GIF" : type === "post" ? "Shared a post" : content,
+              senderId,
+              timestamp: ts,
+              seenBy: [senderId]
+            }
+          },
+          { merge: true }
+        );
+      }
+    } catch {
+      // best-effort: thread correctness comes from message collection itself
+    }
     return { messageId: input.messageId, deleted: true };
   }
 

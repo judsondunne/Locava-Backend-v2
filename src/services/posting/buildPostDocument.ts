@@ -47,7 +47,8 @@ function settingTypeFromActivities(activities: string[]): string {
 export function buildNativePostDocument(input: BuildNativePostDocumentInput): Record<string, unknown> {
   const title = input.title ?? "";
   const content = input.content ?? "";
-  const caption = content || title;
+  // Caption is the explicit user-entered caption only. Never fall back to title.
+  const caption = content;
   const activities = input.activities;
   const first = input.assembled.assets[0] as { poster?: string; original?: string; type?: string } | undefined;
   const photoLink =

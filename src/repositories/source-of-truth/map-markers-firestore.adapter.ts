@@ -18,6 +18,8 @@ export type MapMarkerRecord = {
   visibility?: string | null;
   ownerId?: string | null;
   thumbnailUrl?: string | null;
+  thumbKey?: string | null;
+  followedUserPic?: string | null;
   hasPhoto?: boolean;
   hasVideo?: boolean;
 };
@@ -31,6 +33,14 @@ export type MapMarkersDataset = {
   queryCount: number;
   readCount: number;
   invalidCoordinateDrops: number;
+};
+
+type ProjectOptions = {
+  /**
+   * When true, include all visibilities (still excluding deleted/archived/hidden).
+   * When false, only include "public"-style visibilities.
+   */
+  includeNonPublic: boolean;
 };
 
 export type MapMarkerBounds = {
@@ -72,7 +82,7 @@ export class MapMarkersFirestoreAdapter {
       return sliceDataset(dataset, input.maxDocs);
     }
 
-    const promise = this.fetchAllFromFirestore(input.maxDocs);
+    const promise = this.fetchAllFromFirestore(input.maxDocs, { includeNonPublic: false });
     sharedDatasetPromise = { maxDocs: input.maxDocs, promise };
     try {
       const dataset = await promise;
@@ -111,11 +121,35 @@ export class MapMarkersFirestoreAdapter {
     };
   }
 
+  async fetchByOwner(input: { ownerId: string; maxDocs: number; includeNonPublic: boolean }): Promise<MapMarkersDataset> {
+    if (!this.db) {
+      throw new Error("map_markers_firestore_unavailable");
+    }
+    const ownerId = input.ownerId.trim();
+    if (!ownerId) {
+      return {
+        markers: [],
+        count: 0,
+        generatedAt: Date.now(),
+        version: "map-markers-v2-owner",
+        etag: "\"empty\"",
+        queryCount: 0,
+        readCount: 0,
+        invalidCoordinateDrops: 0
+      };
+    }
+    return this.fetchByOwnerFromFirestore({
+      ownerId,
+      maxDocs: input.maxDocs,
+      includeNonPublic: input.includeNonPublic
+    });
+  }
+
   static resetSharedCacheForTests(): void {
     MapMarkersFirestoreAdapter.invalidateSharedCache();
   }
 
-  private async fetchAllFromFirestore(maxDocs: number): Promise<MapMarkersDataset> {
+  private async fetchAllFromFirestore(maxDocs: number, options: ProjectOptions): Promise<MapMarkersDataset> {
     const db = this.db;
     if (!db) {
       throw new Error("map_markers_firestore_unavailable");
@@ -154,7 +188,7 @@ export class MapMarkersFirestoreAdapter {
     incrementDbOps("queries", 1);
     const snapshot = await query.get();
     incrementDbOps("reads", snapshot.docs.length);
-    const projected = project(snapshot.docs);
+    const projected = project(snapshot.docs, options);
     const generatedAt = Date.now();
     const etag = buildEtag(projected.markers);
     return {
@@ -162,6 +196,75 @@ export class MapMarkersFirestoreAdapter {
       count: projected.markers.length,
       generatedAt,
       version: "map-markers-v2",
+      etag,
+      queryCount: 1,
+      readCount: snapshot.docs.length,
+      invalidCoordinateDrops: projected.invalidCoordinateDrops
+    };
+  }
+
+  private async fetchByOwnerFromFirestore(input: {
+    ownerId: string;
+    maxDocs: number;
+    includeNonPublic: boolean;
+  }): Promise<MapMarkersDataset> {
+    const db = this.db;
+    if (!db) {
+      throw new Error("map_markers_firestore_unavailable");
+    }
+    const selectFields = [
+      "time",
+      "createdAt",
+      "createdAtMs",
+      "updatedAt",
+      "updatedAtMs",
+      "lastUpdated",
+      "lat",
+      "lng",
+      "latitude",
+      "longitude",
+      "long",
+      "activity",
+      "activities",
+      "privacy",
+      "visibility",
+      "userId",
+      "ownerId",
+      "thumbUrl",
+      "displayPhotoLink",
+      "photoLink",
+      "mediaType",
+      "deleted",
+      "isDeleted",
+      "archived",
+      "hidden"
+    ] as const;
+
+    const base = db.collection("posts").where("userId", "==", input.ownerId);
+
+    let snapshot;
+    incrementDbOps("queries", 1);
+    try {
+      snapshot = await base.orderBy("time", "desc").select(...selectFields).limit(input.maxDocs).get();
+    } catch (error) {
+      // Some environments may be missing the composite index (userId + time). Fall back
+      // to an unsorted query rather than returning no markers for profile minimaps.
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.toLowerCase().includes("index")) {
+        snapshot = await base.select(...selectFields).limit(input.maxDocs).get();
+      } else {
+        throw error;
+      }
+    }
+    incrementDbOps("reads", snapshot.docs.length);
+    const projected = project(snapshot.docs, { includeNonPublic: input.includeNonPublic });
+    const generatedAt = Date.now();
+    const etag = buildEtag(projected.markers);
+    return {
+      markers: projected.markers,
+      count: projected.markers.length,
+      generatedAt,
+      version: "map-markers-v2-owner",
       etag,
       queryCount: 1,
       readCount: snapshot.docs.length,
@@ -191,7 +294,10 @@ function sliceDataset(dataset: MapMarkersDataset, maxDocs: number): MapMarkersDa
   };
 }
 
-function project(docs: QueryDocumentSnapshot[]): { markers: MapMarkerRecord[]; invalidCoordinateDrops: number } {
+function project(
+  docs: QueryDocumentSnapshot[],
+  options: ProjectOptions
+): { markers: MapMarkerRecord[]; invalidCoordinateDrops: number } {
   const markers: MapMarkerRecord[] = [];
   let invalidCoordinateDrops = 0;
   for (const doc of docs) {
@@ -206,9 +312,10 @@ function project(docs: QueryDocumentSnapshot[]): { markers: MapMarkerRecord[]; i
     const createdAt = readMillis(data.time ?? data.createdAt ?? data.createdAtMs);
     const updatedAt = readMillis(data.updatedAt ?? data.updatedAtMs ?? data.lastUpdated ?? data.time ?? data.createdAt ?? data.createdAtMs);
     const visibility = normalizeText(data.visibility ?? data.privacy);
-    if (!isEligibleVisibility(visibility)) continue;
+    if (!options.includeNonPublic && !isEligibleVisibility(visibility)) continue;
     const ownerId = normalizeText(data.ownerId ?? data.userId);
     const thumbnailUrl = normalizeText(data.displayPhotoLink) ?? normalizeText(data.photoLink) ?? normalizeText(data.thumbUrl);
+    const thumbKey = normalizeText((data as { thumbKey?: unknown }).thumbKey);
     const media = inferMedia(data);
     markers.push({
       id: doc.id,
@@ -222,6 +329,8 @@ function project(docs: QueryDocumentSnapshot[]): { markers: MapMarkerRecord[]; i
       visibility,
       ownerId,
       thumbnailUrl,
+      thumbKey,
+      followedUserPic: null,
       hasPhoto: media.hasPhoto,
       hasVideo: media.hasVideo
     });

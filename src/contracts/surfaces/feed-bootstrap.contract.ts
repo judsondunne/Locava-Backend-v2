@@ -35,7 +35,29 @@ export const FeedBootstrapResponseSchema = z.object({
     sessionHints: z.object({
       recommendationPath: z.enum(["for_you_light"]),
       staleAfterMs: z.number().int().positive()
-    }).nullable()
+    }).nullable(),
+    followNudge: z
+      .object({
+        shouldShow: z.boolean(),
+        followingCount: z.number().int().nonnegative(),
+        cooldownMs: z.number().int().positive(),
+        suggestedUsers: z.array(
+          z.object({
+            userId: z.string().min(1),
+            handle: z.string().nullable(),
+            name: z.string().nullable(),
+            profilePic: z.string().nullable(),
+            reason: z.enum(["contacts", "referral", "groups", "mutuals", "popular", "nearby", "all_users"]),
+            reasonLabel: z.string().nullable().optional(),
+            mutualCount: z.number().int().nonnegative().optional(),
+            mutualPreview: z.array(z.object({ userId: z.string(), handle: z.string().nullable().optional() })).optional(),
+            isFollowing: z.boolean(),
+            followerCount: z.number().int().nonnegative().optional(),
+            score: z.number().optional()
+          })
+        )
+      })
+      .nullable()
   }),
   background: z.object({
     cacheWarmScheduled: z.boolean(),

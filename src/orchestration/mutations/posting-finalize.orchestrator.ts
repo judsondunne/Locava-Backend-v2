@@ -32,6 +32,7 @@ export class PostingFinalizeOrchestrator {
     recordings?: unknown[];
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
+    legendStageId?: string;
     authorizationHeader?: string;
   }) {
     const result = await this.service.finalizePosting(input);

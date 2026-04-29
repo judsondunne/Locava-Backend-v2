@@ -1,4 +1,4 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, RouteHandlerMethod } from "fastify";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { UserUnfollowParamsSchema, userUnfollowContract } from "../../contracts/surfaces/user-unfollow.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
@@ -13,7 +13,7 @@ export async function registerV2UserUnfollowRoutes(app: FastifyInstance): Promis
   const service = new UserMutationService(repository);
   const orchestrator = new UserUnfollowOrchestrator(service);
 
-  app.post(userUnfollowContract.path, async (request, reply) => {
+  const handler: RouteHandlerMethod = async (request, reply) => {
     const viewer = buildViewerContext(request);
     if (!canUseV2Surface("profile", viewer.roles)) {
       return reply.status(403).send(failure("v2_surface_disabled", "User mutation v2 surface is not enabled for this viewer"));
@@ -25,5 +25,9 @@ export async function registerV2UserUnfollowRoutes(app: FastifyInstance): Promis
       userId: params.userId
     });
     return success(payload);
-  });
+  };
+
+  // Native/client variants sometimes send DELETE for "unfollow". Support both.
+  app.post(userUnfollowContract.path, handler);
+  app.delete(userUnfollowContract.path, handler);
 }

@@ -15,8 +15,9 @@ export class SearchResultsOrchestrator {
     lat: number | null;
     lng: number | null;
     wantedTypes: Set<string>;
+    includeDebug: boolean;
   }): Promise<SearchResultsResponse> {
-    const { viewerId, query, cursor, limit, lat, lng, wantedTypes } = input;
+    const { viewerId, query, cursor, limit, lat, lng, wantedTypes, includeDebug } = input;
     const normalized = query.trim().toLowerCase();
     const cursorPart = cursor ?? "start";
     const geoKey =
@@ -30,7 +31,8 @@ export class SearchResultsOrchestrator {
       cursorPart,
       String(limit),
       geoKey,
-      [...wantedTypes].sort().join(",")
+      [...wantedTypes].sort().join(","),
+      includeDebug ? "debug" : "nodebug",
     ]);
     const cached = await globalCache.get<SearchResultsResponse>(cacheKey);
     if (cached) {
@@ -46,7 +48,8 @@ export class SearchResultsOrchestrator {
       limit,
       lat,
       lng,
-      wantedTypes
+      wantedTypes,
+      includeDebug,
     });
     const requestKey = `${viewerId}:${normalized}:${cursorPart}:${limit}`;
     const response: SearchResultsResponse = {
@@ -55,6 +58,7 @@ export class SearchResultsOrchestrator {
       queryEcho: normalized,
       page: bundle.page,
       items: bundle.items,
+      ...(bundle.debugSearch ? { debugSearch: bundle.debugSearch } : {}),
       sections: bundle.sections,
       degraded: bundle.degraded,
       fallbacks: bundle.fallbacks

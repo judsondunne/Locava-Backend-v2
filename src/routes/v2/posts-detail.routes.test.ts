@@ -21,6 +21,9 @@ describe("v2 posts detail route", () => {
     expect(body.data.routeName).toBe("posts.detail.get");
     expect(body.data.firstRender.post.postId).toBe("internal-viewer-feed-post-1");
     expect(Array.isArray(body.data.firstRender.post.assets)).toBe(true);
+    // Canonical author hydration: should always return a usable author shape
+    expect(String(body.data.firstRender.author.userId ?? "").length).toBeGreaterThan(0);
+    expect(String(body.data.firstRender.author.handle ?? "").length).toBeGreaterThan(0);
     expect(body.data.debugPostIds).toEqual(["internal-viewer-feed-post-1"]);
     expect(typeof body.data.debugDurationMs).toBe("number");
   });

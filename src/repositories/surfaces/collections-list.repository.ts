@@ -8,7 +8,12 @@ export class CollectionsListRepository {
     viewerId: string;
     limit: number;
   }): Promise<{ items: FirestoreCollectionRecord[]; hasMore: boolean; nextCursor: string | null }> {
-    const items = await this.adapter.listViewerCollections(input);
+    // "Saved" is an internal default used for save-state/membership semantics.
+    // It should not appear as a user-visible default collection in list surfaces.
+    const hiddenDefaultSavedId = `saved-${input.viewerId}`;
+    const items = (await this.adapter.listViewerCollections(input)).filter(
+      (row) => row.id !== hiddenDefaultSavedId,
+    );
     return {
       items,
       hasMore: items.length >= input.limit,

@@ -33,7 +33,9 @@ describe("v2 search mixes distance-first ranking", () => {
     expect(distances.length).toBeGreaterThan(5);
     let nonDecreasing = 0;
     for (let i = 1; i < distances.length; i++) {
-      if (distances[i] >= distances[i - 1]) nonDecreasing += 1;
+      const current = distances[i]!;
+      const previous = distances[i - 1]!;
+      if (current >= previous) nonDecreasing += 1;
     }
     // Allow small noise; require most steps to be non-decreasing.
     expect(nonDecreasing).toBeGreaterThanOrEqual(Math.floor((distances.length - 1) * 0.75));

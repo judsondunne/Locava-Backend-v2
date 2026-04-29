@@ -33,6 +33,11 @@ export type MutationInvalidationInput =
       viewerId: string;
     }
   | {
+      mutationType: "post.delete";
+      postId: string;
+      viewerId: string;
+    }
+  | {
       mutationType: "user.follow";
       userId: string;
       viewerId: string;
@@ -93,6 +98,11 @@ export type MutationInvalidationInput =
       mutationType: "chat.reaction";
       viewerId: string;
       conversationId: string;
+    }
+  | {
+      mutationType: "chat.message.delete";
+      viewerId: string;
+      conversationId: string;
     };
 
 export type InvalidationResult = {
@@ -147,6 +157,80 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     };
   }
 
+  if (input.mutationType === "post.delete") {
+    const { postId, viewerId } = input;
+    MapMarkersFirestoreAdapter.invalidateSharedCache();
+    const entityKeys = [
+      entityCacheKeys.postSocial(postId),
+      entityCacheKeys.postCard(postId),
+      entityCacheKeys.postDetail(postId),
+      entityCacheKeys.viewerPostState(viewerId, postId)
+    ];
+    await deleteEntityCacheKeys(entityKeys);
+    unlinkPostFromAuthorIndex(postId);
+
+    const targetedRouteCacheKeys = [
+      buildCacheKey("entity", ["feed-item-detail-v1", viewerId, postId]),
+      ...deriveProfilePostDetailKeys(postId, viewerId)
+    ];
+    await Promise.all(targetedRouteCacheKeys.map((key) => globalCache.del(key)));
+
+    const visibilityRouteCacheKeys = derivePostingVisibilityRouteKeys(viewerId);
+    await Promise.all(visibilityRouteCacheKeys.map((key) => globalCache.del(key)));
+    const collectionsRouteKeys = await invalidateRouteCacheByTags([`route:collections.saved:${viewerId}`]);
+    const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);
+    const invalidatedKeys = [
+      ...entityKeys,
+      ...targetedRouteCacheKeys,
+      ...visibilityRouteCacheKeys,
+      ...collectionsRouteKeys,
+      ...mapBootstrapRouteKeys
+    ];
+    // Post delete affects the owner's profile counts + grid. In Locava v2, the deleter is expected
+    // to be the owner, but we still defensively invalidate by parsed owner id when available.
+    const ownerUserId = tryParseProfileUserIdFromPostId(postId) ?? viewerId;
+    const profileRouteKeys = [
+      buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
+      ...[6, 12, 18].map((previewLimit) =>
+        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
+      ),
+      ...[6, 8, 12, 24].map((limit) =>
+        buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)])
+      )
+    ];
+    await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));
+    invalidatedKeys.push(...profileRouteKeys);
+    recordInvalidation(input.mutationType, {
+      entityKeyCount: entityKeys.length,
+      routeKeyCount:
+        targetedRouteCacheKeys.length +
+        visibilityRouteCacheKeys.length +
+        collectionsRouteKeys.length +
+        mapBootstrapRouteKeys.length +
+        profileRouteKeys.length
+    });
+    return {
+      mutationType: input.mutationType,
+      invalidationTypes: [
+        "post.social",
+        "post.card",
+        "post.detail",
+        "post.viewer_state",
+        "route.detail",
+        "route.feed_bootstrap",
+        "route.profile_bootstrap",
+        "route.profile_grid",
+        "profile.header",
+        "profile.grid_preview",
+        "profile.grid_page",
+        "route.map_bootstrap",
+        "route.map_markers",
+        ...(collectionsRouteKeys.length > 0 ? ["route.collections_saved"] : [])
+      ],
+      invalidatedKeys
+    };
+  }
+
   if (input.mutationType === "posting.complete") {
     const { postId, viewerId } = input;
     MapMarkersFirestoreAdapter.invalidateSharedCache();
@@ -167,9 +251,22 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     await Promise.all(visibilityRouteCacheKeys.map((key) => globalCache.del(key)));
     const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);
     const invalidatedKeys = [...entityKeys, ...targetedRouteCacheKeys, ...visibilityRouteCacheKeys, ...mapBootstrapRouteKeys];
+    // Posting completion creates a new post for the owner, changing profile counts + grid.
+    const ownerUserId = tryParseProfileUserIdFromPostId(postId) ?? viewerId;
+    const profileRouteKeys = [
+      buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
+      ...[6, 12, 18].map((previewLimit) =>
+        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
+      ),
+      ...[6, 8, 12, 24].map((limit) =>
+        buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)])
+      )
+    ];
+    await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));
+    invalidatedKeys.push(...profileRouteKeys);
     recordInvalidation(input.mutationType, {
       entityKeyCount: entityKeys.length,
-      routeKeyCount: targetedRouteCacheKeys.length + visibilityRouteCacheKeys.length + mapBootstrapRouteKeys.length
+      routeKeyCount: targetedRouteCacheKeys.length + visibilityRouteCacheKeys.length + mapBootstrapRouteKeys.length + profileRouteKeys.length
     });
     return {
       mutationType: input.mutationType,
@@ -182,6 +279,9 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         "route.feed_bootstrap",
         "route.profile_bootstrap",
         "route.profile_grid",
+        "profile.header",
+        "profile.grid_preview",
+        "profile.grid_page",
         "route.map_bootstrap",
         "route.map_markers"
       ],
@@ -247,7 +347,11 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     };
   }
 
-  if (input.mutationType === "chat.sendtext" || input.mutationType === "chat.reaction") {
+  if (
+    input.mutationType === "chat.sendtext" ||
+    input.mutationType === "chat.reaction" ||
+    input.mutationType === "chat.message.delete"
+  ) {
     const keys = await invalidateRouteCacheByTags(
       [
         `route:chats.inbox:${input.viewerId}`,
@@ -271,30 +375,92 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
   const baseKeys = [
     entityCacheKeys.userSummary(userId),
     entityCacheKeys.userFirestoreDoc(userId),
+    entityCacheKeys.userFollowCounts(userId),
     entityCacheKeys.userSummary(viewerId),
-    entityCacheKeys.userFirestoreDoc(viewerId)
+    entityCacheKeys.userFirestoreDoc(viewerId),
+    entityCacheKeys.userFollowCounts(viewerId)
   ];
+  const profileHeaderKeys = [
+    buildCacheKey("entity", ["profile-header-v1", userId]),
+    buildCacheKey("entity", ["profile-header-v1", viewerId])
+  ];
+  const profileGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>
+    buildCacheKey("list", ["profile-grid-preview-v1", userId, String(previewLimit)])
+  );
+  const selfGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>
+    buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)])
+  );
+  const profileGridPageStartKeys: string[] = [6, 8, 12, 24].map((limit) =>
+    buildCacheKey("list", ["profile-grid-page-v2", viewerId, userId, "start", String(limit)])
+  );
+  const selfGridPageStartKeys: string[] = [6, 8, 12, 24].map((limit) =>
+    buildCacheKey("list", ["profile-grid-page-v2", viewerId, viewerId, "start", String(limit)])
+  );
   const affectedPostIds = getKnownPostIdsForAuthor(userId, input.affectedAuthorPostLimit ?? 48);
   const viewerStateKeys = affectedPostIds.map((postId) => entityCacheKeys.viewerPostState(viewerId, postId));
   const relationshipKeys = [
     buildCacheKey("entity", ["profile-relationship-v1", viewerId, userId])
   ];
-  const bootstrapKeys = [6].map((previewLimit) =>
+  const bootstrapKeys = [6, 12, 18].map((previewLimit) =>
     buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, userId, String(previewLimit)])
   );
+  // Follow/unfollow changes the viewer's own "following" count; clear self bootstrap too so profile header updates
+  // even if the mutation happened while viewing another user.
+  const selfBootstrapKeys = [6, 12, 18].map((previewLimit) =>
+    buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, viewerId, String(previewLimit)])
+  );
   await deleteEntityCacheKeys(baseKeys);
-  await Promise.all([...relationshipKeys, ...bootstrapKeys].map((key) => globalCache.del(key)));
+  await Promise.all(
+    [
+      ...profileHeaderKeys,
+      ...profileGridPreviewKeys,
+      ...selfGridPreviewKeys,
+      ...profileGridPageStartKeys,
+      ...selfGridPageStartKeys,
+      ...relationshipKeys,
+      ...bootstrapKeys,
+      ...selfBootstrapKeys
+    ].map((key) => globalCache.del(key))
+  );
   if (viewerStateKeys.length > 0) {
     void deleteEntityCacheKeys(viewerStateKeys).catch(() => undefined);
   }
-  const invalidatedKeys = [...baseKeys, ...viewerStateKeys, ...relationshipKeys, ...bootstrapKeys];
+  const invalidatedKeys = [
+    ...baseKeys,
+    ...viewerStateKeys,
+    ...profileHeaderKeys,
+    ...profileGridPreviewKeys,
+    ...selfGridPreviewKeys,
+    ...profileGridPageStartKeys,
+    ...selfGridPageStartKeys,
+    ...relationshipKeys,
+    ...bootstrapKeys,
+    ...selfBootstrapKeys
+  ];
   recordInvalidation(input.mutationType, {
     entityKeyCount: baseKeys.length + viewerStateKeys.length,
-    routeKeyCount: relationshipKeys.length + bootstrapKeys.length
+    routeKeyCount:
+      profileHeaderKeys.length +
+      profileGridPreviewKeys.length +
+      selfGridPreviewKeys.length +
+      profileGridPageStartKeys.length +
+      selfGridPageStartKeys.length +
+      relationshipKeys.length +
+      bootstrapKeys.length +
+      selfBootstrapKeys.length
   });
   return {
     mutationType: input.mutationType,
-    invalidationTypes: ["user.summary", "user.firestore_doc", "author_post.viewer_state", "profile.relationship", "route.profile_bootstrap"],
+    invalidationTypes: [
+      "user.summary",
+      "user.firestore_doc",
+      "author_post.viewer_state",
+      "profile.header",
+      "profile.grid_preview",
+      "profile.grid_page",
+      "profile.relationship",
+      "route.profile_bootstrap"
+    ],
     invalidatedKeys
   };
 }
@@ -330,7 +496,7 @@ function derivePostingVisibilityRouteKeys(viewerId: string): string[] {
   }
 
   for (const limit of [6, 8, 12, 24]) {
-    keys.add(buildCacheKey("list", ["profile-grid-page-v1", viewerId, "start", String(limit)]));
+    keys.add(buildCacheKey("list", ["profile-grid-page-v2", viewerId, viewerId, "start", String(limit)]));
   }
 
   for (const limit of [20, 120, 240, 400]) {

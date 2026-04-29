@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import multipart from "@fastify/multipart";
-import { FieldPath } from "firebase-admin/firestore";
+import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import type { AppEnv } from "../../config/env.js";
 import type { ProductCompatViewer } from "./compat-viewer-payload.js";
 import { buildProductCompatViewer } from "./compat-viewer-payload.js";
@@ -14,10 +14,16 @@ import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/
 import { readMaybeMillis } from "../../repositories/source-of-truth/post-firestore-projection.js";
 import { getWasabiConfigOrNull, uploadPostSessionStagingFromBuffer } from "../../services/storage/wasabi-staging.service.js";
 import { wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
+import { readWasabiConfigFromEnv } from "../../services/storage/wasabi-config.js";
+import { uploadUserProfilePicture } from "../../services/storage/wasabi-userpics.service.js";
 import { mapV2NotificationListToLegacyItems } from "./map-v2-notification-to-legacy-product.js";
 import { postingMutationRepository } from "../../repositories/mutations/posting-mutation.repository.js";
 import { CompatPostsBatchOrchestrator } from "../../orchestration/compat/posts-batch.orchestrator.js";
 import { CompatUserFullOrchestrator } from "../../orchestration/compat/user-full.orchestrator.js";
+import { ProfileRepository } from "../../repositories/surfaces/profile.repository.js";
+import { userActivityRepository } from "../../repositories/surfaces/user-activity.repository.js";
+import { UserActivityService } from "../../services/surfaces/user-activity.service.js";
+import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 
 function applyViewerPatch(base: ProductCompatViewer, patch: Record<string, unknown>): ProductCompatViewer {
   const next: ProductCompatViewer = { ...base };
@@ -61,9 +67,11 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     limits: { fileSize: 25 * 1024 * 1024, files: 1 }
   });
   const db = _env.FIRESTORE_SOURCE_ENABLED ? getFirestoreSourceClient() : null;
+  const userActivityService = new UserActivityService(userActivityRepository);
   const collectionsAdapter = new CollectionsFirestoreAdapter();
   const postsBatchOrchestrator = new CompatPostsBatchOrchestrator();
   const userFullOrchestrator = new CompatUserFullOrchestrator();
+  const profileRepository = new ProfileRepository();
   const userFullCache = new Map<string, { expiresAtMs: number; payload: { success: true; userData: Record<string, unknown> } }>();
   const STORY_USERS_CACHE_TTL_MS = 60_000;
   const storyFollowingCache = new Map<string, { expiresAtMs: number; ids: string[] }>();
@@ -74,6 +82,69 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       rows: Array<{ userId: string; postId: string; thumbUrl: string }>;
     }
   >();
+
+  /**
+   * Legacy native onboarding/edit-profile flow expects:
+   * `POST /api/upload/profile-picture` (multipart `file`) → { url } where url is a public Wasabi link.
+   *
+   * Backend v1 also best-effort writes the URL into `users/{userId}`; do the same here so the profile
+   * doc is correct even if the client forgets to patch it post-upload.
+   */
+  app.post("/api/upload/profile-picture", async (request, reply) => {
+    setRouteName("compat.upload.profile-picture.post");
+    const viewerId = resolveCompatViewerId(request);
+    if (!viewerId || viewerId === "anonymous") {
+      return reply.status(401).send({ success: false, error: "Unauthorized" });
+    }
+
+    const cfg = readWasabiConfigFromEnv();
+    if (!cfg) {
+      return reply.status(503).send({ success: false, error: "Wasabi configuration unavailable" });
+    }
+
+    const part = await request.file();
+    if (!part) {
+      return reply.status(400).send({ success: false, error: "No file provided" });
+    }
+
+    const contentType = String(part.mimetype ?? "").trim() || "image/jpeg";
+    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!allowed.includes(contentType.toLowerCase())) {
+      return reply.status(400).send({ success: false, error: `Invalid file type (${contentType})` });
+    }
+
+    const bytes = await part.toBuffer();
+    if (!bytes.length) {
+      return reply.status(400).send({ success: false, error: "Empty file" });
+    }
+
+    const up = await uploadUserProfilePicture({ cfg, userId: viewerId, bytes, contentType });
+    if (!up.ok) {
+      return reply.status(500).send({ success: false, error: up.message });
+    }
+
+    if (db) {
+      try {
+        const payload = mergeUserDocumentWritePayload({
+          profilePic: up.url,
+          photoURL: up.url,
+          avatarUrl: up.url,
+          profilePicPath: up.key
+        });
+        await db.collection("users").doc(viewerId).set(payload, { merge: true });
+      } catch {
+        // Best-effort, matches v1 semantics when user doc doesn't exist yet.
+      }
+    }
+
+    return reply.send({
+      success: true,
+      url: up.url,
+      profilePicUrl: up.url,
+      storagePath: up.key,
+      profilePicPath: up.key
+    });
+  });
 
   async function loadFollowingIdsCached(viewerId: string): Promise<string[]> {
     const cached = storyFollowingCache.get(viewerId);
@@ -429,6 +500,38 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     });
   });
 
+  // Native legacy profile likes tab expects this legacy endpoint even when pointed at Backendv2.
+  app.get("/api/profile/me/liked-posts", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    if (!viewerId) {
+      return reply.status(401).send({ success: false, error: "Unauthorized" });
+    }
+    const rawLimit = Number((request.query as { limit?: unknown }).limit ?? 24);
+    const limit = Number.isFinite(rawLimit) ? Math.min(48, Math.max(1, Math.floor(rawLimit))) : 24;
+    const cursorRaw = (request.query as { cursor?: unknown }).cursor;
+    const cursor = typeof cursorRaw === "string" && cursorRaw.trim().length > 0 ? cursorRaw.trim() : null;
+    try {
+      const page = await profileRepository.getMyLikedPosts({ viewerId, cursor, limit });
+      return reply.send({
+        success: true,
+        posts: page.posts,
+        nextCursor: page.nextCursor,
+        totalCount: page.totalCount,
+        serverTsMs: page.serverTsMs
+      });
+    } catch (error) {
+      request.log.error(
+        {
+          routeName: "compat.api.profile.me.liked-posts",
+          viewerId,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        "compat liked posts failed"
+      );
+      return reply.status(503).send({ success: false, error: "upstream_unavailable" });
+    }
+  });
+
   app.post<{ Body: { postIds?: unknown } }>("/api/posts/batch", async (request, reply) => {
     const raw = (request.body as Record<string, unknown> | undefined)?.postIds;
     const postIds = Array.isArray(raw) ? raw.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
@@ -440,6 +543,133 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       return reply.send(payload);
     } catch {
       return reply.status(503).send({ success: false, error: "upstream_unavailable" });
+    }
+  });
+
+  /**
+   * Native report sheet expects the classic monolith endpoint even when pointed at Backendv2:
+   * `POST /api/reports/post` → { success: true, reportId }
+   *
+   * Persist to Firestore collection `reportedPosts` with the same fields as Backend v1.
+   */
+  app.post<{
+    Body: {
+      postId?: unknown;
+      reason?: unknown;
+      category?: unknown;
+      severity?: unknown;
+      additionalDetails?: unknown;
+    };
+  }>("/api/reports/post", async (request, reply) => {
+    setRouteName("compat.reports.post.post");
+    const viewerId = resolveCompatViewerId(request);
+    if (!viewerId || viewerId === "anonymous") {
+      return reply.status(401).send({ success: false, error: "User not authenticated" });
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const postId = typeof body.postId === "string" ? body.postId.trim() : String(body.postId ?? "").trim();
+    const reason = typeof body.reason === "string" ? body.reason.trim() : String(body.reason ?? "").trim();
+    if (!postId || !reason) {
+      return reply.status(400).send({ success: false, error: "Post ID and reason are required" });
+    }
+
+    const allowedCategories = ["spam", "inappropriate", "harassment", "violence", "copyright", "other"] as const;
+    const allowedSeverities = ["low", "medium", "high", "critical"] as const;
+    const categoryRaw = typeof body.category === "string" ? body.category.trim().toLowerCase() : "";
+    const severityRaw = typeof body.severity === "string" ? body.severity.trim().toLowerCase() : "";
+    const category = (allowedCategories as readonly string[]).includes(categoryRaw) ? categoryRaw : "other";
+    const severity = (allowedSeverities as readonly string[]).includes(severityRaw) ? severityRaw : "medium";
+    const additionalDetails = typeof body.additionalDetails === "string" ? body.additionalDetails : "";
+
+    if (!db) {
+      return reply.status(201).send({ success: true, reportId: `mock-report-${Date.now()}` });
+    }
+
+    try {
+      const docRef = await db.collection("reportedPosts").add({
+        postId,
+        reason,
+        reporterId: viewerId,
+        reportedAt: FieldValue.serverTimestamp(),
+        status: "pending",
+        severity,
+        category,
+        additionalDetails
+      });
+      incrementDbOps("writes", 1);
+      return reply.status(201).send({ success: true, reportId: docRef.id });
+    } catch (error) {
+      request.log.error(
+        { routeName: "compat.reports.post.post", viewerId, postId, error: error instanceof Error ? error.message : String(error) },
+        "compat report post failed"
+      );
+      return reply.status(500).send({ success: false, error: "Failed to report post" });
+    }
+  });
+
+  /**
+   * Legacy route parity for place reporting:
+   * `POST /api/reports/place` → { success: true, reportId }
+   */
+  app.post<{
+    Body: {
+      placeId?: unknown;
+      reason?: unknown;
+      category?: unknown;
+      severity?: unknown;
+      additionalDetails?: unknown;
+    };
+  }>("/api/reports/place", async (request, reply) => {
+    setRouteName("compat.reports.place.post");
+    const viewerId = resolveCompatViewerId(request);
+    if (!viewerId || viewerId === "anonymous") {
+      return reply.status(401).send({ success: false, error: "User not authenticated" });
+    }
+
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const placeId = typeof body.placeId === "string" ? body.placeId.trim() : String(body.placeId ?? "").trim();
+    const reason = typeof body.reason === "string" ? body.reason.trim() : String(body.reason ?? "").trim();
+    if (!placeId || !reason) {
+      return reply.status(400).send({ success: false, error: "Place ID and reason are required" });
+    }
+
+    const allowedCategories = ["spam", "inappropriate", "harassment", "violence", "copyright", "other"] as const;
+    const allowedSeverities = ["low", "medium", "high", "critical"] as const;
+    const categoryRaw = typeof body.category === "string" ? body.category.trim().toLowerCase() : "";
+    const severityRaw = typeof body.severity === "string" ? body.severity.trim().toLowerCase() : "";
+    const category = (allowedCategories as readonly string[]).includes(categoryRaw) ? categoryRaw : "other";
+    const severity = (allowedSeverities as readonly string[]).includes(severityRaw) ? severityRaw : "medium";
+    const additionalDetails = typeof body.additionalDetails === "string" ? body.additionalDetails : "";
+
+    if (!db) {
+      return reply.status(201).send({ success: true, reportId: `mock-place-report-${Date.now()}` });
+    }
+
+    try {
+      const docRef = await db.collection("reportedPlaces").add({
+        placeId,
+        reason,
+        reporterId: viewerId,
+        reportedAt: FieldValue.serverTimestamp(),
+        status: "pending",
+        severity,
+        category,
+        additionalDetails
+      });
+      incrementDbOps("writes", 1);
+      return reply.status(201).send({ success: true, reportId: docRef.id });
+    } catch (error) {
+      request.log.error(
+        {
+          routeName: "compat.reports.place.post",
+          viewerId,
+          placeId,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        "compat report place failed"
+      );
+      return reply.status(500).send({ success: false, error: "Failed to report place" });
     }
   });
 
@@ -883,6 +1113,14 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     });
   });
 
+  // Chat thread header presence: legacy native clients call this endpoint directly.
+  app.get<{ Params: { userId: string } }>("/api/users/:userId/last-active", async (request, reply) => {
+    const userId = String(request.params.userId ?? "").trim();
+    if (!userId) return reply.status(400).send({ success: false, error: "userId required" });
+    const lastActiveMs = await userActivityService.getLastActiveMs({ userId });
+    return reply.status(200).send({ success: true, lastActiveMs });
+  });
+
   app.get<{ Params: { userId: string }; Querystring: { compact?: string } }>(
     "/api/users/:userId/full",
     async (request, reply) => {
@@ -1056,10 +1294,22 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     });
   });
 
-  app.post<{ Body: { query?: string } }>("/api/v1/product/mixes/suggest", async (request, reply) => {
+  app.post<{
+    Body: { query?: string; lat?: number; lng?: number; includePreviews?: boolean; previewLimit?: number };
+  }>("/api/v1/product/mixes/suggest", async (request, reply) => {
     const query = String(request.body?.query ?? "").trim().toLowerCase();
     const viewerId = resolveCompatViewerId(request);
-    const v2 = await callV2PostOrThrow("/v2/mixes/suggest", viewerId, "/api/v1/product/mixes/suggest", { query });
+    const lat = Number.isFinite(Number(request.body?.lat)) ? Number(request.body!.lat) : undefined;
+    const lng = Number.isFinite(Number(request.body?.lng)) ? Number(request.body!.lng) : undefined;
+    noteViewerCoords(viewerId, lat, lng);
+    const includePreviews = Boolean(request.body?.includePreviews);
+    const previewLimit = Math.max(1, Math.min(8, Number(request.body?.previewLimit ?? 4) || 4));
+    const v2 = await callV2PostOrThrow("/v2/mixes/suggest", viewerId, "/api/v1/product/mixes/suggest", {
+      query,
+      ...(lat != null ? { lat } : {}),
+      ...(lng != null ? { lng } : {}),
+      ...(includePreviews ? { includePreviews: true, previewLimit } : {}),
+    });
     const data = (v2.data as Record<string, unknown> | undefined) ?? {};
     return reply.send({
       success: true,
@@ -1889,21 +2139,59 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
           thumbsByActivity.set(token, bucket);
         }
       }
-      const collections = mixSpecs.map((spec, i) => {
+      const fallbackTitles = [
+        "Abandoned Mix",
+        "Hiking Mix",
+        "View Mix",
+        "Waterfall Mix",
+        "Park Mix",
+        "Ocean Mix",
+        "Mountain Mix",
+        "Swimming Mix",
+      ];
+      const fallbackThumbs = recentPosts
+        .map((post) => String(post.thumbUrl ?? post.displayPhotoLink ?? "").trim())
+        .filter((thumb) => /^https?:\/\//i.test(thumb))
+        .filter((thumb, index, arr) => arr.indexOf(thumb) === index)
+        .slice(0, 40);
+      const seededSpecs =
+        mixSpecs.length > 0
+          ? mixSpecs
+          : fallbackTitles.map((title, i) => ({
+              id: `mix_${title.toLowerCase().replace(/\s+mix$/i, "").replace(/[^a-z0-9]+/g, "_")}`,
+              title,
+              subtitle: "Fresh picks",
+              seeds: {},
+              _fallbackIndex: i,
+            }));
+      const collections = seededSpecs.slice(0, 8).map((spec, i) => {
         const id = String(spec.id ?? `system_mix_${i}`);
         const primaryActivity = normalizeActivityToken(
           (spec.seeds as { primaryActivityId?: unknown } | undefined)?.primaryActivityId
         );
-        const mixCoverThumbUrls =
+        const resolvedThumbs =
           primaryActivity.length > 0
             ? (thumbsByActivity.get(primaryActivity) ?? []).slice(0, 4).map((entry) => entry.thumb)
             : [];
+        const randomFallback = fallbackThumbs.length
+          ? [
+              fallbackThumbs[i % fallbackThumbs.length],
+              fallbackThumbs[(i + 3) % fallbackThumbs.length],
+              fallbackThumbs[(i + 7) % fallbackThumbs.length],
+              fallbackThumbs[(i + 11) % fallbackThumbs.length],
+            ].filter((thumb): thumb is string => Boolean(thumb))
+          : [];
+        const mixCoverThumbUrls =
+          resolvedThumbs.length > 0
+            ? resolvedThumbs
+            : randomFallback;
+        const title = String(spec.title ?? "").trim() || (fallbackTitles[i] ?? `Mix ${i + 1}`);
         return {
           id,
           collectionId: id,
           kind: "system_mix" as const,
-          name: String(spec.title ?? "Mix"),
-          title: String(spec.title ?? "Mix"),
+          name: title,
+          title,
           subtitle: String(spec.subtitle ?? ""),
           ownerId: viewerId,
           privacy: "public",
@@ -2018,6 +2306,47 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       return reply.send({ success: true, collection: mapV2CollectionToLegacy(updated.collection as unknown as Record<string, unknown>) });
     }
   );
+
+  /**
+   * Legacy chat photo upload parity.
+   * Native expects: POST /api/media/upload-photo (multipart field "file") → { success, url }.
+   * Backendv2 owns this path when EXPO_PUBLIC_BACKEND_URL points at v2.
+   */
+  app.post("/api/media/upload-photo", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    if (!viewerId || viewerId === "anonymous") {
+      return reply.status(401).send({ success: false, error: "Unauthorized" });
+    }
+    const part = await request.file();
+    if (!part) {
+      return reply.status(400).send({ success: false, error: "file required" });
+    }
+    const cfg = getWasabiConfigOrNull();
+    if (!cfg) {
+      return reply.status(503).send({ success: false, error: "Wasabi configuration unavailable" });
+    }
+    const fileBuffer = await part.toBuffer();
+    if (!fileBuffer.length) {
+      return reply.status(400).send({ success: false, error: "empty file" });
+    }
+    const ext =
+      typeof part.mimetype === "string" && part.mimetype.toLowerCase().includes("png") ? "png" : "jpg";
+    const destinationKey = `chatPhotos/${viewerId}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
+    const upload = await uploadPostSessionStagingFromBuffer(
+      cfg,
+      viewerId,
+      `chat-photo-${viewerId}`,
+      0,
+      "photo",
+      fileBuffer,
+      { destinationKey, contentType: part.mimetype || "image/jpeg" }
+    );
+    if (!upload.success) {
+      return reply.status(500).send({ success: false, error: upload.error ?? "chat_photo_upload_failed" });
+    }
+    const url = wasabiPublicUrlForKey(cfg, destinationKey);
+    return reply.send({ success: true, url });
+  });
   app.post<{ Params: { collectionId: string; collaboratorId: string } }>(
     "/api/v1/product/collections/:collectionId/collaborators/:collaboratorId",
     async (request, reply) => {

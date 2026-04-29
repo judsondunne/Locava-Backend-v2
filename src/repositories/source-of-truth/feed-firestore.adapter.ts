@@ -104,6 +104,7 @@ const FEED_CANDIDATE_SELECT_FIELDS = [
   "letterboxGradients",
   "letterbox_gradient_top",
   "letterbox_gradient_bottom",
+  "legacy",
   "deleted",
   "isDeleted",
   "archived",
@@ -114,11 +115,13 @@ const FEED_CANDIDATE_SELECT_FIELDS = [
 export class FeedFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
   private static readonly MAX_SCAN_LIMIT = 320;
+  private static readonly MAX_SCAN_LIMIT_FOLLOWING = 2_000;
   private static readonly QUERY_CHUNK_LIMIT = 80;
   private static readonly PAGE_BUFFER = 24;
   private static readonly FIRST_PAGE_BUFFER = 8;
   private static readonly FIRST_PAGE_SCAN_FLOOR = 14;
   private static readonly FILTERED_SCAN_FLOOR = 24;
+  private static readonly FOLLOWING_SCAN_FLOOR = 160;
   private static readonly FIRESTORE_TIMEOUT_MS = 1500;
 
   isEnabled(): boolean {
@@ -167,30 +170,46 @@ export class FeedFirestoreAdapter {
         : cursorOffset === 0
           ? FeedFirestoreAdapter.FIRST_PAGE_SCAN_FLOOR
           : FeedFirestoreAdapter.FILTERED_SCAN_FLOOR;
-    const perPageMultiplier = cursorOffset === 0 ? 3 : 6;
-    const scanLimit = Math.min(
+    const basePerPageMultiplier = cursorOffset === 0 ? 3 : 6;
+    let scanLimit = Math.min(
       FeedFirestoreAdapter.MAX_SCAN_LIMIT,
-      Math.max(requiredCandidateCount + pageBuffer, limit * perPageMultiplier, scanFloor)
+      Math.max(requiredCandidateCount + pageBuffer, limit * basePerPageMultiplier, scanFloor)
     );
     const startedAt = Date.now();
-    logFirestoreDebug("feed_candidates_firestore_start", {
-      collectionPath: "posts",
-      queryShape: "orderBy(time desc).select(feed fields).limit(chunkedScan)",
-      cursorOffset,
-      limit,
-      scanLimit,
-      timeoutMs: FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS
-    });
     let queryCount = 0;
     let readCount = 0;
     let sourceExhausted = false;
     let followingIds: Set<string> | null = null;
+    let followingCount = 0;
     const rankedBase: FirestoreFeedCandidate[] = [];
     let lastDoc: QueryDocumentSnapshot | undefined;
     try {
       if (tab === "following") {
         followingIds = await this.loadFollowingIds(viewerId);
+        followingCount = followingIds.size;
       }
+      // For "following", scanning the global feed and filtering can easily miss followed users'
+      // posts if they aren't among the newest N posts overall. Increase scan depth adaptively
+      // based on following graph size to reliably surface all followed users.
+      if (tab === "following") {
+        const requiredFloor = Math.max(FeedFirestoreAdapter.FOLLOWING_SCAN_FLOOR, scanFloor);
+        const scarcityMultiplier = Math.max(1, Math.ceil(60 / Math.max(1, followingCount)));
+        const adjustedPerPageMultiplier = Math.min(90, Math.max(12, basePerPageMultiplier * scarcityMultiplier));
+        scanLimit = Math.min(
+          FeedFirestoreAdapter.MAX_SCAN_LIMIT_FOLLOWING,
+          Math.max(requiredCandidateCount + pageBuffer, limit * adjustedPerPageMultiplier, requiredFloor)
+        );
+      }
+
+      logFirestoreDebug("feed_candidates_firestore_start", {
+        collectionPath: "posts",
+        queryShape: "orderBy(time desc).select(feed fields).limit(chunkedScan)",
+        cursorOffset,
+        limit,
+        scanLimit,
+        timeoutMs: FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+        ...(tab === "following" ? { followingCount } : {})
+      });
       while (readCount < scanLimit) {
         const chunkLimit = Math.min(FeedFirestoreAdapter.QUERY_CHUNK_LIMIT, scanLimit - readCount);
         let queryRef = this.db
@@ -444,22 +463,43 @@ function normalizeLetterboxHints(data: Record<string, unknown>): {
   letterboxGradientBottom: string | null | undefined;
   letterboxGradients: Array<{ top: string; bottom: string }> | null | undefined;
 } {
+  const legacy = (data as { legacy?: unknown }).legacy as
+    | {
+        letterboxGradientTop?: unknown;
+        letterboxGradientBottom?: unknown;
+        letterboxGradients?: unknown;
+        letterbox_gradient_top?: unknown;
+        letterbox_gradient_bottom?: unknown;
+      }
+    | undefined;
   const topRaw =
     typeof data.letterboxGradientTop === "string"
       ? data.letterboxGradientTop
       : typeof data.letterbox_gradient_top === "string"
         ? data.letterbox_gradient_top
+        : typeof legacy?.letterboxGradientTop === "string"
+          ? (legacy.letterboxGradientTop as string)
+          : typeof legacy?.letterbox_gradient_top === "string"
+            ? (legacy.letterbox_gradient_top as string)
         : null;
   const bottomRaw =
     typeof data.letterboxGradientBottom === "string"
       ? data.letterboxGradientBottom
       : typeof data.letterbox_gradient_bottom === "string"
         ? data.letterbox_gradient_bottom
+        : typeof legacy?.letterboxGradientBottom === "string"
+          ? (legacy.letterboxGradientBottom as string)
+          : typeof legacy?.letterbox_gradient_bottom === "string"
+            ? (legacy.letterbox_gradient_bottom as string)
         : null;
   const top = topRaw?.trim() ? topRaw.trim() : null;
   const bottom = bottomRaw?.trim() ? bottomRaw.trim() : null;
 
-  const gradientsRaw = data.letterboxGradients;
+  const gradientsRaw = Array.isArray(data.letterboxGradients)
+    ? data.letterboxGradients
+    : Array.isArray(legacy?.letterboxGradients)
+      ? (legacy!.letterboxGradients as unknown[])
+      : null;
   if (!Array.isArray(gradientsRaw)) {
     return {
       letterboxGradientTop: top ?? undefined,

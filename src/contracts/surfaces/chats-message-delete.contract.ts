@@ -11,6 +11,10 @@ export const ChatsMessageDeleteResponseSchema = z.object({
   conversationId: z.string().min(1),
   messageId: z.string().min(1),
   removed: z.boolean(),
+  invalidation: z.object({
+    invalidatedKeysCount: z.number().int().nonnegative(),
+    invalidationTypes: z.array(z.string())
+  })
 });
 
 export const chatsMessageDeleteContract = defineContract({

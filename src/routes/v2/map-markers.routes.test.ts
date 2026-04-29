@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { globalCache } from "../../cache/global-cache.js";
 
 const fetchAllMock = vi.fn();
+const fetchByOwnerMock = vi.fn();
 
 vi.mock("../../repositories/source-of-truth/map-markers-firestore.adapter.js", () => {
   return {
     MapMarkersFirestoreAdapter: class {
       fetchAll = fetchAllMock;
+      fetchByOwner = fetchByOwnerMock;
     }
   };
 });
@@ -14,11 +16,14 @@ vi.mock("../../repositories/source-of-truth/map-markers-firestore.adapter.js", (
 describe("v2 map markers route", () => {
   beforeEach(async () => {
     fetchAllMock.mockReset();
+    fetchByOwnerMock.mockReset();
     await globalCache.del("map:markers:v1");
     await globalCache.del("map:markers:v2");
     await globalCache.del("map:markers:v2:all");
     await globalCache.del("map:markers:v2:240");
     await globalCache.del("map:markers:v2:60");
+    await globalCache.del("map:markers:v2:owner:public:u1");
+    await globalCache.del("map:markers:v2:owner:self:u1");
   });
 
   it("defaults to the full marker universe cache key when no limit is provided", async () => {
@@ -42,6 +47,50 @@ describe("v2 map markers route", () => {
     expect(response.statusCode).toBe(200);
     expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 5000 });
   }, 15_000);
+
+  it("uses ownerId filter to fetch markers server-side", async () => {
+    fetchByOwnerMock.mockResolvedValue({
+      markers: [],
+      count: 0,
+      generatedAt: 123,
+      version: "map-markers-v2-owner",
+      etag: "\"owner\"",
+      queryCount: 1,
+      readCount: 0,
+      invalidCoordinateDrops: 0
+    });
+    const { createApp } = await import("../../app/createApp.js");
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v2/map/markers?ownerId=u1&limit=60",
+      headers: { "x-viewer-id": "someone-else", "x-viewer-roles": "internal" }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(fetchByOwnerMock).toHaveBeenCalledWith({ ownerId: "u1", maxDocs: 60, includeNonPublic: false });
+  });
+
+  it("includes non-public markers when requesting own ownerId", async () => {
+    fetchByOwnerMock.mockResolvedValue({
+      markers: [],
+      count: 0,
+      generatedAt: 123,
+      version: "map-markers-v2-owner",
+      etag: "\"self\"",
+      queryCount: 1,
+      readCount: 0,
+      invalidCoordinateDrops: 0
+    });
+    const { createApp } = await import("../../app/createApp.js");
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v2/map/markers?ownerId=u1&limit=60",
+      headers: { "x-viewer-id": "u1", "x-viewer-roles": "internal" }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(fetchByOwnerMock).toHaveBeenCalledWith({ ownerId: "u1", maxDocs: 60, includeNonPublic: true });
+  });
 
   it("returns marker records from source docs", async () => {
     fetchAllMock.mockResolvedValue({

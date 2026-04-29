@@ -80,7 +80,7 @@ export class MixRankingService {
 
       // Final score is still used as a tie-break, but distance ordering is enforced separately
       // for generic nearby/activity mixes.
-      const recencyMs = Number(post.updatedAtMs ?? post.createdAtMs ?? post.time ?? 0) || 0;
+      const recencyMs = Number(post.updatedAtMs ?? 0) || 0;
       const recencyScore = recencyMs > 0 ? Math.min(1, (Date.now() - recencyMs) / (14 * 24 * 60 * 60_000)) : 1;
       score =
         activityScore * 5 +

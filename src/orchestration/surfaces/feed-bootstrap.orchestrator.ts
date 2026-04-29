@@ -3,11 +3,15 @@ import { globalCache } from "../../cache/global-cache.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { FeedBootstrapResponse } from "../../contracts/surfaces/feed-bootstrap.contract.js";
 import { recordCacheHit, recordCacheMiss, recordFallback, recordTimeout } from "../../observability/request-context.js";
+import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { SuggestedFriendsService } from "../../services/surfaces/suggested-friends.service.js";
+import type { UserSuggestionSummary } from "../../repositories/surfaces/suggested-friends.repository.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { TimeoutError, withTimeout } from "../timeouts.js";
 
 export class FeedBootstrapOrchestrator {
   constructor(private readonly service: FeedService) {}
+  private readonly suggestedFriends = new SuggestedFriendsService();
 
   private async getCachedOrLoad<T>(key: string, loader: () => Promise<T>, ttlMs: number): Promise<T> {
     const cached = await globalCache.get<T>(key);
@@ -67,6 +71,14 @@ export class FeedBootstrapOrchestrator {
 
     const fallbacks: string[] = [];
     let sessionHints: { recommendationPath: "for_you_light"; staleAfterMs: number } | null = null;
+    let followNudge:
+      | {
+          shouldShow: boolean;
+          followingCount: number;
+          cooldownMs: number;
+          suggestedUsers: UserSuggestionSummary[];
+        }
+      | null = null;
 
     if (debugSlowDeferredMs > 0) {
       try {
@@ -94,6 +106,18 @@ export class FeedBootstrapOrchestrator {
         }
         recordFallback("session_hints_failed");
       });
+    }
+
+    if (tab === "following" && viewer.viewerId !== "anonymous") {
+      try {
+        followNudge = await this.buildFollowNudge(viewer.viewerId);
+      } catch (error) {
+        fallbacks.push("follow_nudge_failed");
+        recordFallback("follow_nudge_failed");
+        if (error instanceof TimeoutError) {
+          recordTimeout("feed.bootstrap.follow_nudge");
+        }
+      }
     }
 
     const response: FeedBootstrapResponse = {
@@ -135,7 +159,8 @@ export class FeedBootstrapOrchestrator {
         }
       },
       deferred: {
-        sessionHints
+        sessionHints,
+        followNudge
       },
       background: {
         cacheWarmScheduled: true,
@@ -150,5 +175,66 @@ export class FeedBootstrapOrchestrator {
     }
 
     return response;
+  }
+
+  private cooldownMsForFollowingCount(followingCount: number): number {
+    if (followingCount <= 2) return 12 * 60_000; // ~12 min
+    if (followingCount <= 5) return 35 * 60_000; // ~35 min
+    if (followingCount <= 15) return 2 * 60 * 60_000; // 2h
+    if (followingCount <= 50) return 6 * 60 * 60_000; // 6h
+    return 24 * 60 * 60_000; // 24h
+  }
+
+  private async loadFollowingCount(viewerId: string): Promise<number> {
+    const db = getFirestoreSourceClient();
+    if (!db) return 0;
+    const cacheKey = buildCacheKey("entity", ["following-count-v1", viewerId]);
+    const cached = await globalCache.get<number>(cacheKey);
+    if (typeof cached === "number" && Number.isFinite(cached) && cached >= 0) {
+      recordCacheHit();
+      return cached;
+    }
+    recordCacheMiss();
+    const agg = await withTimeout(db.collection("users").doc(viewerId).collection("following").count().get(), 220, "feed.bootstrap.follow_count");
+    const count = Number(agg.data().count ?? 0);
+    const safe = Number.isFinite(count) && count >= 0 ? Math.floor(count) : 0;
+    void globalCache.set(cacheKey, safe, 25_000);
+    return safe;
+  }
+
+  private async buildFollowNudge(viewerId: string): Promise<NonNullable<FeedBootstrapResponse["deferred"]["followNudge"]>> {
+    const followingCount = await this.loadFollowingCount(viewerId);
+    const cooldownMs = this.cooldownMsForFollowingCount(followingCount);
+    const now = Date.now();
+    const lastKey = buildCacheKey("entity", ["follow-nudge-last-shown-v1", viewerId]);
+    const lastShownAt = await globalCache.get<number>(lastKey);
+    const eligible = typeof lastShownAt !== "number" || !Number.isFinite(lastShownAt) || now - lastShownAt >= cooldownMs;
+    if (!eligible) {
+      return { shouldShow: false, followingCount, cooldownMs, suggestedUsers: [] };
+    }
+
+    const suggestionLimit = 4;
+    const suggestions = await withTimeout(
+      this.suggestedFriends.getSuggestionsForUser(viewerId, {
+        limit: suggestionLimit,
+        surface: "home",
+        includeContacts: true,
+        includeMutuals: true,
+        includePopular: true,
+        includeNearby: false,
+        excludeAlreadyFollowing: true,
+        excludeBlocked: true
+      }),
+      500,
+      "feed.bootstrap.follow_nudge"
+    );
+    const users = (suggestions.users ?? []).slice(0, suggestionLimit);
+    void globalCache.set(lastKey, now, cooldownMs);
+    return {
+      shouldShow: followingCount < 50 && users.length > 0,
+      followingCount,
+      cooldownMs,
+      suggestedUsers: users
+    };
   }
 }

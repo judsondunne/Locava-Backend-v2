@@ -181,7 +181,7 @@ describe("profile firestore adapter follow counts", () => {
     expect(header.data.counts.following).toBe(3);
   });
 
-  it("uses embedded follower/following counts even when legacy arrays are missing", async () => {
+  it("prefers subcollection count aggregation for follow counts", async () => {
     const db = makeDb({
       userData: {
         handle: "user_1",
@@ -194,11 +194,11 @@ describe("profile firestore adapter follow counts", () => {
     });
     const adapter = new ProfileFirestoreAdapter(db as never);
     const header = await adapter.getProfileHeader("u-embedded-counts");
-    expect(header.data.counts.followers).toBe(233);
-    expect(header.data.counts.following).toBe(77);
+    expect(header.data.counts.followers).toBe(11);
+    expect(header.data.counts.following).toBe(7);
   });
 
-  it("stages follow counts when only subcollection counts exist", async () => {
+  it("uses subcollection count aggregation when only subcollection counts exist", async () => {
     const db = makeDb({
       userData: {
         handle: "user_1",
@@ -209,8 +209,8 @@ describe("profile firestore adapter follow counts", () => {
     });
     const adapter = new ProfileFirestoreAdapter(db as never);
     const header = await adapter.getProfileHeader("u-subcollections");
-    expect(header.data.counts.followers).toBe(0);
-    expect(header.data.counts.following).toBe(0);
+    expect(header.data.counts.followers).toBe(11);
+    expect(header.data.counts.following).toBe(7);
   });
 
   it("returns zero for empty graph", async () => {

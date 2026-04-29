@@ -156,4 +156,74 @@ export class PostMutationRepository {
     }
     return { postId, saved: false, changed: result.changed };
   }
+
+  async deletePost(
+    viewerId: string,
+    postId: string
+  ): Promise<{ postId: string; deleted: boolean; changed: boolean }> {
+    const db = getFirestoreSourceClient();
+    if (!db) {
+      incrementDbOps("queries", 1);
+      const state = mutationStateRepository.deletePost(postId);
+      if (state.changed) {
+        incrementDbOps("writes", 1);
+      }
+      return { postId, deleted: true, changed: state.changed };
+    }
+
+    const postRef = db.collection("posts").doc(postId);
+    const snap = await postRef.get();
+    incrementDbOps("reads", snap.exists ? 1 : 0);
+    if (!snap.exists) {
+      throw new Error("post_not_found");
+    }
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    const authorIdRaw = data.userId ?? data.authorId ?? data.ownerId ?? null;
+    const authorId = typeof authorIdRaw === "string" ? authorIdRaw : "";
+    if (authorId && authorId !== viewerId) {
+      throw new Error("forbidden");
+    }
+    if (Boolean(data.deleted) || Boolean(data.isDeleted)) {
+      // Ensure process-local state is consistent so downstream surfaces can tombstone-filter immediately.
+      mutationStateRepository.deletePost(postId);
+      return { postId, deleted: true, changed: false };
+    }
+
+    const now = new Date();
+    const batch = db.batch();
+    batch.set(
+      postRef,
+      {
+        deleted: true,
+        isDeleted: true,
+        deletedAt: now,
+        updatedAt: now,
+        lastUpdated: now
+      },
+      { merge: true }
+    );
+    if (authorId) {
+      // Keep profile counts coherent for the acting user; many surfaces read embedded counts instead of counting posts.
+      const userRef = db.collection("users").doc(authorId);
+      batch.set(
+        userRef,
+        {
+          postCount: FieldValue.increment(-1),
+          postsCount: FieldValue.increment(-1),
+          numPosts: FieldValue.increment(-1),
+          stats: {
+            posts: FieldValue.increment(-1),
+            totalPosts: FieldValue.increment(-1)
+          }
+        },
+        { merge: true }
+      );
+      incrementDbOps("writes", 2);
+    } else {
+      incrementDbOps("writes", 1);
+    }
+    await batch.commit();
+    mutationStateRepository.deletePost(postId);
+    return { postId, deleted: true, changed: true };
+  }
 }

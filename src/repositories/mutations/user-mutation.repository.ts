@@ -75,9 +75,6 @@ export class UserMutationRepository {
     userId: string
   ): Promise<{ userId: string; following: boolean; changed: boolean }> {
     const t0 = performance.now();
-    if (mutationStateRepository.isFollowing(viewerId, userId)) {
-      return { userId, following: true, changed: false };
-    }
     const db = getFirestoreSourceClient();
     if (!db) {
       incrementDbOps("queries", 1);
@@ -94,15 +91,42 @@ export class UserMutationRepository {
 
     const viewerRef = db.collection("users").doc(viewerId);
     const followingRef = viewerRef.collection("following").doc(userId);
+    const followerRef = db.collection("users").doc(userId).collection("followers").doc(viewerId);
+    // Mutation state is a process-local hint; if it drifts from Firestore we must re-check
+    // the source of truth before skipping the write.
+    if (mutationStateRepository.isFollowing(viewerId, userId)) {
+      const tRead0 = performance.now();
+      const followingDoc = await followingRef.get();
+      incrementDbOps("reads", 1);
+      recordSurfaceTimings({
+        user_follow_lookup_ms: performance.now() - tRead0
+      });
+      if (followingDoc.exists) {
+        // Self-heal follower mirror and caches; this prevents "following" edges that never
+        // appear in the followers modal/counts due to mirror lag.
+        await this.clearFollowCaches(viewerId, userId);
+        const now = new Date();
+        incrementDbOps("writes", 1);
+        await followerRef.set({ userId: viewerId, createdAt: now, updatedAt: now }, { merge: true });
+        return { userId, following: true, changed: false };
+      }
+    }
     const now = new Date();
-    incrementDbOps("writes", 1);
     const tWrite0 = performance.now();
     let result: { following: boolean; changed: boolean };
     try {
-      await followingRef.create({ userId, createdAt: now, updatedAt: now });
+      const batch = db.batch();
+      batch.create(followingRef, { userId, createdAt: now, updatedAt: now });
+      batch.set(followerRef, { userId: viewerId, createdAt: now, updatedAt: now }, { merge: true });
+      incrementDbOps("writes", 2);
+      await batch.commit();
       result = { following: true, changed: true };
     } catch (error) {
       if (isAlreadyExistsError(error)) {
+        // Still ensure the follower mirror exists (heals older states and multi-process inconsistencies).
+        await this.clearFollowCaches(viewerId, userId);
+        incrementDbOps("writes", 1);
+        await followerRef.set({ userId: viewerId, createdAt: now, updatedAt: now }, { merge: true });
         result = { following: true, changed: false };
       } else {
         throw error;
@@ -111,7 +135,7 @@ export class UserMutationRepository {
 
     if (result.changed) {
       mutationStateRepository.followUser(viewerId, userId);
-      this.syncFollowMirrorInBackground({ viewerId, userId, following: true });
+      await this.clearFollowCaches(viewerId, userId);
       recordSurfaceTimings({
         user_follow_mutation_ms: performance.now() - t0,
         user_follow_create_write_ms: performance.now() - tWrite0
@@ -146,28 +170,36 @@ export class UserMutationRepository {
 
     const viewerRef = db.collection("users").doc(viewerId);
     const followingRef = viewerRef.collection("following").doc(userId);
+    const followerRef = db.collection("users").doc(userId).collection("followers").doc(viewerId);
     const canAssumeExistingFollow = mutationStateRepository.isFollowing(viewerId, userId);
     if (!canAssumeExistingFollow) {
       const tRead0 = performance.now();
       const followingDoc = await followingRef.get();
-      incrementDbOps("reads", followingDoc.exists ? 1 : 0);
+      incrementDbOps("reads", 1);
       recordSurfaceTimings({
         user_unfollow_lookup_ms: performance.now() - tRead0
       });
       if (!followingDoc.exists) {
+        // Self-heal: best-effort delete follower mirror and clear caches so counts/modals converge immediately.
+        await this.clearFollowCaches(viewerId, userId);
+        incrementDbOps("writes", 1);
+        await followerRef.delete().catch(() => undefined);
         return { userId, following: false, changed: false };
       }
     }
 
-    incrementDbOps("writes", 1);
     const tWrite0 = performance.now();
-    await followingRef.delete();
+    const batch = db.batch();
+    batch.delete(followingRef);
+    batch.delete(followerRef);
+    incrementDbOps("writes", 2);
+    await batch.commit();
     const tWrite1 = performance.now();
     const result = { following: false, changed: true };
     mutationStateRepository.unfollowUser(viewerId, userId);
 
     if (result.changed) {
-      this.syncFollowMirrorInBackground({ viewerId, userId, following: false });
+      await this.clearFollowCaches(viewerId, userId);
     }
     recordSurfaceTimings({
       user_unfollow_mutation_ms: performance.now() - t0,

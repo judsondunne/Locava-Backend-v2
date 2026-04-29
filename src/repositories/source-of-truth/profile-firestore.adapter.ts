@@ -1,8 +1,9 @@
 import { FieldPath, Timestamp } from "firebase-admin/firestore";
-import { entityCacheKeys } from "../../cache/entity-cache.js";
+import { entityCacheKeys, getOrSetEntityCache } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { mapPostDocToGridPreview, readOrderMillisFromSnapshot } from "./post-firestore-projection.js";
+import type { UserDiscoveryRow } from "../../contracts/entities/user-discovery-entities.contract.js";
 
 export type FirestoreProfileHeader = {
   userId: string;
@@ -47,8 +48,11 @@ type ProfileUserDoc = {
   displayName?: string;
   profilePicPath?: string;
   profilePicLarge?: string;
+  profilePic?: string;
+  profilePicSmallPath?: string;
   profilePicSmall?: string;
   photoURL?: string;
+  avatarUrl?: string;
   bio?: string;
   postCount?: number;
   postsCount?: number;
@@ -105,6 +109,93 @@ export class ProfileFirestoreAdapter {
 
   static resetCachesForTests(): void {
     ProfileFirestoreAdapter.postCountVerificationInFlight.clear();
+  }
+
+  private async loadUserDiscoveryRows(viewerId: string, userIds: string[]): Promise<UserDiscoveryRow[]> {
+    if (!this.db) throw new Error("firestore_source_unavailable");
+    const unique = [...new Set(userIds.filter(Boolean))].slice(0, 200);
+    if (unique.length === 0) return [];
+    const refs = unique.map((id) => this.db!.collection("users").doc(id));
+    const snaps = await Promise.all(refs.map((r) => r.get()));
+    const rows: UserDiscoveryRow[] = [];
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      const data = (snap.data() ?? {}) as ProfileUserDoc;
+      const userId = snap.id;
+      rows.push({
+        userId,
+        handle: String(data.handle ?? "").replace(/^@+/, ""),
+        displayName: String(data.name ?? data.displayName ?? "").trim() || null,
+        profilePic: pickPic(data),
+        isFollowing: undefined
+      });
+    }
+    // Fill viewer follow relationship for these items (for modal follow buttons).
+    try {
+      const followRefs = unique.map((id) => this.db!.collection("users").doc(viewerId).collection("following").doc(id));
+      const followSnaps = await Promise.all(followRefs.map((r) => r.get()));
+      const followingSet = new Set<string>();
+      followSnaps.forEach((s, idx) => {
+        if (s.exists) followingSet.add(unique[idx]);
+      });
+      return rows.map((r) => ({ ...r, isFollowing: followingSet.has(r.userId) }));
+    } catch {
+      return rows;
+    }
+  }
+
+  async listFollowers(params: {
+    viewerId: string;
+    userId: string;
+    cursor: string | null;
+    limit: number;
+  }): Promise<{ items: UserDiscoveryRow[]; totalCount: number; nextCursor: string | null; queryCount: number; readCount: number }> {
+    if (!this.db) throw new Error("firestore_source_unavailable");
+    const safeLimit = Math.max(10, Math.min(params.limit, 200));
+    const userRef = this.db.collection("users").doc(params.userId);
+    const totalAgg = await userRef.collection("followers").count().get();
+    let q = userRef.collection("followers").orderBy(FieldPath.documentId(), "asc").limit(safeLimit);
+    if (params.cursor) {
+      q = q.startAfter(params.cursor);
+    }
+    const snap = await q.get();
+    const ids = snap.docs.map((d) => d.id);
+    const rows = await this.loadUserDiscoveryRows(params.viewerId, ids);
+    const nextCursor = snap.docs.length === safeLimit ? snap.docs[snap.docs.length - 1].id : null;
+    return {
+      items: rows,
+      totalCount: Number(totalAgg.data().count ?? 0),
+      nextCursor,
+      queryCount: 2 + 1, // count + list + user doc batch (approx)
+      readCount: snap.docs.length + ids.length * 2
+    };
+  }
+
+  async listFollowing(params: {
+    viewerId: string;
+    userId: string;
+    cursor: string | null;
+    limit: number;
+  }): Promise<{ items: UserDiscoveryRow[]; totalCount: number; nextCursor: string | null; queryCount: number; readCount: number }> {
+    if (!this.db) throw new Error("firestore_source_unavailable");
+    const safeLimit = Math.max(10, Math.min(params.limit, 200));
+    const userRef = this.db.collection("users").doc(params.userId);
+    const totalAgg = await userRef.collection("following").count().get();
+    let q = userRef.collection("following").orderBy(FieldPath.documentId(), "asc").limit(safeLimit);
+    if (params.cursor) {
+      q = q.startAfter(params.cursor);
+    }
+    const snap = await q.get();
+    const ids = snap.docs.map((d) => d.id);
+    const rows = await this.loadUserDiscoveryRows(params.viewerId, ids);
+    const nextCursor = snap.docs.length === safeLimit ? snap.docs[snap.docs.length - 1].id : null;
+    return {
+      items: rows,
+      totalCount: Number(totalAgg.data().count ?? 0),
+      nextCursor,
+      queryCount: 2 + 1,
+      readCount: snap.docs.length + ids.length * 2
+    };
   }
 
   isEnabled(): boolean {
@@ -234,25 +325,78 @@ export class ProfileFirestoreAdapter {
     const followersArray = countUniqueGraphArray(userDocData.followers);
     const followingArray = countUniqueGraphArray(userDocData.following);
 
-    const hasEmbedded = embeddedFollowersCount != null || embeddedFollowingCount != null;
-    const hasArrays = followersArray != null || followingArray != null;
-    if (hasEmbedded || hasArrays) {
+    // Source-of-truth for counts must match the follower/following subcollections used by modals.
+    // Use count aggregation with short TTL; fall back to embedded arrays/counts only if Firestore lacks count().
+    try {
+      const cached = await getOrSetEntityCache(
+        entityCacheKeys.userFollowCounts(_userId),
+        20_000,
+        async () => {
+          if (!this.db) throw new Error("firestore_source_unavailable");
+          const userRef = this.db.collection("users").doc(_userId);
+          const timeoutMs = ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS;
+          const [followersAgg, followingAgg] = await withTimeout(
+            Promise.all([userRef.collection("followers").count().get(), userRef.collection("following").count().get()]),
+            timeoutMs,
+            "profile-firestore-follow-counts"
+          );
+          return {
+            followersCount: Number(followersAgg.data().count ?? 0),
+            followingCount: Number(followingAgg.data().count ?? 0)
+          };
+        }
+      );
       return {
-        followersCount: embeddedFollowersCount ?? followersArray ?? 0,
-        followingCount: embeddedFollowingCount ?? followingArray ?? 0,
-        source: hasEmbedded && hasArrays ? "embedded_counts_arrays" : hasEmbedded ? "embedded_counts" : "arrays",
+        followersCount: Math.max(0, cached.followersCount || 0),
+        followingCount: Math.max(0, cached.followingCount || 0),
+        source: "subcollection_count_agg",
+        queryCount: 2,
+        readCount: 0
+      };
+    } catch (err) {
+      // Cold-start / transient count-aggregation failures can briefly surface stale embedded counts.
+      // Retry once with a longer timeout before falling back.
+      try {
+        if (!this.db) throw err;
+        const userRef = this.db.collection("users").doc(_userId);
+        const timeoutMs = Math.max(2500, ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS * 3);
+        const [followersAgg, followingAgg] = await withTimeout(
+          Promise.all([userRef.collection("followers").count().get(), userRef.collection("following").count().get()]),
+          timeoutMs,
+          "profile-firestore-follow-counts-retry"
+        );
+        const resolvedFollowers = Math.max(0, Number(followersAgg.data().count ?? 0) || 0);
+        const resolvedFollowing = Math.max(0, Number(followingAgg.data().count ?? 0) || 0);
+        void globalCache.set(entityCacheKeys.userFollowCounts(_userId), { followersCount: resolvedFollowers, followingCount: resolvedFollowing }, 20_000);
+        return {
+          followersCount: resolvedFollowers,
+          followingCount: resolvedFollowing,
+          source: "subcollection_count_agg_retry",
+          queryCount: 2,
+          readCount: 0
+        };
+      } catch {
+        // Fall through to embedded/arrays fallback.
+      }
+      const hasEmbedded = embeddedFollowersCount != null || embeddedFollowingCount != null;
+      const hasArrays = followersArray != null || followingArray != null;
+      if (hasEmbedded || hasArrays) {
+        return {
+          followersCount: embeddedFollowersCount ?? followersArray ?? 0,
+          followingCount: embeddedFollowingCount ?? followingArray ?? 0,
+          source: hasEmbedded && hasArrays ? "embedded_counts_arrays" : hasEmbedded ? "embedded_counts" : "arrays",
+          queryCount: 0,
+          readCount: 0
+        };
+      }
+      return {
+        followersCount: 0,
+        followingCount: 0,
+        source: "staged_missing_counts",
         queryCount: 0,
         readCount: 0
       };
     }
-
-    return {
-      followersCount: 0,
-      followingCount: 0,
-      source: "staged_missing_counts",
-      queryCount: 0,
-      readCount: 0
-    };
   }
 
   private async countPostsByUser(
@@ -294,7 +438,26 @@ export class ProfileFirestoreAdapter {
         await this.touchVerifiedPostCount(userId, resolvedCount);
       }
       return { count: resolvedCount, queryCount: 1, readCount: 0 };
-    } catch {
+    } catch (err) {
+      // Retry once with a longer timeout to avoid surfacing stale embedded counts on cold start.
+      try {
+        if (!this.db) throw err;
+        const snap = await withTimeout(
+          this.db.collection("posts").where("userId", "==", userId).count().get(),
+          Math.max(2500, ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS * 3),
+          "profile-firestore-post-count-retry"
+        );
+        const resolvedCount = Math.max(0, normalizeCount(snap.data()?.count));
+        void globalCache.set(entityCacheKeys.userPostCount(userId), resolvedCount, 30_000);
+        if (resolvedCount !== normalizedEmbeddedCount) {
+          await this.selfHealPostCount(userId, resolvedCount);
+        } else {
+          await this.touchVerifiedPostCount(userId, resolvedCount);
+        }
+        return { count: resolvedCount, queryCount: 1, readCount: 0 };
+      } catch {
+        // Fall back to embedded count below.
+      }
       if (normalizedEmbeddedCount > 0) {
         void this.schedulePostCountVerification(userId, normalizedEmbeddedCount, verifiedAtMs);
       }
@@ -440,6 +603,12 @@ export class ProfileFirestoreAdapter {
       return this.getGridLegacyOffsetPage(userId, cursor.offset, safeLimit);
     }
 
+    const isDeletedDoc = (doc: FirebaseFirestore.QueryDocumentSnapshot): boolean => {
+      const deleted = doc.get("deleted");
+      const isDeleted = doc.get("isDeleted");
+      return Boolean(deleted) || Boolean(isDeleted);
+    };
+
     let queryRef = this.db
       .collection("posts")
       .where("userId", "==", userId)
@@ -457,9 +626,12 @@ export class ProfileFirestoreAdapter {
         "processing",
         "processingFailed",
         "imageProcessingStatus",
-        "assetsReady"
+        "assetsReady",
+        "deleted",
+        "isDeleted"
       )
-      .limit(safeLimit + 1);
+      // Over-fetch to allow server-side filtering of tombstoned posts while still returning a full page.
+      .limit(Math.min(80, safeLimit + 1 + 18));
 
     if (cursor.mode === "stable_after") {
       const orderValue =
@@ -468,10 +640,16 @@ export class ProfileFirestoreAdapter {
     }
 
     const snapshot = await withTimeout(queryRef.get(), ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS, timeoutLabel);
-    const pageDocs = snapshot.docs.slice(0, safeLimit);
-    const items = pageDocs.map((doc) => mapPostDocToGridPreview(doc));
-    const hasMore = snapshot.docs.length > safeLimit;
-    const last = pageDocs[pageDocs.length - 1];
+    const liveDocs: FirebaseFirestore.QueryDocumentSnapshot[] = [];
+    for (const doc of snapshot.docs) {
+      if (liveDocs.length >= safeLimit) break;
+      if (isDeletedDoc(doc)) continue;
+      liveDocs.push(doc);
+    }
+    const items = liveDocs.map((doc) => mapPostDocToGridPreview(doc));
+    // If we had to filter, we may still have more results beyond this page.
+    const hasMore = snapshot.docs.length > liveDocs.length;
+    const last = liveDocs[liveDocs.length - 1];
     const nextCursor =
       hasMore && last
         ? encodeStableGridCursor(readOrderMillisFromSnapshot(last), last.id, last.get("time"))
@@ -584,10 +762,21 @@ function encodeStableGridCursor(orderMs: number, postId: string, rawOrder: unkno
 function pickPic(data: {
   profilePicPath?: string;
   profilePicLarge?: string;
+  profilePic?: string;
+  profilePicSmallPath?: string;
   profilePicSmall?: string;
   photoURL?: string;
+  avatarUrl?: string;
 }): string | null {
-  const raw = data.profilePicPath ?? data.profilePicLarge ?? data.profilePicSmall ?? data.photoURL ?? null;
+  const raw =
+    data.profilePicLarge ??
+    data.profilePic ??
+    data.profilePicPath ??
+    data.profilePicSmallPath ??
+    data.profilePicSmall ??
+    data.photoURL ??
+    data.avatarUrl ??
+    null;
   const trimmed = typeof raw === "string" ? raw.trim() : "";
   return trimmed.length > 0 ? trimmed : null;
 }

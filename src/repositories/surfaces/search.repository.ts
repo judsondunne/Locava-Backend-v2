@@ -26,6 +26,7 @@ export type SearchResultsPageRecord = {
   items: SearchResultCandidateRecord[];
   hasMore: boolean;
   nextCursor: string | null;
+  debug?: Record<string, unknown>;
 };
 
 const SEARCH_TOTAL_RESULTS_CAP = 96;
@@ -61,8 +62,9 @@ export class SearchRepository {
     limit: number;
     lat: number | null;
     lng: number | null;
+    includeDebug?: boolean;
   }): Promise<SearchResultsPageRecord> {
-    const { viewerId, query, cursor, limit, lat, lng } = input;
+    const { viewerId, query, cursor, limit, lat, lng, includeDebug = false } = input;
     const normalized = query.trim().toLowerCase();
     const safeLimit = Math.max(1, Math.min(limit, 12));
     const offset = this.parseCursor(cursor);
@@ -75,7 +77,8 @@ export class SearchRepository {
           cursorOffset: offset,
           limit: safeLimit,
           lat,
-          lng
+          lng,
+          includeDebug
         });
         incrementDbOps("queries", page.queryCount);
         incrementDbOps("reads", page.readCount);
@@ -84,18 +87,43 @@ export class SearchRepository {
           cursorIn: cursor,
           items: page.items,
           hasMore: page.hasMore,
-          nextCursor: page.nextCursor
+          nextCursor: page.nextCursor,
+          ...(page.debug ? { debug: page.debug } : {})
         };
       } catch (error) {
         if (error instanceof Error && error.message.includes("_timeout")) {
           recordTimeout("search_results_firestore");
         }
         recordFallback("search_results_firestore_fallback");
+        // Search must degrade gracefully even in strict environments; do not 503 the entire route.
+        // The caller can optionally use other retrieval paths (bootstrap, mixes, etc).
         enforceSourceOfTruthStrictness("search_results_firestore");
-        throw new SourceOfTruthRequiredError("search_results_firestore");
+        return {
+          query: normalized,
+          cursorIn: cursor,
+          items: [],
+          hasMore: false,
+          nextCursor: null,
+          ...(includeDebug
+            ? {
+                debug: {
+                  fallback: "search_results_firestore_fallback",
+                  cursorOffset: offset,
+                },
+              }
+            : {}),
+        };
       }
     }
+    recordFallback("search_results_firestore_unavailable");
     enforceSourceOfTruthStrictness("search_results_firestore_unavailable");
-    throw new SourceOfTruthRequiredError("search_results_firestore_unavailable");
+    return {
+      query: normalized,
+      cursorIn: cursor,
+      items: [],
+      hasMore: false,
+      nextCursor: null,
+      ...(includeDebug ? { debug: { fallback: "search_results_firestore_unavailable", cursorOffset: offset } } : {}),
+    };
   }
 }

@@ -54,6 +54,8 @@ const LOCATION_ALIASES = [
   { alias: "nyc", city: "New York", state: "New York" },
   { alias: "new york city", city: "New York", state: "New York" },
   { alias: "uvm", city: "Burlington", state: "Vermont" },
+  // Common "city-only" query; treat as Burlington, VT to keep search/mixes stable.
+  { alias: "burlington", city: "Burlington", state: "Vermont" },
   { alias: "upper valley", city: "Hanover", state: "New Hampshire" },
   { alias: "bay area", city: "San Francisco", state: "California" },
   { alias: "san francisco", city: "San Francisco", state: "California" },
@@ -278,11 +280,13 @@ export function slugRegionPart(input: string): string {
 }
 
 export function buildStateRegionId(countryCode: string, stateName: string): string {
-  return `${countryCode}-${slugRegionPart(stateName)}`;
+  const cc = String(countryCode ?? "").trim().toLowerCase() || "us";
+  return `${cc}:${slugRegionPart(stateName).toLowerCase()}`;
 }
 
 export function buildCityRegionId(countryCode: string, stateName: string, cityName: string): string {
-  return `${buildStateRegionId(countryCode, stateName)}-${slugRegionPart(cityName)}`;
+  const base = buildStateRegionId(countryCode, stateName);
+  return `${base}:${slugRegionPart(cityName).toLowerCase()}`;
 }
 
 export function resolveStateNameFromAny(input: string): string | null {

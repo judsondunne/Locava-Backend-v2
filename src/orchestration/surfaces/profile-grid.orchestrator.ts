@@ -7,10 +7,10 @@ import type { ProfileService } from "../../services/surfaces/profile.service.js"
 export class ProfileGridOrchestrator {
   constructor(private readonly service: ProfileService) {}
 
-  async run(input: { userId: string; cursor: string | null; limit: number }): Promise<ProfileGridResponse> {
-    const { userId, cursor, limit } = input;
+  async run(input: { viewerId: string; userId: string; cursor: string | null; limit: number }): Promise<ProfileGridResponse> {
+    const { viewerId, userId, cursor, limit } = input;
 
-    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v1", userId, cursor ?? "start", limit]);
+    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v2", viewerId, userId, cursor ?? "start", limit]);
     const cached = await globalCache.get<ProfileGridResponse>(pageCacheKey);
     if (cached) {
       recordCacheHit();

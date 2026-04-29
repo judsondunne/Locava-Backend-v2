@@ -44,3 +44,8 @@ export function encodeGeohash(lat: number, lng: number, precision = 9): string {
   }
   return geohash;
 }
+
+// Backwards-compatible name used by mixes v2.
+export function latLngToGeohash(lat: number, lng: number, precision = 9): string {
+  return encodeGeohash(lat, lng, precision);
+}

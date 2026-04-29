@@ -8,6 +8,7 @@ describe("SearchService", () => {
     } as unknown as ConstructorParameters<typeof SearchService>[0];
     const service = new SearchService(repository);
     const discoveryStub = {
+      isEnabled: vi.fn(() => true),
       parseIntent: vi.fn(() => ({
         activity: { queryActivities: ["biking"] },
         location: null,
@@ -87,6 +88,7 @@ describe("SearchService", () => {
     } as unknown as ConstructorParameters<typeof SearchService>[0];
     const service = new SearchService(repository);
     const discoveryStub = {
+      isEnabled: vi.fn(() => true),
       parseIntent: vi.fn(() => ({
         activity: { queryActivities: ["cafe", "restaurants"] },
         location: { cityRegionId: "US-Pennsylvania-Easton", displayText: "Easton, Pennsylvania" },

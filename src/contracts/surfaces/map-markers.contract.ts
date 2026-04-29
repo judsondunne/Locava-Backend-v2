@@ -13,6 +13,9 @@ export const MapMarkerRecordSchema = z.object({
   visibility: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
   thumbnailUrl: z.string().nullable().optional(),
+  // Display config for native marker rendering (parity with old map index).
+  thumbKey: z.string().nullable().optional(),
+  followedUserPic: z.string().nullable().optional(),
   hasPhoto: z.boolean().optional(),
   hasVideo: z.boolean().optional()
 });
@@ -38,7 +41,13 @@ export const mapMarkersContract = defineContract({
   method: "GET",
   path: "/v2/map/markers",
   query: z.object({
-    limit: z.coerce.number().int().min(20).max(10_000).optional()
+    limit: z.coerce.number().int().min(20).max(10_000).optional(),
+    /**
+     * Optional owner filter used by profile/other-user minimaps.
+     * When present, the backend performs server-side filtering so older posts
+     * aren't dropped by the global "latest N posts" universe slice.
+     */
+    ownerId: z.string().min(1).optional()
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema

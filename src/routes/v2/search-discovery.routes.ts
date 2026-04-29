@@ -432,27 +432,66 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
     return success({ routeName: "mixes.previews.post", previews, rankingVersion: "mix_v1" });
   });
 
-  app.post<{ Body: { query?: string } }>("/v2/mixes/suggest", async (request, reply) => {
+  app.post<{ Body: { query?: string; lat?: number; lng?: number; includePreviews?: boolean; previewLimit?: number } }>(
+    "/v2/mixes/suggest",
+    async (request, reply) => {
     const viewer = buildViewerContext(request);
     if (!canUseV2Surface("search", viewer.roles)) {
       return reply.status(403).send(failure("v2_surface_disabled", "Search v2 surface is not enabled for this viewer"));
     }
     const query = String(request.body?.query ?? "").trim().toLowerCase();
     if (!query) return success({ routeName: "mixes.suggest.post", candidates: [], previews: [], rankingVersion: "mix_v1" });
-    const mixSpecs = service
-      .buildMixSpecsFromActivities(await service.loadTopActivities(20))
-      .filter((spec) => spec.title.toLowerCase().includes(query) || spec.seeds.primaryActivityId.includes(query));
-    const posts = await service.loadRecentPosts(16);
-    const candidates = mixSpecs.map((spec) => ({
-      type: "mix",
-      canonicalKey: spec.id,
-      displayTitle: spec.title,
-      displaySubtitle: spec.subtitle,
-      heroQuery: spec.heroQuery,
-      previewThumbUrls: posts.map((p) => String(p.thumbUrl ?? "")).filter((u) => /^https?:\/\//i.test(u)).slice(0, 4),
-      queryDefinition: { query: spec.seeds.primaryActivityId },
-      mixSpecV1: spec
-    }));
+    const lat = typeof request.body?.lat === "number" && Number.isFinite(request.body.lat) ? request.body.lat : null;
+    const lng = typeof request.body?.lng === "number" && Number.isFinite(request.body.lng) ? request.body.lng : null;
+    const includePreviews = Boolean(request.body?.includePreviews);
+    const previewLimit = Math.max(1, Math.min(6, Number(request.body?.previewLimit ?? 4) || 4));
+
+    const intent = service.parseIntent(query);
+    const activity = String(intent.activity?.canonical ?? "").trim().toLowerCase();
+    const location = String(intent.location?.displayText ?? "").trim();
+    const coords = lat != null && lng != null ? { lat, lng } : null;
+
+    let mixSpecs = [];
+    // Prefer a small set of intent-truthful mixes (these are the "default collections" rows in typing UI).
+    if (activity && location) {
+      mixSpecs = service.buildMixSpecsFromActivities([activity], location).slice(0, 3);
+    } else if (activity) {
+      mixSpecs = service.buildMixSpecsFromActivities([activity]).slice(0, 4);
+    } else {
+      const top = await service.loadTopActivities(20);
+      mixSpecs = service
+        .buildMixSpecsFromActivities(top)
+        .filter((spec) => spec.title.toLowerCase().includes(query) || spec.seeds.primaryActivityId.includes(query))
+        .slice(0, 6);
+    }
+
+    const candidates = await Promise.all(
+      mixSpecs.slice(0, 6).map(async (spec) => {
+        const heroQuery = String(spec.heroQuery ?? spec.seeds.primaryActivityId ?? "").trim() || query;
+        const posts = includePreviews
+          ? await service.searchPostsForQuery(heroQuery, {
+              limit: previewLimit,
+              lat: coords?.lat ?? null,
+              lng: coords?.lng ?? null,
+            }).catch(() => [])
+          : [];
+        const previewThumbUrls = posts
+          .map((p) => String((p as any)?.thumbUrl ?? (p as any)?.displayPhotoLink ?? "").trim())
+          .filter((u) => /^https?:\/\//i.test(u))
+          .slice(0, 4);
+        return {
+          type: "mix",
+          canonicalKey: spec.id,
+          displayTitle: spec.title,
+          displaySubtitle: spec.subtitle,
+          heroQuery,
+          previewThumbUrls,
+          queryDefinition: { query: heroQuery, ...(coords ? { lat: coords.lat, lng: coords.lng } : {}) },
+          mixSpecV1: spec,
+        };
+      })
+    );
+
     return success({ routeName: "mixes.suggest.post", candidates, previews: [], rankingVersion: "mix_v1" });
   });
 

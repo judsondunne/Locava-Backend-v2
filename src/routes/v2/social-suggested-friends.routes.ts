@@ -46,6 +46,9 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
       includeMutuals: surface !== "onboarding",
       includePopular: surface !== "onboarding",
       includeNearby: false,
+      includeGroups: true,
+      includeReferral: true,
+      includeAllUsersFallback: true,
       excludeAlreadyFollowing: true,
       excludeBlocked: true
     });

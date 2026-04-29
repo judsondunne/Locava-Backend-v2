@@ -21,6 +21,7 @@ export function renderSearchAutofillLabPage(): string {
       code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; color: #e2e8f0; }
       pre { white-space: pre-wrap; word-break: break-word; background: #020617; padding: 10px; border-radius: 8px; max-height: 320px; overflow: auto; }
       .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background:#0b1220; border: 1px solid #334155; margin-right: 6px; color:#cbd5e1; }
+      .completion-strong { font-weight: 700; color: #ffffff; }
     </style>
   </head>
   <body>
@@ -86,6 +87,25 @@ export function renderSearchAutofillLabPage(): string {
         set('materialized', '');
         set('status', '');
       }
+      function escapeHtml(input) {
+        return String(input ?? '')
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+      }
+      function renderAutofillText(query, suggestionText) {
+        const q = String(query ?? '').trim();
+        const s = String(suggestionText ?? '');
+        if (!q || !s) return escapeHtml(s);
+        const lowerQ = q.toLowerCase();
+        const lowerS = s.toLowerCase();
+        if (!lowerS.startsWith(lowerQ) || s.length <= q.length) return escapeHtml(s);
+        const prefix = s.slice(0, q.length);
+        const completion = s.slice(q.length);
+        return escapeHtml(prefix) + '<span class="completion-strong">' + escapeHtml(completion) + '</span>';
+      }
       async function getJson(url) {
         const res = await fetch(url, { headers: headers() });
         const body = await res.json().catch(() => ({}));
@@ -137,9 +157,10 @@ export function renderSearchAutofillLabPage(): string {
           const type = String(s?.type ?? '');
           const text = String(s?.text ?? '');
           const v2MixId = tryResolveV2MixIdFromSuggestion(s);
+          const renderedText = renderAutofillText(q, text);
           tr.innerHTML = \`
             <td><code>\${type}</code></td>
-            <td>\${text ? text : '<span style="opacity:.7">(empty)</span>'}</td>
+            <td>\${text ? renderedText : '<span style="opacity:.7">(empty)</span>'}</td>
             <td>\${v2MixId ? '<code>' + v2MixId + '</code>' : '<span style="opacity:.7">—</span>'}</td>
             <td>\${type === 'mix' ? '<button class="secondary">Materialize</button>' : '<span style="opacity:.7">—</span>'}</td>
           \`;

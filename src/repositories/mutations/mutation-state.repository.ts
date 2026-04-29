@@ -12,6 +12,7 @@ class MutationStateRepository {
   private readonly postSocialState = new Map<string, PostSocialMutationState>();
   private readonly followState = new Map<string, Set<string>>();
   private readonly viewerSavedState = new Map<string, Map<string, ViewerSavedState>>();
+  private readonly deletedPosts = new Set<string>();
 
   likePost(viewerId: string, postId: string): { liked: boolean; changed: boolean } {
     const state = this.postSocialState.get(postId) ?? { likesDelta: 0, likedViewers: new Set<string>() };
@@ -116,10 +117,23 @@ class MutationStateRepository {
     }));
   }
 
+  deletePost(postId: string): { deleted: boolean; changed: boolean } {
+    if (this.deletedPosts.has(postId)) {
+      return { deleted: true, changed: false };
+    }
+    this.deletedPosts.add(postId);
+    return { deleted: true, changed: true };
+  }
+
+  isPostDeleted(postId: string): boolean {
+    return this.deletedPosts.has(postId);
+  }
+
   resetForTests(): void {
     this.postSocialState.clear();
     this.followState.clear();
     this.viewerSavedState.clear();
+    this.deletedPosts.clear();
   }
 }
 

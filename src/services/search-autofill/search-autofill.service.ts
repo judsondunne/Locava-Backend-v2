@@ -14,6 +14,15 @@ type SuggestRow = {
   confidence: number;
 };
 
+const US_STATES = [
+  "Alabama","Alaska","Arizona","Arkansas","California","Colorado","Connecticut","Delaware","Florida","Georgia",
+  "Hawaii","Idaho","Illinois","Indiana","Iowa","Kansas","Kentucky","Louisiana","Maine","Maryland","Massachusetts",
+  "Michigan","Minnesota","Mississippi","Missouri","Montana","Nebraska","Nevada","New Hampshire","New Jersey",
+  "New Mexico","New York","North Carolina","North Dakota","Ohio","Oklahoma","Oregon","Pennsylvania","Rhode Island",
+  "South Carolina","South Dakota","Tennessee","Texas","Utah","Vermont","Virginia","Washington","West Virginia",
+  "Wisconsin","Wyoming",
+];
+
 function titleCaseQualityPrefix(query: string): string {
   const trimmed = query.trim();
   if (!trimmed) return "";
@@ -236,6 +245,13 @@ function addSentenceSuggestions(input: {
   const location = String(input.locationText).trim();
   if (!location) return;
 
+  const rawQuery = String(input.query ?? "").trim();
+  const relationMatch = rawQuery.toLowerCase().match(/\b(in|near)\s+([a-z0-9\s]+)$/);
+  const relation = (relationMatch?.[1] as "in" | "near" | undefined) ?? null;
+  const queryPrefixWithoutLocation = relation
+    ? rawQuery.replace(/\b(in|near)\s+[a-z0-9\s]+$/i, "").trim()
+    : "";
+
   const detected = input.detectedActivity;
   const activityPhrase =
     detected === "hiking"
@@ -248,6 +264,12 @@ function addSentenceSuggestions(input: {
 
   const base = quality ? `${quality} ` : "";
   const candidates: string[] = [];
+
+  // Preserve the user's leading phrase when they've already typed "… in <prefix>".
+  // Example: "best places to swim in ver" => "Best places to swim in Vermont" (not just "Swimming in Vermont").
+  if (relation && queryPrefixWithoutLocation && queryPrefixWithoutLocation.length >= 3) {
+    candidates.push(`${titleCaseFirst(queryPrefixWithoutLocation)} ${relation} ${location}`);
+  }
 
   candidates.push(`${base}${activityPhrase} in ${location}`);
   if (detected === "hiking") {
@@ -273,6 +295,39 @@ function addSentenceSuggestions(input: {
     });
     if (input.rows.length >= 12) break;
   }
+}
+
+function resolveLocationCompletionFromQuery(
+  query: string,
+  fallbackLocationRows: Array<{ text: string; cityRegionId?: string | null }>,
+): string | null {
+  const raw = String(query ?? "").trim();
+  if (!raw) return null;
+  const relationMatch = raw.toLowerCase().match(/\b(?:in|near)\s+([a-z0-9\s]+)$/);
+  const partial = String(relationMatch?.[1] ?? "").trim().toLowerCase();
+  if (partial.length >= 2) {
+    const matchedState = US_STATES.find((state) => state.toLowerCase().startsWith(partial));
+    if (matchedState) return matchedState;
+    const place = searchPlacesIndexService.search(partial, 1)[0];
+    if (place?.stateName) return String(place.stateName).trim();
+  }
+  const firstStateRow = fallbackLocationRows.find((row) => !row.cityRegionId && String(row.text ?? "").trim().length > 0);
+  return firstStateRow ? String(firstStateRow.text).trim() : null;
+}
+
+function promoteParsedSentenceToFront(query: string, rows: SuggestRow[]): SuggestRow[] {
+  const normalizedQuery = normalizeForKey(query);
+  if (!/\b(in|near)\s+[a-z0-9\s]+$/i.test(query)) return rows;
+  const idx = rows.findIndex((row) => {
+    if (row.type !== "sentence") return false;
+    const text = normalizeForKey(row.text);
+    return text.startsWith(normalizedQuery);
+  });
+  if (idx <= 0) return rows;
+  const copy = rows.slice();
+  const [hit] = copy.splice(idx, 1);
+  copy.unshift(hit);
+  return copy;
 }
 
 export class SearchAutofillService {
@@ -471,7 +526,10 @@ export class SearchAutofillService {
       query,
       prefixQuality: prefixFrame.quality ?? null,
       detectedActivity: inferredDetected,
-      locationText: intent.location?.displayText ?? locationRows.find((row) => !row.cityRegionId)?.text ?? null,
+      locationText:
+        intent.location?.displayText ??
+        resolveLocationCompletionFromQuery(query, locationRows) ??
+        null,
       rows,
     });
 
@@ -513,7 +571,7 @@ export class SearchAutofillService {
       placeContext,
       relatedActivities: inferredRelated,
     });
-    let merged = [...generatedMixes, ...ranked].slice(0, 12);
+    let merged = promoteParsedSentenceToFront(query, [...generatedMixes, ...ranked]).slice(0, 12);
 
     const viewerId = String(input.viewerId ?? "").trim();
     if (viewerId && (query.includes(" in ") || Boolean(intent.location))) {

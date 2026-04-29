@@ -15,6 +15,8 @@ import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/
 import { FeedFirestoreAdapter, type FirestoreFeedCandidate } from "../../repositories/source-of-truth/feed-firestore.adapter.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
+import { SearchRepository } from "../../repositories/surfaces/search.repository.js";
+import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
 
 const CreateBodySchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -44,6 +46,83 @@ const SaveSheetQuerySchema = z.object({ postId: z.string().trim().min(1) });
 const collectionsAdapter = new CollectionsFirestoreAdapter();
 const feedService = new FeedService(new FeedRepository());
 const feedFirestoreAdapter = new FeedFirestoreAdapter();
+const searchRepository = new SearchRepository();
+
+function isDynamicCollectionId(collectionId: string): boolean {
+  return String(collectionId ?? "").startsWith("dyn:");
+}
+
+function dynamicQueryFromCollectionId(collectionId: string): string {
+  const raw = String(collectionId ?? "").trim();
+  const slug = raw.replace(/^dyn:/i, "");
+  const q = slug.replace(/[-_]+/g, " ").trim();
+  return q || "search";
+}
+
+function titleCaseWords(value: string): string {
+  return value
+    .split(/\s+/g)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
+function toDynamicPostCardSummary(
+  row: {
+    postId: string;
+    rank: number;
+    userId: string;
+    userHandle: string;
+    userName: string;
+    userPic: string | null;
+    activities: string[];
+    title: string;
+    thumbUrl: string;
+    displayPhotoLink: string;
+    mediaType: "image" | "video";
+    likeCount: number;
+    commentCount: number;
+    updatedAtMs: number;
+  },
+  index: number,
+  viewerId: string,
+  rankSeed: string,
+) {
+  const posterUrl = String(row.thumbUrl || row.displayPhotoLink || "").trim();
+  const mediaType: "image" | "video" = row.mediaType === "video" ? "video" : "image";
+  const startupHint: "poster_only" | "poster_then_preview" =
+    mediaType === "video" ? "poster_then_preview" : "poster_only";
+  return {
+    postId: row.postId,
+    rankToken: `dyn-${rankSeed.slice(0, 16)}-${index + 1}`,
+    author: {
+      userId: String(row.userId ?? ""),
+      handle: String(row.userHandle ?? "").replace(/^@+/, ""),
+      name: String(row.userName ?? "").trim() || null,
+      pic: typeof row.userPic === "string" && /^https?:\/\//i.test(row.userPic) ? row.userPic : null
+    },
+    activities: Array.isArray(row.activities) ? row.activities : [],
+    title: String(row.title ?? "").trim() || null,
+    captionPreview: String(row.title ?? "").trim() || null,
+    firstAssetUrl: /^https?:\/\//i.test(posterUrl) ? posterUrl : null,
+    media: {
+      type: mediaType,
+      posterUrl,
+      aspectRatio: 1,
+      startupHint
+    },
+    social: {
+      likeCount: Math.max(0, Number(row.likeCount ?? 0)),
+      commentCount: Math.max(0, Number(row.commentCount ?? 0)),
+    },
+    viewer: {
+      liked: mutationStateRepository.hasViewerLikedPost(viewerId, row.postId),
+      saved: mutationStateRepository.resolveViewerSavedPost(viewerId, row.postId, false),
+    },
+    createdAtMs: Math.max(0, Number(row.updatedAtMs ?? Date.now())),
+    updatedAtMs: Math.max(0, Number(row.updatedAtMs ?? Date.now())),
+  };
+}
 
 function queueEntityInvalidation(invalidationType: string, keys: string[]): { invalidatedKeysCount: number; invalidationTypes: string[] } {
   const uniqueKeys = [...new Set(keys.filter(Boolean))];
@@ -215,6 +294,45 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
     }
     const params = CollectionParamsSchema.parse(request.params);
     setRouteName("collections.detail.get");
+    if (isDynamicCollectionId(params.collectionId)) {
+      const q = dynamicQueryFromCollectionId(params.collectionId);
+      const title = titleCaseWords(q);
+      let coverUri: string | undefined = undefined;
+      try {
+        const page = await searchRepository.getSearchResultsPage({
+          viewerId: viewer.viewerId,
+          query: q,
+          cursor: null,
+          limit: 1,
+          lat: null,
+          lng: null,
+          includeDebug: false,
+        });
+        const first = page.items[0];
+        const u = first ? String(first.thumbUrl ?? first.displayPhotoLink ?? "").trim() : "";
+        if (/^https?:\/\//i.test(u)) coverUri = u;
+      } catch {
+        // ignore
+      }
+      const now = new Date().toISOString();
+      return success({
+        routeName: "collections.detail.get" as const,
+        item: {
+          id: params.collectionId,
+          ownerId: "system",
+          name: title,
+          description: `Dynamic collection for "${title}"`,
+          privacy: "public",
+          ...(coverUri ? { coverUri } : {}),
+          collaborators: [],
+          items: [],
+          itemsCount: 0,
+          createdAt: now,
+          updatedAt: now,
+          kind: "backend" as const,
+        },
+      });
+    }
     const item = await collectionsAdapter.getCollection({
       viewerId: viewer.viewerId,
       collectionId: params.collectionId,
@@ -234,6 +352,39 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
     const query = CollectionPostsQuerySchema.parse(request.query);
     setRouteName("collections.posts.get");
     try {
+      if (isDynamicCollectionId(params.collectionId)) {
+        const q = dynamicQueryFromCollectionId(params.collectionId);
+        const page = await searchRepository.getSearchResultsPage({
+          viewerId: viewer.viewerId,
+          query: q,
+          cursor: query.cursor ?? null,
+          limit: query.limit,
+          lat: null,
+          lng: null,
+          includeDebug: false,
+        });
+        const rankSeed = `${params.collectionId}:${query.cursor ?? "start"}`;
+        const items = page.items
+          .map((row, index) => toDynamicPostCardSummary(row, index, viewer.viewerId, rankSeed))
+          .filter((row) => /^https?:\/\//i.test(String(row.media?.posterUrl ?? "")));
+        const postIds = items.map((row) => row.postId);
+        return success({
+          routeName: "collections.posts.get" as const,
+          requestKey: `${params.collectionId}:${query.cursor ?? "start"}:${query.limit}`,
+          page: {
+            cursorIn: query.cursor ?? null,
+            limit: query.limit,
+            count: items.length,
+            hasMore: page.hasMore,
+            nextCursor: page.nextCursor,
+            sort: "saved_at_desc" as const,
+          },
+          items,
+          postIds,
+          degraded: true,
+          fallbacks: ["dynamic_collection_search_rank"],
+        });
+      }
       const page = await collectionsAdapter.listCollectionPostIds({
         viewerId: viewer.viewerId,
         collectionId: params.collectionId,

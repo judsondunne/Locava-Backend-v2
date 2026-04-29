@@ -29,6 +29,7 @@ import { registerV2PostLikesRoutes } from "../routes/v2/post-likes.routes.js";
 import { registerV2UserFollowRoutes } from "../routes/v2/user-follow.routes.js";
 import { registerV2PostUnlikeRoutes } from "../routes/v2/post-unlike.routes.js";
 import { registerV2UserUnfollowRoutes } from "../routes/v2/user-unfollow.routes.js";
+import { registerV2PostDeleteRoutes } from "../routes/v2/post-delete.routes.js";
 import { registerV2PostingStagingPresignRoutes } from "../routes/v2/posting-staging-presign.routes.js";
 import { registerV2PostingUploadSessionRoutes } from "../routes/v2/posting-upload-session.routes.js";
 import { registerV2PostingFinalizeRoutes } from "../routes/v2/posting-finalize.routes.js";
@@ -38,6 +39,13 @@ import { registerV2PostingOperationRetryRoutes } from "../routes/v2/posting-oper
 import { registerV2PostingMediaRegisterRoutes } from "../routes/v2/posting-media-register.routes.js";
 import { registerV2PostingMediaMarkUploadedRoutes } from "../routes/v2/posting-media-mark-uploaded.routes.js";
 import { registerV2PostingMediaStatusRoutes } from "../routes/v2/posting-media-status.routes.js";
+import { registerV2PostingLocationSuggestRoutes } from "../routes/v2/posting-location-suggest.routes.js";
+import { registerV2LegendsStagePostRoutes } from "../routes/v2/legends-stage-post.routes.js";
+import { registerV2LegendsStagePostCancelRoutes } from "../routes/v2/legends-stage-post-cancel.routes.js";
+import { registerV2LegendsMeBootstrapRoutes } from "../routes/v2/legends-me-bootstrap.routes.js";
+import { registerV2LegendsScopeDetailRoutes } from "../routes/v2/legends-scope-detail.routes.js";
+import { registerV2LegendsAfterPostRoutes } from "../routes/v2/legends-after-post.routes.js";
+import { registerV2LegendsEventsRoutes } from "../routes/v2/legends-events.routes.js";
 import { registerV2CommentsListRoutes } from "../routes/v2/comments-list.routes.js";
 import { registerV2CommentsCreateRoutes } from "../routes/v2/comments-create.routes.js";
 import { registerV2CommentsLikeRoutes } from "../routes/v2/comments-like.routes.js";
@@ -53,6 +61,7 @@ import { registerV2ChatsMarkUnreadRoutes } from "../routes/v2/chats-mark-unread.
 import { registerV2ChatsCreateRoutes } from "../routes/v2/chats-create.routes.js";
 import { registerV2ChatsManageRoutes } from "../routes/v2/chats-manage.routes.js";
 import { registerV2ChatsMessageReactionRoutes } from "../routes/v2/chats-message-reaction.routes.js";
+import { registerV2UsersLastActiveRoutes } from "../routes/v2/users-last-active.routes.js";
 import { registerV2GroupsRoutes } from "../routes/v2/groups.routes.js";
 import { registerLegacyApiStubRoutes } from "../routes/compat/legacy-api-stubs.routes.js";
 import { registerLegacyMonolithProductProxyRoutes } from "../routes/compat/legacy-monolith-product-proxy.routes.js";
@@ -61,6 +70,7 @@ import { registerLegacyMonolithUploadProxyRoutes } from "../routes/compat/legacy
 import { registerLegacyMonolithNotificationsProxyRoutes } from "../routes/compat/legacy-monolith-notifications-proxy.routes.js";
 import { registerLegacyProductUploadRoutes } from "../routes/compat/legacy-product-upload.routes.js";
 import { registerLegacyBootstrapCompatRoutes } from "../routes/compat/legacy-bootstrap.routes.js";
+import { registerCompatQrCodeRoutes } from "../routes/compat/qr-code.routes.js";
 import { registerV2CollectionsSavedRoutes } from "../routes/v2/collections-saved.routes.js";
 import { registerV2CollectionsRoutes } from "../routes/v2/collections-v2.routes.js";
 import { registerV2PostsDetailRoutes } from "../routes/v2/posts-detail.routes.js";
@@ -86,6 +96,7 @@ import { registerV2MapMarkersRoutes } from "../routes/v2/map-markers.routes.js";
 import { registerV2DirectoryUsersRoutes } from "../routes/v2/directory-users.routes.js";
 import { registerV2SocialSuggestedFriendsRoutes } from "../routes/v2/social-suggested-friends.routes.js";
 import { registerV2SocialContactsSyncRoutes } from "../routes/v2/social-contacts-sync.routes.js";
+import { registerV2UsersSuggestedRoutes } from "../routes/v2/users-suggested.routes.js";
 import { registerLocalDebugRoutes } from "../routes/debug/local-debug.routes.js";
 import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-firestore-probe.routes.js";
 import { SourceOfTruthRequiredError } from "../repositories/source-of-truth/strict-mode.js";
@@ -363,6 +374,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2PostLikeRoutes);
   app.register(registerV2PostLikesRoutes);
   app.register(registerV2PostUnlikeRoutes);
+  app.register(registerV2PostDeleteRoutes);
   app.register(registerV2UserFollowRoutes);
   app.register(registerV2UserUnfollowRoutes);
   app.register(registerV2PostingUploadSessionRoutes);
@@ -374,6 +386,13 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2PostingMediaRegisterRoutes);
   app.register(registerV2PostingMediaMarkUploadedRoutes);
   app.register(registerV2PostingMediaStatusRoutes);
+  app.register(registerV2PostingLocationSuggestRoutes);
+  app.register(registerV2LegendsStagePostRoutes);
+  app.register(registerV2LegendsStagePostCancelRoutes);
+  app.register(registerV2LegendsMeBootstrapRoutes);
+  app.register(registerV2LegendsScopeDetailRoutes);
+  app.register(registerV2LegendsAfterPostRoutes);
+  app.register(registerV2LegendsEventsRoutes);
   app.register(registerV2CommentsListRoutes);
   app.register(registerV2CommentsCreateRoutes);
   app.register(registerV2CommentsLikeRoutes);
@@ -385,6 +404,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2ChatsThreadRoutes);
   app.register(registerV2ChatsSendMessageRoutes);
   app.register(registerV2ChatsMarkReadRoutes);
+  app.register(registerV2UsersLastActiveRoutes);
   app.register(registerV2ChatsMarkUnreadRoutes);
   app.register(registerV2ChatsCreateRoutes);
   app.register(registerV2ChatsManageRoutes);
@@ -403,6 +423,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     await registerLegacyApiStubRoutes(instance, env);
   });
   app.register(registerLegacyBootstrapCompatRoutes);
+  app.register(registerCompatQrCodeRoutes);
   app.register(registerV2CollectionsSavedRoutes);
   app.register(registerV2CollectionsRoutes);
   app.register(registerV2PostsDetailRoutes);
@@ -428,6 +449,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2DirectoryUsersRoutes);
   app.register(registerV2SocialSuggestedFriendsRoutes);
   app.register(registerV2SocialContactsSyncRoutes);
+  app.register(registerV2UsersSuggestedRoutes);
   app.register(registerInternalOpsRoutes);
   app.register(registerAdminRoutes);
   if (isLocalDevIdentityModeEnabled()) {

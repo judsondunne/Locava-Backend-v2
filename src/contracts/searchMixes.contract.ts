@@ -1,49 +1,38 @@
 import { z } from "zod";
 import { defineContract, EmptySchema } from "./conventions.js";
 
-const LatLngSchema = z.object({
-  lat: z.number().finite(),
-  lng: z.number().finite(),
-});
+const MixTypeSchema = z.enum(["general", "daily", "nearby", "friends", "dynamic"]);
 
-export const SearchMixTypeSchema = z.enum([
-  "nearby",
-  "activity",
-  "location_activity",
-  "location_general",
-  "daily",
-  "friends",
-  "trending",
-  "suggested",
-]);
+const MixIntentSchema = z.object({
+  seedKind: z.enum(["activity_query", "friends", "daily"]),
+  seedQuery: z.string().nullable(),
+  activityFilters: z.array(z.string()),
+  locationLabel: z.string().nullable(),
+  locationConstraint: z
+    .object({
+      stateRegionId: z.string().optional(),
+      cityRegionId: z.string().optional(),
+      center: z.object({ lat: z.number().finite(), lng: z.number().finite() }).optional(),
+      maxDistanceMiles: z.number().finite().positive().optional(),
+    })
+    .nullable(),
+});
 
 export const SearchMixSchema = z.object({
   id: z.string().min(1),
-  type: SearchMixTypeSchema,
+  key: z.string().min(1),
   title: z.string().min(1),
   subtitle: z.string().optional(),
-  coverPostIds: z.array(z.string()).default([]),
-  coverMediaUrls: z.array(z.string()).default([]),
-  primaryActivity: z.string().optional(),
-  activityFilters: z.array(z.string()).optional(),
-  locationLabel: z.string().optional(),
-  center: LatLngSchema.optional(),
-  radiusMiles: z.number().finite().positive().optional(),
-  resultCount: z.number().int().nonnegative(),
-  nextCursor: z.string().nullable().optional(),
-  quality: z.object({
-    hasCoverArt: z.boolean(),
-    enoughPosts: z.boolean(),
-    locationTruthScore: z.number().finite().min(0).max(1),
-    activityTruthScore: z.number().finite().min(0).max(1),
-  }),
-  debug: z
-    .object({
-      generationSource: z.string(),
-      radiusExpansionSteps: z.array(z.number().finite().positive()).optional(),
-      scoringVersion: z.string(),
-    })
-    .optional(),
+  type: MixTypeSchema,
+  intent: MixIntentSchema,
+  coverImageUrl: z.string().nullable(),
+  coverPostId: z.string().nullable(),
+  previewPostIds: z.array(z.string()).default([]),
+  candidateCount: z.number().int().nonnegative().optional(),
+  requiresLocation: z.boolean().optional(),
+  requiresFollowing: z.boolean().optional(),
+  hiddenReason: z.string().nullable().optional(),
+  debugMix: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const SearchMixesBootstrapQuerySchema = z.object({
@@ -80,9 +69,22 @@ export const SearchMixesFeedBodySchema = z.object({
   includeDebug: z.boolean().optional(),
 });
 
+export const SearchMixesFeedQuerySchema = z.object({
+  mixId: z.string().min(1),
+  cursor: z.string().nullable().optional(),
+  limit: z.coerce.number().int().min(4).max(36).default(20),
+  lat: z.coerce.number().finite().nullable().optional(),
+  lng: z.coerce.number().finite().nullable().optional(),
+  includeDebug: z
+    .union([z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => v === "1"),
+});
+
 export const SearchMixesFeedResponseSchema = z.object({
   routeName: z.literal("search.mixes.feed.post"),
   mixId: z.string(),
+  mix: SearchMixSchema.optional(),
   posts: z.array(z.record(z.string(), z.unknown())),
   nextCursor: z.string().nullable(),
   hasMore: z.boolean(),
@@ -96,6 +98,15 @@ export const searchMixesFeedContract = defineContract({
   path: "/v2/search/mixes/feed",
   query: EmptySchema,
   body: SearchMixesFeedBodySchema,
+  response: SearchMixesFeedResponseSchema,
+});
+
+export const searchMixesFeedGetContract = defineContract({
+  routeName: "search.mixes.feed.post",
+  method: "GET",
+  path: "/v2/search/mixes/feed",
+  query: SearchMixesFeedQuerySchema,
+  body: EmptySchema,
   response: SearchMixesFeedResponseSchema,
 });
 

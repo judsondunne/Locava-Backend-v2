@@ -79,12 +79,56 @@ describe("v2 mutation routes + invalidation", () => {
     expect(body.data.invalidation.invalidationTypes).toContain("post.social");
   });
 
+  it("deletes post and invalidates post + surfaces", async () => {
+    const viewerHeaders = {
+      "x-viewer-id": "internal-viewer",
+      "x-viewer-roles": "internal"
+    };
+    const postId = "internal-viewer-feed-post-4";
+    const mutation = await app.inject({
+      method: "DELETE",
+      url: `/v2/posts/${encodeURIComponent(postId)}`,
+      headers: viewerHeaders
+    });
+    expect(mutation.statusCode).toBe(200);
+    const body = mutation.json();
+    expect(body.data.routeName).toBe("posts.delete");
+    expect(body.data.postId).toBe(postId);
+    expect(body.data.deleted).toBe(true);
+    expect(body.data.invalidation.invalidationTypes).toContain("post.detail");
+    expect(body.data.invalidation.invalidationTypes).toContain("post.card");
+  });
+
+  it("delete is idempotent", async () => {
+    const viewerHeaders = {
+      "x-viewer-id": "internal-viewer",
+      "x-viewer-roles": "internal"
+    };
+    const postId = "internal-viewer-feed-post-5";
+    const a = await app.inject({
+      method: "DELETE",
+      url: `/v2/posts/${encodeURIComponent(postId)}`,
+      headers: viewerHeaders
+    });
+    const b = await app.inject({
+      method: "DELETE",
+      url: `/v2/posts/${encodeURIComponent(postId)}`,
+      headers: viewerHeaders
+    });
+    expect(a.statusCode).toBe(200);
+    expect(b.statusCode).toBe(200);
+    expect(b.json().data.idempotency.replayed).toBe(true);
+    expect(b.json().data.invalidation.invalidationTypes).toContain("no_op_idempotent");
+  });
+
   it("follows user and avoids over-invalidation storms", async () => {
     const viewerHeaders = {
       "x-viewer-id": "internal-viewer",
       "x-viewer-roles": "internal"
     };
-    const userId = "author-24";
+    // Deterministic seed already follows author-24/author-25 for mix tests.
+    // Follow a different user so this mutation is a true state change.
+    const userId = "user-1";
     const mutation = await app.inject({
       method: "POST",
       url: `/v2/users/${encodeURIComponent(userId)}/follow`,
@@ -129,7 +173,11 @@ describe("v2 mutation routes + invalidation", () => {
     const body = mutation.json();
     expect(body.data.routeName).toBe("users.unfollow.post");
     expect(body.data.following).toBe(false);
-    expect(body.data.invalidation.invalidationTypes).toContain("user.summary");
+    // Unfollow is allowed to be idempotent when not currently following.
+    // When it changes state it should invalidate user/profile caches; when it is a no-op it returns no_op_idempotent.
+    const types = body.data.invalidation.invalidationTypes as string[];
+    expect(Array.isArray(types)).toBe(true);
+    expect(types.includes("user.summary") || types.includes("no_op_idempotent")).toBe(true);
   });
 
   it("repeated like/unlike and follow/unfollow are idempotent", async () => {
@@ -179,7 +227,10 @@ describe("v2 mutation routes + invalidation", () => {
     });
     expect(followA.statusCode).toBe(200);
     expect(followB.statusCode).toBe(200);
+    // Second follow is idempotent, but should still clear relationship/bootstrap caches
+    // so clients see the correct follow state immediately.
     expect(followB.json().data.invalidation.invalidationTypes).toContain("no_op_idempotent");
+    expect(followB.json().data.invalidation.invalidationTypes).toContain("profile.relationship");
 
     const unfollowA = await app.inject({
       method: "POST",

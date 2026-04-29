@@ -58,6 +58,27 @@ describe("v2 posting/upload first slice", () => {
     expect(res.statusCode).toBe(403);
   });
 
+  it("serves places-only location autofill for the posting location setter", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v2/posting/location/suggest?q=${encodeURIComponent("new")}&limit=8`,
+      headers: viewerHeaders
+    });
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data as { routeName: string; suggestions: Array<Record<string, unknown>> };
+    expect(data.routeName).toBe("posting.location_suggest.get");
+    expect(Array.isArray(data.suggestions)).toBe(true);
+    expect(data.suggestions.length).toBeGreaterThan(0);
+    for (const row of data.suggestions.slice(0, 4)) {
+      expect(row.suggestionType).toBe("place");
+      expect(["town", "state"]).toContain(String(row.type));
+      const d = (row.data ?? {}) as Record<string, unknown>;
+      expect(typeof d.stateRegionId).toBe("string");
+      expect(typeof d.stateName).toBe("string");
+      expect(typeof d.locationText).toBe("string");
+    }
+  });
+
   it("creates upload session with idempotent replay on duplicate key", async () => {
     const unique = randomUUID().slice(0, 8);
     const payload = {

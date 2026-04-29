@@ -17,6 +17,7 @@ import {
 import type { AchievementsClaimablesResponse } from "../../contracts/surfaces/achievements-claimables.contract.js";
 import type { AchievementsLeaguesResponse } from "../../contracts/surfaces/achievements-leagues.contract.js";
 import { incrementDbOps, recordSurfaceTimings } from "../../observability/request-context.js";
+import { legendRepository } from "../../domains/legends/legend.repository.js";
 import {
   DEFAULT_ACHIEVEMENT_CHALLENGES,
   XP_REWARDS,
@@ -823,6 +824,109 @@ export class AchievementsRepository {
     };
   }
 
+  private async loadLegendsSlice(viewerId: string): Promise<NonNullable<AchievementSnapshot["legends"]>> {
+    let db: ReturnType<typeof getFirestoreSourceClient> | null = null;
+    try {
+      db = this.requireDb();
+    } catch {
+      return { activeLegends: [], closeToLegends: [], recentAwards: [] };
+    }
+    try {
+      const stateRef = legendRepository.userLegendsStateRef(viewerId);
+      const stateSnap = await stateRef.get();
+      incrementDbOps("reads", stateSnap.exists ? 1 : 0);
+      const state = (stateSnap.data() as FirestoreMap | undefined) ?? {};
+      const activeScopeIds = asArray<string>(state.activeScopeIds).map((v) => String(v ?? "")).filter(Boolean).slice(0, 4);
+      const closeScopeIds = asArray<string>(state.closeScopeIds).map((v) => String(v ?? "")).filter(Boolean).slice(0, 4);
+      const recentAwardIds = asArray<string>(state.recentAwardIds).map((v) => String(v ?? "")).filter(Boolean).slice(0, 8);
+
+      const scopeIds = [...new Set([...activeScopeIds, ...closeScopeIds])];
+      const scopeRefs = scopeIds.map((id) => legendRepository.scopeRef(id));
+      const statRefs = scopeIds.map((id) => legendRepository.userStatRef(id, viewerId));
+      const awardRefs = recentAwardIds.map((id) => legendRepository.awardRef(viewerId, id));
+
+      const snaps = await db.getAll(...scopeRefs, ...statRefs, ...awardRefs);
+      const scopeSnaps = snaps.slice(0, scopeRefs.length);
+      const statSnaps = snaps.slice(scopeRefs.length, scopeRefs.length + statRefs.length);
+      const awardSnaps = snaps.slice(scopeRefs.length + statRefs.length);
+      incrementDbOps(
+        "reads",
+        snaps.reduce<number>((sum, snap) => sum + (snap.exists ? 1 : 0), 0)
+      );
+
+      const scopeById = new Map<string, FirestoreMap>();
+      scopeSnaps.forEach((snap: (typeof scopeSnaps)[number], idx: number) => {
+        const id = scopeIds[idx]!;
+        if (snap.exists) scopeById.set(id, (snap.data() as FirestoreMap | undefined) ?? {});
+      });
+      const statByScopeId = new Map<string, FirestoreMap>();
+      statSnaps.forEach((snap: (typeof statSnaps)[number], idx: number) => {
+        const id = scopeIds[idx]!;
+        if (snap.exists) statByScopeId.set(id, (snap.data() as FirestoreMap | undefined) ?? {});
+      });
+
+    const finiteInt = (value: unknown, fallback: number) => {
+      if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+      if (typeof value === "string" && value.trim()) {
+        const n = Number(value);
+        if (Number.isFinite(n)) return Math.trunc(n);
+      }
+      return fallback;
+    };
+
+    const mapScopeSummary = (scopeId: string) => {
+      const scope = scopeById.get(scopeId) ?? {};
+      const stat = statByScopeId.get(scopeId) ?? {};
+      const leaderCount = Math.max(0, finiteInt(scope.leaderCount, 0));
+      const viewerCount = Math.max(0, finiteInt(stat.count, 0));
+      const deltaToLeader = Math.max(0, leaderCount - viewerCount);
+      return {
+        scopeId,
+        scopeType: String(scope.scopeType ?? "cell"),
+        title: String(scope.title ?? "Local Legend"),
+        subtitle: String(scope.subtitle ?? ""),
+        totalPosts: Math.max(0, finiteInt(scope.totalPosts, 0)),
+        leaderUserId: typeof scope.leaderUserId === "string" ? scope.leaderUserId : null,
+        leaderCount,
+        viewerCount,
+        viewerRank: stat.rankSnapshot == null ? null : Math.max(1, finiteInt(stat.rankSnapshot, 1)),
+        deltaToLeader
+      };
+    };
+
+      const recentAwards = awardSnaps
+        .filter((snap: (typeof awardSnaps)[number]) => snap.exists)
+        .map(
+          (snap: (typeof awardSnaps)[number]) => ((snap.data() as FirestoreMap | undefined) ?? {}) as FirestoreMap
+        )
+        .map((row: FirestoreMap) => ({
+          awardId: String(row.awardId ?? ""),
+          awardType: String(row.awardType ?? ""),
+          scopeId: String(row.scopeId ?? ""),
+          scopeType: String(row.scopeType ?? ""),
+          title: String(row.title ?? ""),
+          subtitle: String(row.subtitle ?? ""),
+          postId: String(row.postId ?? ""),
+          previousRank: row.previousRank == null ? null : Math.max(1, finiteInt(row.previousRank, 1)),
+          newRank: row.newRank == null ? null : Math.max(1, finiteInt(row.newRank, 1)),
+          userCount: Math.max(0, finiteInt(row.userCount, 0)),
+          leaderCount: Math.max(0, finiteInt(row.leaderCount, 0)),
+          deltaToLeader: Math.max(0, finiteInt(row.deltaToLeader, 0)),
+          createdAt: row.createdAt,
+          seen: row.seen === true
+        }))
+        .filter((a) => Boolean(a.awardId));
+
+      return {
+        activeLegends: activeScopeIds.map(mapScopeSummary),
+        closeToLegends: closeScopeIds.map(mapScopeSummary),
+        recentAwards
+      };
+    } catch {
+      return { activeLegends: [], closeToLegends: [], recentAwards: [] };
+    }
+  }
+
   async getBootstrapShell(viewerId: string): Promise<AchievementBootstrapShellRead> {
     const [viewerDocs, cachedLeagues, cachedBadgeDefs, cachedUserBadgeEntries] = await Promise.all([
       this.loadBootstrapViewerDocs(viewerId),
@@ -919,6 +1023,7 @@ export class AchievementsRepository {
         }
       };
     });
+    const legends = await this.loadLegendsSlice(viewerId);
     const snapshot: AchievementSnapshot = {
       xp: {
         ...xp,
@@ -928,19 +1033,15 @@ export class AchievementsRepository {
       totalPosts,
       globalRank: null,
       challenges: challengeSummaries,
-      weeklyCapturesWeekOf: firstNonEmptyString(weeklyCapturesData.weekOf),
-      weeklyCaptures,
+      // Weekly captures are fully retired in favor of Legends (kept for backwards-compat wire shape).
+      weeklyCapturesWeekOf: null,
+      weeklyCaptures: [],
+      legends,
       badges: staticBadgeSummaries,
       pendingLeaderboardEvent: mapPendingLeaderboardEvent(asArray<FirestoreMap>(stateDoc?.pendingLeaderboardPassedEvents)[0])
     };
     const claimables = {
-      weeklyCaptures: weeklyCaptures
-        .filter((capture) => capture.completed && !capture.claimed)
-        .map((capture) => ({
-          id: capture.id,
-          title: capture.title,
-          xpReward: capture.xpReward
-        })),
+      weeklyCaptures: [],
       badges: snapshot.badges
         .filter((badge) => badge.earned && !badge.claimed)
         .map((badge) => ({
@@ -970,7 +1071,7 @@ export class AchievementsRepository {
       leagues,
       claimables: {
         ...claimables,
-        totalCount: claimables.weeklyCaptures.length + claimables.badges.length + claimables.challenges.length
+        totalCount: claimables.badges.length + claimables.challenges.length
       },
       degraded: leagues.length === 0 || bootstrapDataStaged,
       fallbacks: [

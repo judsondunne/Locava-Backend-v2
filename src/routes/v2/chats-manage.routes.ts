@@ -10,6 +10,7 @@ import {
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
+import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
 import { ChatsRepositoryError, chatsRepository } from "../../repositories/surfaces/chats.repository.js";
 import { ChatsService } from "../../services/surfaces/chats.service.js";
 
@@ -109,7 +110,19 @@ export async function registerV2ChatsManageRoutes(app: FastifyInstance): Promise
         conversationId: params.conversationId,
         messageId: params.messageId
       });
-      return success({ routeName: "chats.message.delete", ...result });
+      const invalidation = await invalidateEntitiesForMutation({
+        mutationType: "chat.message.delete",
+        viewerId: viewer.viewerId,
+        conversationId: params.conversationId
+      });
+      return success({
+        routeName: "chats.message.delete",
+        ...result,
+        invalidation: {
+          invalidatedKeysCount: invalidation.invalidatedKeys.length,
+          invalidationTypes: invalidation.invalidationTypes
+        }
+      });
     } catch (error) {
       if (error instanceof ChatsRepositoryError && error.code === "conversation_not_found") {
         return reply.status(404).send(failure("conversation_not_found", error.message));

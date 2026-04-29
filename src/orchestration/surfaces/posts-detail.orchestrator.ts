@@ -32,6 +32,11 @@ export class PostsDetailOrchestrator {
           address: post.address ?? null,
           lat: post.lat ?? null,
           lng: post.lng ?? null,
+          carouselFitWidth: post.carouselFitWidth,
+          layoutLetterbox: post.layoutLetterbox,
+          letterboxGradientTop: post.letterboxGradientTop ?? null,
+          letterboxGradientBottom: post.letterboxGradientBottom ?? null,
+          letterboxGradients: post.letterboxGradients ?? undefined,
           location: {
             address: post.address ?? null,
             lat: post.lat ?? null,

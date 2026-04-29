@@ -97,6 +97,18 @@ export const routeContracts: RouteContract[] = [
     tags: ["v2", "social", "mutation"],
     bodySchema: { contacts: "Array<{name?: string, phoneNumbers?: string[], emails?: string[]}> required" }
   },
+  {
+    method: "GET",
+    path: "/v2/users/suggested",
+    description: "V2 suggested users feed (mutuals/contacts/groups/referrals/popular/fallback)",
+    tags: ["v2", "users", "social"],
+    querySchema: {
+      limit: "number (1-50) optional",
+      cursor: "string optional",
+      surface: "onboarding|profile|search|home|notifications|generic optional",
+      includeDebug: "0|1 optional"
+    }
+  },
   { method: "GET", path: "/v2/posts/:postId/detail", description: "V2 canonical post detail hydration", tags: ["v2", "post"] },
   {
     method: "POST",
@@ -146,6 +158,12 @@ export const routeContracts: RouteContract[] = [
   { method: "POST", path: "/v2/users/:userId/follow", description: "V2 user follow mutation", tags: ["v2", "mutation", "user"] },
   { method: "POST", path: "/v2/users/:userId/unfollow", description: "V2 user unfollow mutation", tags: ["v2", "mutation", "user"] },
   {
+    method: "GET",
+    path: "/v2/users/:userId/last-active",
+    description: "V2 user last-active timestamp (for chat header presence)",
+    tags: ["v2", "users", "chats"]
+  },
+  {
     method: "POST",
     path: "/v2/posting/upload-session",
     description: "V2 posting/upload session creation",
@@ -192,6 +210,13 @@ export const routeContracts: RouteContract[] = [
       assetType: "photo|video required",
       clientMediaKey: "string (8-128) optional"
     }
+  },
+  {
+    method: "GET",
+    path: "/v2/posting/location/suggest",
+    description: "V2 posting location setter places-only autofill (GeoNames-backed)",
+    tags: ["v2", "posting", "location"],
+    querySchema: { q: "string (1-80) required", limit: "number (1-12) optional" }
   },
   {
     method: "POST",

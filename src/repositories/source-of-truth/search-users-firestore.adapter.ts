@@ -22,7 +22,7 @@ const SUGGEST_CURSOR_PREFIX = "sgh:";
 export class SearchUsersFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
   private static readonly MAX_SCAN_LIMIT = 24;
-  private static readonly FIRESTORE_TIMEOUT_MS = 800;
+  private static readonly FIRESTORE_TIMEOUT_MS = 1_800;
 
   isEnabled(): boolean {
     return this.db !== null;

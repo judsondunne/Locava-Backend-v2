@@ -101,6 +101,82 @@ function normalizeStringArray(value: unknown): string[] {
   return value.map((v) => String(v).trim()).filter(Boolean);
 }
 
+function normalizeHandleToken(raw: string): string {
+  return raw.replace(/^@+/, "").trim().toLowerCase();
+}
+
+function looksLikeUid(token: string): boolean {
+  // Firebase auth uids are typically URL-safe-ish and long; handles/emails often are short or include punctuation.
+  if (!token) return false;
+  if (token.includes("@")) return false;
+  if (/\s/.test(token)) return false;
+  if (!/^[a-zA-Z0-9_-]+$/.test(token)) return false;
+  return token.length >= 16;
+}
+
+async function resolveUserIdByHandle(db: FirebaseFirestore.Firestore, rawHandle: string): Promise<string | null> {
+  const normalized = normalizeHandleToken(rawHandle);
+  if (!normalized) return null;
+  try {
+    const snap = await db.collection("users").where("searchHandle", "==", normalized).limit(1).get();
+    const doc = snap.docs[0];
+    return doc ? doc.id : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readCollaboratorInfo(
+  db: FirebaseFirestore.Firestore,
+  userIds: string[]
+): Promise<FirestoreCollaboratorInfo[]> {
+  const unique = [...new Set(userIds.map((v) => v.trim()).filter(Boolean))].slice(0, 50);
+  if (unique.length === 0) return [];
+  const refs = unique.map((id) => db.collection("users").doc(id));
+  const snaps = await Promise.all(refs.map((r) => r.get()));
+  const out: FirestoreCollaboratorInfo[] = [];
+  for (const snap of snaps) {
+    if (!snap.exists) continue;
+    const data = (snap.data() ?? {}) as { name?: unknown; displayName?: unknown; handle?: unknown; profilePic?: unknown; profilePicture?: unknown; photo?: unknown };
+    const handle = String(data.handle ?? "").replace(/^@+/, "").trim();
+    const name = String(data.name ?? data.displayName ?? "").trim();
+    const picCandidate = [data.profilePic, data.profilePicture, data.photo].find((v) => typeof v === "string" && v.trim());
+    const profilePic = typeof picCandidate === "string" ? picCandidate.trim() : null;
+    out.push({
+      id: snap.id,
+      ...(name ? { name } : {}),
+      ...(handle ? { handle } : {}),
+      profilePic
+    });
+  }
+  return out;
+}
+
+async function normalizeCollaboratorTokens(
+  db: FirebaseFirestore.Firestore,
+  viewerId: string,
+  tokens: string[]
+): Promise<{ collaboratorIds: string[]; collaboratorInfo: FirestoreCollaboratorInfo[] }> {
+  const cleaned = tokens.map((v) => String(v).trim()).filter(Boolean);
+  const ids: string[] = [];
+  for (const token of cleaned) {
+    if (token === viewerId) {
+      ids.push(viewerId);
+      continue;
+    }
+    if (looksLikeUid(token)) {
+      ids.push(token);
+      continue;
+    }
+    // Treat as handle (with or without @) and resolve via searchHandle.
+    const resolved = await resolveUserIdByHandle(db, token);
+    if (resolved) ids.push(resolved);
+  }
+  const uniqueIds = Array.from(new Set([viewerId, ...ids].map((v) => v.trim()).filter(Boolean)));
+  const collaboratorInfo = await readCollaboratorInfo(db, uniqueIds);
+  return { collaboratorIds: uniqueIds, collaboratorInfo };
+}
+
 function isAlreadyExistsError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
   const row = error as { code?: unknown; details?: unknown; message?: unknown };
@@ -688,8 +764,10 @@ export class CollectionsFirestoreAdapter {
     }
     const db = this.requireDb();
     const ref = db.collection("collections").doc();
-    const collaborators = Array.from(
-      new Set([input.viewerId, ...(input.collaborators ?? []).map((v) => String(v).trim()).filter(Boolean)])
+    const { collaboratorIds: collaborators, collaboratorInfo } = await normalizeCollaboratorTokens(
+      db,
+      input.viewerId,
+      [input.viewerId, ...(input.collaborators ?? [])]
     );
     const items = Array.from(new Set((input.items ?? []).map((v) => String(v).trim()).filter(Boolean)));
     incrementDbOps("writes", 1);
@@ -702,6 +780,7 @@ export class CollectionsFirestoreAdapter {
       privacy: input.privacy,
       isPublic: input.privacy === "public",
       collaborators,
+      collaboratorInfo,
       items,
       itemsCount: items.length,
       displayPhotoUrl: input.coverUri ?? "",
@@ -724,6 +803,7 @@ export class CollectionsFirestoreAdapter {
       coverUri: input.coverUri,
       color: input.color,
       collaborators,
+      collaboratorInfo,
       items,
       itemsCount: items.length,
       createdAt: nowIso,
@@ -793,9 +873,40 @@ export class CollectionsFirestoreAdapter {
       }
       return null;
     }
-    const mapped = mapCollectionDoc(snap as QueryDocumentSnapshot, input.viewerId);
+    let mapped = mapCollectionDoc(snap as QueryDocumentSnapshot, input.viewerId);
     if (!mapped.permissions.isOwner && !mapped.permissions.isCollaborator) return null;
     if (isSystemOrGeneratedCollection((snap.data() as Record<string, unknown>) ?? {})) return null;
+
+    // If collaborators were stored as handles (legacy clients), normalize to userIds and persist so
+    // collaborator avatars/names can reliably hydrate in v2 CollectionDetail.
+    try {
+      const needsNormalize = mapped.collaborators.some((c) => !looksLikeUid(c) && c !== mapped.ownerId);
+      const missingInfo = !mapped.collaboratorInfo || mapped.collaboratorInfo.length === 0;
+      if (needsNormalize || missingInfo) {
+        const normalized = await normalizeCollaboratorTokens(db, mapped.ownerId, mapped.collaborators);
+        if (normalized.collaboratorIds.length > 0) {
+          mapped = {
+            ...mapped,
+            collaborators: normalized.collaboratorIds,
+            collaboratorInfo: normalized.collaboratorInfo
+          };
+          incrementDbOps("writes", 1);
+          void db
+            .collection("collections")
+            .doc(input.collectionId)
+            .update({
+              collaborators: normalized.collaboratorIds,
+              collaboratorInfo: normalized.collaboratorInfo,
+              updatedAt: FieldValue.serverTimestamp()
+            })
+            .catch(() => undefined);
+          void this.upsertCollectionInViewerIndexes(normalized.collaboratorIds, mapped).catch(() => undefined);
+        }
+      }
+    } catch {
+      // best-effort; do not fail read path
+    }
+
     queueCacheWrite(this.collectionCacheKey(input.viewerId, input.collectionId), mapped, 30_000);
     if (
       !indexedMatch ||

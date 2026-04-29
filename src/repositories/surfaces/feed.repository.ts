@@ -17,6 +17,13 @@ import {
   SourceOfTruthRequiredError
 } from "../source-of-truth/strict-mode.js";
 
+type FirestoreUserSummary = {
+  userId: string;
+  handle: string;
+  name: string | null;
+  pic: string | null;
+};
+
 export type FeedBootstrapCandidateRecord = {
   postId: string;
   author: {
@@ -91,6 +98,11 @@ export type FeedDetailRecord = {
   deleted?: boolean;
   blocked?: boolean;
   createdAtMs: number;
+  carouselFitWidth?: boolean;
+  layoutLetterbox?: boolean;
+  letterboxGradientTop?: string | null;
+  letterboxGradientBottom?: string | null;
+  letterboxGradients?: Array<{ top: string; bottom: string }> | null;
   mediaType: "image" | "video";
   thumbUrl: string;
   assets: Array<{
@@ -408,8 +420,8 @@ export class FeedRepository {
         const shells = page.items.map((item) =>
           buildFeedCardShell(viewerId, item)
         );
-        const spaced = applyAuthorSpacingToFeedCards(shells, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
-        return spaced;
+        const withAuthors = await this.hydrateCardAuthors(shells);
+        return applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
       } catch (error) {
         logFirestoreDebug("feed_candidates_firestore_failure", {
           strictSourceOfTruthLabel: "feed_candidates_firestore",
@@ -495,10 +507,11 @@ export class FeedRepository {
         incrementDbOps("queries", page.queryCount);
         incrementDbOps("reads", page.readCount);
         const byId = new Map(page.items.map((item) => [item.postId, item] as const));
-        return uniqueIds
+        const shells = uniqueIds
           .map((postId) => byId.get(postId))
           .filter((item): item is NonNullable<typeof item> => item !== undefined)
           .map((item) => buildFeedCardShell(viewerId, item));
+        return await this.hydrateCardAuthors(shells);
       } catch (error) {
         if (error instanceof Error && error.message.includes("_timeout")) {
           recordTimeout("feed_card_batch_firestore");
@@ -515,7 +528,12 @@ export class FeedRepository {
     if (fromSource) {
       return fromSource.author;
     }
-    throw new SourceOfTruthRequiredError("feed_author_firestore");
+    const loaded = await this.loadUserSummaries([authorUserId]);
+    const summary = loaded.get(authorUserId);
+    if (!summary) {
+      throw new SourceOfTruthRequiredError("feed_author_firestore");
+    }
+    return summary;
   }
 
   async getAuthorSummariesByUserIds(authorUserIds: string[]): Promise<FeedBootstrapCandidateRecord["author"][]> {
@@ -560,6 +578,11 @@ export class FeedRepository {
         lng: fromSource.post.lng ?? null,
         tags: fromSource.post.tags ?? [],
         createdAtMs: fromSource.post.createdAtMs,
+        carouselFitWidth: fromSource.post.carouselFitWidth,
+        layoutLetterbox: fromSource.post.layoutLetterbox,
+        letterboxGradientTop: fromSource.post.letterboxGradientTop ?? null,
+        letterboxGradientBottom: fromSource.post.letterboxGradientBottom ?? null,
+        letterboxGradients: fromSource.post.letterboxGradients ?? null,
         mediaType: fromSource.post.mediaType,
         thumbUrl: fromSource.post.thumbUrl,
         assets: fromSource.post.assets
@@ -629,7 +652,8 @@ export class FeedRepository {
         const shells = page.items.map((item) =>
           buildFeedCardShell(viewerId, item)
         );
-        const spaced = applyAuthorSpacingToFeedCards(shells, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
+        const withAuthors = await this.hydrateCardAuthors(shells);
+        const spaced = applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
         return {
           cursorIn: cursor,
           items: spaced,
@@ -652,6 +676,66 @@ export class FeedRepository {
       }
     }
     throw new SourceOfTruthRequiredError("feed_page_firestore_unavailable");
+  }
+
+  private async hydrateCardAuthors(cards: FeedBootstrapCandidateRecord[]): Promise<FeedBootstrapCandidateRecord[]> {
+    if (!cards.length) return cards;
+    const ids = [...new Set(cards.map((c) => c.author?.userId).filter((v): v is string => typeof v === "string" && v.trim().length > 0))];
+    if (!ids.length) return cards;
+    const summaries = await this.loadUserSummaries(ids);
+    return cards.map((card) => {
+      const authorId = card.author?.userId ?? "";
+      const s = summaries.get(authorId);
+      if (!s) return card;
+      return {
+        ...card,
+        author: {
+          userId: s.userId,
+          handle: s.handle || card.author.handle,
+          name: s.name ?? card.author.name ?? null,
+          pic: s.pic ?? card.author.pic ?? null
+        }
+      };
+    });
+  }
+
+  private async loadUserSummaries(userIds: string[]): Promise<Map<string, FirestoreUserSummary>> {
+    const unique = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
+    const out = new Map<string, FirestoreUserSummary>();
+    if (!this.db || unique.length === 0) return out;
+
+    const chunkSize = 50;
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      const chunk = unique.slice(i, i + chunkSize);
+      const refs = chunk.map((id) => this.db!.collection("users").doc(id));
+      // getAll does not count as a "query" in Firestore, but we keep dbOps consistent with other codepaths.
+      incrementDbOps("queries", 1);
+      const snaps = await this.db.getAll(...refs);
+      incrementDbOps("reads", snaps.length);
+      for (const snap of snaps) {
+        if (!snap.exists) continue;
+        const d = (snap.data() ?? {}) as Record<string, unknown>;
+        const handle = String(d.handle ?? "").replace(/^@+/, "").trim();
+        const nameCandidate = typeof d.name === "string" ? d.name : typeof d.displayName === "string" ? d.displayName : "";
+        const name = nameCandidate.trim() ? nameCandidate.trim() : null;
+        const picCandidate =
+          typeof d.profilePic === "string"
+            ? d.profilePic
+            : typeof d.profilePicture === "string"
+              ? d.profilePicture
+              : typeof d.photo === "string"
+                ? d.photo
+                : "";
+        const pic = picCandidate.trim() ? picCandidate.trim() : null;
+        out.set(snap.id, {
+          userId: snap.id,
+          handle: handle || `user_${snap.id.slice(0, 8)}`,
+          name,
+          pic
+        });
+      }
+    }
+    return out;
   }
 
   async getSessionHints(viewerId: string, slowMs: number): Promise<FeedSessionHintsRecord> {

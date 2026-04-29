@@ -13,7 +13,7 @@ export class MixesRepository {
 
   async loadViewerActivityProfile(viewerId: string): Promise<string[]> {
     const db = this.requireDb();
-    const snap = await db.collection("users").doc(viewerId).select("activityProfile").get();
+    const snap = await db.collection("users").doc(viewerId).get();
     incrementDbOps("reads", 1);
     const data = snap.data() as Record<string, unknown> | undefined;
     const profile = Array.isArray(data?.activityProfile) ? (data?.activityProfile as unknown[]) : [];
@@ -22,17 +22,18 @@ export class MixesRepository {
 
   async loadViewerFollowingUserIds(viewerId: string, limit = 120): Promise<string[]> {
     const db = this.requireDb();
-    const snap = await db.collection("users").doc(viewerId).select("following").get();
-    incrementDbOps("reads", 1);
-    const data = snap.data() as Record<string, unknown> | undefined;
-    const raw = data?.following;
-    const ids: string[] = [];
-    if (Array.isArray(raw)) {
-      for (const v of raw) ids.push(String(v ?? ""));
-    } else if (raw && typeof raw === "object") {
-      for (const v of Object.values(raw as Record<string, unknown>)) ids.push(String(v ?? ""));
-    }
-    return ids.map((v) => v.trim()).filter(Boolean).slice(0, Math.max(1, limit));
+    const safeLimit = Math.max(1, Math.min(500, Math.floor(limit)));
+    const snap = await db
+      .collection("users")
+      .doc(viewerId)
+      .collection("following")
+      .orderBy(FieldPath.documentId(), "asc")
+      .select()
+      .limit(safeLimit)
+      .get();
+    incrementDbOps("queries", 1);
+    incrementDbOps("reads", snap.docs.length);
+    return snap.docs.map((d) => d.id).filter(Boolean).slice(0, safeLimit);
   }
 
   async loadRecentPostsByUserIds(input: { userIds: string[]; limit: number }): Promise<Array<Record<string, unknown>>> {
@@ -57,6 +58,7 @@ export class MixesRepository {
           "thumbUrl",
           "displayPhotoLink",
           "photoLink",
+          "assets",
           "mediaType",
           "likesCount",
           "likeCount",

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
-import { MessageSummarySchema } from "../entities/chat-message-entities.contract.js";
+import { GifAttachmentSchema, MessageSummarySchema } from "../entities/chat-message-entities.contract.js";
 
 export const ChatsSendMessageParamsSchema = z.object({
   conversationId: z.string().min(1)
@@ -12,6 +12,7 @@ export const ChatsSendMessageBodySchema = z
     text: z.string().trim().max(600).optional(),
     photoUrl: z.string().url().optional(),
     gifUrl: z.string().url().optional(),
+    gif: GifAttachmentSchema.optional(),
     postId: z.string().trim().min(4).max(128).optional(),
     clientMessageId: z.string().trim().min(8).max(128).optional(),
     replyingToMessageId: z.string().trim().min(1).max(128).optional()

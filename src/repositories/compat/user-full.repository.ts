@@ -18,7 +18,7 @@ export class CompatUserFullRepository {
     lastLoginAt: number;
   }> {
     const db = this.requireDb();
-    const snap = await db.collection("users").doc(userId).select("followers", "following", "followersCount", "followingCount", "updatedAt", "lastLoginAt").get();
+    const snap = await db.collection("users").doc(userId).get();
     incrementDbOps("reads", 1);
     const data = (snap.data() ?? {}) as Record<string, unknown>;
     const followersRaw = data.followers;

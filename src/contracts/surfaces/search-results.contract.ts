@@ -8,7 +8,11 @@ export const SearchResultsQuerySchema = z.object({
   limit: z.coerce.number().int().min(4).max(12).default(8),
   lat: z.coerce.number().finite().optional(),
   lng: z.coerce.number().finite().optional(),
-  types: z.string().trim().optional()
+  types: z.string().trim().optional(),
+  debug: z
+    .union([z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((v) => v === "1"),
 });
 
 export const SearchResultsResponseSchema = z.object({
@@ -24,6 +28,7 @@ export const SearchResultsResponseSchema = z.object({
     sort: z.literal("search_ranked_v1")
   }),
   items: z.array(PostCardSummarySchema),
+  debugSearch: z.record(z.string(), z.unknown()).optional(),
   sections: z.object({
     posts: z.object({
       items: z.array(PostCardSummarySchema),

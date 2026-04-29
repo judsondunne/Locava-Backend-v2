@@ -36,7 +36,8 @@ export async function registerV2SearchResultsRoutes(app: FastifyInstance): Promi
         limit: query.limit,
         lat: query.lat ?? null,
         lng: query.lng ?? null,
-        wantedTypes
+        wantedTypes,
+        includeDebug: Boolean(query.debug),
       });
       request.log.info(
         {

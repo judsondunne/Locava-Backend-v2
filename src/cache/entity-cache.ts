@@ -21,6 +21,10 @@ export const entityCacheKeys = {
   userFirestoreDoc(userId: string): string {
     return `user:${userId}:firestoreDoc`;
   },
+  /** Lean user activity cache (presence-ish): last active millis derived from users/{id}. */
+  userLastActiveMs(userId: string): string {
+    return `user:${userId}:lastActiveMs:v1`;
+  },
   userPostCount(userId: string): string {
     return `user:${userId}:postCount:v2`;
   },
@@ -38,6 +42,9 @@ export const entityCacheKeys = {
   },
   viewerPostState(viewerId: string, postId: string): string {
     return `post:${postId}:viewer:${viewerId}:state`;
+  },
+  userFollowCounts(userId: string): string {
+    return `user:${userId}:followCounts:v1`;
   }
 };
 

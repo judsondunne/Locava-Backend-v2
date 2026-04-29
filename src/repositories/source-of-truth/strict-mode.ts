@@ -15,11 +15,17 @@ export function isStrictSourceOfTruthEnabled(): boolean {
 
 export function enforceSourceOfTruthStrictness(sourceLabel: string): void {
   const strictEnabled = isStrictSourceOfTruthEnabled();
+  // Some interactive surfaces should degrade (empty + fallbacks) rather than hard-503 when
+  // Firestore source-of-truth is temporarily unavailable.
+  const nonFatalSources = new Set([
+    "search_results_firestore",
+    "search_results_firestore_unavailable",
+  ]);
   logFirestoreDebug("source_of_truth_strictness_check", {
     sourceLabel,
     strictEnabled
   });
-  if (strictEnabled) {
+  if (strictEnabled && !nonFatalSources.has(sourceLabel)) {
     logFirestoreDebug("source_of_truth_strictness_escalated", {
       sourceLabel
     });

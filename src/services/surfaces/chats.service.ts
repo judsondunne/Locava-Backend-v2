@@ -55,6 +55,17 @@ export class ChatsService {
     text: string | null;
     photoUrl: string | null;
     gifUrl: string | null;
+    gif: null | {
+      provider: "giphy";
+      gifId: string;
+      title?: string;
+      previewUrl: string;
+      fixedHeightUrl?: string;
+      mp4Url?: string;
+      width?: number;
+      height?: number;
+      originalUrl?: string;
+    };
     postId: string | null;
     replyingToMessageId: string | null;
     clientMessageId: string | null;

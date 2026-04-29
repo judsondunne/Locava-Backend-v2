@@ -46,6 +46,7 @@ export async function registerV2ChatsSendMessageRoutes(app: FastifyInstance): Pr
         text: text.length ? text : null,
         photoUrl: body.photoUrl ?? null,
         gifUrl: body.gifUrl ?? null,
+        gif: body.gif ?? null,
         postId: body.postId?.trim() ?? null,
         replyingToMessageId: body.replyingToMessageId ?? null,
         clientMessageId: body.clientMessageId ?? null

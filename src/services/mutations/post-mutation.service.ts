@@ -37,4 +37,12 @@ export class PostMutationService {
       )
     );
   }
+
+  async deletePost(viewerId: string, postId: string) {
+    return dedupeInFlight(`mutation:post-delete:${viewerId}:${postId}`, () =>
+      withConcurrencyLimit("mutation-post-delete", 6, () =>
+        withMutationLock(`post-mutation:${viewerId}:${postId}`, () => this.repository.deletePost(viewerId, postId))
+      )
+    );
+  }
 }

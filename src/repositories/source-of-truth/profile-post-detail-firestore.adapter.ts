@@ -210,31 +210,54 @@ function normalizeLetterboxHints(data: {
   letterbox_gradient_top?: unknown;
   letterbox_gradient_bottom?: unknown;
   letterboxGradients?: unknown;
+  legacy?: unknown;
 }): {
   letterboxGradientTop: string | undefined;
   letterboxGradientBottom: string | undefined;
   letterboxGradients: Array<{ top: string; bottom: string }> | undefined;
 } {
+  const legacy = (data as { legacy?: unknown }).legacy as
+    | {
+        letterboxGradientTop?: unknown;
+        letterboxGradientBottom?: unknown;
+        letterboxGradients?: unknown;
+        letterbox_gradient_top?: unknown;
+        letterbox_gradient_bottom?: unknown;
+      }
+    | undefined;
   const topRaw =
     typeof data.letterboxGradientTop === "string"
       ? data.letterboxGradientTop
       : typeof data.letterbox_gradient_top === "string"
         ? data.letterbox_gradient_top
+        : typeof legacy?.letterboxGradientTop === "string"
+          ? (legacy.letterboxGradientTop as string)
+          : typeof legacy?.letterbox_gradient_top === "string"
+            ? (legacy.letterbox_gradient_top as string)
         : "";
   const bottomRaw =
     typeof data.letterboxGradientBottom === "string"
       ? data.letterboxGradientBottom
       : typeof data.letterbox_gradient_bottom === "string"
         ? data.letterbox_gradient_bottom
+        : typeof legacy?.letterboxGradientBottom === "string"
+          ? (legacy.letterboxGradientBottom as string)
+          : typeof legacy?.letterbox_gradient_bottom === "string"
+            ? (legacy.letterbox_gradient_bottom as string)
         : "";
   const top = topRaw.trim();
   const bottom = bottomRaw.trim();
 
-  if (!Array.isArray(data.letterboxGradients)) {
+  const gradientsRaw = Array.isArray(data.letterboxGradients)
+    ? data.letterboxGradients
+    : Array.isArray(legacy?.letterboxGradients)
+      ? (legacy!.letterboxGradients as unknown[])
+      : null;
+  if (!Array.isArray(gradientsRaw)) {
     return { letterboxGradientTop: top || undefined, letterboxGradientBottom: bottom || undefined, letterboxGradients: undefined };
   }
   const out: Array<{ top: string; bottom: string }> = [];
-  for (const entry of data.letterboxGradients) {
+  for (const entry of gradientsRaw) {
     if (!entry || typeof entry !== "object") continue;
     const e = entry as { top?: unknown; bottom?: unknown };
     if (typeof e.top !== "string" || typeof e.bottom !== "string") continue;

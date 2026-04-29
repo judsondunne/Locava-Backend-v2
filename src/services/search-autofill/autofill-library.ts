@@ -1,4 +1,4 @@
-import autofillLibrary from "./autofill-library.json";
+import autofillLibrary from "./autofill-library.json" with { type: "json" };
 import type { PrefixFrame } from "./autofill-intent.js";
 import { getPrefixFrame } from "./autofill-intent.js";
 
