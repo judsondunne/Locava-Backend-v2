@@ -130,10 +130,49 @@ describe("v2 map markers route", () => {
     expect(data.routeName).toBe("map.markers.get");
     expect(data.count).toBe(1);
     expect(data.markers[0].lat).toBe(40.7);
+    expect(data.markers[0].thumbnailUrl).toBeUndefined();
     expect(data.markers[0].description).toBeUndefined();
     expect(data.markers[0].comments).toBeUndefined();
+    expect(data.diagnostics.payloadMode).toBe("compact");
     expect(data.diagnostics.invalidCoordinateDrops).toBe(2);
     expect(response.headers.etag).toBe("\"abc\"");
+  });
+
+  it("supports explicit full payload mode", async () => {
+    fetchAllMock.mockResolvedValue({
+      markers: [
+        {
+          id: "p1",
+          postId: "p1",
+          lat: 40.7,
+          lng: -74.0,
+          activity: "hike",
+          activities: ["hike"],
+          ownerId: "u1",
+          thumbnailUrl: "https://cdn/p1.jpg",
+          hasPhoto: true,
+          hasVideo: false
+        }
+      ],
+      count: 1,
+      generatedAt: 123,
+      version: "map-markers-v1",
+      etag: "\"abc2\"",
+      queryCount: 1,
+      readCount: 1,
+      invalidCoordinateDrops: 0
+    });
+    const { createApp } = await import("../../app/createApp.js");
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v2/map/markers?payloadMode=full",
+      headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" }
+    });
+    expect(response.statusCode).toBe(200);
+    const data = response.json().data;
+    expect(data.markers[0].thumbnailUrl).toBe("https://cdn/p1.jpg");
+    expect(data.diagnostics.payloadMode).toBe("full");
   });
 
   it("returns 304 when etag matches", async () => {

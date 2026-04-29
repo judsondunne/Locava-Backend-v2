@@ -5,7 +5,7 @@ import { legendsEventsSeenContract, LegendsEventsSeenParamsSchema } from "../../
 import { legendsEventsUnseenContract } from "../../contracts/surfaces/legends-events-unseen.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
-import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
+import { incrementDbOps, recordFallback, setRouteName } from "../../observability/request-context.js";
 import { legendRepository } from "../../domains/legends/legend.repository.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
@@ -32,7 +32,17 @@ export async function registerV2LegendsEventsRoutes(app: FastifyInstance): Promi
       return success({ routeName: legendsEventsUnseenContract.routeName, events: [], count: 0, nextPollAfterMs: 0 });
     }
 
-    const snap = await legendRepository.unseenLegendEventsQuery(viewer.viewerId, 5).get();
+    let snap;
+    try {
+      snap = await legendRepository.unseenLegendEventsQuery(viewer.viewerId, 5).get();
+    } catch (error) {
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (message.includes("index") || message.includes("failed_precondition")) {
+        recordFallback("legends_events_unseen_missing_index");
+        return success({ routeName: legendsEventsUnseenContract.routeName, events: [], count: 0, nextPollAfterMs: 120_000 });
+      }
+      throw error;
+    }
     incrementDbOps("queries", 1);
     incrementDbOps("reads", snap.docs.length);
     const events = snap.docs.map((doc) => {

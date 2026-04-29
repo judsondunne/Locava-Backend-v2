@@ -1,8 +1,15 @@
 export type RoutePriority = "critical_interactive" | "deferred_interactive" | "background" | "internal_debug";
+export type PriorityLane =
+  | "P0_VISIBLE_PLAYBACK"
+  | "P1_NEXT_PLAYBACK"
+  | "P2_CURRENT_SCREEN"
+  | "P3_DEFERRED_SCREEN"
+  | "P4_BACKGROUND";
 
 export type RouteBudgetPolicy = {
   routeName: string;
   priority: RoutePriority;
+  lane?: PriorityLane;
   budgets: {
     latency: {
       p50Ms: number;
@@ -668,6 +675,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
   "posts.detail.get": {
     routeName: "posts.detail.get",
     priority: "critical_interactive",
+    lane: "P0_VISIBLE_PLAYBACK",
     budgets: {
       latency: { p50Ms: 95, p95Ms: 210 },
       dbOps: { maxReadsCold: 12, maxQueriesCold: 6, expectedReadsWarm: 2, expectedQueriesWarm: 2 },
@@ -675,6 +683,18 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "recommended",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
+  "posts.detail.batch": {
+    routeName: "posts.detail.batch",
+    priority: "critical_interactive",
+    lane: "P1_NEXT_PLAYBACK",
+    budgets: {
+      latency: { p50Ms: 70, p95Ms: 180 },
+      dbOps: { maxReadsCold: 18, maxQueriesCold: 8, expectedReadsWarm: 2, expectedQueriesWarm: 2 },
+      payload: { maxBytes: 52_000, targetBytes: 24_000 }
+    },
+    cacheExpectation: "required",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
   },
   "posts.stage.post": {
     routeName: "posts.stage.post",
@@ -1350,9 +1370,20 @@ const policies: Record<string, RouteBudgetPolicy> = {
 };
 
 export function getRoutePolicy(routeName: string): RouteBudgetPolicy | undefined {
-  return policies[routeName];
+  const policy = policies[routeName];
+  if (!policy) return undefined;
+  if (policy.lane) return policy;
+  return { ...policy, lane: inferLaneFromPriority(policy.priority) };
 }
 
 export function listRoutePolicies(): RouteBudgetPolicy[] {
-  return Object.values(policies);
+  return Object.values(policies).map((policy) =>
+    policy.lane ? policy : { ...policy, lane: inferLaneFromPriority(policy.priority) }
+  );
+}
+
+function inferLaneFromPriority(priority: RoutePriority): PriorityLane {
+  if (priority === "critical_interactive") return "P2_CURRENT_SCREEN";
+  if (priority === "deferred_interactive") return "P3_DEFERRED_SCREEN";
+  return "P4_BACKGROUND";
 }

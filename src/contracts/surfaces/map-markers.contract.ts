@@ -32,7 +32,8 @@ export const MapMarkersResponseSchema = z.object({
     readCount: z.number().int().nonnegative(),
     payloadBytes: z.number().int().nonnegative(),
     invalidCoordinateDrops: z.number().int().nonnegative(),
-    cacheSource: z.enum(["miss", "hit", "revalidated_304"])
+    cacheSource: z.enum(["miss", "hit", "revalidated_304"]),
+    payloadMode: z.enum(["full", "compact"]).optional()
   })
 });
 
@@ -48,6 +49,8 @@ export const mapMarkersContract = defineContract({
      * aren't dropped by the global "latest N posts" universe slice.
      */
     ownerId: z.string().min(1).optional()
+    ,
+    payloadMode: z.enum(["full", "compact"]).default("compact")
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema

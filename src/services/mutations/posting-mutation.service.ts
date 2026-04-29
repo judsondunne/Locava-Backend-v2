@@ -20,7 +20,10 @@ import {
   type NativePostGeoBlock,
   type NativePostUserSnapshot
 } from "../posting/buildPostDocument.js";
-import { enqueueVideoProcessingCloudTask } from "../posting/video-processing-cloud-task.service.js";
+import {
+  enqueueVideoProcessingCloudTask,
+  triggerVideoProcessingSynchronously
+} from "../posting/video-processing-cloud-task.service.js";
 import { searchPlacesIndexService } from "../surfaces/search-places-index.service.js";
 import { postingAchievementsService } from "./posting-achievements.service.js";
 import { legendService } from "../../domains/legends/legend.service.js";
@@ -384,9 +387,9 @@ export class PostingMutationService {
 
   private shouldUseSynchronousFinalizeAchievements(): boolean {
     if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") return true;
-    // Default to synchronous so the native "post success / claim XP" flow can display the real delta.
-    // Set POSTING_FINALIZE_ASYNC_ACHIEVEMENTS=1 to revert to the placeholder + background award behavior.
-    return process.env.POSTING_FINALIZE_ASYNC_ACHIEVEMENTS !== "1";
+    // Production default: async achievements to keep finalize latency low and avoid client timeout false-failures.
+    // Set POSTING_FINALIZE_SYNC_ACHIEVEMENTS=1 to force synchronous behavior for debugging.
+    return process.env.POSTING_FINALIZE_SYNC_ACHIEVEMENTS === "1";
   }
 
   private scheduleViewerDocCacheWarm(viewerId: string): void {
@@ -982,15 +985,15 @@ export class PostingMutationService {
     const firstVideo = assembled.assets.find((a) => String((a as { type?: string }).type).toLowerCase() === "video") as
       | {
           poster?: string;
-          variants?: { main720?: string; main720Avc?: string; poster?: string };
+          variants?: { main720?: string; main720Avc?: string; preview360Avc?: string; poster?: string };
           original?: string;
         }
       | undefined;
     const playbackUrlPresent = Boolean(
       firstVideo &&
-        (String(firstVideo.variants?.main720 ?? "").trim() ||
-          String(firstVideo.variants?.main720Avc ?? "").trim() ||
-          String(firstVideo.original ?? "").trim())
+        (String(firstVideo.variants?.preview360Avc ?? "").trim() ||
+          String(firstVideo.variants?.main720 ?? "").trim() ||
+          String(firstVideo.variants?.main720Avc ?? "").trim())
     );
     const posterPresent = Boolean(
       firstVideo &&
@@ -1011,6 +1014,8 @@ export class PostingMutationService {
 
     let videoTaskEnqueued = false;
     let videoTaskReason: string | undefined;
+    let syncFaststartAttempted = false;
+    let instantPlaybackReady = false;
     if (createdNewPost && assembled.hasVideo) {
       const videoAssets = assembled.assets
         .filter((a) => String((a as { type?: string }).type).toLowerCase() === "video")
@@ -1020,27 +1025,55 @@ export class PostingMutationService {
         })
         .filter((a) => a.id.length > 0 && a.original.length > 0);
       if (videoAssets.length > 0) {
-        const taskResult = await enqueueVideoProcessingCloudTask({
-          postId,
-          userId: input.effectiveUserId,
-          videoAssets,
-          correlationId: input.sessionId
-        });
-        if (taskResult.ok) {
-          videoTaskEnqueued = true;
-          await postRef.update({
-            videoProcessingStatus: "processing",
-            videoProcessingProgress: {
-              totalVideos: videoAssets.length,
-              processedVideos: 0
-            }
-          });
-        } else {
-          videoTaskReason = taskResult.reason;
-          console.warn("[posting.finalize] video_processing_task_not_enqueued", {
+        if (await this.shouldAttemptSyncVideoFaststart(videoAssets)) {
+          syncFaststartAttempted = true;
+          const timeoutMs = this.getSyncVideoFaststartTimeoutMs();
+          const syncResult = await triggerVideoProcessingSynchronously({
             postId,
-            reason: taskResult.reason
+            userId: input.effectiveUserId,
+            videoAssets,
+            correlationId: input.sessionId,
+            timeoutMs
           });
+          if (!syncResult.ok) {
+            videoTaskReason = `sync_faststart_failed:${syncResult.reason}`;
+          } else {
+            instantPlaybackReady = await this.verifyAndMarkInstantPlaybackReady(postId);
+          }
+        }
+
+        if (!instantPlaybackReady) {
+          const taskResult = await enqueueVideoProcessingCloudTask({
+            postId,
+            userId: input.effectiveUserId,
+            videoAssets,
+            correlationId: input.sessionId
+          });
+          if (taskResult.ok) {
+            videoTaskEnqueued = true;
+            await postRef.update({
+              videoProcessingStatus: "processing",
+              instantPlaybackReady: false,
+              assetsReady: false,
+              videoProcessingProgress: {
+                totalVideos: videoAssets.length,
+                processedVideos: 0
+              }
+            });
+            this.scheduleInstantPlaybackReadyMonitor(postId);
+          } else {
+            videoTaskReason = taskResult.reason;
+            await postRef.update({
+              videoProcessingStatus: "failed",
+              instantPlaybackReady: false,
+              assetsReady: false,
+              videoProcessingFailureReason: taskResult.reason
+            });
+            console.warn("[posting.finalize] video_processing_task_not_enqueued", {
+              postId,
+              reason: taskResult.reason
+            });
+          }
         }
       }
     }
@@ -1056,6 +1089,8 @@ export class PostingMutationService {
       variantCount: assembled.variantUrlCount,
       posterPresent,
       playbackUrlPresent,
+      syncFaststartAttempted,
+      instantPlaybackReady,
       videoTaskEnqueued,
       ...(videoTaskReason ? { videoTaskReason } : {}),
       sessionIdPrefix: input.sessionId.slice(0, 8)
@@ -1071,6 +1106,102 @@ export class PostingMutationService {
       console.info("[posting.finalize.timing] publishNativeCanonicalPost:canonicalCreate", { ms: Date.now() - startedAt });
     }
     return postId;
+  }
+
+  private async shouldAttemptSyncVideoFaststart(videoAssets: Array<{ id: string; original: string }>): Promise<boolean> {
+    // Keep finalize fast by default; opt into sync faststart only via explicit env.
+    if (process.env.POSTING_VIDEO_SYNC_FASTSTART_ENABLED !== "1") return false;
+    const maxVideos = 2;
+    if (!(videoAssets.length > 0 && videoAssets.length <= maxVideos)) return false;
+    const maxBytes = Number(process.env.POSTING_VIDEO_SYNC_FASTSTART_MAX_BYTES ?? 157286400);
+    if (!Number.isFinite(maxBytes) || maxBytes <= 0) return true;
+    let totalBytes = 0;
+    for (const asset of videoAssets) {
+      try {
+        const res = await fetch(asset.original, { method: "HEAD" });
+        const len = Number(res.headers.get("content-length") ?? "0");
+        if (Number.isFinite(len) && len > 0) {
+          totalBytes += len;
+          if (totalBytes > maxBytes) return false;
+        }
+      } catch {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private getSyncVideoFaststartTimeoutMs(): number {
+    const raw = Number(process.env.POSTING_VIDEO_SYNC_FASTSTART_MAX_SECONDS ?? 45);
+    if (!Number.isFinite(raw) || raw <= 0) return 45_000;
+    return Math.round(raw * 1000);
+  }
+
+  private async verifyAndMarkInstantPlaybackReady(postId: string): Promise<boolean> {
+    const db = getFirestoreSourceClient();
+    if (!db) return false;
+    const snap = await db.collection("posts").doc(postId).get();
+    if (!snap.exists) return false;
+    const post = (snap.data() ?? {}) as Record<string, unknown>;
+    const assets = Array.isArray(post.assets) ? (post.assets as Record<string, unknown>[]) : [];
+    const videoAssets = assets.filter((a) => String(a.type ?? "").toLowerCase() === "video");
+    if (videoAssets.length === 0) return true;
+    for (const asset of videoAssets) {
+      const poster = String(asset.poster ?? "").trim();
+      const variants = (asset.variants ?? {}) as Record<string, unknown>;
+      const preview360 = String(variants.preview360 ?? variants.preview360Avc ?? "").trim();
+      const main720 = String(variants.main720 ?? "").trim();
+      const main720Avc = String(variants.main720Avc ?? "").trim();
+      if (!poster || !preview360 || !main720 || !main720Avc) return false;
+      if (
+        preview360 === String(asset.original ?? "").trim() ||
+        main720 === String(asset.original ?? "").trim() ||
+        main720Avc === String(asset.original ?? "").trim()
+      ) {
+        return false;
+      }
+      const urls = [preview360, main720, main720Avc];
+      if (process.env.POSTING_VIDEO_FASTSTART_REQUIRED !== "0") {
+        for (const url of urls) {
+          if (!(await this.verifyMp4Faststart(url))) return false;
+        }
+      }
+    }
+    await db.collection("posts").doc(postId).update({
+      instantPlaybackReady: true,
+      assetsReady: true,
+      videoProcessingStatus: "completed",
+      videoProcessingProgress: FieldValue.delete()
+    });
+    return true;
+  }
+
+  private scheduleInstantPlaybackReadyMonitor(postId: string): void {
+    scheduleBackgroundWork(async () => {
+      for (let i = 0; i < 8; i += 1) {
+        const ok = await this.verifyAndMarkInstantPlaybackReady(postId).catch(() => false);
+        if (ok) return;
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    });
+  }
+
+  private async verifyMp4Faststart(url: string): Promise<boolean> {
+    if (!/^https?:\/\//i.test(url)) return false;
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        headers: { Range: "bytes=0-524287" }
+      });
+      if (!res.ok && res.status !== 206) return false;
+      const buf = Buffer.from(await res.arrayBuffer());
+      const body = buf.toString("binary");
+      const moov = body.indexOf("moov");
+      const mdat = body.indexOf("mdat");
+      return moov >= 0 && (mdat < 0 || moov < mdat);
+    } catch {
+      return false;
+    }
   }
 
   private async assertCanonicalMediaPubliclyReadable(postId: string): Promise<void> {

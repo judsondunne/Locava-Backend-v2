@@ -36,7 +36,8 @@ describe("v2 posts detail route", () => {
       headers,
       payload: {
         postIds: ["internal-viewer-feed-post-1", "internal-viewer-feed-post-2", "internal-viewer-feed-post-1"],
-        reason: "prefetch"
+        reason: "prefetch",
+        hydrationMode: "card"
       }
     });
     if (res.statusCode === 503) {
@@ -48,9 +49,67 @@ describe("v2 posts detail route", () => {
     const body = res.json();
     expect(body.data.routeName).toBe("posts.detail.batch");
     expect(body.data.reason).toBe("prefetch");
+    expect(body.data.hydrationMode).toBe("card");
     if (body.data.found.length > 0) {
       expect(body.data.found[0].detail.routeName).toBe("posts.detail.get");
     }
     expect(Array.isArray(body.data.missing)).toBe(true);
+  });
+
+  it("returns mode-specific payload categories", async () => {
+    const headers = { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" };
+    const run = async (hydrationMode: "card" | "playback" | "open" | "full") =>
+      app.inject({
+        method: "POST",
+        url: "/v2/posts/details:batch",
+        headers,
+        payload: {
+          postIds: ["internal-viewer-feed-post-1"],
+          reason: "open",
+          hydrationMode
+        }
+      });
+    const card = await run("card");
+    const playback = await run("playback");
+    const open = await run("open");
+    const full = await run("full");
+    if ([card, playback, open, full].some((res) => res.statusCode === 503)) return;
+    expect(card.statusCode).toBe(200);
+    expect(playback.statusCode).toBe(200);
+    expect(open.statusCode).toBe(200);
+    expect(full.statusCode).toBe(200);
+    const cardBody = card.json().data;
+    const playbackBody = playback.json().data;
+    const openBody = open.json().data;
+    const fullBody = full.json().data;
+    expect(cardBody.debugPayloadCategory).toBe("tiny");
+    expect(playbackBody.debugPayloadCategory).toBe("small");
+    expect(["small", "medium"]).toContain(openBody.debugPayloadCategory);
+    expect(fullBody.debugPayloadCategory).toBe("heavy");
+  });
+
+  it("keeps no-mode requests backward compatible with playback/detail assets", async () => {
+    const headers = { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" };
+    const res = await app.inject({
+      method: "POST",
+      url: "/v2/posts/details:batch",
+      headers,
+      payload: {
+        postIds: ["internal-viewer-feed-post-1"],
+        reason: "open"
+      }
+    });
+    if (res.statusCode === 503) return;
+    expect(res.statusCode).toBe(200);
+    const body = res.json().data;
+    expect(body.hydrationMode).toBe("open");
+    if (!Array.isArray(body.found) || body.found.length === 0) {
+      expect(Array.isArray(body.missing)).toBe(true);
+      return;
+    }
+    const first = body.found?.[0]?.detail?.firstRender?.post;
+    expect(typeof first?.mediaType).toBe("string");
+    expect(typeof first?.thumbUrl).toBe("string");
+    expect(String(first?.thumbUrl ?? "").length).toBeGreaterThan(0);
   });
 });

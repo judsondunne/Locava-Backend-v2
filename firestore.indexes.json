@@ -73,6 +73,15 @@
         { "fieldPath": "time", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "legendEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "seen", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

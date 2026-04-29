@@ -56,6 +56,19 @@ export type RequestContext = {
   timeouts: string[];
   /** Milliseconds spent in named repository/service stages (for Server-Timing / profiling). */
   surfaceTimings: Record<string, number>;
+  orchestration: {
+    surface: string | null;
+    priority: string | null;
+    requestGroup: string | null;
+    visiblePostId: string | null;
+    screenInstanceId: string | null;
+    clientRequestId: string | null;
+    hydrationMode: string | null;
+    stale: boolean;
+    canceled: boolean;
+    deduped: boolean;
+    queueWaitMs: number;
+  };
   audit?: AuditRequestContext;
 };
 
@@ -199,4 +212,15 @@ export function recordIdempotencyMiss(): void {
   const ctx = storage.getStore();
   if (!ctx) return;
   ctx.idempotency.misses += 1;
+}
+
+export function setOrchestrationMetadata(
+  patch: Partial<RequestContext["orchestration"]>
+): void {
+  const ctx = storage.getStore();
+  if (!ctx) return;
+  ctx.orchestration = {
+    ...ctx.orchestration,
+    ...patch
+  };
 }

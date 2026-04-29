@@ -24,9 +24,10 @@ function collectContractRouteNames(): string[] {
   const names = new Set<string>();
   for (const file of readdirSync(contractsDir).filter((entry) => entry.endsWith(".contract.ts"))) {
     const source = readFileSync(path.join(contractsDir, file), "utf8");
-    const match = source.match(/routeName:\s*"([^"]+)"/);
-    const routeName = match?.[1];
-    if (routeName) names.add(routeName);
+    for (const match of source.matchAll(/routeName:\s*"([^"]+)"/g)) {
+      const routeName = match[1];
+      if (routeName) names.add(routeName);
+    }
   }
   return [...names].sort();
 }

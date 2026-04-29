@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { enqueueVideoProcessingCloudTaskMock } = vi.hoisted(() => ({
-  enqueueVideoProcessingCloudTaskMock: vi.fn().mockResolvedValue({ ok: true, taskName: "tasks/mock" })
+const { enqueueVideoProcessingCloudTaskMock, triggerVideoProcessingSynchronouslyMock } = vi.hoisted(() => ({
+  enqueueVideoProcessingCloudTaskMock: vi.fn().mockResolvedValue({ ok: true, taskName: "tasks/mock" }),
+  triggerVideoProcessingSynchronouslyMock: vi.fn().mockResolvedValue({ ok: false, reason: "disabled_for_test" })
 }));
 
 vi.mock("../posting/video-processing-cloud-task.service.js", () => ({
-  enqueueVideoProcessingCloudTask: enqueueVideoProcessingCloudTaskMock
+  enqueueVideoProcessingCloudTask: enqueueVideoProcessingCloudTaskMock,
+  triggerVideoProcessingSynchronously: triggerVideoProcessingSynchronouslyMock
 }));
 
 const finalizePostingMock = vi.fn();
@@ -49,6 +51,7 @@ describe("PostingMutationService finalize parity", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalLegacyBase = process.env.LEGACY_MONOLITH_PROXY_BASE_URL;
   const originalUseLegacyProxy = process.env.POSTING_FINALIZE_USE_LEGACY_PROXY;
+  const originalSyncFaststartEnabled = process.env.POSTING_VIDEO_SYNC_FASTSTART_ENABLED;
 
   beforeEach(() => {
     finalizePostingMock.mockReset();
@@ -60,7 +63,9 @@ describe("PostingMutationService finalize parity", () => {
     firestoreCreateMock.mockReset();
     firestoreUpdateMock.mockReset();
     enqueueVideoProcessingCloudTaskMock.mockReset();
+    triggerVideoProcessingSynchronouslyMock.mockReset();
     enqueueVideoProcessingCloudTaskMock.mockResolvedValue({ ok: true, taskName: "tasks/mock" });
+    triggerVideoProcessingSynchronouslyMock.mockResolvedValue({ ok: false, reason: "disabled_for_test" });
     processPostCreatedMock.mockResolvedValue({
       xpGained: 50,
       newTotalXP: 1050,
@@ -78,12 +83,14 @@ describe("PostingMutationService finalize parity", () => {
     process.env.NODE_ENV = "development";
     process.env.LEGACY_MONOLITH_PROXY_BASE_URL = "http://legacy.test";
     process.env.POSTING_FINALIZE_USE_LEGACY_PROXY = "1";
+    process.env.POSTING_VIDEO_SYNC_FASTSTART_ENABLED = "0";
   });
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
     process.env.LEGACY_MONOLITH_PROXY_BASE_URL = originalLegacyBase;
     process.env.POSTING_FINALIZE_USE_LEGACY_PROXY = originalUseLegacyProxy;
+    process.env.POSTING_VIDEO_SYNC_FASTSTART_ENABLED = originalSyncFaststartEnabled;
     vi.unstubAllGlobals();
   });
 
@@ -423,7 +430,8 @@ describe("PostingMutationService finalize parity", () => {
     expect(created.assetsReady).toBe(false);
     expect(created.videoProcessingStatus).toBe("pending");
     const assets = created.assets as Array<{ type: string; variants: Record<string, string> }>;
-    expect(assets[0]?.variants?.main720).toBe("https://cdn.example.com/native.mp4");
+    expect(assets[0]?.variants?.main720).toBeUndefined();
+    expect(created.instantPlaybackReady).toBe(false);
     expect(enqueueVideoProcessingCloudTaskMock).toHaveBeenCalled();
     expect(firestoreUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({

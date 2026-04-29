@@ -63,12 +63,14 @@ export const PostsDetailResponseSchema = z.object({
 
 export const PostsDetailsBatchBodySchema = z.object({
   postIds: z.array(z.string().min(1)).min(1).max(15),
-  reason: z.enum(["prefetch", "open", "surface_bootstrap"])
+  reason: z.enum(["prefetch", "open", "surface_bootstrap", "presentation_hints"]),
+  hydrationMode: z.enum(["card", "playback", "open", "full"]).default("open")
 });
 
 export const PostsDetailsBatchResponseSchema = z.object({
   routeName: z.literal("posts.detail.batch"),
-  reason: z.enum(["prefetch", "open", "surface_bootstrap"]),
+  reason: z.enum(["prefetch", "open", "surface_bootstrap", "presentation_hints"]),
+  hydrationMode: z.enum(["card", "playback", "open", "full"]),
   found: z.array(
     z.object({
       postId: z.string(),
@@ -79,6 +81,8 @@ export const PostsDetailsBatchResponseSchema = z.object({
   forbidden: z.array(z.string()),
   debugHydrationSource: z.enum(["cache", "firestore", "mixed"]).optional(),
   debugReads: z.number().int().nonnegative().optional(),
+  debugEntityConstructionCount: z.number().int().nonnegative().optional(),
+  debugPayloadCategory: z.enum(["tiny", "small", "medium", "heavy"]).optional(),
   debugPostIds: z.array(z.string()).optional(),
   debugMissingIds: z.array(z.string()).optional(),
   debugDurationMs: z.number().int().nonnegative().optional()

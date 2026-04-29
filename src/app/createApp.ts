@@ -216,6 +216,19 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         fallbacks: [],
         timeouts: [],
         surfaceTimings: {},
+        orchestration: {
+          surface: request.headers["x-locava-surface"]?.toString() ?? null,
+          priority: request.headers["x-locava-priority"]?.toString() ?? null,
+          requestGroup: request.headers["x-locava-request-group"]?.toString() ?? null,
+          visiblePostId: request.headers["x-locava-visible-post-id"]?.toString() ?? null,
+          screenInstanceId: request.headers["x-locava-screen-instance-id"]?.toString() ?? null,
+          clientRequestId: request.headers["x-locava-client-request-id"]?.toString() ?? null,
+          hydrationMode: request.headers["x-locava-hydration-mode"]?.toString() ?? null,
+          stale: false,
+          canceled: false,
+          deduped: false,
+          queueWaitMs: 0
+        },
         audit: {
           auditRunId: request.headers["x-audit-run-id"]?.toString(),
           auditSpecId: request.headers["x-audit-spec-id"]?.toString(),
@@ -311,6 +324,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       fallbacks,
       timeouts,
       surfaceTimings,
+      orchestration: ctx?.orchestration,
       timestamp: new Date().toISOString()
     });
 
@@ -321,7 +335,14 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         statusCode: reply.statusCode,
         latencyMs: Number(latencyMs.toFixed(2)),
         payloadBytes: ctx?.payloadBytes ?? 0,
-        routePriority: ctx?.routePolicy?.priority ?? null,
+        routePriority: ctx?.orchestration.priority ?? ctx?.routePolicy?.lane ?? ctx?.routePolicy?.priority ?? null,
+        surface: ctx?.orchestration.surface ?? null,
+        requestGroup: ctx?.orchestration.requestGroup ?? null,
+        hydrationMode: ctx?.orchestration.hydrationMode ?? null,
+        stale: ctx?.orchestration.stale ?? false,
+        canceled: ctx?.orchestration.canceled ?? false,
+        deduped: ctx?.orchestration.deduped ?? false,
+        queueWaitMs: ctx?.orchestration.queueWaitMs ?? 0,
         budgetViolations,
         dbOps: ctx?.dbOps ?? { reads: 0, writes: 0, queries: 0 },
         cache: ctx?.cache ?? { hits: 0, misses: 0 },

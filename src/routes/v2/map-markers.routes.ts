@@ -15,6 +15,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     setRouteName(mapMarkersContract.routeName);
     const viewer = buildViewerContext(request);
     const query = mapMarkersContract.query.parse(request.query);
+    const payloadMode = query.payloadMode ?? "compact";
     const maxDocs = Math.min(env.MAP_MARKERS_MAX_DOCS, 10_000);
     const hasExplicitLimit = query.limit != null;
     const limit = hasExplicitLimit
@@ -38,16 +39,30 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       }
       request.log.info({ routeName: "map.markers.get", cacheSource: "hit", count: cached.count }, "map markers cache hit");
       reply.header("ETag", cached.etag);
-      return success({ ...cached, diagnostics: { ...cached.diagnostics, cacheSource: "hit" } });
+      return success({
+        ...cached,
+        diagnostics: { ...cached.diagnostics, cacheSource: "hit", payloadMode: cached.diagnostics.payloadMode ?? "full" }
+      });
     }
     recordCacheMiss();
     try {
       const dataset = ownerId
         ? await adapter.fetchByOwner({ ownerId, maxDocs: limit, includeNonPublic })
         : await adapter.fetchAll({ maxDocs: limit });
+      const markers =
+        payloadMode === "compact"
+          ? dataset.markers.map((marker) => ({
+              id: marker.id,
+              postId: marker.postId,
+              lat: marker.lat,
+              lng: marker.lng,
+              hasPhoto: marker.hasPhoto,
+              hasVideo: marker.hasVideo
+            }))
+          : dataset.markers;
       const payload: MapMarkersResponse = {
         routeName: "map.markers.get",
-        markers: dataset.markers,
+        markers,
         count: dataset.count,
         generatedAt: dataset.generatedAt,
         version: dataset.version,
@@ -55,9 +70,10 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
         diagnostics: {
           queryCount: dataset.queryCount,
           readCount: dataset.readCount,
-          payloadBytes: Buffer.byteLength(JSON.stringify(dataset.markers), "utf8"),
+          payloadBytes: Buffer.byteLength(JSON.stringify(markers), "utf8"),
           invalidCoordinateDrops: dataset.invalidCoordinateDrops,
-          cacheSource: "miss"
+          cacheSource: "miss",
+          payloadMode
         }
       };
       await globalCache.set(cacheKey, payload, env.MAP_MARKERS_CACHE_TTL_MS);

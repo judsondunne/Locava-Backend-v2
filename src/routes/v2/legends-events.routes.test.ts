@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../../app/createApp.js";
+import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
 type FirestoreSnap = { exists: boolean; data: () => any; id?: string; get?: (k: string) => any };
 type FirestoreDoc = { set: (...args: any[]) => Promise<void> };
@@ -97,6 +98,46 @@ describe("v2 legends events routes", () => {
     expect(res.json().data.routeName).toBe("legends.events.seen.post");
     expect(res.json().data.eventId).toBe("evt1");
     expect(res.json().data.seen).toBe(true);
+  });
+
+  it("falls back gracefully when unseen query needs missing index", async () => {
+    const mocked = vi.mocked(getFirestoreSourceClient);
+    mocked.mockImplementationOnce(
+      () =>
+        buildDbWithUnseenEvents([]) as unknown as {
+          collection: (name: string) => any;
+        }
+    );
+    const failingDb: FirestoreDb = {
+      collection: (name: string) => {
+        if (name !== "users") return { doc: () => ({}) };
+        return {
+          doc: () => ({
+            collection: () => ({
+              where: () => ({
+                orderBy: () => ({
+                  limit: () => ({
+                    get: async () => {
+                      throw new Error("FAILED_PRECONDITION: missing index");
+                    }
+                  })
+                })
+              })
+            })
+          })
+        };
+      }
+    };
+    mocked.mockImplementationOnce(() => failingDb as unknown as any);
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/legends/events/unseen",
+      headers: viewerHeaders
+    });
+    expect(res.statusCode).toBe(200);
+    const json = res.json().data;
+    expect(json.events).toEqual([]);
+    expect(json.nextPollAfterMs).toBe(120000);
   });
 });
 

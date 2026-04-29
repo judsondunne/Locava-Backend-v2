@@ -55,7 +55,7 @@ describe("native post document (finalize parity)", () => {
     expect(v.lg).toBeTruthy();
   });
 
-  it("builds a video post with placeholder variants, pending processing, and playback URLs", () => {
+  it("builds a video post without fake processed variants and with pending playback readiness", () => {
     const assembled = assemblePostAssetsFromStagedItems("post_fixture_vid", [
       {
         index: 0,
@@ -68,13 +68,15 @@ describe("native post document (finalize parity)", () => {
     const doc = buildNativePostDocument({ ...baseInput, postId: "post_fixture_vid", assembled });
     validateNativePostDocumentForWrite(doc);
     expect(doc.assetsReady).toBe(false);
+    expect(doc.instantPlaybackReady).toBe(false);
     expect(doc.mediaType).toBe("video");
     expect(doc.videoProcessingStatus).toBe("pending");
     const asset = (doc.assets as Record<string, unknown>[])[0] as {
       variants: Record<string, string>;
       original: string;
     };
-    expect(asset.variants.main720).toBe(asset.original);
+    expect(asset.variants.main720).toBeUndefined();
+    expect(asset.variants.main720Avc).toBeUndefined();
     expect(asset.variants.poster).toBe("https://cdn.example.com/poster.jpg");
     expect(doc.playbackLabStatus).toBe("pending");
   });

@@ -38,20 +38,11 @@ function buildVideoAssetWithPlaceholders(input: {
   const poster = posterUrl.trim() || originalUrl;
 
   const variants = {
-    poster,
-    preview360: originalUrl,
-    preview360Avc: originalUrl,
-    main720: originalUrl,
-    main720Avc: originalUrl
+    poster
   };
 
   const posterWidth = 640;
   const posterHeight = Math.round(posterWidth / aspectRatio);
-  const preview360Height = 360;
-  const preview360Width = Math.round(preview360Height * aspectRatio);
-  const main720Height = 720;
-  const main720Width = Math.round(main720Height * aspectRatio);
-
   const variantMetadata = {
     poster: {
       sizeBytes: 0,
@@ -60,26 +51,10 @@ function buildVideoAssetWithPlaceholders(input: {
       height: posterHeight,
       codec: "jpeg"
     },
-    preview360: {
-      sizeBytes: 0,
-      bitrateKbps: 700,
-      width: preview360Width,
-      height: preview360Height,
-      codec: "h264"
-    },
-    main720HEVC: {
-      sizeBytes: 0,
-      bitrateKbps: 1400,
-      width: main720Width,
-      height: main720Height,
-      codec: "h265"
-    },
-    main720Avc: {
-      sizeBytes: 0,
-      bitrateKbps: 1800,
-      width: main720Width,
-      height: main720Height,
-      codec: "h264"
+    processing: {
+      status: "pending",
+      instantPlaybackReady: false,
+      requiredVariants: ["preview360Avc", "main720", "main720Avc"]
     }
   };
 
@@ -99,7 +74,8 @@ function buildVideoAssetWithPlaceholders(input: {
     bitrateKbps: 0,
     sizeBytes: 0,
     variants,
-    variantMetadata
+    variantMetadata,
+    instantPlaybackReady: false
   };
 }
 

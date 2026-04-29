@@ -47,6 +47,19 @@ export type RequestDiagnostic = {
   fallbacks: string[];
   timeouts: string[];
   surfaceTimings: Record<string, number>;
+  orchestration?: {
+    surface: string | null;
+    priority: string | null;
+    requestGroup: string | null;
+    visiblePostId: string | null;
+    screenInstanceId: string | null;
+    clientRequestId: string | null;
+    hydrationMode: string | null;
+    stale: boolean;
+    canceled: boolean;
+    deduped: boolean;
+    queueWaitMs: number;
+  };
   timestamp: string;
 };
 
@@ -288,6 +301,7 @@ function cloneDiagnostic(record: RequestDiagnostic): RequestDiagnostic {
     fallbacks: [...record.fallbacks],
     timeouts: [...record.timeouts],
     surfaceTimings: { ...record.surfaceTimings },
+    orchestration: record.orchestration ? { ...record.orchestration } : undefined,
     timestamp: record.timestamp
   };
 }

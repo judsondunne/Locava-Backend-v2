@@ -8,7 +8,7 @@ import {
 } from "../../contracts/surfaces/posts-detail.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
-import { setRouteName } from "../../observability/request-context.js";
+import { setOrchestrationMetadata, setRouteName } from "../../observability/request-context.js";
 import { PostsDetailOrchestrator } from "../../orchestration/surfaces/posts-detail.orchestrator.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
@@ -46,10 +46,24 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
     }
     const body = PostsDetailsBatchBodySchema.parse(request.body);
     setRouteName(postsDetailsBatchContract.routeName);
+    const inferredPriority =
+      body.hydrationMode === "open" || body.hydrationMode === "playback"
+        ? body.reason === "prefetch"
+          ? "P1_NEXT_PLAYBACK"
+          : "P0_VISIBLE_PLAYBACK"
+        : body.hydrationMode === "full"
+          ? "P2_CURRENT_SCREEN"
+          : "P2_CURRENT_SCREEN";
+    setOrchestrationMetadata({
+      hydrationMode: body.hydrationMode,
+      requestGroup: body.reason,
+      priority: inferredPriority
+    });
     const payload = await orchestrator.runBatch({
       viewerId: viewer.viewerId,
       postIds: body.postIds,
-      reason: body.reason
+      reason: body.reason,
+      hydrationMode: body.hydrationMode
     });
     return success(payload);
   });

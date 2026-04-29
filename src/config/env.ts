@@ -54,7 +54,17 @@ const EnvSchema = z.object({
   VIDEO_PROCESSOR_FUNCTION_URL: z.string().url().optional(),
   /** Cloud Tasks queue for video jobs (default matches classic monolith). */
   VIDEO_PROCESSING_CLOUD_TASKS_QUEUE: z.string().optional(),
-  VIDEO_PROCESSING_CLOUD_TASKS_LOCATION: z.string().optional()
+  VIDEO_PROCESSING_CLOUD_TASKS_LOCATION: z.string().optional(),
+  /** Enable synchronous minimal faststart processing attempt on finalize before async fallback. */
+  POSTING_VIDEO_SYNC_FASTSTART_ENABLED: z.coerce.boolean().default(false),
+  /** Max synchronous processing window in seconds for finalize faststart attempt. */
+  POSTING_VIDEO_SYNC_FASTSTART_MAX_SECONDS: z.coerce.number().int().positive().default(45),
+  /** Soft guard for future use (bytes); keep exposed for runtime policy parity. */
+  POSTING_VIDEO_SYNC_FASTSTART_MAX_BYTES: z.coerce.number().int().positive().default(157286400),
+  /** Enforce that processed variants must be verified before assetsReady can become true. */
+  POSTING_VIDEO_FASTSTART_REQUIRED: z.coerce.boolean().default(true),
+  /** Force synchronous achievements delta generation on finalize (default is async for lower latency). */
+  POSTING_FINALIZE_SYNC_ACHIEVEMENTS: z.coerce.boolean().default(false)
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

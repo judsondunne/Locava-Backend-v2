@@ -121,6 +121,7 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
 
   if (input.assembled.hasVideo) {
     base.videoProcessingStatus = "pending";
+    base.instantPlaybackReady = false;
     base.videoProcessingProgress = {
       totalVideos: input.assembled.videoCount,
       processedVideos: 0
@@ -168,12 +169,6 @@ export function validateNativePostDocumentForWrite(doc: Record<string, unknown>)
           ? String((asset.variants as { poster?: string }).poster ?? "").trim()
           : "";
       if (!poster && !vPoster) throw new Error("publish_validation_video_missing_poster");
-      const main =
-        asset.variants && typeof asset.variants === "object"
-          ? String((asset.variants as { main720?: string; main720Avc?: string }).main720 ?? "").trim() ||
-            String((asset.variants as { main720Avc?: string }).main720Avc ?? "").trim()
-          : "";
-      if (!main && !original) throw new Error("publish_validation_video_missing_playback");
     }
   }
 
