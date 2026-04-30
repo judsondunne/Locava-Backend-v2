@@ -65,6 +65,7 @@ export const routeContracts: RouteContract[] = [
   },
   { method: "GET", path: "/v2/bootstrap", description: "V2 bootstrap surface", tags: ["v2", "bootstrap"], querySchema: { debugSlowDeferredMs: "number (0-2000) optional" } },
   { method: "GET", path: "/v2/feed/bootstrap", description: "V2 home/feed bootstrap surface", tags: ["v2", "home", "feed"], querySchema: { limit: "number (4-8) optional", debugSlowDeferredMs: "number (0-2000) optional" } },
+  { method: "GET", path: "/v2/feed/for-you", description: "V2 For You feed (served-aware reel-first)", tags: ["v2", "home", "feed"], querySchema: { limit: "number (4-12) optional", cursor: "string optional", debug: "0|1 optional" } },
   { method: "GET", path: "/v2/feed/page", description: "V2 home/feed continuation page surface", tags: ["v2", "home", "feed"], querySchema: { cursor: "string optional", limit: "number (4-8) optional" } },
   { method: "GET", path: "/v2/feed/items/:postId/detail", description: "V2 home/feed item detail hydration surface", tags: ["v2", "home", "feed", "post"], querySchema: { debugSlowDeferredMs: "number (0-2000) optional" } },
   { method: "GET", path: "/v2/profiles/:userId/bootstrap", description: "V2 profile bootstrap surface", tags: ["v2", "profile"], querySchema: { gridLimit: "number (6-18) optional", debugSlowDeferredMs: "number (0-2000) optional" } },

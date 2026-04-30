@@ -30,6 +30,8 @@ export type FirestoreFeedDetailBundle = {
       thumbnail: string | null;
       variants?: Record<string, unknown>;
     }>;
+    comments?: Array<Record<string, unknown>>;
+    commentsPreview?: Array<Record<string, unknown>>;
   };
   author: {
     userId: string;
@@ -86,7 +88,14 @@ export class FeedDetailFirestoreAdapter {
           "activities",
           "address",
           "lat",
+          "latitude",
           "long",
+          "lng",
+          "longitude",
+          "location",
+          "coordinates",
+          "geo",
+          "geoData",
           "tags",
           "createdAtMs",
           "updatedAtMs",
@@ -210,7 +219,14 @@ type PostDataShape = {
   activities?: unknown[];
   address?: string;
   lat?: number;
+  latitude?: number;
+  lng?: number;
   long?: number;
+  longitude?: number;
+  location?: Record<string, unknown>;
+  coordinates?: Record<string, unknown>;
+  geo?: Record<string, unknown>;
+  geoData?: Record<string, unknown>;
   tags?: unknown[];
   createdAtMs?: number;
   updatedAtMs?: number;
@@ -292,6 +308,8 @@ function buildFeedDetailBundleFromParts(input: {
         (typeof input.postData.createdAtMs === "number" ? input.postData.createdAtMs : null);
 
   const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(input.postData);
+  const normalizedLocation = normalizeLocation(input.postData);
+  const embeddedComments = normalizeEmbeddedComments(input.postData.comments, input.responsePostId);
   return {
     post: {
       postId: input.responsePostId,
@@ -300,9 +318,9 @@ function buildFeedDetailBundleFromParts(input: {
       title: normalizeNullable(input.postData.title),
       description: normalizeNullable(input.postData.description),
       activities: normalizeStringArray(input.postData.activities),
-      address: normalizeNullable(input.postData.address),
-      lat: normalizeNullableNumber(input.postData.lat),
-      lng: normalizeNullableNumber(input.postData.long),
+      address: normalizeNullable(input.postData.address) ?? normalizedLocation.address ?? null,
+      lat: normalizedLocation.lat,
+      lng: normalizedLocation.lng,
       tags: normalizeStringArray(input.postData.tags),
       createdAtMs: normalizeTs(createdAtMsCandidate),
       updatedAtMs: normalizeTs(updatedAtMsCandidate),
@@ -313,7 +331,9 @@ function buildFeedDetailBundleFromParts(input: {
       ...(letterboxGradients ? { letterboxGradients } : {}),
       mediaType,
       thumbUrl: normalizeThumbUrl(input.postData, thumbUrl),
-      assets: normalizeAssets(input.responsePostId, mediaType, thumbUrl, input.postData.assets)
+      assets: normalizeAssets(input.responsePostId, mediaType, thumbUrl, input.postData.assets),
+      comments: embeddedComments,
+      commentsPreview: embeddedComments
     },
     author: {
       userId,
@@ -439,6 +459,61 @@ function resolveCommentCount(post: PostDataShape): number {
   return post.comments.filter((entry) => isTopLevelEmbeddedComment(entry)).length;
 }
 
+function getCommentText(comment: Record<string, unknown>): string {
+  const candidates = [
+    comment.content,
+    comment.text,
+    comment.body,
+    comment.comment,
+    comment.message,
+    comment.caption,
+  ];
+  for (const value of candidates) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return "";
+}
+
+function normalizeEmbeddedComments(value: unknown, postIdForDebug?: string): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const wire = entry as Record<string, unknown>;
+      const idRaw = wire.id ?? wire.commentId;
+      const id = typeof idRaw === "string" ? idRaw.trim() : "";
+      if (!id) return null;
+      const text = getCommentText(wire);
+      if (process.env.NODE_ENV !== "production" && text.length === 0) {
+        console.warn("[comments_v2_empty_text]", {
+          postId: postIdForDebug ?? null,
+          commentId: id,
+          rawCommentKeys: Object.keys(wire),
+          rawComment: wire,
+        });
+      }
+      return {
+        id,
+        commentId: id,
+        content: text,
+        text,
+        userId: typeof wire.userId === "string" ? wire.userId : "",
+        userName: typeof wire.userName === "string" ? wire.userName : null,
+        userHandle: typeof wire.userHandle === "string" ? wire.userHandle : null,
+        userPic: typeof wire.userPic === "string" ? wire.userPic : null,
+        time: wire.time ?? null,
+        createdAt: wire.createdAt ?? wire.time ?? null,
+        likedBy: Array.isArray(wire.likedBy)
+          ? wire.likedBy.filter((v): v is string => typeof v === "string")
+          : [],
+        replies: Array.isArray(wire.replies) ? wire.replies : [],
+      };
+    })
+    .filter((row): row is Record<string, unknown> => row !== null);
+}
+
 function isTopLevelEmbeddedComment(value: unknown): boolean {
   if (!value || typeof value !== "object") return false;
   const wire = value as { id?: unknown; commentId?: unknown; replyingTo?: unknown };
@@ -451,6 +526,57 @@ function isTopLevelEmbeddedComment(value: unknown): boolean {
 function normalizeNullableNumber(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return value;
+}
+
+function readGeoPoint(value: unknown): { latitude?: unknown; longitude?: unknown } | null {
+  if (!value || typeof value !== "object") return null;
+  const gp = value as { latitude?: unknown; longitude?: unknown };
+  return gp;
+}
+
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function normalizeLocation(post: PostDataShape): {
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+} {
+  const location = (post.location ?? {}) as Record<string, unknown>;
+  const coordinates = (post.coordinates ?? {}) as Record<string, unknown>;
+  const geo = (post.geo ?? post.geoData ?? {}) as Record<string, unknown>;
+  const geoPoint = readGeoPoint((geo as { geopoint?: unknown }).geopoint);
+  return {
+    lat: firstFiniteNumber(
+      post.lat,
+      post.latitude,
+      location.lat,
+      location.latitude,
+      coordinates.lat,
+      coordinates.latitude,
+      geoPoint?.latitude,
+    ),
+    lng: firstFiniteNumber(
+      post.long,
+      post.lng,
+      post.longitude,
+      location.long,
+      location.lng,
+      location.longitude,
+      coordinates.long,
+      coordinates.lng,
+      coordinates.longitude,
+      geoPoint?.longitude,
+    ),
+    address:
+      normalizeNullable(post.address) ??
+      normalizeNullable(location.address) ??
+      normalizeNullable((geo as { address?: unknown }).address),
+  };
 }
 
 function normalizeStringArray(value: unknown): string[] {

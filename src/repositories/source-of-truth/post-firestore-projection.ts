@@ -20,9 +20,23 @@ export function readPostDisplayMillis(data: Record<string, unknown>): number {
 }
 
 export function readMaybeMillis(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.floor(value);
-  if (value && typeof value === "object" && "toMillis" in value && typeof (value as { toMillis: () => number }).toMillis === "function") {
-    return Math.floor((value as { toMillis: () => number }).toMillis());
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const normalized = value > 10_000_000_000 ? value : value * 1000;
+    return Math.floor(normalized);
+  }
+  if (value && typeof value === "object") {
+    if ("toMillis" in value && typeof (value as { toMillis: () => number }).toMillis === "function") {
+      return Math.floor((value as { toMillis: () => number }).toMillis());
+    }
+    const seconds =
+      typeof (value as { seconds?: unknown }).seconds === "number"
+        ? (value as { seconds: number }).seconds
+        : typeof (value as { _seconds?: unknown })._seconds === "number"
+          ? (value as { _seconds: number })._seconds
+          : null;
+    if (seconds !== null && Number.isFinite(seconds)) {
+      return Math.floor(seconds * 1000);
+    }
   }
   return null;
 }

@@ -8,6 +8,7 @@ import { incrementDbOps, recordSurfaceTimings } from "../../observability/reques
 import { withTimeout } from "../../orchestration/timeouts.js";
 import { AuthBootstrapFirestoreAdapter } from "../source-of-truth/auth-bootstrap-firestore.adapter.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
+import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 
 type CommentRecord = CommentSummary & {
   deletedAtMs: number | null;
@@ -46,19 +47,11 @@ export class CommentsRepository {
     const commentId = String(wire.id ?? wire.commentId ?? "").trim();
     const authorId = String(wire.userId ?? "").trim();
     const likedBy = Array.isArray(wire.likedBy) ? wire.likedBy.filter((id): id is string => typeof id === "string") : [];
-    const createdAtMs = Number(
-      wire.createdAtMs ??
-        (wire.time as { _seconds?: unknown; seconds?: unknown } | undefined)?._seconds ??
-        (wire.time as { _seconds?: unknown; seconds?: unknown } | undefined)?.seconds
-    );
     const safeCreatedAtMs =
-      Number.isFinite(createdAtMs) && createdAtMs > 0
-        ? Math.floor(
-            createdAtMs > 10_000_000_000
-              ? createdAtMs
-              : createdAtMs * 1000
-          )
-        : Date.now();
+      readMaybeMillis(wire.createdAtMs) ??
+      readMaybeMillis(wire.createdAt) ??
+      readMaybeMillis(wire.time) ??
+      Date.now();
     const record: CommentRecord = {
       commentId,
       postId,

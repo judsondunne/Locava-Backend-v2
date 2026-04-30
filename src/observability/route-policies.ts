@@ -144,6 +144,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
   },
+  "feed.for_you.get": {
+    routeName: "feed.for_you.get",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 350, p95Ms: 700 },
+      dbOps: { maxReadsCold: 120, maxQueriesCold: 6, expectedReadsWarm: 40, expectedQueriesWarm: 3 },
+      payload: { maxBytes: 45_000, targetBytes: 24_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
   "feed.itemdetail.get": {
     routeName: "feed.itemdetail.get",
     priority: "critical_interactive",

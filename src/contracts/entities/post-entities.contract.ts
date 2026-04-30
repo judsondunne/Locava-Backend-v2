@@ -1,4 +1,19 @@
 import { z } from "zod";
+const EmbeddedCommentSchema = z.object({
+  id: z.string().optional(),
+  commentId: z.string().optional(),
+  content: z.string().nullable().optional(),
+  text: z.string().nullable().optional(),
+  userId: z.string().nullable().optional(),
+  userName: z.string().nullable().optional(),
+  userHandle: z.string().nullable().optional(),
+  userPic: z.string().nullable().optional(),
+  time: z.unknown().optional(),
+  createdAt: z.unknown().optional(),
+  createdAtMs: z.number().nullable().optional(),
+  likedBy: z.array(z.string()).optional(),
+  replies: z.array(z.unknown()).optional()
+});
 
 export const AuthorSummarySchema = z.object({
   userId: z.string(),
@@ -76,6 +91,9 @@ export const PostCardSummarySchema = z.object({
   viewer: ViewerPostStateSchema,
   createdAtMs: z.number().int().nonnegative(),
   updatedAtMs: z.number().int().nonnegative()
+  ,
+  comments: z.array(EmbeddedCommentSchema).optional(),
+  commentsPreview: z.array(EmbeddedCommentSchema).optional()
 });
 
 export const PostDetailAssetSchema = z.object({
@@ -108,4 +126,7 @@ export const PostDetailSchema = z.object({
   thumbUrl: z.string().url(),
   assets: z.array(PostDetailAssetSchema),
   cardSummary: PostCardSummarySchema
+  ,
+  comments: z.array(EmbeddedCommentSchema).optional(),
+  commentsPreview: z.array(EmbeddedCommentSchema).optional()
 });

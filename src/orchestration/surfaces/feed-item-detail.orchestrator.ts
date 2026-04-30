@@ -30,12 +30,6 @@ export class FeedItemDetailOrchestrator {
     }
     recordCacheMiss();
 
-    const commentsPreviewPromise = withTimeout(
-      this.service.loadCommentsPreview(postId, input.debugSlowDeferredMs),
-      90,
-      "feed.item_detail.comments_preview"
-    );
-    void commentsPreviewPromise.catch(() => undefined);
     const [cardSummary, post] = await Promise.all([
       this.service.loadPostCardSummary(viewerId, postId),
       this.service.loadPostDetail(postId, viewerId)
@@ -46,16 +40,48 @@ export class FeedItemDetailOrchestrator {
     const fallbacks: string[] = [];
     let commentsPreview: Array<{ commentId: string; userId: string; text: string; createdAtMs: number }> | null = null;
 
-    try {
-      commentsPreview = await commentsPreviewPromise;
-    } catch (error) {
-      if (error instanceof TimeoutError) {
-        fallbacks.push("comments_preview_timeout");
-        recordTimeout("feed.item_detail.comments_preview");
-        recordFallback("comments_preview_timeout");
-      } else {
-        fallbacks.push("comments_preview_failed");
-        recordFallback("comments_preview_failed");
+    const embeddedPreview =
+      Array.isArray((post as { commentsPreview?: unknown[] }).commentsPreview) &&
+      ((post as { commentsPreview?: unknown[] }).commentsPreview?.length ?? 0) > 0
+        ? ((post as { commentsPreview?: unknown[] }).commentsPreview as Array<{ commentId: string; userId: string; text: string; createdAtMs: number }>)
+        : Array.isArray((post as { comments?: unknown[] }).comments) &&
+            ((post as { comments?: unknown[] }).comments?.length ?? 0) > 0
+          ? ((post as { comments?: unknown[] }).comments as Array<{ commentId: string; userId: string; text: string; createdAtMs: number }>)
+          : null;
+    const explicitCommentCount =
+      typeof (post as { commentCount?: unknown }).commentCount === "number"
+        ? ((post as { commentCount: number }).commentCount ?? 0)
+        : typeof (post as { commentsCount?: unknown }).commentsCount === "number"
+          ? ((post as { commentsCount: number }).commentsCount ?? 0)
+          : null;
+    const fallbackCommentCount = Array.isArray((post as { comments?: unknown[] }).comments)
+      ? ((post as { comments?: unknown[] }).comments?.length ?? 0)
+      : 0;
+    const resolvedCommentCount = Math.max(
+      0,
+      Math.floor(explicitCommentCount ?? fallbackCommentCount),
+    );
+
+    if (embeddedPreview && embeddedPreview.length > 0) {
+      commentsPreview = embeddedPreview;
+    } else if (resolvedCommentCount > 0) {
+      const commentsPreviewPromise = withTimeout(
+        this.service.loadCommentsPreview(postId, input.debugSlowDeferredMs),
+        90,
+        "feed.item_detail.comments_preview"
+      );
+      void commentsPreviewPromise.catch(() => undefined);
+      try {
+        commentsPreview = await commentsPreviewPromise;
+      } catch (error) {
+        if (error instanceof TimeoutError) {
+          fallbacks.push("comments_preview_timeout");
+          recordTimeout("feed.item_detail.comments_preview");
+          recordFallback("comments_preview_timeout");
+        } else {
+          fallbacks.push("comments_preview_failed");
+          recordFallback("comments_preview_failed");
+        }
       }
     }
 
@@ -70,6 +96,11 @@ export class FeedItemDetailOrchestrator {
           mediaType: post.mediaType,
           thumbUrl: post.thumbUrl,
           assets: post.assets,
+          comments: (post as { comments?: unknown[] }).comments ?? [],
+          commentsPreview:
+            (post as { commentsPreview?: unknown[] }).commentsPreview ??
+            (post as { comments?: unknown[] }).comments ??
+            [],
           cardSummary: {
             ...cardSummary,
             rankToken: `rank-${viewerId.slice(0, 6)}-detail-${postId}`,

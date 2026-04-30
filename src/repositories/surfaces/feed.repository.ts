@@ -92,6 +92,10 @@ export type FeedDetailRecord = {
   address?: string | null;
   lat?: number | null;
   lng?: number | null;
+  commentCount?: number;
+  commentsCount?: number;
+  comments?: Array<Record<string, unknown>>;
+  commentsPreview?: Array<Record<string, unknown>>;
   tags?: string[];
   mentions?: string[];
   visibility?: "public" | "followers" | "private";
@@ -620,6 +624,10 @@ export class FeedRepository {
         address: fromSource.post.address ?? null,
         lat: fromSource.post.lat ?? null,
         lng: fromSource.post.lng ?? null,
+        commentCount: fromSource.social.commentCount,
+        commentsCount: fromSource.social.commentCount,
+        comments: (fromSource.post.comments ?? []) as Array<Record<string, unknown>>,
+        commentsPreview: (fromSource.post.commentsPreview ?? fromSource.post.comments ?? []) as Array<Record<string, unknown>>,
         tags: fromSource.post.tags ?? [],
         createdAtMs: fromSource.post.createdAtMs,
         carouselFitWidth: fromSource.post.carouselFitWidth,
