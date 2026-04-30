@@ -4,6 +4,7 @@ import { feedBootstrapContract, FeedBootstrapQuerySchema } from "../../contracts
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
+import { getRequestContext } from "../../observability/request-context.js";
 import { FeedBootstrapOrchestrator } from "../../orchestration/surfaces/feed-bootstrap.orchestrator.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
@@ -82,6 +83,7 @@ export async function registerV2FeedBootstrapRoutes(app: FastifyInstance): Promi
     setRouteName(feedBootstrapContract.routeName);
 
     try {
+      const startedAt = Date.now();
       const payload = await orchestrator.run({
         viewer,
         limit: query.limit,
@@ -92,6 +94,27 @@ export async function registerV2FeedBootstrapRoutes(app: FastifyInstance): Promi
         debugSlowDeferredMs: query.debugSlowDeferredMs
       });
       assertNoFakeBootstrapPayload(payload as unknown as Record<string, unknown>);
+      if (query.tab === "following") {
+        const reqCtx = getRequestContext();
+        request.log.info(
+          {
+            event: "feed_following_fast_summary",
+            requestId: request.id,
+            viewerId: viewer.viewerId,
+            latencyMs: Date.now() - startedAt,
+            returnedCount: payload.firstRender.feed.items.length,
+            candidateDocsFetched: payload.firstRender.feed.page.count,
+            queryCountEstimate: reqCtx?.dbOps.queries ?? 0,
+            readEstimate: reqCtx?.dbOps.reads ?? 0,
+            budgetCapped: false,
+            cursorVersion: "fc:v1",
+            nextCursorPresent: Boolean(payload.firstRender.feed.page.nextCursor),
+            exhausted: payload.firstRender.feed.page.nextCursor == null,
+            emptyReason: payload.firstRender.feed.items.length === 0 ? "no_followed_posts_available" : null
+          },
+          "feed following summary"
+        );
+      }
       const items = payload.firstRender.feed.items;
       if (items.length === 0) {
         if (query.tab === "following") {

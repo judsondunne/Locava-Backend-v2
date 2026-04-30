@@ -5,6 +5,7 @@ import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import { setRouteName } from "../../observability/request-context.js";
+import { getRequestContext } from "../../observability/request-context.js";
 import { FeedPageOrchestrator } from "../../orchestration/surfaces/feed-page.orchestrator.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
@@ -80,6 +81,7 @@ export async function registerV2FeedPageRoutes(app: FastifyInstance): Promise<vo
     setRouteName(feedPageContract.routeName);
 
     try {
+      const startedAt = Date.now();
       const payload = await orchestrator.run({
         viewerId: viewer.viewerId,
         cursor: query.cursor ?? null,
@@ -90,7 +92,53 @@ export async function registerV2FeedPageRoutes(app: FastifyInstance): Promise<vo
         radiusKm: query.radiusKm ?? radiusLabelToKm(query.radiusLabel)
       });
       assertNoFakePagePayload(payload as unknown as Record<string, unknown>);
+      if (query.tab === "following") {
+        const reqCtx = getRequestContext();
+        request.log.info(
+          {
+            event: "feed_following_fast_summary",
+            requestId: request.id,
+            viewerId: viewer.viewerId,
+            latencyMs: Date.now() - startedAt,
+            returnedCount: payload.items.length,
+            candidateDocsFetched: payload.page.count,
+            queryCountEstimate: reqCtx?.dbOps.queries ?? 0,
+            readEstimate: reqCtx?.dbOps.reads ?? 0,
+            budgetCapped: false,
+            cursorVersion: "fc:v1",
+            nextCursorPresent: Boolean(payload.page.nextCursor),
+            exhausted: payload.page.nextCursor == null,
+            emptyReason: payload.items.length === 0 ? "no_followed_posts_available" : null
+          },
+          "feed following summary"
+        );
+      }
       if (payload.items.length === 0) {
+        if (query.tab === "following") {
+          return success(
+            withPageDebug(
+              {
+                ...payload,
+                degraded: false,
+                fallbacks: [...payload.fallbacks, "following_feed_page_empty_bounded"],
+                page: {
+                  ...payload.page,
+                  count: 0,
+                  hasMore: false,
+                  nextCursor: null
+                },
+                items: []
+              } as unknown as Record<string, unknown>,
+              {
+                source: "backendv2_firestore",
+                candidateCount: 0,
+                candidateReads: 0,
+                returnedCount: 0,
+                failureReason: "following_feed_page_empty_bounded"
+              }
+            )
+          );
+        }
         return reply.status(503).send(
           failure(
             "source_of_truth_required",

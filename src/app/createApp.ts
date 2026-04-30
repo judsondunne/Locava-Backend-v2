@@ -68,6 +68,7 @@ import { registerV2ChatsMessageReactionRoutes } from "../routes/v2/chats-message
 import { registerV2UsersLastActiveRoutes } from "../routes/v2/users-last-active.routes.js";
 import { registerV2GroupsRoutes } from "../routes/v2/groups.routes.js";
 import { registerLegacyApiStubRoutes } from "../routes/compat/legacy-api-stubs.routes.js";
+import { registerLaunchCompatRoutes } from "../routes/compat/launch-compat.routes.js";
 import { registerLegacyMonolithProductProxyRoutes } from "../routes/compat/legacy-monolith-product-proxy.routes.js";
 import { registerLegacyMonolithAuthProxyRoutes } from "../routes/compat/legacy-monolith-auth-proxy.routes.js";
 import { registerLegacyMonolithUploadProxyRoutes } from "../routes/compat/legacy-monolith-upload-proxy.routes.js";
@@ -467,6 +468,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2ChatsManageRoutes);
   app.register(registerV2ChatsMessageReactionRoutes);
   app.register(registerV2GroupsRoutes);
+  app.register(registerLaunchCompatRoutes);
   if (env.ENABLE_LEGACY_COMPAT_ROUTES) {
     app.register(async (instance) => {
       await registerLegacyProductUploadRoutes(instance, env);

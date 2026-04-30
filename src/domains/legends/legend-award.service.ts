@@ -190,8 +190,16 @@ export class LegendAwardService {
 
     let awardType: LegendAwardType | null = null;
     if (params.scopeWasCreated) {
-      if (params.scopeType === "cell") awardType = "first_finder";
-      if (params.scopeType === "cellActivity") awardType = "first_activity_finder";
+      if (params.scopeType === "cell" || params.scopeType === "place") {
+        awardType = "first_finder";
+      }
+      if (
+        params.scopeType === "cellActivity" ||
+        params.scopeType === "activity" ||
+        params.scopeType === "placeActivity"
+      ) {
+        awardType = "first_activity_finder";
+      }
     }
 
     if (!awardType) {

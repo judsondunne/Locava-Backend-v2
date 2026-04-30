@@ -75,6 +75,8 @@ export const PostCardSummarySchema = z.object({
         previewUrl: z.string().url().nullable(),
         posterUrl: z.string().url().nullable(),
         originalUrl: z.string().url().nullable(),
+        streamUrl: z.string().url().nullable().optional(),
+        mp4Url: z.string().url().nullable().optional(),
         blurhash: z.string().nullable(),
         width: z.number().nullable(),
         height: z.number().nullable(),

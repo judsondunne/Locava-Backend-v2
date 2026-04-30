@@ -465,11 +465,7 @@ export class FeedRepository {
           buildFeedCardShell(viewerId, item)
         );
         const withAuthors = await this.hydrateCardAuthors(shells);
-        const hydrated =
-          queryContext.tab === "following"
-            ? await this.hydrateFeedCardsFromFirestore(viewerId, withAuthors)
-            : withAuthors;
-        return applyAuthorSpacingToFeedCards(hydrated, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
+        return applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
       } catch (error) {
         logFirestoreDebug("feed_candidates_firestore_failure", {
           strictSourceOfTruthLabel: "feed_candidates_firestore",
@@ -716,11 +712,7 @@ export class FeedRepository {
           buildFeedCardShell(viewerId, item)
         );
         const withAuthors = await this.hydrateCardAuthors(shells);
-        const hydrated =
-          queryContext.tab === "following"
-            ? await this.hydrateFeedCardsFromFirestore(viewerId, withAuthors)
-            : withAuthors;
-        const spaced = applyAuthorSpacingToFeedCards(hydrated, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
+        const spaced = applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
         return {
           cursorIn: cursor,
           items: spaced,

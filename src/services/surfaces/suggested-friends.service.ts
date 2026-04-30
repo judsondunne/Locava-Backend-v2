@@ -1,4 +1,5 @@
 import { globalCache } from "../../cache/global-cache.js";
+import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import {
   SuggestedFriendsRepository,
   type ContactSyncDiagnostics,
@@ -17,7 +18,10 @@ export class SuggestedFriendsService {
     viewerId: string;
     contacts: Array<{ name?: string | null; phoneNumbers?: string[]; emails?: string[] }>;
   }): Promise<{ matchedUsers: UserSuggestionSummary[]; matchedCount: number; syncedAt: number; diagnostics: ContactSyncDiagnostics }> {
-    const result = await this.repository.syncContacts({ viewerId: input.viewerId, contacts: input.contacts });
+    const signature = `${input.viewerId}:${input.contacts.length}`;
+    const result = await dedupeInFlight(`social:contacts-sync:${signature}`, () =>
+      this.repository.syncContacts({ viewerId: input.viewerId, contacts: input.contacts })
+    );
     await this.invalidateViewerCaches(input.viewerId);
     return result;
   }
@@ -39,7 +43,10 @@ export class SuggestedFriendsService {
       }
     }
     recordCacheMiss();
-    const computed = await this.repository.getSuggestionsForUser(viewerId, { ...options, limit, surface });
+    const computed = await dedupeInFlight(
+      `social:suggested:${viewerId}:${surface}:${limit}:${options.excludeAlreadyFollowing !== false ? 1 : 0}:${options.excludeBlocked !== false ? 1 : 0}`,
+      () => this.repository.getSuggestionsForUser(viewerId, { ...options, limit, surface })
+    );
     if (!options.bypassCache) {
       await globalCache.set(cacheKey, computed, TTL_MS);
     }

@@ -71,6 +71,8 @@ type ViewerGraph = {
 };
 
 const DEFAULT_LIMIT = 20;
+const MAX_CONTACT_SYNC_PHONE_CHUNKS = 12; // 24 queries max (phoneNumber + number)
+const MAX_CONTACT_SYNC_EMAIL_CHUNKS = 8; // 8 queries max
 
 const CONTACT_REASON_LABEL = "In your contacts";
 
@@ -446,11 +448,12 @@ export class SuggestedFriendsRepository {
       };
     };
 
-    // Run every Firestore chunk in parallel (still capped at 10 values per `in` query).
-    // Phone + email waves run concurrently so latency ~= max(phones, emails), not sum.
+    const boundedPhoneChunks = phoneChunks.slice(0, MAX_CONTACT_SYNC_PHONE_CHUNKS);
+    const boundedEmailChunks = emailChunks.slice(0, MAX_CONTACT_SYNC_EMAIL_CHUNKS);
+    // Keep contact sync bounded so it never overloads launch-critical routes.
     const [phoneRows, emailRows] = await Promise.all([
-      Promise.all(phoneChunks.map((c) => runPhoneChunk(c))),
-      Promise.all(emailChunks.map((c) => runEmailChunk(c)))
+      Promise.all(boundedPhoneChunks.map((c) => runPhoneChunk(c))),
+      Promise.all(boundedEmailChunks.map((c) => runEmailChunk(c)))
     ]);
     phoneRows.forEach((row) => phoneQueryChunks.push(row));
     emailRows.forEach((row) => emailQueryChunks.push(row));

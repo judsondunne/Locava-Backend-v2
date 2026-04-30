@@ -121,13 +121,14 @@ const FEED_CANDIDATE_SELECT_FIELDS = [
 export class FeedFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
   private static readonly MAX_SCAN_LIMIT = 320;
-  private static readonly MAX_SCAN_LIMIT_FOLLOWING = 50_000;
+  private static readonly FOLLOWING_MAX_READS = 80;
+  private static readonly FOLLOWING_MAX_QUERIES = 8;
+  private static readonly FOLLOWING_MAX_IDS = 50;
   private static readonly QUERY_CHUNK_LIMIT = 80;
   private static readonly PAGE_BUFFER = 24;
   private static readonly FIRST_PAGE_BUFFER = 8;
   private static readonly FIRST_PAGE_SCAN_FLOOR = 14;
   private static readonly FILTERED_SCAN_FLOOR = 24;
-  private static readonly FOLLOWING_SCAN_FLOOR = 160;
   private static readonly FIRESTORE_TIMEOUT_MS = 1500;
 
   isEnabled(): boolean {
@@ -185,93 +186,83 @@ export class FeedFirestoreAdapter {
     let queryCount = 0;
     let readCount = 0;
     let sourceExhausted = false;
-    let followingIds: Set<string> | null = null;
-    let followingCount = 0;
     const rankedBase: FirestoreFeedCandidate[] = [];
     let lastDoc: QueryDocumentSnapshot | undefined;
     try {
       if (tab === "following") {
-        followingIds = await this.loadFollowingIds(viewerId);
-        followingCount = followingIds.size;
-      }
-      // For "following", scanning the global feed and filtering can easily miss followed users'
-      // posts if they aren't among the newest N posts overall. Increase scan depth adaptively
-      // based on following graph size to reliably surface all followed users.
-      if (tab === "following") {
-        const requiredFloor = Math.max(FeedFirestoreAdapter.FOLLOWING_SCAN_FLOOR, scanFloor);
-        const scarcityMultiplier = Math.max(1, Math.ceil(60 / Math.max(1, followingCount)));
-        const adjustedPerPageMultiplier = Math.min(400, Math.max(16, basePerPageMultiplier * scarcityMultiplier));
-        scanLimit = Math.min(
-          FeedFirestoreAdapter.MAX_SCAN_LIMIT_FOLLOWING,
-          Math.max(requiredCandidateCount + pageBuffer, limit * adjustedPerPageMultiplier, requiredFloor)
-        );
-      }
-
-      logFirestoreDebug("feed_candidates_firestore_start", {
-        collectionPath: "posts",
-        queryShape: "orderBy(time desc).select(feed fields).limit(chunkedScan)",
-        cursorOffset,
-        limit,
-        scanLimit,
-        timeoutMs: FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
-        ...(tab === "following" ? { followingCount } : {})
-      });
-      while (readCount < scanLimit) {
-        const chunkLimit = Math.min(FeedFirestoreAdapter.QUERY_CHUNK_LIMIT, scanLimit - readCount);
-        let queryRef = this.db
-          .collection("posts")
-          .orderBy("time", "desc")
-          .select(...FEED_CANDIDATE_SELECT_FIELDS)
-          .limit(chunkLimit);
-        if (lastDoc) {
-          queryRef = queryRef.startAfter(lastDoc);
-        }
-        const snapshot = await withTimeout(
-          queryRef.get(),
-          FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
-          "feed-firestore-candidates-query"
-        );
-        queryCount += 1;
-        readCount += snapshot.docs.length;
-        if (snapshot.docs.length === 0) {
-          sourceExhausted = true;
-          break;
-        }
-        rankedBase.push(
-          ...snapshot.docs
-            .filter((doc) => {
-              const data = doc.data() as Record<string, unknown>;
-              if (Boolean(data.deleted) || Boolean(data.isDeleted) || Boolean(data.archived) || Boolean(data.hidden)) return false;
-              const privacy = typeof data.privacy === "string" ? data.privacy.toLowerCase() : "public";
-              if (privacy === "private") return false;
-              const thumb =
-                typeof data.displayPhotoLink === "string" && data.displayPhotoLink.trim()
-                  ? data.displayPhotoLink
-                  : typeof data.thumbUrl === "string" && data.thumbUrl.trim()
-                    ? data.thumbUrl
-                    : null;
-              const hasAssets = Array.isArray(data.assets) && data.assets.length > 0;
-              if (!thumb && !hasAssets) return false;
-              if (tab === "following") {
-                const authorId = String(data.userId ?? "");
-                if (!authorId || !followingIds?.has(authorId)) return false;
-              }
-              if (!radiusActive) return true;
-              const postLat = normalizeGeo(data.lat ?? data.latitude);
-              const postLng = normalizeGeo(data.long ?? data.lng ?? data.longitude);
-              if (postLat == null || postLng == null) return false;
-              const distance = computeDistanceKm(lat as number, lng as number, postLat, postLng);
-              return distance != null && distance <= (radiusKm as number);
-            })
-            .map(mapDocToCandidate)
-        );
-        lastDoc = snapshot.docs[snapshot.docs.length - 1];
-        if (snapshot.docs.length < chunkLimit) {
-          sourceExhausted = true;
-          break;
-        }
-        if (rankedBase.length >= requiredCandidateCount) {
-          break;
+        const bounded = await this.getFollowingCandidatesBounded({
+          viewerId,
+          requiredCandidateCount,
+          cursorOffset,
+          limit
+        });
+        rankedBase.push(...bounded.items);
+        queryCount += bounded.queryCount;
+        readCount += bounded.readCount;
+        sourceExhausted = bounded.sourceExhausted;
+      } else {
+        logFirestoreDebug("feed_candidates_firestore_start", {
+          collectionPath: "posts",
+          queryShape: "orderBy(time desc).select(feed fields).limit(chunkedScan)",
+          cursorOffset,
+          limit,
+          scanLimit,
+          timeoutMs: FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+          ...(tab === "following" ? { followingCount: 0 } : {})
+        });
+        while (readCount < scanLimit) {
+          const chunkLimit = Math.min(FeedFirestoreAdapter.QUERY_CHUNK_LIMIT, scanLimit - readCount);
+          let queryRef = this.db
+            .collection("posts")
+            .orderBy("time", "desc")
+            .select(...FEED_CANDIDATE_SELECT_FIELDS)
+            .limit(chunkLimit);
+          if (lastDoc) {
+            queryRef = queryRef.startAfter(lastDoc);
+          }
+          const snapshot = await withTimeout(
+            queryRef.get(),
+            FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+            "feed-firestore-candidates-query"
+          );
+          queryCount += 1;
+          readCount += snapshot.docs.length;
+          if (snapshot.docs.length === 0) {
+            sourceExhausted = true;
+            break;
+          }
+          rankedBase.push(
+            ...snapshot.docs
+              .filter((doc) => {
+                const data = doc.data() as Record<string, unknown>;
+                if (Boolean(data.deleted) || Boolean(data.isDeleted) || Boolean(data.archived) || Boolean(data.hidden)) return false;
+                const privacy = typeof data.privacy === "string" ? data.privacy.toLowerCase() : "public";
+                if (privacy === "private") return false;
+                const thumb =
+                  typeof data.displayPhotoLink === "string" && data.displayPhotoLink.trim()
+                    ? data.displayPhotoLink
+                    : typeof data.thumbUrl === "string" && data.thumbUrl.trim()
+                      ? data.thumbUrl
+                      : null;
+                const hasAssets = Array.isArray(data.assets) && data.assets.length > 0;
+                if (!thumb && !hasAssets) return false;
+                if (!radiusActive) return true;
+                const postLat = normalizeGeo(data.lat ?? data.latitude);
+                const postLng = normalizeGeo(data.long ?? data.lng ?? data.longitude);
+                if (postLat == null || postLng == null) return false;
+                const distance = computeDistanceKm(lat as number, lng as number, postLat, postLng);
+                return distance != null && distance <= (radiusKm as number);
+              })
+              .map(mapDocToCandidate)
+          );
+          lastDoc = snapshot.docs[snapshot.docs.length - 1];
+          if (snapshot.docs.length < chunkLimit) {
+            sourceExhausted = true;
+            break;
+          }
+          if (rankedBase.length >= requiredCandidateCount) {
+            break;
+          }
         }
       }
       logFirestoreDebug("feed_candidates_firestore_success", {
@@ -317,12 +308,104 @@ export class FeedFirestoreAdapter {
 
   private async loadFollowingIds(viewerId: string): Promise<Set<string>> {
     if (!this.db || !viewerId || viewerId === "anonymous") return new Set();
+    const viewerDoc = await withTimeout(
+      this.db.collection("users").doc(viewerId).select("following").get(),
+      FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+      "feed-firestore-following-viewer-doc"
+    );
+    if (viewerDoc.exists) {
+      const data = (viewerDoc.data() ?? {}) as { following?: unknown };
+      if (Array.isArray(data.following)) {
+        const ids = data.following
+          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .slice(0, FeedFirestoreAdapter.FOLLOWING_MAX_IDS);
+        if (ids.length > 0) {
+          return new Set(ids);
+        }
+      }
+    }
     const snap = await withTimeout(
-      this.db.collection("users").doc(viewerId).collection("following").select().limit(500).get(),
+      this.db.collection("users").doc(viewerId).collection("following").select().limit(FeedFirestoreAdapter.FOLLOWING_MAX_IDS).get(),
       FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
       "feed-firestore-following-query"
     );
     return new Set(snap.docs.map((doc) => doc.id).filter(Boolean));
+  }
+
+  private async getFollowingCandidatesBounded(input: {
+    viewerId: string;
+    requiredCandidateCount: number;
+    cursorOffset: number;
+    limit: number;
+  }): Promise<{ items: FirestoreFeedCandidate[]; queryCount: number; readCount: number; sourceExhausted: boolean }> {
+    const target = Math.min(Math.max(input.requiredCandidateCount + 8, input.limit + 4), FeedFirestoreAdapter.FOLLOWING_MAX_READS);
+    let queryCount = 0;
+    let readCount = 0;
+    const byId = new Map<string, FirestoreFeedCandidate>();
+
+    // Option A: viewer fanout feed collection if present.
+    const fanoutSnap = await withTimeout(
+      this.db!.collection("users").doc(input.viewerId).collection("feed").orderBy("time", "desc").limit(Math.min(target, 24)).get(),
+      700,
+      "feed-following-fanout-query"
+    ).catch(() => null);
+    if (fanoutSnap) {
+      queryCount += 1;
+      readCount += fanoutSnap.size;
+      const fanoutIds = fanoutSnap.docs
+        .map((doc) => {
+          const data = (doc.data() ?? {}) as Record<string, unknown>;
+          const postId = typeof data.postId === "string" && data.postId.trim() ? data.postId.trim() : doc.id;
+          return postId;
+        })
+        .filter(Boolean);
+      if (fanoutIds.length > 0 && readCount < FeedFirestoreAdapter.FOLLOWING_MAX_READS) {
+        const rows = await this.getCandidatesByPostIds(fanoutIds.slice(0, FeedFirestoreAdapter.FOLLOWING_MAX_READS - readCount));
+        queryCount += rows.queryCount;
+        readCount += rows.readCount;
+        for (const row of rows.items) byId.set(row.postId, row);
+      }
+    }
+
+    // Option B: bounded following queries.
+    if (byId.size < target && readCount < FeedFirestoreAdapter.FOLLOWING_MAX_READS && queryCount < FeedFirestoreAdapter.FOLLOWING_MAX_QUERIES) {
+      const followingIds = [...(await this.loadFollowingIds(input.viewerId))].slice(0, FeedFirestoreAdapter.FOLLOWING_MAX_IDS);
+      const chunks: string[][] = [];
+      for (let i = 0; i < followingIds.length; i += 10) chunks.push(followingIds.slice(i, i + 10));
+      for (const chunk of chunks) {
+        if (chunk.length === 0) continue;
+        if (readCount >= FeedFirestoreAdapter.FOLLOWING_MAX_READS || queryCount >= FeedFirestoreAdapter.FOLLOWING_MAX_QUERIES || byId.size >= target) break;
+        const perChunkLimit = Math.max(4, Math.min(12, target - byId.size));
+        const snap = await withTimeout(
+          this.db!
+            .collection("posts")
+            .where("userId", "in", chunk)
+            .orderBy("time", "desc")
+            .select(...FEED_CANDIDATE_SELECT_FIELDS)
+            .limit(perChunkLimit)
+            .get(),
+          900,
+          "feed-following-bounded-query"
+        ).catch(() => null);
+        if (!snap) continue;
+        queryCount += 1;
+        readCount += snap.size;
+        for (const doc of snap.docs) {
+          const candidate = mapDocToCandidate(doc);
+          byId.set(candidate.postId, candidate);
+        }
+      }
+    }
+
+    const ordered = [...byId.values()].sort((a, b) =>
+      a.createdAtMs === b.createdAtMs ? b.postId.localeCompare(a.postId) : b.createdAtMs - a.createdAtMs
+    );
+    return {
+      items: ordered.slice(0, target),
+      queryCount,
+      readCount,
+      sourceExhausted: readCount < FeedFirestoreAdapter.FOLLOWING_MAX_READS
+    };
   }
 
   async getCandidatesByPostIds(postIds: string[]): Promise<{ items: FirestoreFeedCandidate[]; queryCount: number; readCount: number }> {

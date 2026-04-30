@@ -1,18 +1,26 @@
-import { FieldPath, type Query } from "firebase-admin/firestore";
-import { globalCache } from "../../cache/global-cache.js";
+import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 
-export type ForYouSourceBucket = "reel" | "regular" | "fallback";
+export type ForYouSourceBucket = "reel" | "regular" | "recycled_real_posts";
 
-export type ForYouCursorState = {
-  page: number;
-  reelCursorTime: number | null;
-  reelCursorPostId: string | null;
+export type FeedForYouMode = "reels" | "mixed" | "regular";
+
+export type FeedForYouState = {
+  viewerId: string;
+  surface: "home_for_you";
+  reelQueue: string[];
+  reelQueueGeneratedAtMs: number | null;
+  reelQueueSourceVersion: string;
+  reelQueueCount: number;
+  reelQueueIndex: number;
   regularCursorTime: number | null;
   regularCursorPostId: string | null;
-  recycleMode?: boolean;
+  randomSeed: string;
+  regularServedRecent: string[];
+  updatedAtMs: number | null;
+  createdAtMs: number | null;
 };
 
 export type ForYouCandidate = {
@@ -45,6 +53,8 @@ export type ForYouCandidate = {
     previewUrl: string | null;
     posterUrl: string | null;
     originalUrl: string | null;
+    streamUrl: string | null;
+    mp4Url: string | null;
     blurhash: string | null;
     width: number | null;
     height: number | null;
@@ -128,46 +138,68 @@ export class FeedForYouRepository {
     return this.db !== null;
   }
 
-  async fetchReelWindow(input: {
-    limit: number;
-    cursorTime: number | null;
-    cursorPostId: string | null;
-  }): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
-    return this.fetchCandidateWindow("reel", input.limit, input.cursorTime, input.cursorPostId);
+  async getFeedState(viewerId: string): Promise<FeedForYouState | null> {
+    if (!this.db || !viewerId) return null;
+    const ref = this.getFeedStateRef(viewerId);
+    incrementDbOps("queries", 1);
+    const snap = await ref.get();
+    incrementDbOps("reads", snap.exists ? 1 : 0);
+    if (!snap.exists) return null;
+    return normalizeFeedState(snap.data() as Record<string, unknown>);
   }
 
-  async fetchRegularWindow(input: {
-    limit: number;
-    cursorTime: number | null;
-    cursorPostId: string | null;
-  }): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
-    return this.fetchCandidateWindow("regular", input.limit, input.cursorTime, input.cursorPostId);
+  async saveFeedState(viewerId: string, state: FeedForYouState): Promise<void> {
+    if (!this.db || !viewerId) return;
+    incrementDbOps("writes", 1);
+    await this.getFeedStateRef(viewerId).set(
+      {
+        viewerId: state.viewerId,
+        surface: state.surface,
+        reelQueue: state.reelQueue.slice(0, 500),
+        reelQueueGeneratedAt:
+          state.reelQueueGeneratedAtMs == null ? FieldValue.serverTimestamp() : Timestamp.fromMillis(state.reelQueueGeneratedAtMs),
+        reelQueueSourceVersion: state.reelQueueSourceVersion,
+        reelQueueCount: state.reelQueueCount,
+        reelQueueIndex: state.reelQueueIndex,
+        regularCursorTime:
+          state.regularCursorTime == null ? null : Timestamp.fromMillis(state.regularCursorTime),
+        regularCursorPostId: state.regularCursorPostId ?? null,
+        randomSeed: state.randomSeed,
+        regularServedRecent: state.regularServedRecent.slice(0, 100),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: state.createdAtMs == null ? FieldValue.serverTimestamp() : Timestamp.fromMillis(state.createdAtMs)
+      },
+      { merge: true }
+    );
   }
 
-  async fetchServedPostIds(viewerId: string, candidatePostIds: string[]): Promise<Set<string>> {
-    if (!this.db || !viewerId || viewerId === "anonymous") return new Set();
-    const ids = [...new Set(candidatePostIds.map((id) => id.trim()).filter(Boolean))];
-    if (ids.length === 0) return new Set();
-    const cacheKey = `feed:for-you:served:${viewerId}:${ids.slice().sort().join(",")}`;
-    const cached = await globalCache.get<string[]>(cacheKey);
-    if (cached) return new Set(cached);
-    const chunks: string[][] = [];
-    for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
-    const out = new Set<string>();
-    for (const chunk of chunks) {
-      incrementDbOps("queries", 1);
-      const snaps = await this.db.getAll(...chunk.map((postId) => this.getServedRef(viewerId, postId)));
-      incrementDbOps("reads", snaps.length);
-      for (const snap of snaps) {
-        if (snap.exists) out.add(snap.id);
-      }
-    }
-    void globalCache.set(cacheKey, [...out], 5_000);
-    return out;
+  async fetchEligibleReelIds(limit: number): Promise<string[]> {
+    const rows = await this.fetchWindow({
+      limit,
+      reelOnly: true,
+      postIds: null
+    });
+    return rows.filter((row) => row.reel === true).map((row) => row.postId);
+  }
+
+  async fetchPostsByIds(postIds: string[]): Promise<ForYouCandidate[]> {
+    return this.fetchWindow({
+      limit: postIds.length,
+      reelOnly: false,
+      postIds
+    });
+  }
+
+  async fetchRecentWindow(limit: number): Promise<ForYouCandidate[]> {
+    return this.fetchWindow({
+      limit,
+      reelOnly: false,
+      postIds: null
+    });
   }
 
   async writeServedPosts(viewerId: string, servedRecords: ForYouServedWriteRecord[]): Promise<number> {
-    if (!this.db || !viewerId || viewerId === "anonymous" || servedRecords.length === 0) return 0;
+    if (!this.db || !viewerId || servedRecords.length === 0) return 0;
     const unique = new Map<string, ForYouServedWriteRecord>();
     for (const row of servedRecords) unique.set(row.postId, row);
     const batch = this.db.batch();
@@ -179,39 +211,77 @@ export class FeedForYouRepository {
     return unique.size;
   }
 
+  private getFeedStateRef(viewerId: string) {
+    return this.db!.collection("users").doc(viewerId).collection("feedState").doc("home_for_you");
+  }
+
   private getServedRef(viewerId: string, postId: string) {
     return this.db!.collection("users").doc(viewerId).collection("feedServed").doc(postId);
   }
 
-  private async fetchCandidateWindow(
-    bucket: "reel" | "regular",
-    limit: number,
-    cursorTime: number | null,
-    cursorPostId: string | null
-  ): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
+  private async fetchWindow(input: {
+    limit: number;
+    reelOnly: boolean;
+    postIds: string[] | null;
+  }): Promise<ForYouCandidate[]> {
     if (!this.db) throw new Error("feed_for_you_source_unavailable");
-    const boundedLimit = Math.max(1, Math.min(limit, 120));
-    const cacheKey = `feed:for-you:candidates:${bucket}:${boundedLimit}:${cursorTime ?? "none"}:${cursorPostId ?? "none"}:v2`;
-    const cached = await globalCache.get<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }>(cacheKey);
-    if (cached) return cached;
+    const boundedLimit = Math.max(1, Math.min(input.limit, 500));
+    if (input.postIds) {
+      const ids = [...new Set(input.postIds.map((id) => id.trim()).filter(Boolean))].slice(0, boundedLimit);
+      if (ids.length === 0) return [];
+      incrementDbOps("queries", 1);
+      const snaps = await this.db.getAll(...ids.map((id) => this.db!.collection("posts").doc(id)));
+      incrementDbOps("reads", snaps.length);
+      return snaps
+        .map((snap) => (snap.exists ? mapDoc(snap.id, snap.data() as Record<string, unknown>) : null))
+        .filter((row): row is ForYouCandidate => row !== null);
+    }
 
-    const queryBase = this.db
+    let query = this.db
       .collection("posts")
       .orderBy("time", "desc")
       .orderBy(FieldPath.documentId(), "desc")
       .select(...FEED_SELECT_FIELDS);
-    let query: Query = bucket === "reel" ? queryBase.where("reel", "==", true) : queryBase.where("reel", "==", false);
-    if (Number.isFinite(cursorTime) && cursorTime !== null && cursorPostId) {
-      query = query.startAfter(cursorTime, cursorPostId);
-    }
-    const snap = await query.limit(boundedLimit).get();
+    if (input.reelOnly) query = query.where("reel", "==", true);
     incrementDbOps("queries", 1);
+    const snap = await query.limit(boundedLimit).get();
     incrementDbOps("reads", snap.docs.length);
-    let candidates = snap.docs.map((d) => mapDoc(d.id, d.data() as Record<string, unknown>)).filter(Boolean) as ForYouCandidate[];
-    const payload = { candidates, reads: snap.docs.length, queries: 1, hasMore: snap.docs.length >= boundedLimit };
-    void globalCache.set(cacheKey, payload, 6_000);
-    return payload;
+    return snap.docs
+      .map((doc) => mapDoc(doc.id, doc.data() as Record<string, unknown>))
+      .filter((row): row is ForYouCandidate => row !== null);
   }
+}
+
+function normalizeFeedState(data: Record<string, unknown>): FeedForYouState | null {
+  const viewerId = pickString(data.viewerId);
+  const surface = pickString(data.surface);
+  const reelQueue = Array.isArray(data.reelQueue)
+    ? data.reelQueue.filter((value): value is string => typeof value === "string" && value.trim().length > 0).slice(0, 500)
+    : null;
+  const reelQueueIndexRaw = Number(data.reelQueueIndex);
+  const reelQueueCountRaw = Number(data.reelQueueCount);
+  const regularServedRecent = Array.isArray(data.regularServedRecent)
+    ? data.regularServedRecent.filter((value): value is string => typeof value === "string" && value.trim().length > 0).slice(0, 100)
+    : [];
+  if (!viewerId || surface !== "home_for_you" || !reelQueue) return null;
+  if (!Number.isFinite(reelQueueIndexRaw) || reelQueueIndexRaw < 0) return null;
+  const reelQueueCount = Number.isFinite(reelQueueCountRaw) && reelQueueCountRaw >= 0 ? Math.floor(reelQueueCountRaw) : reelQueue.length;
+  const reelQueueIndex = Math.min(Math.floor(reelQueueIndexRaw), reelQueue.length);
+  return {
+    viewerId,
+    surface: "home_for_you",
+    reelQueue,
+    reelQueueGeneratedAtMs: readMaybeMillis(data.reelQueueGeneratedAt) ?? null,
+    reelQueueSourceVersion: pickString(data.reelQueueSourceVersion) ?? "",
+    reelQueueCount: Math.min(reelQueueCount, reelQueue.length),
+    reelQueueIndex,
+    regularCursorTime: readMaybeMillis(data.regularCursorTime) ?? null,
+    regularCursorPostId: pickString(data.regularCursorPostId),
+    randomSeed: pickString(data.randomSeed) ?? "",
+    regularServedRecent,
+    updatedAtMs: readMaybeMillis(data.updatedAt) ?? null,
+    createdAtMs: readMaybeMillis(data.createdAt) ?? null
+  };
 }
 
 function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate | null {
@@ -259,13 +329,7 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
     layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
     ...normalizeLetterboxHints(data),
     likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
-    commentCount: Math.max(
-      0,
-      Math.floor(
-        num(data.commentsCount, data.commentCount) ??
-          embeddedComments.length
-      )
-    )
+    commentCount: Math.max(0, Math.floor(num(data.commentsCount, data.commentCount) ?? embeddedComments.length))
   };
 }
 
@@ -344,10 +408,11 @@ function normalizeLetterboxHints(data: Record<string, unknown>): {
     const gradients = gradientsRaw
       .map((value) => {
         if (!value || typeof value !== "object") return null;
-        const top = typeof (value as { top?: unknown }).top === "string" ? (value as { top: string }).top.trim() : "";
-        const bottom = typeof (value as { bottom?: unknown }).bottom === "string" ? (value as { bottom: string }).bottom.trim() : "";
-        if (!top || !bottom) return null;
-        return { top, bottom };
+        const topValue = typeof (value as { top?: unknown }).top === "string" ? (value as { top: string }).top.trim() : "";
+        const bottomValue =
+          typeof (value as { bottom?: unknown }).bottom === "string" ? (value as { bottom: string }).bottom.trim() : "";
+        if (!topValue || !bottomValue) return null;
+        return { top: topValue, bottom: bottomValue };
       })
       .filter((value): value is { top: string; bottom: string } => value !== null);
     if (gradients.length > 0) out.letterboxGradients = gradients;
@@ -369,9 +434,11 @@ function normalizeAssets(value: unknown): ForYouCandidate["assets"] {
     out.push({
       id: pickString(raw.id) ?? `asset-${i + 1}`,
       type: String(raw.type ?? "").toLowerCase() === "video" ? "video" : "image",
-      previewUrl: pickString(sm.webp, md.webp, lg.webp, raw.thumbnail),
-      posterUrl: pickString(raw.poster, thumb.webp, raw.thumbnail),
+      previewUrl: pickString(raw.previewUrl, variants.preview360, variants.preview360Avc, sm.webp, md.webp, lg.webp, raw.thumbnail),
+      posterUrl: pickString(raw.posterUrl, raw.poster, variants.poster, thumb.webp, raw.thumbnail),
       originalUrl: pickString(raw.original, raw.downloadURL, raw.url),
+      streamUrl: pickString(variants.hls),
+      mp4Url: pickString(variants.main720Avc, variants.main720, raw.original, raw.downloadURL, raw.url),
       blurhash: pickString(raw.blurhash),
       width: num(raw.width),
       height: num(raw.height),
@@ -384,54 +451,41 @@ function normalizeAssets(value: unknown): ForYouCandidate["assets"] {
 
 function normalizeEmbeddedComments(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const c = entry as Record<string, unknown>;
-      const idRaw = c.id ?? c.commentId;
-      const id = typeof idRaw === "string" && idRaw.trim() ? idRaw.trim() : null;
-      if (!id) return null;
-      const text = getCommentText(c);
-      const userName = typeof c.userName === "string" ? c.userName : null;
-      const userHandle = typeof c.userHandle === "string" ? c.userHandle : null;
-      const userPic = typeof c.userPic === "string" ? c.userPic : null;
-      const userId = typeof c.userId === "string" ? c.userId : "";
-      const likedBy = Array.isArray(c.likedBy)
-        ? c.likedBy.filter((v): v is string => typeof v === "string")
-        : [];
-      const replies = Array.isArray(c.replies) ? c.replies : [];
-      return {
-        id,
-        commentId: id,
-        content: text,
-        text,
-        userId,
-        userName,
-        userHandle,
-        userPic,
-        time: c.time ?? null,
-        createdAt: c.createdAt ?? c.time ?? null,
-        createdAtMs:
-          readMaybeMillis(c.createdAtMs) ??
-          readMaybeMillis(c.createdAt) ??
-          readMaybeMillis(c.time) ??
-          Date.now(),
-        likedBy,
-        replies,
-      };
-    })
-    .filter((row): row is Record<string, unknown> => row !== null);
+  const out: Array<Record<string, unknown>> = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const c = entry as Record<string, unknown>;
+    const idRaw = c.id ?? c.commentId;
+    const id = typeof idRaw === "string" && idRaw.trim() ? idRaw.trim() : null;
+    if (!id) continue;
+    const text = getCommentText(c);
+    const userName = typeof c.userName === "string" ? c.userName : null;
+    const userHandle = typeof c.userHandle === "string" ? c.userHandle : null;
+    const userPic = typeof c.userPic === "string" ? c.userPic : null;
+    const userId = typeof c.userId === "string" ? c.userId : "";
+    const likedBy = Array.isArray(c.likedBy) ? c.likedBy.filter((v): v is string => typeof v === "string") : [];
+    const replies = Array.isArray(c.replies) ? c.replies : [];
+    out.push({
+      id,
+      commentId: id,
+      content: text,
+      text,
+      userId,
+      userName,
+      userHandle,
+      userPic,
+      time: c.time ?? null,
+      createdAt: c.createdAt ?? c.time ?? null,
+      createdAtMs: readMaybeMillis(c.createdAtMs) ?? readMaybeMillis(c.createdAt) ?? readMaybeMillis(c.time) ?? Date.now(),
+      likedBy,
+      replies
+    });
+  }
+  return out;
 }
 
 function getCommentText(comment: Record<string, unknown>): string {
-  const candidates = [
-    comment.content,
-    comment.text,
-    comment.body,
-    comment.comment,
-    comment.message,
-    comment.caption,
-  ];
+  const candidates = [comment.content, comment.text, comment.body, comment.comment, comment.message, comment.caption];
   for (const value of candidates) {
     if (typeof value !== "string") continue;
     const trimmed = value.trim();

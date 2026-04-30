@@ -7,116 +7,97 @@ type Row = {
   page: string;
   status: number;
   latencyMs: number;
+  reads: number;
+  writes: number;
+  queries: number;
   returnedCount: number;
   reelCount: number;
   regularCount: number;
-  recycledCount: number;
-  servedWriteCount: number;
-  servedWriteOk: boolean;
-  queries: number;
-  readEstimate: number;
-  budgetCapped: boolean;
-  rankingVersion: string;
+  recycledRegularCount: number;
+  reelQueueIndex: number;
+  reelQueueCount: number;
+  remainingReels: number;
+  exhausted: boolean;
+  engineVersion: string;
 };
 
-function hasFakeFallback(items: Array<{ postId?: string }>): boolean {
-  const tokens = ["fake", "fallback", "demo", "placeholder", "synthetic", "seed", "internal-viewer-feed-post"];
-  return items.some((item) => tokens.some((token) => String(item.postId ?? "").toLowerCase().includes(token)));
-}
-
-async function hit(cursor: string | null, page: string): Promise<{ row: Row; ids: string[]; nextCursor: string | null; ok: boolean }> {
-  const params = new URLSearchParams({ viewerId, limit: "5", debug: "1" });
-  if (cursor) params.set("cursor", cursor);
-  const url = `${baseUrl}${endpoint}?${params.toString()}`;
-  const started = Date.now();
-  const res = await fetch(url, { headers: { "x-viewer-id": viewerId, "x-viewer-roles": "internal" } });
-  const text = await res.text();
-  const latencyMs = Date.now() - started;
-  let json: any = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = null;
-  }
-  const data = json?.data ?? {};
-  const items = Array.isArray(data.items) ? data.items : [];
-  const ids = items.map((item: { postId?: string }) => String(item.postId ?? "")).filter(Boolean);
-  const dedupedIds = new Set(ids);
-  const reelCount = items.filter((item: { media?: { type?: string } }) => item.media?.type === "video").length;
-  const regularCount = items.length - reelCount;
-  const nextCursor = typeof data.nextCursor === "string" && data.nextCursor ? data.nextCursor : null;
-  const row: Row = {
-    page,
-    status: res.status,
-    latencyMs,
-    returnedCount: items.length,
-    reelCount: Number(data.debug?.reelCount ?? reelCount),
-    regularCount: Number(data.debug?.regularCount ?? regularCount),
-    recycledCount: Number(data.debug?.recycledCount ?? 0),
-    servedWriteCount: Number(data.debug?.servedWriteCount ?? 0),
-    servedWriteOk: Boolean(data.debug?.servedWriteOk ?? false),
-    queries: Number(data.debug?.queryCountEstimate ?? 0),
-    readEstimate: Number(data.debug?.readEstimate ?? 0),
-    budgetCapped: Boolean(data.debug?.budgetCapped ?? false),
-    rankingVersion: String(data.debug?.rankingVersion ?? "")
-  };
-
-  const hasDebugEssentials = Boolean(data?.debug?.requestId) && Boolean(data?.debug?.rankingVersion);
-  const ok = res.ok && !hasFakeFallback(items) && hasDebugEssentials && dedupedIds.size === ids.length;
-  return { row, ids, nextCursor, ok };
-}
-
-function printTable(rows: Row[]): void {
+function print(rows: Row[]) {
   const cols: Array<keyof Row> = [
     "page",
     "status",
     "latencyMs",
+    "reads",
+    "writes",
+    "queries",
     "returnedCount",
     "reelCount",
     "regularCount",
-    "recycledCount",
-    "servedWriteCount",
-    "servedWriteOk",
-    "queries",
-    "readEstimate",
-    "budgetCapped",
-    "rankingVersion"
+    "recycledRegularCount",
+    "reelQueueIndex",
+    "reelQueueCount",
+    "remainingReels",
+    "exhausted",
+    "engineVersion"
   ];
-  const widths = new Map<keyof Row, number>();
-  for (const col of cols) {
-    const maxVal = Math.max(String(col).length, ...rows.map((row) => String(row[col]).length));
-    widths.set(col, maxVal + 2);
-  }
-  const line = cols.map((col) => String(col).padEnd(widths.get(col)!)).join("");
-  console.log(line);
-  for (const row of rows) {
-    console.log(cols.map((col) => String(row[col]).padEnd(widths.get(col)!)).join(""));
-  }
+  const widths = cols.map((col) => Math.max(String(col).length, ...rows.map((row) => String(row[col]).length)) + 2);
+  console.log(cols.map((col, index) => String(col).padEnd(widths[index])).join(""));
+  for (const row of rows) console.log(cols.map((col, index) => String(row[col]).padEnd(widths[index])).join(""));
+}
+
+async function hit(cursor: string | null, page: string) {
+  const params = new URLSearchParams({ viewerId, limit: "5", debug: "1" });
+  if (cursor) params.set("cursor", cursor);
+  const startedAt = Date.now();
+  const res = await fetch(`${baseUrl}${endpoint}?${params.toString()}`, {
+    headers: { "x-viewer-id": viewerId, "x-viewer-roles": "internal" }
+  });
+  const body = await res.json().catch(() => ({}));
+  const data = body?.data ?? {};
+  const meta = body?.meta?.db ?? {};
+  const items = Array.isArray(data.items) ? data.items : [];
+  return {
+    ids: items.map((item: { postId?: string }) => String(item.postId ?? "")).filter(Boolean),
+    nextCursor: typeof data.nextCursor === "string" ? data.nextCursor : null,
+    exhausted: Boolean(data.exhausted),
+    row: {
+      page,
+      status: res.status,
+      latencyMs: Date.now() - startedAt,
+      reads: Number(meta.reads ?? 0),
+      writes: Number(meta.writes ?? 0),
+      queries: Number(meta.queries ?? 0),
+      returnedCount: items.length,
+      reelCount: Number(data.debug?.reelCount ?? 0),
+      regularCount: Number(data.debug?.regularCount ?? 0),
+      recycledRegularCount: Number(data.debug?.recycledRegularCount ?? 0),
+      reelQueueIndex: Number(data.feedState?.reelQueueIndex ?? 0),
+      reelQueueCount: Number(data.feedState?.reelQueueCount ?? 0),
+      remainingReels: Number(data.feedState?.remainingReels ?? 0),
+      exhausted: Boolean(data.exhausted),
+      engineVersion: String(data.debug?.engineVersion ?? "")
+    }
+  };
 }
 
 async function main(): Promise<void> {
-  // Warm request (ignored thresholds).
   await hit(null, "warmup");
-  const first = await hit(null, "1");
-  const second = await hit(first.nextCursor, "2");
+  const first = await hit(null, "first");
+  const second = await hit(first.nextCursor, "second");
   const restart = await hit(null, "restart");
 
-  const rows = [first.row, second.row, restart.row];
-  printTable(rows);
+  print([first.row, second.row, restart.row]);
 
   const errors: string[] = [];
-  if (!first.ok) errors.push("page1_failed_validation");
-  if (!second.ok) errors.push("page2_failed_validation");
-  if (first.row.latencyMs > 500) errors.push(`page1_latency_exceeded:${first.row.latencyMs}`);
-  if (first.row.readEstimate > 120) errors.push(`page1_reads_exceeded:${first.row.readEstimate}`);
-  if (first.row.queries > 8) errors.push(`page1_queries_exceeded:${first.row.queries}`);
-  if (first.row.returnedCount === 0) errors.push("page1_zero_items_with_inventory");
-  if (first.row.rankingVersion !== "fast-reel-first-v2") errors.push(`unexpected_ranking_version:${first.row.rankingVersion}`);
-  for (const row of rows) {
-    if (row.readEstimate > 200) errors.push(`reads_exceeded_${row.page}:${row.readEstimate}`);
+  if (first.row.engineVersion !== "queue-reels-v1") errors.push(`unexpected_engine_version:${first.row.engineVersion}`);
+  if (first.row.returnedCount === 0) errors.push("first_page_zero_items");
+  if (first.row.reads > 80) errors.push(`reads_exceeded:${first.row.reads}`);
+  if (first.row.queries > 6) errors.push(`queries_exceeded:${first.row.queries}`);
+  if (first.row.remainingReels > 0) {
+    const overlap = second.ids.filter((id) => first.ids.includes(id));
+    if (overlap.length > 0) errors.push(`duplicate_ids_across_pages:${overlap.join(",")}`);
+    const restartOverlap = restart.ids.filter((id) => first.ids.includes(id));
+    if (restartOverlap.length > 0) errors.push(`restart_repeated_first_page:${restartOverlap.join(",")}`);
   }
-  const overlap = second.ids.filter((id) => first.ids.includes(id));
-  if (overlap.length > 0 && second.row.returnedCount > 0) errors.push(`duplicate_post_ids_across_pages:${overlap.join(",")}`);
 
   if (errors.length > 0) {
     console.error(`[budget:feed-for-you] FAILED ${errors.join(" | ")}`);

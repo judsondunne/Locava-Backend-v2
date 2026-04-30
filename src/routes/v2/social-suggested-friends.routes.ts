@@ -37,7 +37,9 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
     }
     const surface = query.surface ?? "generic";
     const computeLimit =
-      surface === "onboarding" ? limit : Math.min(16, Math.max(limit + cursorOffset + 1, limit));
+      surface === "onboarding"
+        ? limit
+        : Math.min(20, Math.max(limit, cursorOffset + limit));
     setRouteName(socialSuggestedFriendsContract.routeName);
     const data = await service.getSuggestionsForUser(viewer.viewerId, {
       limit: computeLimit,

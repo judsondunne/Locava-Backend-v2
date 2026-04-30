@@ -7,7 +7,8 @@ type Payload = {
     items: Array<{ postId: string }>;
     nextCursor: string | null;
     exhausted: boolean;
-    debug?: { servedWriteCount?: number; servedWriteOk?: boolean; requestId?: string; rankingVersion?: string };
+    feedState?: { reelQueueIndex?: number; reelQueueCount?: number; remainingReels?: number };
+    debug?: { servedWriteCount?: number; servedWriteOk?: boolean; requestId?: string; engineVersion?: string };
   };
 };
 
@@ -35,9 +36,28 @@ async function main(): Promise<void> {
   const ids3 = r3.items.map((item) => item.postId);
 
   console.log(JSON.stringify({
-    request1: { ids: ids1, servedWriteCount: r1.debug?.servedWriteCount ?? 0, servedWriteOk: r1.debug?.servedWriteOk ?? false },
-    request2_restart: { ids: ids2, servedWriteCount: r2.debug?.servedWriteCount ?? 0, servedWriteOk: r2.debug?.servedWriteOk ?? false, overlapWith1: overlap(ids1, ids2) },
-    request3_page2: { ids: ids3, servedWriteCount: r3.debug?.servedWriteCount ?? 0, servedWriteOk: r3.debug?.servedWriteOk ?? false, overlapWith1: overlap(ids1, ids3), overlapWith2: overlap(ids2, ids3) }
+    request1: {
+      ids: ids1,
+      engineVersion: r1.debug?.engineVersion ?? null,
+      reelQueueIndex: r1.feedState?.reelQueueIndex ?? null,
+      servedWriteCount: r1.debug?.servedWriteCount ?? 0,
+      servedWriteOk: r1.debug?.servedWriteOk ?? false
+    },
+    request2_restart: {
+      ids: ids2,
+      reelQueueIndex: r2.feedState?.reelQueueIndex ?? null,
+      servedWriteCount: r2.debug?.servedWriteCount ?? 0,
+      servedWriteOk: r2.debug?.servedWriteOk ?? false,
+      overlapWith1: overlap(ids1, ids2)
+    },
+    request3_page2: {
+      ids: ids3,
+      reelQueueIndex: r3.feedState?.reelQueueIndex ?? null,
+      servedWriteCount: r3.debug?.servedWriteCount ?? 0,
+      servedWriteOk: r3.debug?.servedWriteOk ?? false,
+      overlapWith1: overlap(ids1, ids3),
+      overlapWith2: overlap(ids2, ids3)
+    }
   }, null, 2));
 }
 

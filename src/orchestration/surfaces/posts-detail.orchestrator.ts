@@ -114,6 +114,18 @@ export class PostsDetailOrchestrator {
     const startedAt = Date.now();
     const ordered = input.postIds.map((id) => id.trim()).filter(Boolean);
     const unique = [...new Set(ordered)];
+    if (input.hydrationMode === "card" || input.hydrationMode === "playback") {
+      return this.runBatchLightweight(
+        {
+          viewerId: input.viewerId,
+          postIds: input.postIds,
+          reason: input.reason,
+          hydrationMode: input.hydrationMode
+        },
+        unique,
+        startedAt
+      );
+    }
     const found: Array<{ postId: string; detail: PostsDetailResponse }> = [];
     const missing: string[] = [];
     const skipped: string[] = [];
@@ -151,6 +163,97 @@ export class PostsDetailOrchestrator {
       debugPayloadCategory: classifyPayloadCategory(found.length, input.hydrationMode),
       debugPostIds: unique,
       debugMissingIds: [...missing, ...skipped],
+      debugDurationMs: Date.now() - startedAt
+    };
+  }
+
+  private async runBatchLightweight(
+    input: {
+      viewerId: string;
+      postIds: string[];
+      reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
+      hydrationMode: "card" | "playback";
+    },
+    unique: string[],
+    startedAt: number
+  ): Promise<{
+    routeName: "posts.detail.batch";
+    reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
+    hydrationMode: "card" | "playback" | "open" | "full";
+    found: Array<{ postId: string; detail: PostsDetailResponse }>;
+    missing: string[];
+    forbidden: string[];
+    debugHydrationSource: "cache" | "firestore" | "mixed";
+    debugReads: number;
+    debugEntityConstructionCount: number;
+    debugPayloadCategory: "tiny" | "small" | "medium" | "heavy";
+    debugPostIds: string[];
+    debugMissingIds: string[];
+    debugDurationMs: number;
+  }> {
+    const MAX_BATCH = 15;
+    const cappedIds = unique.slice(0, MAX_BATCH);
+    const missingFromCap = unique.slice(MAX_BATCH);
+    const serviceWithBatch = this.service as FeedService & {
+      loadPostCardSummaryBatch?: (viewerId: string, postIds: string[]) => Promise<FeedBootstrapCandidateRecord[]>;
+    };
+    const cards =
+      typeof serviceWithBatch.loadPostCardSummaryBatch === "function"
+        ? await serviceWithBatch.loadPostCardSummaryBatch(input.viewerId, cappedIds)
+        : (
+            await Promise.all(
+              cappedIds.map((postId) =>
+                this.service.loadPostCardSummary(input.viewerId, postId).catch(() => null)
+              )
+            )
+          ).filter((row): row is FeedBootstrapCandidateRecord => row !== null);
+    const byId = new Map(cards.map((card) => [card.postId, this.ensureSafeCardSummary(card, card.postId)] as const));
+    const found = cappedIds
+      .map((postId) => byId.get(postId))
+      .filter((card): card is NonNullable<typeof card> => card !== undefined)
+      .map((card) => ({
+        postId: card.postId,
+        detail: {
+          routeName: "posts.detail.get" as const,
+          firstRender: {
+            post: {
+              postId: card.postId,
+              userId: card.author.userId,
+              caption: card.captionPreview,
+              createdAtMs: card.createdAtMs,
+              mediaType: card.media.type,
+              thumbUrl: card.media.posterUrl,
+              assets: input.hydrationMode === "playback" ? [{ id: `${card.postId}-asset`, type: card.media.type, poster: card.media.posterUrl, thumbnail: card.media.posterUrl }] : [],
+              cardSummary: card
+            },
+            author: card.author,
+            social: card.social,
+            viewer: card.viewer
+          },
+          deferred: { commentsPreview: null },
+          degraded: false,
+          fallbacks: [],
+          debugHydrationSource: "cache" as const,
+          debugReads: 0,
+          debugPostIds: [card.postId],
+          debugMissingIds: [],
+          debugDurationMs: 0
+        }
+      }));
+    const missing = cappedIds.filter((id) => !byId.has(id)).concat(missingFromCap);
+    return {
+      routeName: "posts.detail.batch",
+      reason: input.reason,
+      hydrationMode: input.hydrationMode,
+      found,
+      missing,
+      forbidden: [],
+      debugHydrationSource: "cache",
+      debugReads: 0,
+      debugEntityConstructionCount: found.length,
+      debugPayloadCategory: classifyPayloadCategory(found.length, input.hydrationMode),
+      debugPostIds: unique,
+      debugMissingIds: missing,
       debugDurationMs: Date.now() - startedAt
     };
   }

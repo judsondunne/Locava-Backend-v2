@@ -1,6 +1,6 @@
 const baseUrl = process.env.BACKENDV2_BASE_URL ?? "http://127.0.0.1:3000";
 const viewerId = process.env.DEBUG_VIEWER_ID ?? "debug-feed-viewer";
-const limit = Number(process.env.DEBUG_LIMIT ?? 8);
+const limit = Number(process.env.DEBUG_LIMIT ?? 5);
 
 type ForYouResponse = {
   ok: boolean;
@@ -8,10 +8,13 @@ type ForYouResponse = {
     items: Array<{ postId: string; media: { type: "image" | "video" }; author: { userId: string } }>;
     nextCursor: string | null;
     exhausted: boolean;
+    feedState?: { reelQueueIndex: number; reelQueueCount: number; remainingReels: number };
     debug?: {
+      engineVersion: string;
       returnedCount: number;
-      sourceMix: { reel: number; regular: number; fallback: number };
-      readEstimate: number;
+      reelCount: number;
+      regularCount: number;
+      recycledRegularCount: number;
       servedWriteCount: number;
       latencyMs: number;
     };
@@ -52,8 +55,14 @@ async function run(): Promise<void> {
         duplicates,
         nextCursor: Boolean(body.data.nextCursor),
         exhausted: body.data.exhausted,
+        engineVersion: debug?.engineVersion ?? null,
+        reelQueueIndex: body.data.feedState?.reelQueueIndex ?? null,
+        reelQueueCount: body.data.feedState?.reelQueueCount ?? null,
+        remainingReels: body.data.feedState?.remainingReels ?? null,
         servedWriteCount: debug?.servedWriteCount ?? null,
-        readEstimate: debug?.readEstimate ?? null,
+        reelCountDebug: debug?.reelCount ?? null,
+        regularCountDebug: debug?.regularCount ?? null,
+        recycledRegularCount: debug?.recycledRegularCount ?? null,
         latencyMs: debug?.latencyMs ?? null
       })
     );

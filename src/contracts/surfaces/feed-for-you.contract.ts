@@ -4,7 +4,7 @@ import { FeedBootstrapItemSchema } from "./feed-bootstrap.contract.js";
 
 export const FeedForYouQuerySchema = z.object({
   viewerId: z.string().min(1).optional(),
-  limit: z.coerce.number().int().min(4).max(12).default(8),
+  limit: z.coerce.number().int().min(1).max(20).default(5),
   cursor: z.string().optional(),
   debug: z
     .union([z.literal("1"), z.literal("true"), z.literal("0"), z.literal("false")])
@@ -14,34 +14,22 @@ export const FeedForYouQuerySchema = z.object({
 export const FeedForYouDebugSchema = z.object({
   requestId: z.string(),
   viewerId: z.string(),
-  requestedLimit: z.number().int().positive(),
+  engineVersion: z.literal("queue-reels-v1"),
   returnedCount: z.number().int().nonnegative(),
   reelCount: z.number().int().nonnegative(),
   regularCount: z.number().int().nonnegative(),
-  recycledCount: z.number().int().nonnegative(),
-  candidateWindowSizes: z.object({
-    reels: z.number().int().nonnegative(),
-    regular: z.number().int().nonnegative(),
-    regularFallback: z.number().int().nonnegative()
-  }),
-  servedCheckedCount: z.number().int().nonnegative(),
-  servedDroppedCount: z.number().int().nonnegative(),
+  recycledRegularCount: z.number().int().nonnegative(),
+  feedStateCreated: z.boolean(),
+  reelQueueReadCount: z.number().int().nonnegative(),
+  reelQueueConsumed: z.number().int().nonnegative(),
+  feedStateWriteOk: z.boolean(),
   servedWriteCount: z.number().int().nonnegative(),
   servedWriteOk: z.boolean(),
-  queryCountEstimate: z.number().int().nonnegative(),
-  budgetCapped: z.boolean(),
-  latencyMs: z.number().nonnegative(),
-  readEstimate: z.number().int().nonnegative(),
-  rankingVersion: z.string(),
+  regularWindowFetched: z.number().int().nonnegative(),
   emptyReason: z.string().nullable(),
-  cursorInfo: z.object({
-    page: z.number().int().nonnegative(),
-    reelCursorTime: z.number().nullable(),
-    reelCursorPostId: z.string().nullable(),
-    regularCursorTime: z.number().nullable(),
-    regularCursorPostId: z.string().nullable(),
-    recycleMode: z.boolean().optional()
-  })
+  latencyMs: z.number().nonnegative(),
+  reelQueueIndexBefore: z.number().int().nonnegative(),
+  reelQueueIndexAfter: z.number().int().nonnegative()
 });
 
 export const FeedForYouResponseSchema = z.object({
@@ -50,6 +38,12 @@ export const FeedForYouResponseSchema = z.object({
   items: z.array(FeedBootstrapItemSchema),
   nextCursor: z.string().nullable(),
   exhausted: z.boolean(),
+  feedState: z.object({
+    mode: z.enum(["reels", "mixed", "regular"]),
+    reelQueueIndex: z.number().int().nonnegative(),
+    reelQueueCount: z.number().int().nonnegative(),
+    remainingReels: z.number().int().nonnegative()
+  }),
   debug: FeedForYouDebugSchema.optional()
 });
 

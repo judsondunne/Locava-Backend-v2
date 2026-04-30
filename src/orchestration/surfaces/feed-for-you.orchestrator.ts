@@ -20,7 +20,8 @@ export class FeedForYouOrchestrator {
       items: page.items,
       nextCursor: page.nextCursor,
       exhausted: page.exhausted,
-      ...(input.debug ? { debug: page.debug } : {})
+      feedState: page.feedState,
+      debug: page.debug
     };
   }
 }
