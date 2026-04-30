@@ -88,7 +88,7 @@ async function main(): Promise<void> {
   print([first.row, second.row, restart.row]);
 
   const errors: string[] = [];
-  if (first.row.engineVersion !== "queue-reels-v1") errors.push(`unexpected_engine_version:${first.row.engineVersion}`);
+  if (first.row.engineVersion !== "queue-reels-regular-v2") errors.push(`unexpected_engine_version:${first.row.engineVersion}`);
   if (first.row.returnedCount === 0) errors.push("first_page_zero_items");
   if (first.row.reads > 80) errors.push(`reads_exceeded:${first.row.reads}`);
   if (first.row.queries > 6) errors.push(`queries_exceeded:${first.row.queries}`);

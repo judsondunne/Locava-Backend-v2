@@ -55,7 +55,10 @@ export class CommentsCreateOrchestrator {
         type: "comment",
         actorId: input.viewerId,
         targetId: input.postId,
-        commentId: result.comment.commentId
+        commentId: result.comment.commentId,
+        metadata: {
+          commentText: input.text,
+        }
       });
     }
 

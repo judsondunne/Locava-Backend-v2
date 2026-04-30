@@ -14,22 +14,29 @@ export const FeedForYouQuerySchema = z.object({
 export const FeedForYouDebugSchema = z.object({
   requestId: z.string(),
   viewerId: z.string(),
-  engineVersion: z.literal("queue-reels-v1"),
+  engineVersion: z.literal("queue-reels-regular-v2"),
   returnedCount: z.number().int().nonnegative(),
   reelCount: z.number().int().nonnegative(),
   regularCount: z.number().int().nonnegative(),
   recycledRegularCount: z.number().int().nonnegative(),
   feedStateCreated: z.boolean(),
   reelQueueReadCount: z.number().int().nonnegative(),
-  reelQueueConsumed: z.number().int().nonnegative(),
+  regularQueueReadCount: z.number().int().nonnegative(),
   feedStateWriteOk: z.boolean(),
   servedWriteCount: z.number().int().nonnegative(),
   servedWriteOk: z.boolean(),
-  regularWindowFetched: z.number().int().nonnegative(),
+  queueRebuilt: z.boolean(),
   emptyReason: z.string().nullable(),
   latencyMs: z.number().nonnegative(),
   reelQueueIndexBefore: z.number().int().nonnegative(),
-  reelQueueIndexAfter: z.number().int().nonnegative()
+  reelQueueIndexAfter: z.number().int().nonnegative(),
+  reelQueueCount: z.number().int().nonnegative(),
+  regularQueueIndexBefore: z.number().int().nonnegative(),
+  regularQueueIndexAfter: z.number().int().nonnegative(),
+  regularQueueCount: z.number().int().nonnegative(),
+  remainingReels: z.number().int().nonnegative(),
+  remainingRegular: z.number().int().nonnegative(),
+  postIdsReturned: z.array(z.string())
 });
 
 export const FeedForYouResponseSchema = z.object({
@@ -42,7 +49,10 @@ export const FeedForYouResponseSchema = z.object({
     mode: z.enum(["reels", "mixed", "regular"]),
     reelQueueIndex: z.number().int().nonnegative(),
     reelQueueCount: z.number().int().nonnegative(),
-    remainingReels: z.number().int().nonnegative()
+    remainingReels: z.number().int().nonnegative(),
+    regularQueueIndex: z.number().int().nonnegative(),
+    regularQueueCount: z.number().int().nonnegative(),
+    remainingRegular: z.number().int().nonnegative()
   }),
   debug: FeedForYouDebugSchema.optional()
 });

@@ -6,10 +6,41 @@ import { getFirestoreSourceClient } from "../../repositories/source-of-truth/fir
 import { legendRepository } from "../../domains/legends/legend.repository.js";
 import { buildLegendScopeId } from "../../domains/legends/legends.types.js";
 import { getAnalyticsIngestService } from "../../services/analytics/analytics-runtime.js";
+import { notificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
+import { NotificationsService } from "../../services/surfaces/notifications.service.js";
+import { legacyNotificationPushPublisher } from "../../services/notifications/legacy-notification-push.publisher.js";
+import { chatsRepository } from "../../repositories/surfaces/chats.repository.js";
+import { ChatsService } from "../../services/surfaces/chats.service.js";
+import { ChatsSendMessageOrchestrator } from "../../orchestration/mutations/chats-send-message.orchestrator.js";
 
 const LocalViewerQuerySchema = z.object({
   viewerId: z.string().min(1).optional(),
   internal: z.coerce.boolean().optional().default(true)
+});
+
+const DebugNotificationActorSchema = z.object({
+  recipientUserId: z.string().min(1),
+  actorUserId: z.string().min(1),
+});
+
+const DebugPostLikeSchema = DebugNotificationActorSchema.extend({
+  postId: z.string().min(1),
+});
+
+const DebugCommentSchema = DebugPostLikeSchema.extend({
+  commentText: z.string().min(1).default("Testing Backend v2 comment notification deep link"),
+});
+
+const DebugChatSchema = DebugNotificationActorSchema.extend({
+  messageText: z.string().min(1).default("Testing Backend v2 realtime chat notification"),
+});
+
+const DebugPushDryRunSchema = z.object({
+  recipientUserId: z.string().min(1),
+  actorUserId: z.string().min(1),
+  postId: z.string().optional(),
+  type: z.string().min(1),
+  send: z.coerce.boolean().optional().default(false),
 });
 
 /** Subset of HTTP verbs supported by `app.inject` typings (excludes e.g. TRACE). */
@@ -249,6 +280,232 @@ export async function registerLocalDebugRoutes(app: FastifyInstance): Promise<vo
     app.log.info({ routeFamily: "/debug/local/*" }, "local debug routes disabled (ENABLE_LOCAL_DEV_IDENTITY!=1)");
     return;
   }
+
+  const notificationsService = new NotificationsService(notificationsRepository);
+  const chatsService = new ChatsService(chatsRepository);
+  const chatsSendMessageOrchestrator = new ChatsSendMessageOrchestrator(chatsService);
+  const db = getFirestoreSourceClient();
+
+  const fetchSenderMeta = async (userId: string): Promise<Record<string, unknown>> => {
+    if (!db) return {};
+    const snap = await db.collection("users").doc(userId).get();
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    return {
+      senderName: typeof data.name === "string" ? data.name : typeof data.displayName === "string" ? data.displayName : undefined,
+      senderProfilePic:
+        typeof data.profilePic === "string"
+          ? data.profilePic
+          : typeof data.profilePicture === "string"
+            ? data.profilePicture
+            : typeof data.photoURL === "string"
+              ? data.photoURL
+              : undefined,
+      senderUsername:
+        typeof data.handle === "string"
+          ? data.handle.replace(/^@+/, "")
+          : typeof data.username === "string"
+            ? data.username.replace(/^@+/, "")
+            : undefined,
+    };
+  };
+
+  app.post("/debug/local/notifications/test/post-like", async (request) => {
+    const body = DebugPostLikeSchema.parse(request.body);
+    await notificationsService.createFromMutation({
+      type: "like",
+      actorId: body.actorUserId,
+      recipientUserId: body.recipientUserId,
+      targetId: body.postId,
+    });
+    return {
+      ok: true,
+      routeName: "debug.notifications.test.post_like",
+      triggered: body,
+    };
+  });
+
+  app.post("/debug/local/notifications/test/comment", async (request) => {
+    const body = DebugCommentSchema.parse(request.body);
+    await notificationsService.createFromMutation({
+      type: "comment",
+      actorId: body.actorUserId,
+      recipientUserId: body.recipientUserId,
+      targetId: body.postId,
+      commentId: `debug_comment_${Date.now()}`,
+      metadata: {
+        commentText: body.commentText,
+      },
+    });
+    return {
+      ok: true,
+      routeName: "debug.notifications.test.comment",
+      triggered: body,
+    };
+  });
+
+  app.post("/debug/local/notifications/test/follow", async (request) => {
+    const body = DebugNotificationActorSchema.parse(request.body);
+    await notificationsService.createFromMutation({
+      type: "follow",
+      actorId: body.actorUserId,
+      recipientUserId: body.recipientUserId,
+      targetId: body.recipientUserId,
+    });
+    return {
+      ok: true,
+      routeName: "debug.notifications.test.follow",
+      triggered: body,
+    };
+  });
+
+  app.post("/debug/local/notifications/test/chat-message", async (request) => {
+    const body = DebugChatSchema.parse(request.body);
+    const conversation = await chatsService.createOrGetDirectConversation({
+      viewerId: body.actorUserId,
+      otherUserId: body.recipientUserId,
+    });
+    const result = await chatsSendMessageOrchestrator.run({
+      viewerId: body.actorUserId,
+      conversationId: conversation.conversationId,
+      messageType: "text",
+      text: body.messageText,
+      photoUrl: null,
+      gifUrl: null,
+      gif: null,
+      postId: null,
+      replyingToMessageId: null,
+      clientMessageId: `debug_chat_${Date.now()}`,
+    });
+    return {
+      ok: true,
+      routeName: "debug.notifications.test.chat_message",
+      conversationId: conversation.conversationId,
+      messageId: result.message.messageId,
+      triggered: body,
+    };
+  });
+
+  app.get<{ Params: { userId: string } }>("/debug/local/notifications/user/:userId", async (request) => {
+    const userId = String(request.params.userId ?? "").trim();
+    if (!userId) return { ok: false, error: "userId required" };
+    if (!db) {
+      return { ok: false, error: "firestore unavailable" };
+    }
+    const [userSnap, notificationsSnap] = await Promise.all([
+      db.collection("users").doc(userId).get(),
+      db.collection("users").doc(userId).collection("notifications").orderBy("timestamp", "desc").limit(20).get(),
+    ]);
+    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+    const unreadCount =
+      typeof userData.unreadCount === "number"
+        ? userData.unreadCount
+        : typeof userData.unreadNotificationCount === "number"
+          ? userData.unreadNotificationCount
+          : typeof userData.notificationUnreadCount === "number"
+            ? userData.notificationUnreadCount
+            : 0;
+    const rows = notificationsSnap.docs.map((doc) => {
+      const data = (doc.data() ?? {}) as Record<string, unknown>;
+      const payload = legacyNotificationPushPublisher.preview(
+        {
+          senderUserId: typeof data.senderUserId === "string" ? data.senderUserId : "",
+          type: typeof data.type === "string" ? data.type : "post",
+          message: typeof data.message === "string" ? data.message : "",
+          postId: typeof data.postId === "string" ? data.postId : null,
+          commentId: typeof data.commentId === "string" ? data.commentId : null,
+          chatId:
+            typeof data.chatId === "string"
+              ? data.chatId
+              : typeof data.conversationId === "string"
+                ? data.conversationId
+                : null,
+          collectionId: typeof data.collectionId === "string" ? data.collectionId : null,
+          placeId: typeof data.placeId === "string" ? data.placeId : null,
+          audioId: typeof data.audioId === "string" ? data.audioId : null,
+          targetUserId: typeof data.targetUserId === "string" ? data.targetUserId : null,
+          metadata: (data.metadata as Record<string, unknown> | undefined) ?? null,
+        },
+        {
+          senderName: typeof data.senderName === "string" ? data.senderName : undefined,
+          senderProfilePic: typeof data.senderProfilePic === "string" ? data.senderProfilePic : null,
+          senderUsername: typeof data.senderUsername === "string" ? data.senderUsername : undefined,
+        },
+      );
+      return {
+        notificationId: doc.id,
+        path: `users/${userId}/notifications/${doc.id}`,
+        raw: data,
+        parsedDeepLinkTarget: (payload.data as Record<string, unknown> | undefined)?.route ?? null,
+        push: legacyNotificationPushPublisher.getDebugStatus(doc.id),
+      };
+    });
+    return {
+      ok: true,
+      routeName: "debug.notifications.user.list",
+      userId,
+      unreadCount,
+      notificationPath: `users/${userId}/notifications`,
+      notifications: rows,
+    };
+  });
+
+  app.post("/debug/local/notifications/test/push-dry-run", async (request) => {
+    const body = DebugPushDryRunSchema.parse(request.body);
+    const senderMeta = await fetchSenderMeta(body.actorUserId);
+    const payload = legacyNotificationPushPublisher.preview(
+      {
+        senderUserId: body.actorUserId,
+        type: body.type,
+        message:
+          body.type === "like"
+            ? "liked your post."
+            : body.type === "comment"
+              ? "commented on your post."
+              : body.type === "follow"
+                ? "followed you."
+                : "Testing Backend v2 push preview",
+        postId: body.postId ?? null,
+        metadata: body.postId ? { postTitle: "your post" } : null,
+      },
+      {
+        senderName: typeof senderMeta.senderName === "string" ? senderMeta.senderName : undefined,
+        senderProfilePic: typeof senderMeta.senderProfilePic === "string" ? senderMeta.senderProfilePic : null,
+        senderUsername: typeof senderMeta.senderUsername === "string" ? senderMeta.senderUsername : undefined,
+      },
+    );
+    let sent = null;
+    if (body.send) {
+      sent = await legacyNotificationPushPublisher.sendToRecipient({
+        notificationId: `dry_run_${Date.now()}`,
+        recipientUserId: body.recipientUserId,
+        notificationData: {
+          senderUserId: body.actorUserId,
+          type: body.type,
+          message:
+            body.type === "like"
+              ? "liked your post."
+              : body.type === "comment"
+                ? "commented on your post."
+                : body.type === "follow"
+                  ? "followed you."
+                  : "Testing Backend v2 push preview",
+          postId: body.postId ?? null,
+          metadata: body.postId ? { postTitle: "your post" } : null,
+        },
+        senderData: {
+          senderName: typeof senderMeta.senderName === "string" ? senderMeta.senderName : undefined,
+          senderProfilePic: typeof senderMeta.senderProfilePic === "string" ? senderMeta.senderProfilePic : null,
+          senderUsername: typeof senderMeta.senderUsername === "string" ? senderMeta.senderUsername : undefined,
+        },
+      });
+    }
+    return {
+      ok: true,
+      routeName: "debug.notifications.test.push_dry_run",
+      payload,
+      sent,
+    };
+  });
 
   app.get("/debug/local/analytics/events", async () => getAnalyticsIngestService(app.config).getDebugSnapshot());
 

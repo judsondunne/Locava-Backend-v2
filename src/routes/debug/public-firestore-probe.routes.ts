@@ -413,6 +413,7 @@ export async function registerPublicFirestoreProbeRoutes(app: FastifyInstance): 
         text: body.text,
         photoUrl: null,
         gifUrl: null,
+        gif: null,
         postId: null,
         replyingToMessageId: null,
         clientMessageId: `public-probe-${Date.now()}`

@@ -1042,8 +1042,14 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     const userId = request.params.userId;
     const body = (request.body ?? {}) as Record<string, unknown>;
     const profilePic = typeof body.profilePic === "string" ? body.profilePic.trim() : "";
+    const expoPushToken = typeof body.expoPushToken === "string" ? body.expoPushToken.trim() : "";
+    const pushToken =
+      typeof body.pushToken === "string" && body.pushToken.trim()
+        ? body.pushToken.trim()
+        : expoPushToken;
     const payload = mergeUserDocumentWritePayload({
-      ...(typeof body.pushToken === "string" ? { pushToken: body.pushToken.trim() } : {}),
+      ...(expoPushToken ? { expoPushToken } : {}),
+      ...(pushToken ? { pushToken } : {}),
       ...(typeof body.fcmToken === "string" ? { fcmToken: body.fcmToken.trim() } : {}),
       ...(typeof body.apnsToken === "string" ? { apnsToken: body.apnsToken.trim() } : {}),
       ...(typeof body.updatedAt === "number" ? { updatedAt: body.updatedAt } : { updatedAt: Date.now() }),
@@ -1052,7 +1058,18 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
 
     if (db) {
       try {
-        await db.collection("users").doc(userId).set(payload, { merge: true });
+        await db.collection("users").doc(userId).set(
+          {
+            ...payload,
+            ...(expoPushToken ? { expoPushTokens: FieldValue.arrayUnion(expoPushToken) } : {}),
+            ...(pushToken ? { pushTokens: FieldValue.arrayUnion(pushToken) } : {}),
+            ...(typeof body.platform === "string" && body.platform.trim()
+              ? { pushTokenPlatform: body.platform.trim() }
+              : {}),
+            pushTokenUpdatedAt: Date.now(),
+          },
+          { merge: true }
+        );
       } catch {
         // Keep compat route non-fatal on transient Firestore write failures.
       }

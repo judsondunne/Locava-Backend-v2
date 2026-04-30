@@ -4,6 +4,7 @@ import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { withMutationLock } from "../../lib/mutation-lock.js";
 import type { NotificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
+import { legacyNotificationPushPublisher } from "../notifications/legacy-notification-push.publisher.js";
 
 export class NotificationsService {
   constructor(private readonly repository: NotificationsRepository) {}
@@ -35,26 +36,84 @@ export class NotificationsService {
     );
   }
 
-  createFromMutation(input: {
-    type: "like" | "comment" | "follow" | "mention" | "chat" | "invite" | "collection_shared" | "group_invite" | "group_joined" | "contact_joined" | "place_follow" | "audio_like" | "system" | "achievement_leaderboard" | "leaderboard_rank_up" | "leaderboard_rank_down" | "leaderboard_passed" | "post_discovery";
+  async createFromMutation(input: {
+    type: "like" | "comment" | "follow" | "mention" | "chat" | "invite" | "collection_shared" | "group_invite" | "group_joined" | "group_faceoff" | "contact_joined" | "place_follow" | "audio_like" | "system" | "achievement_leaderboard" | "leaderboard_rank_up" | "leaderboard_rank_down" | "leaderboard_passed" | "post" | "post_discovery";
     actorId: string;
     targetId: string;
     recipientUserId?: string | null;
     message?: string | null;
     commentId?: string | null;
     metadata?: Record<string, unknown>;
-  }): void {
-    // Keep mutation request paths non-blocking; creation runs asynchronously outside request context.
-    scheduleBackgroundWork(async () => {
-      void withConcurrencyLimit("notifications-create-hook", 12, async () => {
+  }): Promise<void> {
+    const run = async (): Promise<void> => {
+      await withConcurrencyLimit("notifications-create-hook", 12, async () => {
         const result = await this.repository.createFromMutation(input);
         if (result.created && result.viewerId) {
+          if (result.notificationId && result.notificationData) {
+            const pushResult = await legacyNotificationPushPublisher.sendToRecipient({
+              notificationId: result.notificationId,
+              recipientUserId: result.viewerId,
+              notificationData: result.notificationData as never,
+              senderData: (result.senderData as never) ?? null,
+            });
+            if (!pushResult.success && !pushResult.skippedNoExpoToken) {
+              console.warn("[notifications] push delivery failed", {
+                notificationId: result.notificationId,
+                recipientUserId: result.viewerId,
+                error: pushResult.error ?? "unknown_push_error",
+              });
+            }
+          }
           await invalidateEntitiesForMutation({
             mutationType: "notification.create",
             viewerId: result.viewerId
           });
         }
-      }).catch(() => undefined);
+      });
+    };
+
+    if (process.env.VITEST === "true") {
+      await run().catch((error) => {
+        console.warn("[notifications] synchronous notification creation failed", {
+          error: error instanceof Error ? error.message : String(error),
+          type: input.type,
+          actorId: input.actorId,
+          targetId: input.targetId,
+        });
+      });
+      return;
+    }
+
+    scheduleBackgroundWork(async () => {
+      await run().catch((error) => {
+        console.warn("[notifications] background notification creation failed", {
+          error: error instanceof Error ? error.message : String(error),
+          type: input.type,
+          actorId: input.actorId,
+          targetId: input.targetId,
+        });
+      });
+    });
+  }
+
+  previewPush(input: {
+    senderUserId: string;
+    type: string;
+    message: string;
+    postId?: string | null;
+    commentId?: string | null;
+    chatId?: string | null;
+    collectionId?: string | null;
+    placeId?: string | null;
+    audioId?: string | null;
+    targetUserId?: string | null;
+    profileUserId?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }) {
+    return legacyNotificationPushPublisher.preview(input, {
+      senderName: typeof input.metadata?.senderName === "string" ? input.metadata.senderName : undefined,
+      senderProfilePic: typeof input.metadata?.senderProfilePic === "string" ? input.metadata.senderProfilePic : null,
+      senderUsername: typeof input.metadata?.senderUsername === "string" ? input.metadata.senderUsername : undefined,
     });
   }
 }

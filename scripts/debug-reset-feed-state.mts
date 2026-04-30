@@ -11,6 +11,9 @@ function readArg(name: string): string | null {
 async function main(): Promise<void> {
   const viewerId = readArg("viewerId");
   const deleteServed = readArg("deleteServed");
+  const resetAll = readArg("resetAll");
+  const resetReels = readArg("resetReels");
+  const resetRegular = readArg("resetRegular");
   if (!viewerId) {
     throw new Error("missing_viewer_id:pass --viewerId=<viewerId>");
   }
@@ -21,7 +24,34 @@ async function main(): Promise<void> {
   }
 
   const feedStateRef = db.collection("users").doc(viewerId).collection("feedState").doc("home_for_you");
-  await feedStateRef.delete().catch(() => undefined);
+  const shouldResetAll =
+    !resetReels &&
+    !resetRegular &&
+    (resetAll == null || resetAll === "1" || resetAll === "true" || resetAll === "yes");
+  const shouldResetReels = resetReels === "1" || resetReels === "true" || resetReels === "yes";
+  const shouldResetRegular = resetRegular === "1" || resetRegular === "true" || resetRegular === "yes";
+
+  let deletedFeedState = false;
+  let reelQueueIndexReset = false;
+  let regularQueueIndexReset = false;
+
+  if (shouldResetAll) {
+    await feedStateRef.delete().catch(() => undefined);
+    deletedFeedState = true;
+  } else if (shouldResetReels || shouldResetRegular) {
+    const patch: Record<string, unknown> = {};
+    if (shouldResetReels) {
+      patch.reelQueueIndex = 0;
+      reelQueueIndexReset = true;
+    }
+    if (shouldResetRegular) {
+      patch.regularQueueIndex = 0;
+      regularQueueIndexReset = true;
+    }
+    if (Object.keys(patch).length > 0) {
+      await feedStateRef.set(patch, { merge: true });
+    }
+  }
 
   let servedDeleted = 0;
   if (deleteServed === "1" || deleteServed === "true" || deleteServed === "yes") {
@@ -38,7 +68,9 @@ async function main(): Promise<void> {
   console.log(
     JSON.stringify({
       viewerId,
-      deletedFeedState: true,
+      deletedFeedState,
+      reelQueueIndexReset,
+      regularQueueIndexReset,
       servedDeleted
     })
   );

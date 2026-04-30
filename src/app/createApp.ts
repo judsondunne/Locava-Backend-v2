@@ -119,7 +119,6 @@ import { globalCache } from "../cache/global-cache.js";
 import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
 import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
-import { recordBackendRouteObservation } from "../services/analytics/analytics-route-observer.js";
 
 function classifyError(error: unknown): { code: string; statusCode: number; details?: unknown } {
   if (error instanceof ZodError) {
@@ -334,15 +333,6 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       surfaceTimings,
       orchestration: ctx?.orchestration,
       timestamp: new Date().toISOString()
-    });
-
-    recordBackendRouteObservation({
-      env,
-      request,
-      reply,
-      ctx,
-      latencyMs,
-      budgetViolations
     });
 
     const verboseRequestLogs = process.env.BACKENDV2_VERBOSE_REQUEST_LOGS === "1";

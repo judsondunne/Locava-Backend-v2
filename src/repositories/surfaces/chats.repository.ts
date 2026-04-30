@@ -707,7 +707,12 @@ export class ChatsRepository {
     return { cursorIn: input.cursor, items, hasMore, nextCursor };
   }
 
-  async sendMessage(input: SendTextMessageInput): Promise<{ message: MessageRecord; idempotent: boolean }> {
+  async sendMessage(input: SendTextMessageInput): Promise<{
+    message: MessageRecord;
+    idempotent: boolean;
+    recipientUserIds: string[];
+    groupName: string | null;
+  }> {
     if (shouldAllowSeededFallback(input.viewerId)) {
       recordFallback("chats_seeded_send_message");
       this.ensureSeededViewer(input.viewerId);
@@ -720,7 +725,7 @@ export class ChatsRepository {
         const existingId = this.clientMessageIndex.get(key);
         if (existingId) {
           const existing = (this.seededMessagesByConversation.get(input.conversationId) ?? []).find((m) => m.messageId === existingId);
-          if (existing) return { message: existing, idempotent: true };
+          if (existing) return { message: existing, idempotent: true, recipientUserIds: row.participantIds.filter((id) => id !== input.viewerId), groupName: row.isGroup ? row.title ?? null : null };
         }
       }
       const now = Date.now();
@@ -755,7 +760,12 @@ export class ChatsRepository {
       row.unreadCount = 0;
       incrementDbOps("writes", 1);
       if (key) this.clientMessageIndex.set(key, msg.messageId);
-      return { message: msg, idempotent: false };
+      return {
+        message: msg,
+        idempotent: false,
+        recipientUserIds: row.participantIds.filter((id) => id !== input.viewerId),
+        groupName: row.isGroup ? row.title ?? null : null,
+      };
     }
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
     const tMembership0 = performance.now();
@@ -763,6 +773,9 @@ export class ChatsRepository {
     const senderPromise = this.loadCachedUserSummary(input.viewerId).catch(() => null);
     const [conversationData, prefetchedSender] = await Promise.all([conversationPromise, senderPromise]);
     const tMembership1 = performance.now();
+    const participants = Array.isArray(conversationData.participants)
+      ? conversationData.participants.filter((v: unknown): v is string => typeof v === "string")
+      : [];
     const key = input.clientMessageId ? `${input.viewerId}:${input.conversationId}:${input.clientMessageId}` : null;
     if (key) {
       const existingId = this.clientMessageIndex.get(key);
@@ -793,7 +806,12 @@ export class ChatsRepository {
               createdAtMs: toMillis(data.timestamp),
               replyToMessageId: typeof data.replyToMessageId === "string" ? data.replyToMessageId : null,
               seenBy: Array.isArray(data.seenBy) ? data.seenBy.filter((x): x is string => typeof x === "string") : [input.viewerId]
-            }
+            },
+            recipientUserIds: participants.filter((participantId: string) => participantId !== input.viewerId),
+            groupName:
+              participants.length > 2 || typeof conversationData.groupName === "string"
+                ? (typeof conversationData.groupName === "string" ? conversationData.groupName : "Group chat")
+                : null,
           };
         }
       }
@@ -839,9 +857,6 @@ export class ChatsRepository {
     } else messagePayload.content = content;
     if (input.replyingToMessageId) messagePayload.replyToMessageId = input.replyingToMessageId;
 
-    const participants = Array.isArray(conversationData.participants)
-      ? conversationData.participants.filter((v: unknown): v is string => typeof v === "string")
-      : [];
     const unreadTargets = participants.filter((participantId: string) => participantId !== input.viewerId);
 
     incrementDbOps("writes", 2);
@@ -879,6 +894,11 @@ export class ChatsRepository {
     const outText = typeof content === "string" ? content : null;
     return {
       idempotent: false,
+      recipientUserIds: unreadTargets,
+      groupName:
+        participants.length > 2 || typeof conversationData.groupName === "string"
+          ? (typeof conversationData.groupName === "string" ? conversationData.groupName : "Group chat")
+          : null,
       message: {
         messageId: messageRef.id,
         conversationId: input.conversationId,

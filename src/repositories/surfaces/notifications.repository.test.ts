@@ -3,7 +3,6 @@ import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { type RequestContext, getRequestContext, runWithRequestContext } from "../../observability/request-context.js";
 import * as firestoreClient from "../source-of-truth/firestore-client.js";
-import { NotificationsRepository } from "./notifications.repository.js";
 
 function withRequestContext<T>(fn: () => Promise<T>): Promise<T> {
   const ctx: RequestContext = {
@@ -22,9 +21,28 @@ function withRequestContext<T>(fn: () => Promise<T>): Promise<T> {
     invalidation: { keys: 0, entityKeys: 0, routeKeys: 0, types: {} },
     fallbacks: [],
     timeouts: [],
-    surfaceTimings: {}
+    surfaceTimings: {},
+    orchestration: {
+      surface: null,
+      priority: null,
+      requestGroup: null,
+      visiblePostId: null,
+      screenInstanceId: null,
+      clientRequestId: null,
+      hydrationMode: null,
+      stale: false,
+      canceled: false,
+      deduped: false,
+      queueWaitMs: 0,
+    },
+    audit: {}
   };
   return runWithRequestContext(ctx, fn);
+}
+
+async function makeRepository() {
+  const mod = await import("./notifications.repository.js");
+  return new mod.NotificationsRepository();
 }
 
 describe("notifications repository", () => {
@@ -70,7 +88,7 @@ describe("notifications repository", () => {
     });
     vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
 
-    const repository = new NotificationsRepository();
+    const repository = await makeRepository();
     const result = await repository.markRead({
       viewerId: "viewer-1",
       notificationIds: ["notif-1"]
@@ -135,7 +153,7 @@ describe("notifications repository", () => {
     });
     vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
 
-    const repository = new NotificationsRepository();
+    const repository = await makeRepository();
     await withRequestContext(async () => {
       const page = await repository.listNotifications({
         viewerId: "viewer-1",
@@ -196,7 +214,7 @@ describe("notifications repository", () => {
     vi.spyOn(globalCache, "get").mockImplementation(async () => undefined);
     vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
 
-    const repository = new NotificationsRepository();
+    const repository = await makeRepository();
     await withRequestContext(async () => {
       const page = await repository.listNotifications({
         viewerId: "viewer-1",
@@ -210,5 +228,60 @@ describe("notifications repository", () => {
       expect(ctx?.dbOps.queries).toBe(1);
       expect(ctx?.dbOps.reads).toBe(1);
     });
+  });
+
+  it("creates old-shape comment notifications in seeded test mode", async () => {
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(null as never);
+    vi.spyOn(globalCache, "get").mockResolvedValue(undefined);
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+
+    const repository = await makeRepository();
+    const result = await repository.createFromMutation({
+      type: "comment",
+      actorId: "actor-1",
+      recipientUserId: "viewer-1",
+      targetId: "post-1",
+      commentId: "comment-1",
+      metadata: {
+        commentText: "hello there",
+        postTitle: "Post title",
+      },
+    });
+
+    expect(result.created).toBe(true);
+    expect(result.viewerId).toBe("viewer-1");
+    expect(result.notificationData).toEqual(
+      expect.objectContaining({
+        senderUserId: "actor-1",
+        type: "comment",
+        postId: "post-1",
+        commentId: "comment-1",
+        message: "commented on your post.",
+        read: false,
+        priority: "medium",
+        metadata: expect.objectContaining({
+          commentText: "hello there",
+          postTitle: "Post title",
+        }),
+      }),
+    );
+  });
+
+  it("skips self notifications in legacy creation path", async () => {
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(null as never);
+    vi.spyOn(globalCache, "get").mockResolvedValue(undefined);
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+
+    const repository = await makeRepository();
+    const result = await repository.createFromMutation({
+      type: "follow",
+      actorId: "viewer-1",
+      recipientUserId: "viewer-1",
+      targetId: "viewer-1",
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.notificationId).toBeNull();
+    expect(result.viewerId).toBeNull();
   });
 });

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { FieldPath, FieldValue, Timestamp, type DocumentData } from "firebase-admin/firestore";
 import type { NotificationSummary } from "../../contracts/entities/notification-entities.contract.js";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
@@ -18,10 +17,13 @@ type CachedNotificationReadState = {
 type RawNotificationDoc = {
   type?: unknown;
   senderUserId?: unknown;
+  senderUsername?: unknown;
   message?: unknown;
   timestamp?: unknown;
   createdAt?: unknown;
   read?: unknown;
+  seen?: unknown;
+  priority?: unknown;
   postId?: unknown;
   targetId?: unknown;
   targetUserId?: unknown;
@@ -62,6 +64,47 @@ const KNOWN_NOTIFICATION_TYPES = new Set([
   "post_discovery"
 ] as const);
 
+const LIKE_AGG_WINDOW_MS = 24 * 60 * 60 * 1000;
+const LIKE_AGG_INDIVIDUAL_CAP = 2;
+const MAX_IDS_IN_AGG_METADATA = 80;
+
+type LegacySenderData = {
+  senderName?: string;
+  senderProfilePic?: string | null;
+  senderUsername?: string;
+};
+
+type LegacyNotificationMutationInput = {
+  type:
+    | "like"
+    | "comment"
+    | "follow"
+    | "mention"
+    | "chat"
+    | "invite"
+    | "collection_shared"
+    | "group_invite"
+    | "group_joined"
+    | "group_faceoff"
+    | "contact_joined"
+    | "place_follow"
+    | "audio_like"
+    | "system"
+    | "achievement_leaderboard"
+    | "leaderboard_rank_up"
+    | "leaderboard_rank_down"
+    | "leaderboard_passed"
+    | "post"
+    | "post_discovery";
+  actorId: string;
+  targetId: string;
+  recipientUserId?: string | null;
+  message?: string | null;
+  commentId?: string | null;
+  metadata?: Record<string, unknown>;
+  createdAtMs?: number;
+};
+
 function normalizeType(input: unknown): NotificationSummary["type"] {
   const v = String(input ?? "").toLowerCase() as NotificationSummary["type"];
   if (KNOWN_NOTIFICATION_TYPES.has(v)) return v;
@@ -98,6 +141,34 @@ function defaultPreviewText(type: NotificationSummary["type"]): string {
   if (type === "invite") return "invited you to collaborate";
   if (type === "collection_shared") return "shared a collection with you";
   return "interacted with your content";
+}
+
+function asTrimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function safeFirestoreDocIdSegment(id: string): string {
+  return String(id || "unknown")
+    .replace(/[/\s]/g, "_")
+    .slice(0, 700);
+}
+
+function formatTieredCount(n: number): string {
+  if (n >= 20) return "20+";
+  if (n >= 10) return "10+";
+  return String(Math.max(0, n));
+}
+
+function formatOthersLikedPhrase(additionalBeyondIndividual: number): string {
+  const t = formatTieredCount(additionalBeyondIndividual);
+  if (t === "1") return "1 other";
+  return `${t} others`;
+}
+
+function postTitleForAggMessage(title?: string | null): string {
+  return asTrimmedString(title) ?? "your post";
 }
 
 function pickUnreadCountFromUserDoc(data: Record<string, unknown> | null | undefined): number | null {
@@ -149,7 +220,6 @@ const SEEDED_POST_AUTHOR_FOR_TESTS: Record<string, string> = {
 };
 
 export class NotificationsRepository {
-  private readonly db = getFirestoreSourceClient();
   private readonly seededNotificationsByViewer = new Map<string, SeededNotificationDoc[]>();
   private readonly viewerStateWarmQueued = new Set<string>();
 
@@ -158,12 +228,13 @@ export class NotificationsRepository {
   }
 
   private useSeededNotifications(): boolean {
-    return process.env.NODE_ENV === "test" && this.db === null;
+    return process.env.NODE_ENV === "test" && getFirestoreSourceClient() === null;
   }
 
   private ensureDb(): NonNullable<ReturnType<typeof getFirestoreSourceClient>> {
-    if (!this.db) throw new SourceOfTruthRequiredError("notifications_firestore_unavailable");
-    return this.db;
+    const db = getFirestoreSourceClient();
+    if (!db) throw new SourceOfTruthRequiredError("notifications_firestore_unavailable");
+    return db;
   }
 
   private ensureSeededViewer(viewerId: string): SeededNotificationDoc[] {
@@ -487,6 +558,386 @@ export class NotificationsRepository {
     return nextUnread;
   }
 
+  private extractSenderData(userId: string, userDoc: Record<string, unknown> | null | undefined): LegacySenderData {
+    if (userId === "system") {
+      return {
+        senderName: "Locava",
+        senderProfilePic: "https://via.placeholder.com/150?text=Locava",
+        senderUsername: "locava",
+      };
+    }
+    const handle =
+      asTrimmedString(userDoc?.handle) ??
+      asTrimmedString(userDoc?.username) ??
+      `user_${userId.slice(0, 8)}`;
+    return {
+      senderName:
+        asTrimmedString(userDoc?.name) ??
+        asTrimmedString(userDoc?.displayName) ??
+        handle,
+      senderProfilePic:
+        asTrimmedString(userDoc?.profilePic) ??
+        asTrimmedString(userDoc?.profilePicture) ??
+        asTrimmedString(userDoc?.photoURL) ??
+        asTrimmedString(userDoc?.photo) ??
+        null,
+      senderUsername: handle.replace(/^@+/, ""),
+    };
+  }
+
+  private async resolveSenderData(userId: string): Promise<LegacySenderData> {
+    if (this.useSeededNotifications()) {
+      return {
+        senderName: `User ${userId.slice(-4)}`,
+        senderProfilePic: null,
+        senderUsername: `hdl_${userId.slice(0, 8)}`,
+      };
+    }
+    const users = await this.loadUsersById([userId]);
+    return this.extractSenderData(userId, (users.get(userId) as Record<string, unknown> | undefined) ?? null);
+  }
+
+  private async resolvePostContext(postId: string): Promise<{
+    recipientUserId: string | null;
+    postTitle: string | null;
+    postThumbUrl: string | null;
+  }> {
+    if (this.useSeededNotifications()) {
+      return {
+        recipientUserId: SEEDED_POST_AUTHOR_FOR_TESTS[postId] ?? null,
+        postTitle: "your post",
+        postThumbUrl: "https://example.com/thumb.jpg",
+      };
+    }
+    const db = this.ensureDb();
+    const postDoc = await db.collection("posts").doc(postId).get();
+    incrementDbOps("queries", 1);
+    incrementDbOps("reads", postDoc.exists ? 1 : 0);
+    const postData = (postDoc.data() ?? {}) as Record<string, unknown>;
+    const recipientUserId =
+      asTrimmedString(postData.userId) ??
+      asTrimmedString(postData.authorId) ??
+      asTrimmedString(postData.ownerId);
+    const postTitle =
+      asTrimmedString(postData.title) ??
+      asTrimmedString(postData.postTitle) ??
+      asTrimmedString(postData.caption) ??
+      asTrimmedString(postData.name);
+    const postThumbUrl =
+      asTrimmedString(postData.displayPhotoLink) ??
+      asTrimmedString(postData.photoLink) ??
+      asTrimmedString(postData.image);
+    return { recipientUserId, postTitle, postThumbUrl };
+  }
+
+  private async createLegacyNotificationDoc(input: {
+    recipientUserId: string;
+    notificationData: Record<string, unknown>;
+    unreadDelta?: number;
+  }): Promise<{ notificationId: string }> {
+    const unreadDelta = input.unreadDelta ?? 1;
+    if (this.useSeededNotifications()) {
+      const rows = this.ensureSeededViewer(input.recipientUserId);
+      const notificationId = `seed_${Date.now()}_${rows.length + 1}`;
+      rows.unshift({
+        id: notificationId,
+        ...(input.notificationData as RawNotificationDoc),
+        timestamp: Date.now(),
+      });
+      incrementDbOps("writes", 1);
+      const priorUnread = (await this.readCachedUnreadCount(input.recipientUserId)) ?? 0;
+      await this.writeUnreadCountCaches(input.recipientUserId, priorUnread + unreadDelta);
+      return { notificationId };
+    }
+    const db = this.ensureDb();
+    const ref = db.collection("users").doc(input.recipientUserId).collection("notifications").doc();
+    await Promise.all([
+      ref.set(input.notificationData),
+      unreadDelta !== 0 ? this.adjustUnreadCountFirestore(input.recipientUserId, unreadDelta) : Promise.resolve(0),
+    ]);
+    incrementDbOps("writes", 1);
+    return { notificationId: ref.id };
+  }
+
+  private async createGenericLegacyNotification(input: LegacyNotificationMutationInput & { recipientUserId: string }): Promise<{
+    created: boolean;
+    notificationId: string | null;
+    viewerId: string | null;
+    notificationData: Record<string, unknown> | null;
+    senderData: LegacySenderData | null;
+  }> {
+    if (!input.recipientUserId || input.recipientUserId === input.actorId) {
+      return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData: null };
+    }
+
+    const senderData = await this.resolveSenderData(input.actorId);
+    const metadata = { ...(input.metadata ?? {}) };
+    const nowField = this.useSeededNotifications() ? input.createdAtMs ?? Date.now() : FieldValue.serverTimestamp();
+    const notificationData: Record<string, unknown> = {
+      senderUserId: input.actorId,
+      ...senderData,
+      type: input.type,
+      message: input.message ?? defaultPreviewText(normalizeType(input.type)),
+      timestamp: nowField,
+      priority: "medium",
+    };
+
+    if (input.type === "follow") {
+      notificationData.message = "followed you.";
+      notificationData.read = false;
+      notificationData.priority = "low";
+    } else if (input.type === "comment") {
+      notificationData.postId = input.targetId;
+      if (input.commentId) notificationData.commentId = input.commentId;
+      notificationData.message = "commented on your post.";
+      notificationData.read = false;
+      notificationData.priority = "medium";
+    } else if (input.type === "mention") {
+      notificationData.postId = input.targetId;
+      if (input.commentId) notificationData.commentId = input.commentId;
+      notificationData.message = input.message ?? "mentioned you in a post.";
+      notificationData.read = false;
+      notificationData.priority = "medium";
+    } else if (input.type === "chat") {
+      notificationData.chatId = input.targetId;
+      notificationData.message = input.message ?? "New message";
+      notificationData.seen = false;
+      notificationData.priority = "medium";
+    } else if (input.type === "invite" || input.type === "collection_shared") {
+      notificationData.collectionId = input.targetId;
+      notificationData.read = false;
+      notificationData.priority = "medium";
+    } else if (input.type === "group_invite" || input.type === "group_joined" || input.type === "group_faceoff") {
+      notificationData.read = false;
+      notificationData.priority = input.type === "group_faceoff" ? "high" : "medium";
+    } else if (input.type === "place_follow") {
+      notificationData.placeId = input.targetId;
+      notificationData.read = false;
+      notificationData.priority = "low";
+    } else if (input.type === "audio_like") {
+      notificationData.audioId = input.targetId;
+      notificationData.read = false;
+      notificationData.priority = "low";
+    } else if (input.type === "contact_joined") {
+      notificationData.message = "just joined Locava. Tap to view their profile.";
+      notificationData.read = false;
+      notificationData.priority = "medium";
+      metadata.route = "/userDisplay/userDisplay";
+    } else if (input.type === "system") {
+      notificationData.senderUserId = "system";
+      notificationData.senderName = "Locava";
+      notificationData.senderProfilePic = "https://via.placeholder.com/150?text=Locava";
+      notificationData.senderUsername = "locava";
+      notificationData.read = false;
+      notificationData.priority = typeof metadata.priority === "string" ? metadata.priority : "medium";
+    } else if (input.type === "post") {
+      notificationData.postId = input.targetId;
+      notificationData.read = false;
+      notificationData.priority = "low";
+    } else {
+      notificationData.postId = input.targetId;
+      notificationData.read = false;
+      notificationData.priority = input.type === "like" ? "high" : "medium";
+    }
+
+    if (Object.keys(metadata).length > 0) {
+      notificationData.metadata = metadata;
+    }
+    const { notificationId } = await this.createLegacyNotificationDoc({
+      recipientUserId: input.recipientUserId,
+      notificationData,
+    });
+    return {
+      created: true,
+      notificationId,
+      viewerId: input.recipientUserId,
+      notificationData,
+      senderData,
+    };
+  }
+
+  private async createLegacyLikeNotification(input: LegacyNotificationMutationInput & {
+    recipientUserId: string;
+    postTitle?: string | null;
+  }): Promise<{
+    created: boolean;
+    notificationId: string | null;
+    viewerId: string | null;
+    notificationData: Record<string, unknown> | null;
+    senderData: LegacySenderData | null;
+  }> {
+    if (!input.recipientUserId || input.recipientUserId === input.actorId) {
+      return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData: null };
+    }
+    const senderData = await this.resolveSenderData(input.actorId);
+    const postTitle = postTitleForAggMessage(input.postTitle);
+    if (this.useSeededNotifications()) {
+      const notificationData = {
+        senderUserId: input.actorId,
+        ...senderData,
+        type: "like",
+        postId: input.targetId,
+        message: "liked your post.",
+        timestamp: input.createdAtMs ?? Date.now(),
+        read: false,
+        priority: "high",
+        metadata: { postTitle },
+      };
+      const { notificationId } = await this.createLegacyNotificationDoc({
+        recipientUserId: input.recipientUserId,
+        notificationData,
+      });
+      return {
+        created: true,
+        notificationId,
+        viewerId: input.recipientUserId,
+        notificationData,
+        senderData,
+      };
+    }
+
+    const db = this.ensureDb();
+    const stateKey = `like_${safeFirestoreDocIdSegment(input.targetId)}`;
+    const stateRef = db.collection("users").doc(input.recipientUserId).collection("notificationAggState").doc(stateKey);
+    const notifCol = db.collection("users").doc(input.recipientUserId).collection("notifications");
+    type Outcome = "individual" | "summary_create" | "summary_update" | "duplicate";
+    const outcome: { value: Outcome } = { value: "individual" };
+    let resultNotificationId: string | null = null;
+    let pushNotificationData: Record<string, unknown> | null = null;
+
+    await db.runTransaction(async (tx) => {
+      const stateSnap = await tx.get(stateRef);
+      const now = Date.now();
+      let windowStartMs = now;
+      let orderedLikerIds: string[] = [];
+      let summaryNotificationId: string | null = null;
+
+      if (stateSnap.exists) {
+        const d = (stateSnap.data() ?? {}) as Record<string, unknown>;
+        windowStartMs = typeof d.windowStartMs === "number" ? d.windowStartMs : now;
+        orderedLikerIds = Array.isArray(d.orderedLikerIds) ? d.orderedLikerIds.filter((v): v is string => typeof v === "string") : [];
+        summaryNotificationId = asTrimmedString(d.summaryNotificationId);
+      }
+      if (now - windowStartMs > LIKE_AGG_WINDOW_MS) {
+        windowStartMs = now;
+        orderedLikerIds = [];
+        summaryNotificationId = null;
+      }
+      if (orderedLikerIds.includes(input.actorId)) {
+        outcome.value = "duplicate";
+        return;
+      }
+      orderedLikerIds.push(input.actorId);
+
+      if (orderedLikerIds.length <= LIKE_AGG_INDIVIDUAL_CAP) {
+        const newRef = notifCol.doc();
+        const notificationData = {
+          senderUserId: input.actorId,
+          ...senderData,
+          type: "like",
+          postId: input.targetId,
+          message: "liked your post.",
+          timestamp: FieldValue.serverTimestamp(),
+          read: false,
+          priority: "high",
+          metadata: { postTitle },
+        };
+        tx.set(newRef, notificationData);
+        tx.set(
+          stateRef,
+          {
+            windowStartMs,
+            orderedLikerIds,
+            summaryNotificationId,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        resultNotificationId = newRef.id;
+        pushNotificationData = notificationData;
+        outcome.value = "individual";
+        return;
+      }
+
+      const additional = orderedLikerIds.length - LIKE_AGG_INDIVIDUAL_CAP;
+      const othersPhrase = formatOthersLikedPhrase(additional);
+      const bodyMessage =
+        postTitle === "your post"
+          ? `${othersPhrase} liked your post.`
+          : `${othersPhrase} liked your post, ${postTitle}.`;
+      const metadata = {
+        postTitle,
+        aggregated: true,
+        aggregationKind: "like_post",
+        orderedLikerIds: orderedLikerIds.slice(0, MAX_IDS_IN_AGG_METADATA),
+        additionalLikerCount: additional,
+        totalUniqueLikers: orderedLikerIds.length,
+        individualCap: LIKE_AGG_INDIVIDUAL_CAP,
+      };
+
+      if (!summaryNotificationId) {
+        const sumRef = notifCol.doc();
+        const notificationData = {
+          senderUserId: input.actorId,
+          ...senderData,
+          type: "like",
+          postId: input.targetId,
+          message: bodyMessage,
+          timestamp: FieldValue.serverTimestamp(),
+          read: false,
+          priority: "high",
+          metadata,
+          pushTitle: senderData.senderName ?? "Someone",
+          pushBody: `${othersPhrase} liked your post`,
+          skipStoredPushTemplate: true,
+        };
+        tx.set(sumRef, notificationData);
+        summaryNotificationId = sumRef.id;
+        resultNotificationId = sumRef.id;
+        pushNotificationData = notificationData;
+        outcome.value = "summary_create";
+      } else {
+        const sumRef = notifCol.doc(summaryNotificationId);
+        tx.update(sumRef, {
+          senderUserId: input.actorId,
+          senderName: senderData.senderName,
+          senderProfilePic: senderData.senderProfilePic,
+          senderUsername: senderData.senderUsername,
+          message: bodyMessage,
+          metadata,
+          timestamp: FieldValue.serverTimestamp(),
+          postId: input.targetId,
+        });
+        resultNotificationId = summaryNotificationId;
+        outcome.value = "summary_update";
+      }
+
+      tx.set(
+        stateRef,
+        {
+          windowStartMs,
+          orderedLikerIds,
+          summaryNotificationId,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+
+    if (outcome.value === "duplicate" || !resultNotificationId) {
+      return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData };
+    }
+
+    await this.adjustUnreadCountFirestore(input.recipientUserId, 1);
+    return {
+      created: true,
+      notificationId: resultNotificationId,
+      viewerId: input.recipientUserId,
+      notificationData: pushNotificationData,
+      senderData,
+    };
+  }
+
   async listNotifications(input: {
     viewerId: string;
     cursor: string | null;
@@ -534,6 +985,9 @@ export class NotificationsRepository {
         "chatId",
         "senderName",
         "senderProfilePic",
+        "senderUsername",
+        "seen",
+        "priority",
         "metadata"
       )
       .limit(safeLimit + 1);
@@ -572,7 +1026,12 @@ export class NotificationsRepository {
       const type = normalizeType(row.type);
       const createdAtMs = toMillis(row.timestamp ?? row.createdAt);
       const metadata = row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : {};
-      const handle = actorId === "system" ? "locava" : actorId.replace(/^@+/, "").trim();
+      const handle =
+        actorId === "system"
+          ? "locava"
+          : String(row.senderUsername ?? actorId)
+              .replace(/^@+/, "")
+              .trim();
       const name = String(row.senderName ?? (actorId === "system" ? "Locava" : handle)).trim();
       const pic = sanitizeProfilePic(row.senderProfilePic);
       const rawTarget = String(row.postId ?? row.targetId ?? row.targetUserId ?? row.collectionId ?? row.id);
@@ -792,99 +1251,89 @@ export class NotificationsRepository {
     return { markedCount: totalMarked, unreadCount: 0, idempotent: false };
   }
 
-  async createFromMutation(input: {
-    type: "like" | "comment" | "follow" | "mention" | "chat" | "invite" | "collection_shared" | "group_invite" | "group_joined" | "contact_joined" | "place_follow" | "audio_like" | "system" | "achievement_leaderboard" | "leaderboard_rank_up" | "leaderboard_rank_down" | "leaderboard_passed" | "post_discovery";
-    actorId: string;
-    targetId: string;
-    recipientUserId?: string | null;
-    message?: string | null;
-    commentId?: string | null;
-    metadata?: Record<string, unknown>;
-    createdAtMs?: number;
-  }): Promise<{ created: boolean; notificationId: string | null; viewerId: string | null }> {
-    const nowMs = input.createdAtMs ?? Date.now();
+  async createFromMutation(input: LegacyNotificationMutationInput): Promise<{
+    created: boolean;
+    notificationId: string | null;
+    viewerId: string | null;
+    notificationData?: Record<string, unknown> | null;
+    senderData?: LegacySenderData | null;
+  }> {
+    let recipientUserId = asTrimmedString(input.recipientUserId);
+    let postContext:
+      | {
+          recipientUserId: string | null;
+          postTitle: string | null;
+          postThumbUrl: string | null;
+        }
+      | null = null;
+
+    if (!recipientUserId && (input.type === "like" || input.type === "comment" || input.type === "mention" || input.type === "post")) {
+      postContext = await this.resolvePostContext(input.targetId);
+      recipientUserId = postContext.recipientUserId;
+    }
+    if (!recipientUserId && input.type === "follow") {
+      recipientUserId = input.targetId;
+    }
+    if (!recipientUserId) {
+      return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData: null };
+    }
+
     const metadata: Record<string, unknown> = { ...(input.metadata ?? {}) };
     if (input.commentId) metadata.commentId = input.commentId;
-
-    let viewerId: string | null = null;
-    let postData: Record<string, unknown> | null = null;
-
-    if (input.recipientUserId && input.recipientUserId.trim().length > 0) {
-      viewerId = input.recipientUserId.trim();
-    } else if (input.type === "follow") {
-      viewerId = input.targetId;
-    } else if (this.useSeededNotifications()) {
-      viewerId = SEEDED_POST_AUTHOR_FOR_TESTS[input.targetId] ?? null;
-    } else {
-      const db = this.ensureDb();
-      const postDoc = await db.collection("posts").doc(input.targetId).get();
-      incrementDbOps("queries", 1);
-      incrementDbOps("reads", 1);
-      if (postDoc.exists) {
-        postData = postDoc.data() as Record<string, unknown>;
-        viewerId = String(postData.userId ?? "");
-      }
+    if (postContext?.postTitle && !asTrimmedString(metadata.postTitle)) {
+      metadata.postTitle = postContext.postTitle;
+    }
+    if (postContext?.postThumbUrl && !asTrimmedString(metadata.postThumbUrl)) {
+      metadata.postThumbUrl = postContext.postThumbUrl;
     }
 
-    if (!viewerId || viewerId === input.actorId) {
-      return { created: false, notificationId: null, viewerId: null };
-    }
-
-    if (postData && input.type !== "follow") {
-      const thumb =
-        typeof postData.displayPhotoLink === "string"
-          ? postData.displayPhotoLink
-          : typeof postData.photoLink === "string"
-            ? postData.photoLink
-            : typeof postData.image === "string"
-              ? postData.image
-              : null;
-      if (typeof thumb === "string" && thumb.startsWith("http")) metadata.postThumbUrl = thumb;
-    }
-
-    const notificationId = `n_${randomUUID().slice(0, 12)}`;
-
-    if (this.useSeededNotifications()) {
-      recordFallback("notifications_seeded_create");
-      const rows = this.ensureSeededViewer(viewerId);
-      rows.unshift({
-        id: notificationId,
-        type: input.type,
-        senderUserId: input.actorId,
-        message: input.message ?? defaultPreviewText(input.type),
-        read: false,
-        timestamp: nowMs,
-        postId: input.type === "follow" ? null : input.targetId,
-        targetUserId: input.type === "follow" ? input.targetId : null,
-        metadata: Object.keys(metadata).length > 0 ? metadata : { postThumbUrl: "https://example.com/thumb.jpg" }
+    if (input.type === "like") {
+      return this.createLegacyLikeNotification({
+        ...input,
+        recipientUserId,
+        metadata,
+        postTitle: asTrimmedString(metadata.postTitle),
       });
-      incrementDbOps("writes", 1);
-    } else {
-      const db = this.ensureDb();
-      await Promise.all([
-        db
-          .collection("users")
-          .doc(viewerId)
-          .collection("notifications")
-          .doc(notificationId)
-          .set({
-            type: input.type,
-            senderUserId: input.actorId,
-            message: input.message ?? defaultPreviewText(input.type),
-            read: false,
-            timestamp: Timestamp.fromMillis(nowMs),
-            postId: input.type === "follow" ? null : input.targetId,
-            targetUserId: input.type === "follow" ? input.targetId : null,
-            ...(Object.keys(metadata).length > 0 ? { metadata } : {})
-          }),
-        this.adjustUnreadCountFirestore(viewerId, 1)
-      ]);
-      incrementDbOps("writes", 1);
-      return { created: true, notificationId, viewerId };
     }
-    const priorUnread = (await this.readCachedUnreadCount(viewerId)) ?? 0;
-    await this.writeUnreadCountCaches(viewerId, priorUnread + 1);
-    return { created: true, notificationId, viewerId };
+
+    if (input.type === "comment") {
+      metadata.commentText = asTrimmedString(metadata.commentText) ?? asTrimmedString(input.message) ?? undefined;
+      return this.createGenericLegacyNotification({
+        ...input,
+        recipientUserId,
+        metadata,
+      });
+    }
+
+    if (input.type === "mention") {
+      return this.createGenericLegacyNotification({
+        ...input,
+        recipientUserId,
+        metadata,
+      });
+    }
+
+    if (input.type === "chat") {
+      return this.createGenericLegacyNotification({
+        ...input,
+        recipientUserId,
+        metadata,
+      });
+    }
+
+    if (input.type === "follow") {
+      return this.createGenericLegacyNotification({
+        ...input,
+        recipientUserId,
+        metadata,
+      });
+    }
+
+    return this.createGenericLegacyNotification({
+      ...input,
+      recipientUserId,
+      metadata,
+    });
   }
 
   resetForTests(): void {

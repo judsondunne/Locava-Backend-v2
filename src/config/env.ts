@@ -184,5 +184,12 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
     process.env.FIREBASE_PRIVATE_KEY = candidatePrivateKey;
   }
 
-  return EnvSchema.parse(mergedSource);
+  const parsed = EnvSchema.parse(mergedSource);
+  const analyticsConfiguredExplicitly =
+    mergedSource.ANALYTICS_ENABLED != null && String(mergedSource.ANALYTICS_ENABLED).trim() !== "";
+  if (!analyticsConfiguredExplicitly && parsed.NODE_ENV !== "production") {
+    parsed.ANALYTICS_ENABLED = false;
+  }
+
+  return parsed;
 }

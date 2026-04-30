@@ -2,7 +2,11 @@ import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.j
 import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
 import { recordInvalidation } from "../../observability/request-context.js";
+import { notificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
+import { NotificationsService } from "../../services/surfaces/notifications.service.js";
 import type { ChatsService } from "../../services/surfaces/chats.service.js";
+
+const notificationsService = new NotificationsService(notificationsRepository);
 
 export class ChatsSendMessageOrchestrator {
   constructor(private readonly service: ChatsService) {}
@@ -64,6 +68,26 @@ export class ChatsSendMessageOrchestrator {
               invalidatedKeys: ["deferred"]
             };
           })();
+    if (!result.idempotent) {
+      const notificationMessage =
+        input.messageType === "photo"
+          ? "sent a photo"
+          : input.messageType === "gif"
+            ? "sent a GIF"
+            : input.messageType === "post"
+              ? "sent a post"
+              : (input.text?.trim() || "sent a message");
+      for (const recipientUserId of result.recipientUserIds) {
+        void notificationsService.createFromMutation({
+          type: "chat",
+          actorId: input.viewerId,
+          targetId: input.conversationId,
+          recipientUserId,
+          message: result.groupName ? `From ${result.groupName}: ${notificationMessage}` : notificationMessage,
+          metadata: result.groupName ? { groupName: result.groupName, isGroupChat: true } : {},
+        });
+      }
+    }
     return {
       routeName: "chats.sendtext.post" as const,
       message: {

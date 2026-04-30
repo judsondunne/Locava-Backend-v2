@@ -3,7 +3,7 @@ import { incrementDbOps } from "../../observability/request-context.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 
-export type ForYouSourceBucket = "reel" | "regular" | "recycled_real_posts";
+export type ForYouSourceBucket = "reel" | "regular";
 
 export type FeedForYouMode = "reels" | "mixed" | "regular";
 
@@ -15,10 +15,12 @@ export type FeedForYouState = {
   reelQueueSourceVersion: string;
   reelQueueCount: number;
   reelQueueIndex: number;
-  regularCursorTime: number | null;
-  regularCursorPostId: string | null;
+  regularQueue: string[];
+  regularQueueGeneratedAtMs: number | null;
+  regularQueueSourceVersion: string;
+  regularQueueCount: number;
+  regularQueueIndex: number;
   randomSeed: string;
-  regularServedRecent: string[];
   updatedAtMs: number | null;
   createdAtMs: number | null;
 };
@@ -141,7 +143,6 @@ export class FeedForYouRepository {
   async getFeedState(viewerId: string): Promise<FeedForYouState | null> {
     if (!this.db || !viewerId) return null;
     const ref = this.getFeedStateRef(viewerId);
-    incrementDbOps("queries", 1);
     const snap = await ref.get();
     incrementDbOps("reads", snap.exists ? 1 : 0);
     if (!snap.exists) return null;
@@ -161,11 +162,15 @@ export class FeedForYouRepository {
         reelQueueSourceVersion: state.reelQueueSourceVersion,
         reelQueueCount: state.reelQueueCount,
         reelQueueIndex: state.reelQueueIndex,
-        regularCursorTime:
-          state.regularCursorTime == null ? null : Timestamp.fromMillis(state.regularCursorTime),
-        regularCursorPostId: state.regularCursorPostId ?? null,
+        regularQueue: state.regularQueue.slice(0, 1000),
+        regularQueueGeneratedAt:
+          state.regularQueueGeneratedAtMs == null
+            ? FieldValue.serverTimestamp()
+            : Timestamp.fromMillis(state.regularQueueGeneratedAtMs),
+        regularQueueSourceVersion: state.regularQueueSourceVersion,
+        regularQueueCount: state.regularQueueCount,
+        regularQueueIndex: state.regularQueueIndex,
         randomSeed: state.randomSeed,
-        regularServedRecent: state.regularServedRecent.slice(0, 100),
         updatedAt: FieldValue.serverTimestamp(),
         createdAt: state.createdAtMs == null ? FieldValue.serverTimestamp() : Timestamp.fromMillis(state.createdAtMs)
       },
@@ -188,6 +193,19 @@ export class FeedForYouRepository {
       reelOnly: false,
       postIds
     });
+  }
+
+  async fetchEligibleRegularIds(limit: number): Promise<string[]> {
+    const scanLimit = Math.min(1200, Math.max(limit + 200, limit));
+    const rows = await this.fetchWindow({
+      limit: scanLimit,
+      reelOnly: false,
+      postIds: null
+    });
+    return rows
+      .filter((row) => row.reel !== true)
+      .slice(0, Math.max(1, Math.min(limit, 1000)))
+      .map((row) => row.postId);
   }
 
   async fetchRecentWindow(limit: number): Promise<ForYouCandidate[]> {
@@ -229,7 +247,6 @@ export class FeedForYouRepository {
     if (input.postIds) {
       const ids = [...new Set(input.postIds.map((id) => id.trim()).filter(Boolean))].slice(0, boundedLimit);
       if (ids.length === 0) return [];
-      incrementDbOps("queries", 1);
       const snaps = await this.db.getAll(...ids.map((id) => this.db!.collection("posts").doc(id)));
       incrementDbOps("reads", snaps.length);
       return snaps
@@ -260,13 +277,21 @@ function normalizeFeedState(data: Record<string, unknown>): FeedForYouState | nu
     : null;
   const reelQueueIndexRaw = Number(data.reelQueueIndex);
   const reelQueueCountRaw = Number(data.reelQueueCount);
-  const regularServedRecent = Array.isArray(data.regularServedRecent)
-    ? data.regularServedRecent.filter((value): value is string => typeof value === "string" && value.trim().length > 0).slice(0, 100)
+  const regularQueue = Array.isArray(data.regularQueue)
+    ? data.regularQueue.filter((value): value is string => typeof value === "string" && value.trim().length > 0).slice(0, 1000)
     : [];
+  const regularQueueIndexRaw = Number(data.regularQueueIndex);
+  const regularQueueCountRaw = Number(data.regularQueueCount);
   if (!viewerId || surface !== "home_for_you" || !reelQueue) return null;
   if (!Number.isFinite(reelQueueIndexRaw) || reelQueueIndexRaw < 0) return null;
   const reelQueueCount = Number.isFinite(reelQueueCountRaw) && reelQueueCountRaw >= 0 ? Math.floor(reelQueueCountRaw) : reelQueue.length;
   const reelQueueIndex = Math.min(Math.floor(reelQueueIndexRaw), reelQueue.length);
+  const regularQueueCount =
+    Number.isFinite(regularQueueCountRaw) && regularQueueCountRaw >= 0 ? Math.floor(regularQueueCountRaw) : regularQueue.length;
+  const regularQueueIndex =
+    Number.isFinite(regularQueueIndexRaw) && regularQueueIndexRaw >= 0
+      ? Math.min(Math.floor(regularQueueIndexRaw), regularQueue.length)
+      : 0;
   return {
     viewerId,
     surface: "home_for_you",
@@ -275,10 +300,12 @@ function normalizeFeedState(data: Record<string, unknown>): FeedForYouState | nu
     reelQueueSourceVersion: pickString(data.reelQueueSourceVersion) ?? "",
     reelQueueCount: Math.min(reelQueueCount, reelQueue.length),
     reelQueueIndex,
-    regularCursorTime: readMaybeMillis(data.regularCursorTime) ?? null,
-    regularCursorPostId: pickString(data.regularCursorPostId),
+    regularQueue,
+    regularQueueGeneratedAtMs: readMaybeMillis(data.regularQueueGeneratedAt) ?? null,
+    regularQueueSourceVersion: pickString(data.regularQueueSourceVersion) ?? "",
+    regularQueueCount: Math.min(regularQueueCount, regularQueue.length),
+    regularQueueIndex,
     randomSeed: pickString(data.randomSeed) ?? "",
-    regularServedRecent,
     updatedAtMs: readMaybeMillis(data.updatedAt) ?? null,
     createdAtMs: readMaybeMillis(data.createdAt) ?? null
   };
