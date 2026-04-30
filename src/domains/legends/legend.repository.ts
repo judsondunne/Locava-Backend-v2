@@ -3,6 +3,8 @@ import { incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import type {
   LegendAwardDoc,
+  CanonicalFirstClaimDoc,
+  CanonicalRankAggregateDoc,
   LegendPostStageDoc,
   LegendScopeDoc,
   LegendScopeId,
@@ -73,6 +75,14 @@ export class LegendRepository {
 
   stageRef(stageId: string) {
     return this.requireDb().collection("legendPostStages").doc(stageId);
+  }
+
+  firstClaimRef(claimKey: string) {
+    return this.requireDb().collection("legendFirstClaims").doc(claimKey);
+  }
+
+  rankAggregateRef(aggregateKey: string) {
+    return this.requireDb().collection("legendRankAggregates").doc(aggregateKey);
   }
 
   awardRef(userId: string, awardId: string) {
@@ -269,6 +279,21 @@ export class LegendRepository {
       ...params,
       createdAt: FieldValue.serverTimestamp(),
       seen: false
+    };
+  }
+
+  buildFirstClaimDoc(params: Omit<CanonicalFirstClaimDoc, "createdAt" | "claimedAt">): CanonicalFirstClaimDoc {
+    return {
+      ...params,
+      createdAt: FieldValue.serverTimestamp(),
+      claimedAt: FieldValue.serverTimestamp()
+    };
+  }
+
+  buildRankAggregateDoc(params: CanonicalRankAggregateDoc): CanonicalRankAggregateDoc {
+    return {
+      ...params,
+      updatedAt: FieldValue.serverTimestamp()
     };
   }
 

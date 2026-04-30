@@ -10,32 +10,71 @@ function asHttpUrl(value: unknown): string | null {
   return u;
 }
 
+function isProcessingPlaceholderCdnUrl(u: string): boolean {
+  return /_pending\.(jpe?g|webp)(\?|#|$)/i.test(u);
+}
+
+function isVideoPlaybackUrl(u: string): boolean {
+  return /\.(mp4|mov|m4v|webm)(\?|$)/i.test(u);
+}
+
+/** `photoLink` is often comma-separated in Locava — match liftable `getHeroUri` behavior. */
+function firstHttpFromCommaField(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  for (const part of value.split(",")) {
+    const u = asHttpUrl(part.trim());
+    if (u && !isProcessingPlaceholderCdnUrl(u)) return u;
+  }
+  return null;
+}
+
+function tierWebpOrJpg(tier: unknown): string | null {
+  if (!tier || typeof tier !== "object") return null;
+  const o = tier as Record<string, unknown>;
+  for (const key of ["webp", "jpg"] as const) {
+    const u = asHttpUrl(o[key]);
+    if (u && !isProcessingPlaceholderCdnUrl(u)) return u;
+  }
+  return null;
+}
+
+/**
+ * First hero still URL aligned with native `getHeroUri`: displayPhotoLink / photoLink / thumbUrl,
+ * then assets[0] with image tier order sm→md→thumb→lg and video posters (never raw MP4 previews for tiles).
+ */
 function readFromAssets(obj: Record<string, unknown>): string | null {
   const assets = obj.assets;
   if (!Array.isArray(assets) || assets.length === 0 || typeof assets[0] !== "object" || !assets[0]) {
     return null;
   }
   const a0 = assets[0] as Record<string, unknown>;
+  const type = String(a0.type ?? "").toLowerCase();
   const variants = (a0.variants ?? {}) as Record<string, unknown>;
-  const sm = (variants.sm ?? {}) as Record<string, unknown>;
-  const md = (variants.md ?? {}) as Record<string, unknown>;
-  const lg = (variants.lg ?? {}) as Record<string, unknown>;
-  const thumb = (variants.thumb ?? {}) as Record<string, unknown>;
-  const candidates: unknown[] = [
-    sm.webp,
-    md.webp,
-    lg.webp,
-    thumb.webp,
-    a0.poster,
-    a0.thumbnail,
-    a0.original,
-    a0.url,
-    a0.downloadURL,
-    (variants as any)?.poster,
-  ];
-  for (const c of candidates) {
-    const u = asHttpUrl(c);
+
+  if (type === "video") {
+    const posterCandidates: unknown[] = [a0.poster, a0.thumbnail, variants.poster];
+    for (const c of posterCandidates) {
+      const u = asHttpUrl(c);
+      if (u && !isProcessingPlaceholderCdnUrl(u)) return u;
+    }
+    for (const key of ["preview360", "preview360Avc"] as const) {
+      const u = asHttpUrl(variants[key]);
+      if (u && !isVideoPlaybackUrl(u) && !isProcessingPlaceholderCdnUrl(u)) return u;
+    }
+    return null;
+  }
+
+  for (const tierKey of ["sm", "md", "thumb", "lg"] as const) {
+    const u = tierWebpOrJpg(variants[tierKey]);
     if (u) return u;
+  }
+  const fallbackJpg = tierWebpOrJpg((variants as { fallbackJpg?: unknown }).fallbackJpg);
+  if (fallbackJpg) return fallbackJpg;
+
+  const tail: unknown[] = [a0.original, a0.url, a0.downloadURL];
+  for (const c of tail) {
+    const u = asHttpUrl(c);
+    if (u && !isProcessingPlaceholderCdnUrl(u)) return u;
   }
   return null;
 }
@@ -51,20 +90,21 @@ export function getBestPostCover(post: unknown): MixCover {
 
   const media = (obj.media ?? {}) as Record<string, unknown>;
   const directCandidates: unknown[] = [
-    obj.thumbnail,
+    obj.displayPhotoLink,
+    obj.photoLink,
     obj.thumbUrl,
+    obj.thumbnail,
     obj.previewImageUrl,
     obj.previewUrl,
     obj.displayPhotoUrl,
-    obj.displayPhotoLink,
     obj.imageUrl,
-    obj.photoLink,
     media.posterUrl,
-    (media as any)?.thumbnailUrl,
+    (media as { thumbnailUrl?: unknown }).thumbnailUrl,
   ];
   for (const c of directCandidates) {
-    const u = asHttpUrl(c);
-    if (u) return { coverImageUrl: u, coverPostId: postId };
+    if (typeof c !== "string") continue;
+    const u = c.includes(",") ? firstHttpFromCommaField(c) : asHttpUrl(c);
+    if (u && !isProcessingPlaceholderCdnUrl(u)) return { coverImageUrl: u, coverPostId: postId };
   }
 
   const fromAssets = readFromAssets(obj);
@@ -72,4 +112,3 @@ export function getBestPostCover(post: unknown): MixCover {
 
   return { coverImageUrl: null, coverPostId: postId };
 }
-

@@ -66,7 +66,30 @@ type CompetitiveBadgeDoc = FirestoreMap & {
   earnedAt?: unknown;
   countAtEarnTime?: number;
   xpAwarded?: boolean;
+  ownershipVersion?: number;
+  claimedOwnershipVersion?: number;
+  xpAwardedOwnershipVersion?: number;
+  lostAt?: unknown;
+  lastOwnershipChangeAt?: unknown;
 };
+
+const DYNAMIC_LEADER_BADGE_KEYS = {
+  global: "leader_top_global",
+  friends: "leader_top_friends",
+  community: "leader_top_community"
+} as const;
+
+function getCompetitiveOwnershipVersion(badge: CompetitiveBadgeDoc): number {
+  return Math.max(1, finiteInteger(badge.ownershipVersion, 1));
+}
+
+function isCompetitiveBadgeClaimedForCurrentOwnership(badge: CompetitiveBadgeDoc): boolean {
+  const version = getCompetitiveOwnershipVersion(badge);
+  const claimedVersion = finiteInteger(badge.claimedOwnershipVersion, 0);
+  const awardedVersion = finiteInteger(badge.xpAwardedOwnershipVersion, 0);
+  if (claimedVersion >= version || awardedVersion >= version) return true;
+  return badge.claimed === true || badge.xpAwarded === true;
+}
 
 export type AchievementWeeklyExploration = {
   currentWeek: string;
@@ -370,6 +393,7 @@ function mapLeagueDocument(id: string, raw: FirestoreMap): AchievementLeagueDefi
 
 function mapCompetitiveBadgeSummary(docId: string, badge: CompetitiveBadgeDoc): AchievementSnapshot["badges"][number] {
   const owned = Boolean(badge.currentOwner);
+  const claimedForOwnership = isCompetitiveBadgeClaimedForCurrentOwnership(badge);
   const badgeTypeRaw = firstNonEmptyString(badge.badgeType);
   const badgeType = badgeTypeRaw === "activity" || badgeTypeRaw === "region" ? badgeTypeRaw : undefined;
   return {
@@ -384,8 +408,9 @@ function mapCompetitiveBadgeSummary(docId: string, badge: CompetitiveBadgeDoc): 
     iconKey: firstNonEmptyString(badge.iconKey) ?? undefined,
     activityKey: firstNonEmptyString(badge.activityKey) ?? null,
     regionKey: firstNonEmptyString(badge.regionKey) ?? null,
+    ownershipVersion: getCompetitiveOwnershipVersion(badge),
     earned: owned,
-    claimed: Boolean(badge.claimed),
+    claimed: claimedForOwnership,
     progress: {
       current: Math.max(0, finiteInteger(badge.countAtEarnTime, owned ? 1 : 0)),
       target: Math.max(1, finiteInteger(badge.countAtEarnTime, 1))
@@ -567,11 +592,17 @@ export function projectCanonicalStatusFromSnapshot(snapshot: AchievementSnapshot
 }
 
 export function projectCanonicalBadgeRowsFromSnapshot(snapshot: AchievementSnapshot): AchievementsCanonicalBadgeRow[] {
-  return snapshot.badges.filter(isStaticAchievementBadge).map((badge) => ({
+  return snapshot.badges.map((badge) => ({
     badgeId: badge.id,
     title: badge.title,
     description: badge.description ?? "",
     icon: badge.emoji ?? badge.iconUrl ?? badge.image ?? badge.iconKey ?? "🏅",
+    ...(badge.badgeSource ? { badgeSource: badge.badgeSource } : {}),
+    ...(badge.badgeType ? { badgeType: badge.badgeType } : {}),
+    ...(badge.iconKey ? { iconKey: badge.iconKey } : {}),
+    ...(badge.activityKey !== undefined ? { activityKey: badge.activityKey ?? null } : {}),
+    ...(badge.regionKey !== undefined ? { regionKey: badge.regionKey ?? null } : {}),
+    ...(badge.badgeSource === "competitive" ? { currentOwner: badge.earned } : {}),
     rarity:
       badge.progress.target >= 50
         ? "legendary"
@@ -584,6 +615,7 @@ export function projectCanonicalBadgeRowsFromSnapshot(snapshot: AchievementSnaps
               : "common",
     unlocked: badge.earned,
     unlockedAt: null,
+    ...(badge.ownershipVersion != null ? { ownershipVersion: badge.ownershipVersion } : {}),
     progressCurrent: badge.progress.current,
     progressTarget: badge.progress.target,
     claimed: badge.claimed
@@ -706,16 +738,18 @@ export class AchievementsRepository {
   }
 
   async getSnapshot(viewerId: string): Promise<AchievementSnapshot> {
-    const [userDoc, stateDoc, progressDocs, badgeDefs, userBadgeDocs, competitiveBadgeDocs, challengeDefs] =
+    const [userDoc, stateDoc, progressDocs, badgeDefs, userBadgeDocs, challengeDefs] =
       await Promise.all([
         this.loadUserDoc(viewerId),
         this.ensureAchievementStateDoc(viewerId),
         this.loadProgressDocs(viewerId),
         this.loadBadgeDefinitions(),
         this.loadUserBadgeDocs(viewerId),
-        this.loadCompetitiveBadgeDocs(viewerId),
         this.loadChallengeDefinitions()
       ]);
+    await this.syncDynamicLeaderBadgesForViewer(viewerId);
+    await globalCache.del(achievementsCompetitiveBadgesCacheKey(viewerId));
+    const competitiveBadgeDocs = await this.loadCompetitiveBadgeDocs(viewerId);
 
     const xp = mapStateXp(stateDoc);
     const weeklyExploration = mapStoredWeeklyExploration(stateDoc) ?? (await this.getWeeklyExploration(viewerId));
@@ -1461,9 +1495,11 @@ export class AchievementsRepository {
       const stateData = (stateDoc.data() as FirestoreMap | undefined) ?? {};
       const xpState = mapStateXp(stateData);
       const competitive = (competitiveBadgeDoc?.data() as CompetitiveBadgeDoc | undefined) ?? {};
+      const ownershipVersion = getCompetitiveOwnershipVersion(competitive);
+      const competitiveClaimedForOwnership = isCompetitiveBadgeClaimedForCurrentOwnership(competitive);
       const badgeData = (userBadgeDoc.data() as UserBadgeDoc | undefined) ?? {};
       const canClaimCompetitive =
-        competitiveBadgeDoc?.exists === true && competitive.currentOwner === true && !competitive.claimed && !competitive.xpAwarded;
+        competitiveBadgeDoc?.exists === true && competitive.currentOwner === true && !competitiveClaimedForOwnership;
       const canClaimStatic = userBadgeDoc.exists && badgeData.earned === true && badgeData.claimed !== true;
       const resolvedSource =
         source === "competitive"
@@ -1478,7 +1514,7 @@ export class AchievementsRepository {
       if (resolvedSource === "competitive") {
         if (!competitiveBadgeDoc?.exists) throw new Error("competitive_badge_not_found");
         if (!competitive.currentOwner) throw new Error("competitive_badge_not_earned");
-        if (competitive.claimed || competitive.xpAwarded) throw new Error("competitive_badge_already_claimed");
+        if (competitiveClaimedForOwnership) throw new Error("competitive_badge_already_claimed");
         const nextXp = buildXpState(xpState.current + xpAwarded);
         tx.set(
           competitiveBadgeRef,
@@ -1486,6 +1522,8 @@ export class AchievementsRepository {
             claimed: true,
             claimedAt: new Date(),
             xpAwarded: true,
+            claimedOwnershipVersion: ownershipVersion,
+            xpAwardedOwnershipVersion: ownershipVersion,
             lastUpdated: new Date()
           },
           { merge: true }
@@ -1624,8 +1662,270 @@ export class AchievementsRepository {
     return result;
   }
 
+  async claimIntroBonus(
+    viewerId: string
+  ): Promise<{ reward: AchievementClaimRewardPayload; alreadyClaimed: boolean }> {
+    const INTRO_XP = 50;
+    const AWARD_DOC_ID = "onboarding_intro_v1";
+    const db = this.requireDb();
+    const [stateDoc, userDoc] = await Promise.all([this.ensureAchievementStateDoc(viewerId), this.loadUserDoc(viewerId)]);
+    const canonicalTotalPosts = await this.getCanonicalTotalPosts(viewerId, stateDoc, undefined, userDoc);
+
+    const stateRef = db.collection("users").doc(viewerId).collection("achievements").doc("state");
+    const awardRef = db.collection("users").doc(viewerId).collection("achievements_awards").doc(AWARD_DOC_ID);
+
+    const result = await db.runTransaction(async (tx) => {
+      const [awardDoc, stateSnap] = await Promise.all([tx.get(awardRef), tx.get(stateRef)]);
+      incrementDbOps("reads", 2);
+      const data = (stateSnap.data() as FirestoreMap | undefined) ?? {};
+      const xpState = mapStateXp(data);
+      const emptyReward: AchievementClaimRewardPayload = {
+        xpAwarded: 0,
+        newTotalXP: xpState.current,
+        leveledUp: false,
+        newLevel: xpState.level,
+        tier: xpState.tier
+      };
+
+      if (awardDoc.exists) {
+        return { reward: emptyReward, alreadyClaimed: true };
+      }
+
+      if (canonicalTotalPosts > 0) {
+        tx.set(
+          awardRef,
+          {
+            xp: 0,
+            reason: "Achievements onboarding intro (skipped: already posted)",
+            skipped: true,
+            skippedReason: "already_posted",
+            canonicalTotalPosts,
+            createdAt: new Date()
+          },
+          { merge: true }
+        );
+        incrementDbOps("writes", 1);
+        return { reward: emptyReward, alreadyClaimed: true };
+      }
+
+      const nextXp = buildXpState(xpState.current + INTRO_XP);
+      tx.set(
+        stateRef,
+        {
+          xp: nextXp,
+          xpUpdatedAt: new Date(),
+          updatedAt: new Date()
+        },
+        { merge: true }
+      );
+      tx.set(
+        awardRef,
+        {
+          xp: INTRO_XP,
+          reason: "Achievements onboarding intro",
+          createdAt: new Date()
+        },
+        { merge: true }
+      );
+      incrementDbOps("writes", 2);
+      return {
+        reward: {
+          xpAwarded: INTRO_XP,
+          newTotalXP: nextXp.current,
+          leveledUp: nextXp.level > xpState.level,
+          newLevel: nextXp.level,
+          tier: nextXp.tier
+        },
+        alreadyClaimed: false
+      };
+    });
+
+    if (!result.alreadyClaimed && result.reward.xpAwarded > 0) {
+      await this.clearViewerCaches(viewerId, { includeLeaderboards: true });
+    }
+    return result;
+  }
+
   async invalidateViewerProjectionCaches(viewerId: string, opts?: { includeLeaderboards?: boolean }): Promise<void> {
     await this.clearViewerCaches(viewerId, { includeLeaderboards: opts?.includeLeaderboards === true });
+  }
+
+  async syncDynamicLeaderBadgesForViewer(viewerId: string): Promise<void> {
+    try {
+    const db = this.requireDb();
+    const [globalRows, friendsLeaderboard, cityLeaderboard, leagueLeaderboard] = await Promise.all([
+      this.loadGlobalXpCacheRows(),
+      this.getFriendsLeaderboard(viewerId, "xp_friends", "xp.current"),
+      this.getCityLeaderboard(viewerId),
+      this.getLeagueXpLeaderboard(viewerId, null)
+    ]);
+
+    const globalWinner = globalRows[0]?.userId ?? null;
+    const friendsWinner = friendsLeaderboard.entries[0]?.userId ?? null;
+    const cityWinner = cityLeaderboard.entries[0]?.userId ?? null;
+    const leagueWinner = leagueLeaderboard.entries[0]?.userId ?? null;
+    const leagueBadgeId = leagueLeaderboard.leagueId ? `leader_top_league:${leagueLeaderboard.leagueId}` : null;
+
+    const applyOwnership = async (badgeId: string, ownerUserId: string | null, meta: {
+      title: string;
+      description: string;
+      badgeType: "activity" | "region";
+      regionKey?: string | null;
+      regionName?: string | null;
+      iconKey?: string | null;
+      score: number;
+    }): Promise<void> => {
+      const ownersSnap = await db
+        .collectionGroup("competitiveBadges")
+        .where("badgeKey", "==", badgeId)
+        .where("currentOwner", "==", true)
+        .get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", ownersSnap.docs.length);
+      const now = new Date();
+      const ops: Array<Promise<unknown>> = [];
+
+      for (const doc of ownersSnap.docs) {
+        const holderUserId = doc.ref.parent.parent?.id ?? "";
+        if (!holderUserId || holderUserId === ownerUserId) continue;
+        ops.push(
+          doc.ref.set(
+            {
+              currentOwner: false,
+              lostAt: now,
+              lastOwnershipChangeAt: now,
+              lastUpdated: now
+            },
+            { merge: true }
+          )
+        );
+      }
+
+      if (ownerUserId) {
+        const ownerRef = db.collection("users").doc(ownerUserId).collection("competitiveBadges").doc(badgeId);
+        const ownerSnap = await ownerRef.get();
+        incrementDbOps("reads", ownerSnap.exists ? 1 : 0);
+        const existing = (ownerSnap.data() as CompetitiveBadgeDoc | undefined) ?? {};
+        const wasOwner = existing.currentOwner === true;
+        const nextVersion = wasOwner ? getCompetitiveOwnershipVersion(existing) : getCompetitiveOwnershipVersion(existing) + 1;
+        ops.push(
+          ownerRef.set(
+            {
+              badgeKey: badgeId,
+              title: meta.title,
+              description: meta.description,
+              iconKey: meta.iconKey ?? "crown",
+              badgeType: meta.badgeType,
+              regionKey: meta.regionKey ?? null,
+              regionName: meta.regionName ?? null,
+              currentOwner: true,
+              earnedAt: wasOwner ? existing.earnedAt ?? now : now,
+              ownershipVersion: nextVersion,
+              countAtEarnTime: Math.max(0, Math.trunc(meta.score)),
+              lastOwnershipChangeAt: wasOwner ? existing.lastOwnershipChangeAt ?? now : now,
+              ...(wasOwner
+                ? {}
+                : {
+                    claimed: false,
+                    xpAwarded: false,
+                    claimedOwnershipVersion: 0,
+                    xpAwardedOwnershipVersion: 0
+                  }),
+              lastUpdated: now
+            },
+            { merge: true }
+          )
+        );
+      }
+
+      if (ops.length > 0) {
+        await Promise.all(ops);
+        incrementDbOps("writes", ops.length);
+      }
+    };
+
+    await applyOwnership(DYNAMIC_LEADER_BADGE_KEYS.global, globalWinner, {
+      title: "Top Globally",
+      description: "Highest XP across all Locava users.",
+      badgeType: "activity",
+      iconKey: "globe",
+      score: globalRows[0]?.xp ?? 0
+    });
+    await applyOwnership(DYNAMIC_LEADER_BADGE_KEYS.friends, friendsWinner, {
+      title: "Top Friends",
+      description: "Highest XP among this friend graph.",
+      badgeType: "activity",
+      iconKey: "people",
+      score: friendsLeaderboard.entries[0]?.score ?? 0
+    });
+    await applyOwnership(DYNAMIC_LEADER_BADGE_KEYS.community, cityWinner, {
+      title: "Top Community",
+      description: `Highest XP in ${cityLeaderboard.cityName ?? "your city"}.`,
+      badgeType: "region",
+      regionKey: cityLeaderboard.cityName ?? null,
+      regionName: cityLeaderboard.cityName ?? null,
+      iconKey: "location",
+      score: cityLeaderboard.entries[0]?.score ?? 0
+    });
+    if (leagueBadgeId) {
+      await applyOwnership(leagueBadgeId, leagueWinner, {
+        title: `Top ${leagueLeaderboard.leagueName ?? "League"}`,
+        description: "Highest XP in this league.",
+        badgeType: "region",
+        regionKey: leagueLeaderboard.leagueId ?? null,
+        regionName: leagueLeaderboard.leagueName ?? null,
+        iconKey: "trophy",
+        score: leagueLeaderboard.entries[0]?.score ?? 0
+      });
+    }
+
+    const viewerBadgeSnap = await db.collection("users").doc(viewerId).collection("competitiveBadges").where("currentOwner", "==", true).get();
+    incrementDbOps("queries", 1);
+    incrementDbOps("reads", viewerBadgeSnap.docs.length);
+    const staleLeagueDocs = viewerBadgeSnap.docs.filter((doc) => {
+      const data = (doc.data() as CompetitiveBadgeDoc | undefined) ?? {};
+      const key = firstNonEmptyString(data.badgeKey) ?? doc.id;
+      return key.startsWith("leader_top_league:") && key !== leagueBadgeId;
+    });
+    if (staleLeagueDocs.length > 0) {
+      const now = new Date();
+      await Promise.all(
+        staleLeagueDocs.map((doc) =>
+          doc.ref.set(
+            {
+              currentOwner: false,
+              lostAt: now,
+              lastOwnershipChangeAt: now,
+              lastUpdated: now
+            },
+            { merge: true }
+          )
+        )
+      );
+      incrementDbOps("writes", staleLeagueDocs.length);
+    }
+
+    const impactedUsers = new Set<string>([
+      viewerId,
+      globalWinner ?? "",
+      friendsWinner ?? "",
+      cityWinner ?? "",
+      leagueWinner ?? ""
+    ]);
+    await Promise.all(
+      [...impactedUsers]
+        .map((id) => id.trim())
+        .filter(Boolean)
+        .map((id) => this.clearViewerCaches(id, { includeLeaderboards: true }))
+    );
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const lower = msg.toLowerCase();
+      if (lower.includes("failed_precondition") || lower.includes("requires an index")) {
+        return;
+      }
+      throw error;
+    }
   }
 
   private async getGlobalMetricLeaderboard(
@@ -2033,8 +2333,6 @@ export class AchievementsRepository {
         .doc(viewerId)
         .collection("competitiveBadges")
         .where("currentOwner", "==", true)
-        .where("claimed", "==", false)
-        .where("xpAwarded", "==", false)
         .get();
     } catch {
       snap = await db.collection("users").doc(viewerId).collection("competitiveBadges").where("currentOwner", "==", true).get();
@@ -2042,7 +2340,7 @@ export class AchievementsRepository {
     incrementDbOps("reads", snap.docs.length);
     const docs = snap.docs.filter((doc) => {
       const data = ((doc.data() as CompetitiveBadgeDoc | undefined) ?? {}) as CompetitiveBadgeDoc;
-      return data.currentOwner === true && data.claimed !== true && data.xpAwarded !== true;
+      return data.currentOwner === true && !isCompetitiveBadgeClaimedForCurrentOwnership(data);
     });
     return new Map(docs.map((doc) => [doc.id, ((doc.data() as CompetitiveBadgeDoc | undefined) ?? {})]));
   }

@@ -16,6 +16,7 @@ export type UserSuggestionSummary = {
   mutualPreview?: Array<{ userId: string; handle?: string | null }>;
   isFollowing: boolean;
   followerCount?: number;
+  postCount?: number;
   score?: number;
 };
 
@@ -31,6 +32,33 @@ export type SuggestedFriendsOptions = {
   excludeAlreadyFollowing?: boolean;
   excludeBlocked?: boolean;
   surface?: "onboarding" | "profile" | "search" | "home" | "notifications" | "generic";
+  /** Skip globalCache read/write (e.g. Search Home `bypassCache=1`). */
+  bypassCache?: boolean;
+};
+
+export type ContactSyncDiagnostics = {
+  totalContactsReceived: number;
+  rawPhoneNumbers: string[];
+  rawEmails: string[];
+  normalizedPhoneCandidates: string[];
+  /** One canonical string per contact phone written to `addressBookPhoneNumbers` (not query variants). */
+  canonicalAddressBookPhonesWritten: string[];
+  normalizedEmails: string[];
+  phoneQueryChunks: Array<{
+    chunk: string[];
+    matchedCount: number;
+    matchedUserIds: string[];
+    matchedPhoneNumbers: string[];
+  }>;
+  emailQueryChunks: Array<{
+    chunk: string[];
+    matchedCount: number;
+    matchedUserIds: string[];
+    matchedEmails: string[];
+  }>;
+  phoneMatchedUserIds: string[];
+  emailMatchedUserIds: string[];
+  uniqueMatchedUserIds: string[];
 };
 
 type ViewerGraph = {
@@ -44,36 +72,105 @@ type ViewerGraph = {
 
 const DEFAULT_LIMIT = 20;
 
+const CONTACT_REASON_LABEL = "In your contacts";
+
+/** Loose NANP national number check (NXX-NXX-XXXX, N = 2–9). */
+function isPlausibleNanpNational10(ten: string): boolean {
+  return /^[2-9]\d{2}[2-9]\d{6}$/.test(ten);
+}
+
+/**
+ * Derive a 10-digit NANP national number from digit-only input when reasonable.
+ * Handles: 10-digit national, 11-digit 1+NXX…, longer strings starting with 1 (paste/junk).
+ */
+function extractNanpNational10Digits(digits: string): string | null {
+  if (digits.length === 10) return digits;
+  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
+  if (digits.length >= 12 && digits.length <= 15 && digits.startsWith("1")) {
+    const head11 = digits.slice(0, 11);
+    const fromHead = head11.slice(1);
+    if (isPlausibleNanpNational10(fromHead)) return fromHead;
+    const tail11 = digits.slice(-11);
+    if (tail11.startsWith("1")) {
+      const fromTail = tail11.slice(1);
+      if (isPlausibleNanpNational10(fromTail)) return fromTail;
+    }
+  }
+  return null;
+}
+
 /**
  * Phone normalization for matching contacts against stored `users.phoneNumber`.
  *
- * Many contacts store NANP numbers inconsistently ("+1…", "(555)…", "1555…", etc).
- * We previously compared using only `slice(-10)`, which can miss legitimate matches when the
- * underlying stored field includes/excludes a leading country digit differently than the contact row.
+ * Firestore `phoneNumber` equality is exact: user docs may store `+16507046433`, `16507046433`,
+ * or `6507046433`. Contacts / `addressBookPhoneNumbers` often store 10-digit only — we must
+ * query every stored shape. For NANP we emit national, `1`+national, and `+1`+national; we avoid
+ * using bare `+digits` for plausible NANP (that produces wrong strings like `+6507046433`).
  */
 function normalizePhoneCandidates(raw: string): string[] {
-  const digits = raw.replace(/[^0-9]/g, "");
+  let digits = raw.replace(/[^0-9]/g, "");
   if (!digits) return [];
 
+  if (digits.length > 10 && digits.startsWith("00")) {
+    digits = digits.replace(/^00+/, "");
+  }
+
   const out = new Set<string>();
-  const push = (v: string) => {
-    if (v.length === 10) out.add(v);
+  const push = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    out.add(trimmed);
   };
 
-  if (digits.length >= 10) {
-    push(digits.slice(-10));
-  }
-  if (digits.length === 11 && digits.startsWith("1")) {
-    push(digits.slice(1));
-  }
-  if (digits.length > 11) {
-    const last10 = digits.slice(-10);
-    push(last10);
-    const last11 = digits.slice(-11);
-    if (last11.startsWith("1")) push(last11.slice(1));
+  push(digits);
+
+  const national10 = extractNanpNational10Digits(digits);
+  if (national10 && isPlausibleNanpNational10(national10)) {
+    push(national10);
+    push(`1${national10}`);
+    push(`+1${national10}`);
+    const full11 = `1${national10}`;
+    push(full11);
+    push(`+${full11}`);
+    // Legacy monolith often stores NANP in `users.number` as display text, not E.164.
+    push(`(${national10.slice(0, 3)}) ${national10.slice(3, 6)}-${national10.slice(6)}`);
+    push(`${national10.slice(0, 3)}-${national10.slice(3, 6)}-${national10.slice(6)}`);
+    push(`${national10.slice(0, 3)}.${national10.slice(3, 6)}.${national10.slice(6)}`);
+    return [...out];
   }
 
+  // Non-NANP or unknown shape: still match international / odd stored literals.
+  push(`+${digits}`);
+  if (digits.length === 11 && digits.startsWith("1")) {
+    push(digits.slice(1));
+    push(`+1${digits.slice(1)}`);
+  }
   return [...out];
+}
+
+/** Legacy user docs (monolith) use `number`; Backendv2 uses `phoneNumber`. */
+function pickStoredPhoneFromUserDoc(data: Record<string, unknown>): string {
+  const phoneNumber = typeof data.phoneNumber === "string" ? data.phoneNumber.trim() : "";
+  if (phoneNumber.length > 0) return phoneNumber;
+  const number = typeof data.number === "string" ? data.number.trim() : "";
+  return number;
+}
+
+/**
+ * Single value to persist on `users.addressBookPhoneNumbers` per logical phone.
+ * Query-time variants are derived in memory via {@link normalizePhoneCandidates}; do not persist those.
+ */
+function canonicalizePhoneForAddressBookStorage(raw: string): string | null {
+  let digits = raw.replace(/[^0-9]/g, "");
+  if (!digits) return null;
+  if (digits.length > 10 && digits.startsWith("00")) {
+    digits = digits.replace(/^00+/, "");
+  }
+  const national10 = extractNanpNational10Digits(digits);
+  if (national10 && isPlausibleNanpNational10(national10)) {
+    return national10;
+  }
+  return digits;
 }
 
 function normalizeEmail(value: string): string {
@@ -105,6 +202,10 @@ function toSummary(
     reason,
     isFollowing,
     followerCount: Array.isArray(data.followers) ? data.followers.length : undefined,
+    postCount:
+      typeof data.postCount === "number" && Number.isFinite(data.postCount)
+        ? Math.max(0, Math.floor(data.postCount))
+        : undefined,
     score
   };
 }
@@ -158,6 +259,7 @@ export class SuggestedFriendsRepository {
             name: typeof row.name === "string" ? row.name : null,
             profilePic: typeof row.profilePic === "string" ? row.profilePic : null,
             reason: "contacts" as const,
+            reasonLabel: CONTACT_REASON_LABEL,
             isFollowing: following.has(String(row.userId ?? "").trim()) || mutationStateRepository.isFollowing(viewerId, String(row.userId ?? "").trim()),
             score: 1200
           }))
@@ -183,17 +285,28 @@ export class SuggestedFriendsRepository {
   async syncContacts(input: {
     viewerId: string;
     contacts: Array<{ phoneNumbers?: string[]; emails?: string[] }>;
-  }): Promise<{ matchedUsers: UserSuggestionSummary[]; matchedCount: number; syncedAt: number }> {
+  }): Promise<{ matchedUsers: UserSuggestionSummary[]; matchedCount: number; syncedAt: number; diagnostics: ContactSyncDiagnostics }> {
     const viewerGraph = await this.loadViewerGraph(input.viewerId);
     const phoneSet = new Set<string>();
+    const addressBookPhonesCanonical = new Set<string>();
     const emailSet = new Set<string>();
+    const rawPhoneNumbers: string[] = [];
+    const rawEmails: string[] = [];
     for (const contact of input.contacts) {
       for (const phone of contact.phoneNumbers ?? []) {
+        if (typeof phone === "string" && phone.trim().length > 0) {
+          rawPhoneNumbers.push(phone.trim());
+        }
+        const canonicalStored = canonicalizePhoneForAddressBookStorage(phone);
+        if (canonicalStored) addressBookPhonesCanonical.add(canonicalStored);
         for (const candidate of normalizePhoneCandidates(phone)) {
           phoneSet.add(candidate);
         }
       }
       for (const email of contact.emails ?? []) {
+        if (typeof email === "string" && email.trim().length > 0) {
+          rawEmails.push(email.trim());
+        }
         const normalized = normalizeEmail(email);
         if (normalized.includes("@")) emailSet.add(normalized);
       }
@@ -201,48 +314,146 @@ export class SuggestedFriendsRepository {
     const now = Date.now();
     if (!this.db) {
       // No fake users when Firestore isn't available.
-      return { matchedUsers: [], matchedCount: 0, syncedAt: now };
+      return {
+        matchedUsers: [],
+        matchedCount: 0,
+        syncedAt: now,
+        diagnostics: {
+          totalContactsReceived: input.contacts.length,
+          rawPhoneNumbers,
+          rawEmails,
+          normalizedPhoneCandidates: [...phoneSet].sort(),
+          canonicalAddressBookPhonesWritten: [...addressBookPhonesCanonical].sort(),
+          normalizedEmails: [...emailSet].sort(),
+          phoneQueryChunks: [],
+          emailQueryChunks: [],
+          phoneMatchedUserIds: [],
+          emailMatchedUserIds: [],
+          uniqueMatchedUserIds: []
+        }
+      };
     }
 
     const matchesByUser = new Map<string, UserSuggestionSummary>();
+    const phoneQueryChunks: ContactSyncDiagnostics["phoneQueryChunks"] = [];
+    const emailQueryChunks: ContactSyncDiagnostics["emailQueryChunks"] = [];
+    const phoneMatchedUserIds = new Set<string>();
+    const emailMatchedUserIds = new Set<string>();
     const phoneList = [...phoneSet];
+    const emailList = [...emailSet];
+    const phoneSelectFields = ["handle", "name", "displayName", "profilePic", "followers", "phoneNumber", "number"] as const;
+
+    const phoneChunks: string[][] = [];
     for (let i = 0; i < phoneList.length; i += 10) {
       const chunk = phoneList.slice(i, i + 10);
-      if (chunk.length === 0) continue;
-      const q = await this.db.collection("users").where("phoneNumber", "in", chunk).select("handle", "name", "displayName", "profilePic", "followers").get();
-      incrementDbOps("queries", 1);
-      incrementDbOps("reads", q.size);
-      q.docs.forEach((doc) => {
-        if (doc.id === input.viewerId) return;
-        const summary = toSummary(
-          doc.id,
-          doc.data() as Record<string, unknown>,
-          "contacts",
-          viewerGraph.following.has(doc.id) || mutationStateRepository.isFollowing(input.viewerId, doc.id),
-          1000
-        );
-        matchesByUser.set(doc.id, summary);
-      });
+      if (chunk.length > 0) phoneChunks.push(chunk);
     }
-    const emailList = [...emailSet];
+    const emailChunks: string[][] = [];
     for (let i = 0; i < emailList.length; i += 10) {
       const chunk = emailList.slice(i, i + 10);
-      if (chunk.length === 0) continue;
-      const q = await this.db.collection("users").where("email", "in", chunk).select("handle", "name", "displayName", "profilePic", "followers").get();
+      if (chunk.length > 0) emailChunks.push(chunk);
+    }
+
+    const runPhoneChunk = async (
+      chunk: string[]
+    ): Promise<{
+      chunk: string[];
+      matchedCount: number;
+      matchedUserIds: string[];
+      matchedPhoneNumbers: string[];
+    }> => {
+      const [qPhoneNumber, qNumber] = await Promise.all([
+        this.db!.collection("users").where("phoneNumber", "in", chunk).select(...phoneSelectFields).get(),
+        this.db!.collection("users").where("number", "in", chunk).select(...phoneSelectFields).get()
+      ]);
+      incrementDbOps("queries", 2);
+      incrementDbOps("reads", qPhoneNumber.size + qNumber.size);
+      const matchedUserIdsForChunk: string[] = [];
+      const matchedPhoneNumbersForChunk: string[] = [];
+      const seenUserIds = new Set<string>();
+      const ingestContactDoc = (doc: (typeof qPhoneNumber.docs)[number]) => {
+        if (doc.id === input.viewerId) return;
+        if (seenUserIds.has(doc.id)) return;
+        seenUserIds.add(doc.id);
+        const docData = doc.data() as Record<string, unknown>;
+        const docPhone = pickStoredPhoneFromUserDoc(docData);
+        if (docPhone.length > 0) matchedPhoneNumbersForChunk.push(docPhone);
+        matchedUserIdsForChunk.push(doc.id);
+        phoneMatchedUserIds.add(doc.id);
+        const summary = {
+          ...toSummary(
+            doc.id,
+            docData,
+            "contacts",
+            viewerGraph.following.has(doc.id) || mutationStateRepository.isFollowing(input.viewerId, doc.id),
+            1200
+          ),
+          reasonLabel: CONTACT_REASON_LABEL
+        };
+        matchesByUser.set(doc.id, summary);
+      };
+      qPhoneNumber.docs.forEach(ingestContactDoc);
+      qNumber.docs.forEach(ingestContactDoc);
+      return {
+        chunk,
+        matchedCount: matchedUserIdsForChunk.length,
+        matchedUserIds: matchedUserIdsForChunk,
+        matchedPhoneNumbers: [...new Set(matchedPhoneNumbersForChunk)].sort()
+      };
+    };
+
+    const runEmailChunk = async (
+      chunk: string[]
+    ): Promise<{
+      chunk: string[];
+      matchedCount: number;
+      matchedUserIds: string[];
+      matchedEmails: string[];
+    }> => {
+      const q = await this.db!
+        .collection("users")
+        .where("email", "in", chunk)
+        .select("handle", "name", "displayName", "profilePic", "followers", "email")
+        .get();
       incrementDbOps("queries", 1);
       incrementDbOps("reads", q.size);
+      const matchedUserIdsForChunk: string[] = [];
+      const matchedEmailsForChunk: string[] = [];
       q.docs.forEach((doc) => {
         if (doc.id === input.viewerId) return;
-        const summary = toSummary(
-          doc.id,
-          doc.data() as Record<string, unknown>,
-          "contacts",
-          viewerGraph.following.has(doc.id) || mutationStateRepository.isFollowing(input.viewerId, doc.id),
-          1000
-        );
+        const docData = doc.data() as Record<string, unknown>;
+        const docEmail = typeof docData.email === "string" ? docData.email.trim().toLowerCase() : "";
+        if (docEmail.length > 0) matchedEmailsForChunk.push(docEmail);
+        matchedUserIdsForChunk.push(doc.id);
+        emailMatchedUserIds.add(doc.id);
+        const summary = {
+          ...toSummary(
+            doc.id,
+            docData,
+            "contacts",
+            viewerGraph.following.has(doc.id) || mutationStateRepository.isFollowing(input.viewerId, doc.id),
+            1200
+          ),
+          reasonLabel: CONTACT_REASON_LABEL
+        };
         matchesByUser.set(doc.id, summary);
       });
-    }
+      return {
+        chunk,
+        matchedCount: matchedUserIdsForChunk.length,
+        matchedUserIds: matchedUserIdsForChunk,
+        matchedEmails: [...new Set(matchedEmailsForChunk)].sort()
+      };
+    };
+
+    // Run every Firestore chunk in parallel (still capped at 10 values per `in` query).
+    // Phone + email waves run concurrently so latency ~= max(phones, emails), not sum.
+    const [phoneRows, emailRows] = await Promise.all([
+      Promise.all(phoneChunks.map((c) => runPhoneChunk(c))),
+      Promise.all(emailChunks.map((c) => runEmailChunk(c)))
+    ]);
+    phoneRows.forEach((row) => phoneQueryChunks.push(row));
+    emailRows.forEach((row) => emailQueryChunks.push(row));
 
     const matchedUsers = [...matchesByUser.values()].sort((a, b) => a.userId.localeCompare(b.userId));
     await this.db.collection("users").doc(input.viewerId).set(
@@ -253,14 +464,34 @@ export class SuggestedFriendsRepository {
           userId: user.userId,
           handle: user.handle,
           name: user.name,
-          profilePic: user.profilePic
+          profilePic: user.profilePic,
+          reasonLabel: CONTACT_REASON_LABEL
         })),
-        addressBookPhoneNumbers: [...phoneSet]
+        addressBookPhoneNumbers: [...addressBookPhonesCanonical].sort()
       },
       { merge: true }
     );
     incrementDbOps("writes", 1);
-    return { matchedUsers, matchedCount: matchedUsers.length, syncedAt: now };
+    await globalCache.del(entityCacheKeys.userFirestoreDoc(input.viewerId));
+    const uniqueMatchedUserIds = matchedUsers.map((row) => row.userId);
+    return {
+      matchedUsers,
+      matchedCount: matchedUsers.length,
+      syncedAt: now,
+      diagnostics: {
+        totalContactsReceived: input.contacts.length,
+        rawPhoneNumbers,
+        rawEmails,
+        normalizedPhoneCandidates: phoneList.sort(),
+        canonicalAddressBookPhonesWritten: [...addressBookPhonesCanonical].sort(),
+        normalizedEmails: emailList.sort(),
+        phoneQueryChunks,
+        emailQueryChunks,
+        phoneMatchedUserIds: [...phoneMatchedUserIds].sort(),
+        emailMatchedUserIds: [...emailMatchedUserIds].sort(),
+        uniqueMatchedUserIds
+      }
+    };
   }
 
   async getSuggestionsForUser(viewerId: string, options: SuggestedFriendsOptions): Promise<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag: string }> {
@@ -288,6 +519,14 @@ export class SuggestedFriendsRepository {
         if (!existing || (user.score ?? 0) > (existing.score ?? 0)) out.set(user.userId, user);
       }
     };
+    const addHardFallback = (items: UserSuggestionSummary[]) => {
+      for (const user of items) {
+        if (user.userId === viewerId) continue;
+        if (excludeBlocked && viewer.blocked.has(user.userId)) continue;
+        const existing = out.get(user.userId);
+        if (!existing || (user.score ?? 0) > (existing.score ?? 0)) out.set(user.userId, user);
+      }
+    };
 
     if (includeReferral && viewer.branchCandidateUserIds.length > 0) {
       // Hydrate a tiny number of deep-link/referral candidates; these should always be prioritized.
@@ -309,7 +548,13 @@ export class SuggestedFriendsRepository {
     }
 
     if (includeContacts && viewer.contactUserSummaries.length > 0) {
-      add(viewer.contactUserSummaries.map((row) => ({ ...row, isFollowing: viewer.following.has(row.userId) })));
+      add(
+        viewer.contactUserSummaries.map((row) => ({
+          ...row,
+          isFollowing: viewer.following.has(row.userId),
+          reasonLabel: row.reason === "contacts" ? (row.reasonLabel ?? CONTACT_REASON_LABEL) : row.reasonLabel
+        }))
+      );
     }
 
     const contactsPromise =
@@ -354,7 +599,10 @@ export class SuggestedFriendsRepository {
       incrementDbOps("reads", contactDocs.length);
       const contactSummaries = contactDocs
         .filter((doc) => doc.exists)
-        .map((doc) => toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "contacts", viewer.following.has(doc.id), 1200));
+        .map((doc) => ({
+          ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "contacts", viewer.following.has(doc.id), 1200),
+          reasonLabel: CONTACT_REASON_LABEL
+        }));
       add(contactSummaries);
       void (async () => {
         const cachedUserDoc = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId))) ?? {};
@@ -366,7 +614,8 @@ export class SuggestedFriendsRepository {
               userId: user.userId,
               handle: user.handle,
               name: user.name,
-              profilePic: user.profilePic
+              profilePic: user.profilePic,
+              reasonLabel: user.reasonLabel ?? CONTACT_REASON_LABEL
             }))
           },
           25_000
@@ -464,7 +713,7 @@ export class SuggestedFriendsRepository {
         ? this.db
             .collection("users")
             .orderBy("postCount", "desc")
-            .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers")
+            .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
             .limit(Math.min(Math.max(safeLimit - out.size, 4), 12))
             .get()
         : null;
@@ -506,7 +755,7 @@ export class SuggestedFriendsRepository {
     if (this.db && includeAllUsersFallback && out.size < safeLimit) {
       const fallbackSnap = await this.db
         .collection("users")
-        .orderBy("updatedAt", "desc")
+        .orderBy("postCount", "desc")
         .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
         .limit(Math.min(60, Math.max(safeLimit * 2, 20)))
         .get();
@@ -516,6 +765,24 @@ export class SuggestedFriendsRepository {
         fallbackSnap.docs.map((doc) => ({
           ...toSummary(doc.id, doc.data() as Record<string, unknown>, "all_users", viewer.following.has(doc.id), 200),
           reasonLabel: "Suggested for you"
+        }))
+      );
+    }
+
+    // Hard floor: always return at least a few real users, even if viewer follows everyone in the normal pool.
+    if (this.db && out.size === 0) {
+      const hardFallbackSnap = await this.db
+        .collection("users")
+        .orderBy("postCount", "desc")
+        .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
+        .limit(12)
+        .get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", hardFallbackSnap.size);
+      addHardFallback(
+        hardFallbackSnap.docs.map((doc) => ({
+          ...toSummary(doc.id, doc.data() as Record<string, unknown>, "popular", viewer.following.has(doc.id), 100),
+          reasonLabel: "Popular on Locava"
         }))
       );
     }

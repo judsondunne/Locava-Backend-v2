@@ -8,7 +8,8 @@ export const PostingStagingPresignBodySchema = z.object({
       z.object({
         index: z.coerce.number().int().min(0).max(79),
         assetType: z.enum(["photo", "video"]),
-        destinationKey: z.string().min(3).max(512).optional()
+        destinationKey: z.string().min(3).max(512).optional(),
+        clientStagingKey: z.string().min(8).max(1024).optional()
       })
     )
     .min(1)
@@ -28,7 +29,8 @@ export const PostingStagingPresignResponseSchema = z.object({
       originalKey: z.string(),
       originalUrl: z.string().url(),
       posterKey: z.string().optional(),
-      posterUrl: z.string().url().optional()
+      posterUrl: z.string().url().optional(),
+      posterPutUrl: z.string().url().optional()
     })
   )
 });

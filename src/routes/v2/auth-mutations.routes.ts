@@ -24,6 +24,8 @@ import {
   AuthSigninGoogleBodySchema,
   authSigninGoogleContract
 } from "../../contracts/surfaces/auth-signin-google.contract.js";
+import { AuthSignoutBodySchema, authSignoutContract } from "../../contracts/surfaces/auth-signout.contract.js";
+import { AuthDeleteAccountBodySchema, authDeleteAccountContract } from "../../contracts/surfaces/auth-delete-account.contract.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
 import { buildViewerContext } from "../../auth/viewer-context.js";
@@ -126,6 +128,23 @@ async function checkUserExistsByEmail(email: string): Promise<{ exists: boolean;
   };
 }
 
+async function checkUserExistsWithFallbacks(
+  authMutationsService: AuthMutationsService,
+  email: string
+): Promise<{ exists: boolean; signInMethods: string[] }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return { exists: false, signInMethods: [] };
+
+  const [userDocExists, authUserExists] = await Promise.all([
+    authMutationsService.userDocExistsByEmail(normalizedEmail),
+    authMutationsService.authUserExistsByEmail(normalizedEmail)
+  ]);
+  if (userDocExists || authUserExists) {
+    return { exists: true, signInMethods: [] };
+  }
+  return checkUserExistsByEmail(normalizedEmail);
+}
+
 async function signInWithIdp(params: {
   provider: "google.com" | "apple.com";
   accessToken?: string;
@@ -216,7 +235,7 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     const query = CheckExistsQuery.parse(request.query);
     setRouteName("auth.check_user_exists.get");
     try {
-      const exists = await checkUserExistsByEmail(query.email);
+      const exists = await checkUserExistsWithFallbacks(authMutationsService, query.email);
       return success({
         routeName: "auth.check_user_exists.get",
         success: true,
@@ -423,5 +442,38 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
       branchData: body.branchData
     });
     return success({ routeName: authProfileBranchMergeContract.routeName, ...result });
+  });
+
+  app.post(authSignoutContract.path, async (request, reply) => {
+    const viewer = buildViewerContext(request);
+    if (!canUseV2Surface("auth", viewer.roles)) {
+      return reply.status(403).send(failure("v2_surface_disabled", "Auth v2 surface is not enabled for this viewer"));
+    }
+    AuthSignoutBodySchema.parse(request.body ?? {});
+    setRouteName(authSignoutContract.routeName);
+    if (!viewer.viewerId || viewer.viewerId === "anonymous") {
+      return success({ routeName: authSignoutContract.routeName, success: false, error: "viewer_id_required" });
+    }
+    const result = await authMutationsService.signOutViewer(viewer.viewerId);
+    return success({ routeName: authSignoutContract.routeName, success: true, ...result });
+  });
+
+  app.post(authDeleteAccountContract.path, async (request, reply) => {
+    const viewer = buildViewerContext(request);
+    if (!canUseV2Surface("auth", viewer.roles)) {
+      return reply.status(403).send(failure("v2_surface_disabled", "Auth v2 surface is not enabled for this viewer"));
+    }
+    AuthDeleteAccountBodySchema.parse(request.body ?? {});
+    setRouteName(authDeleteAccountContract.routeName);
+    if (!viewer.viewerId || viewer.viewerId === "anonymous") {
+      return success({ routeName: authDeleteAccountContract.routeName, success: false, error: "viewer_id_required" });
+    }
+    try {
+      const result = await authMutationsService.deleteViewerAccount(viewer.viewerId);
+      return success({ routeName: authDeleteAccountContract.routeName, success: true, ...result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "delete_account_failed";
+      return success({ routeName: authDeleteAccountContract.routeName, success: false, error: message });
+    }
   });
 }

@@ -1,0 +1,210 @@
+import { describe, expect, it } from "vitest";
+import { MixesService } from "./mixes.service.js";
+
+const rows = [
+  {
+    postId: "p4",
+    time: 4000,
+    userId: "u4",
+    userHandle: "eve",
+    activities: ["hiking"],
+    state: "Vermont",
+    city: "Burlington",
+    lat: 44.4759,
+    lng: -73.2121,
+    thumbUrl: "https://cdn/p4.jpg",
+  },
+  {
+    postId: "p3",
+    time: 3000,
+    userId: "u3",
+    userHandle: "cara",
+    selectedActivities: ["hiking"],
+    state: "Vermont",
+    city: "Stowe",
+    lat: 44.4654,
+    lng: -72.6874,
+    thumbUrl: "https://cdn/p3.jpg",
+  },
+  {
+    postId: "p2",
+    time: 2000,
+    userId: "u2",
+    userHandle: "bob",
+    activity: "coffee",
+    state: "New York",
+    city: "New York",
+    lat: 40.7128,
+    lng: -74.006,
+    thumbUrl: "https://cdn/p2.jpg",
+  },
+  {
+    postId: "p1",
+    time: 1000,
+    userId: "u1",
+    userHandle: "alice",
+    activityTypes: ["hiking"],
+    state: "Vermont",
+    city: "Burlington",
+    lat: 44.476,
+    lng: -73.213,
+    thumbUrl: "https://cdn/p1.jpg",
+  },
+];
+
+const repo = {
+  async listFromPool() {
+    return { posts: rows as any[], readCount: 4, source: "test_pool" };
+  },
+};
+
+describe("mixes service", () => {
+  const service = new MixesService(repo as any);
+
+  it("filters activity preview deterministically", async () => {
+    const out = await service.preview({
+      mixKey: "hiking",
+      filter: { activity: "Hiking " },
+      limit: 3,
+      viewerId: null,
+    });
+    expect(out.ok).toBe(true);
+    expect(out.posts.length).toBe(3);
+    expect(out.posts.every((p) => p.activities.includes("hiking"))).toBe(true);
+    expect(out.posts.map((p) => p.postId)).toEqual(["p4", "p3", "p1"]);
+  });
+
+  it("filters by radius + activity", async () => {
+    const out = await service.preview({
+      mixKey: "hiking-nearby",
+      filter: { activity: "hiking", lat: 44.476, lng: -73.212, radiusKm: 4 },
+      limit: 3,
+      viewerId: null,
+    });
+    expect(out.posts.length).toBeGreaterThan(0);
+    expect(out.posts.every((p) => p.postId !== "p2")).toBe(true);
+  });
+
+  it("paginates stably with cursor and no duplicates", async () => {
+    const first = await service.page({
+      mixKey: "hiking",
+      filter: { activity: "hiking" },
+      limit: 2,
+      cursor: null,
+      viewerId: null,
+    });
+    expect(first.posts.map((p) => p.postId)).toEqual(["p4", "p3"]);
+    const second = await service.page({
+      mixKey: "hiking",
+      filter: { activity: "hiking" },
+      limit: 2,
+      cursor: first.nextCursor,
+      viewerId: null,
+    });
+    const ids1 = new Set(first.posts.map((p) => p.postId));
+    expect(second.posts.some((p) => ids1.has(p.postId))).toBe(false);
+    expect(second.posts.map((p) => p.postId)).toEqual(["p1"]);
+  });
+
+  it("returns empty mix with ok true and hasMore false", async () => {
+    const out = await service.page({
+      mixKey: "none",
+      filter: { activity: "does-not-exist" },
+      limit: 5,
+      cursor: null,
+      viewerId: null,
+    });
+    expect(out.ok).toBe(true);
+    expect(out.posts).toEqual([]);
+    expect(out.hasMore).toBe(false);
+    expect(out.nextCursor).toBeNull();
+  });
+
+  it("normalizes activity casing, spacing, and plural basics", async () => {
+    const spaced = await service.preview({
+      mixKey: "hiking",
+      filter: { activity: "   HIKINGS   " },
+      limit: 3,
+      viewerId: null,
+    });
+    const singular = await service.preview({
+      mixKey: "hiking",
+      filter: { activity: "hiking" },
+      limit: 3,
+      viewerId: "v2",
+    });
+    expect(spaced.posts.map((p) => p.postId)).toEqual(singular.posts.map((p) => p.postId));
+  });
+
+  it("keeps first page ordering and cursor stable across pool reorder", async () => {
+    const mutable = [...rows];
+    const unstableRepo = {
+      async listFromPool() {
+        return {
+          posts: [...mutable] as any[],
+          readCount: 0,
+          source: "test_pool",
+          poolLimit: 1000,
+          poolBuiltAt: "2026-01-01T00:00:00.000Z",
+          poolBuildLatencyMs: 10,
+          poolBuildReadCount: 4,
+        };
+      },
+    };
+    const unstableService = new MixesService(unstableRepo as any);
+    const pageA = await unstableService.page({
+      mixKey: "hiking",
+      filter: { activity: "hiking" },
+      limit: 2,
+      cursor: null,
+      viewerId: "a",
+    });
+    mutable.reverse();
+    const pageB = await unstableService.page({
+      mixKey: "hiking",
+      filter: { activity: "hiking" },
+      limit: 2,
+      cursor: null,
+      viewerId: "b",
+    });
+    expect(pageA.posts.map((p) => p.postId)).toEqual(pageB.posts.map((p) => p.postId));
+    expect(pageA.nextCursor).toEqual(pageB.nextCursor);
+  });
+
+  it("ignores polluted oversized activities arrays for matching", async () => {
+    const polluted = [
+      {
+        postId: "px",
+        time: 5000,
+        userId: "ux",
+        userHandle: "polluted",
+        activities: Array.from({ length: 40 }).map((_, idx) => `tag-${idx}`),
+        state: "Vermont",
+        city: "Burlington",
+        thumbUrl: "https://cdn/px.jpg",
+      },
+      ...rows,
+    ];
+    const pollutedRepo = {
+      async listFromPool() {
+        return {
+          posts: polluted as any[],
+          readCount: 0,
+          source: "test_pool",
+          poolLimit: 1000,
+          poolBuiltAt: "2026-01-01T00:00:00.000Z",
+          poolBuildLatencyMs: 10,
+          poolBuildReadCount: 4,
+        };
+      },
+    };
+    const pollutedService = new MixesService(pollutedRepo as any);
+    const out = await pollutedService.preview({
+      mixKey: "tag9",
+      filter: { activity: "tag-9" },
+      limit: 3,
+      viewerId: null,
+    });
+    expect(out.posts.some((p) => p.postId === "px")).toBe(false);
+  });
+});

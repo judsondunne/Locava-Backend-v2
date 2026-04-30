@@ -22,6 +22,7 @@ export async function registerV2LegendsStagePostRoutes(app: FastifyInstance): Pr
       activityIds: body.activityIds ?? [],
       city: body.city ?? null,
       state: body.state ?? null,
+      country: body.country ?? null,
       region: body.region ?? null
     });
     return success({

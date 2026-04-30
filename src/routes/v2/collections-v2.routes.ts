@@ -17,6 +17,9 @@ import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
 import { SearchRepository } from "../../repositories/surfaces/search.repository.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
+import { collectionTelemetryRepository } from "../../repositories/surfaces/collection-telemetry.repository.js";
+import { wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
+import { getWasabiConfigOrNull, uploadPostSessionStagingFromBuffer } from "../../services/storage/wasabi-staging.service.js";
 
 const CreateBodySchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -36,6 +39,11 @@ const PatchBodySchema = z.object({
 });
 const AddPostBodySchema = z.object({ postId: z.string().trim().min(1) });
 const CollectionParamsSchema = z.object({ collectionId: z.string().trim().min(1) });
+const CoverBodySchema = z.object({
+  coverUri: z.string().trim().url().optional(),
+  url: z.string().trim().url().optional(),
+  imageUrl: z.string().trim().url().optional()
+});
 const CollectionPostsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(20).default(12),
@@ -243,8 +251,7 @@ function toCollectionListItem(
 ) {
   return {
     ...collection,
-    items: [],
-    collaboratorInfo: undefined
+    items: []
   };
 }
 
@@ -418,6 +425,83 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
       }
       throw error;
     }
+  });
+
+  app.post("/v2/collections/:collectionId/opened", async (request, reply) => {
+    const viewer = buildViewerContext(request);
+    if (!canUseV2Surface("collections", viewer.roles)) {
+      return reply
+        .status(403)
+        .send(failure("v2_surface_disabled", "Collections v2 surface is not enabled for this viewer"));
+    }
+    const params = CollectionParamsSchema.parse(request.params);
+    setRouteName("collections.opened.post");
+    const row = await collectionTelemetryRepository.recordOpened(viewer.viewerId, params.collectionId);
+    return success({
+      routeName: "collections.opened.post" as const,
+      collectionId: params.collectionId,
+      openCount: row.openCount,
+      lastOpenedAtMs: row.lastOpenedAtMs
+    });
+  });
+
+  app.post("/v2/collections/:collectionId/cover", async (request, reply) => {
+    const viewer = buildViewerContext(request);
+    if (!canUseV2Surface("collections", viewer.roles)) {
+      return reply
+        .status(403)
+        .send(failure("v2_surface_disabled", "Collections v2 surface is not enabled for this viewer"));
+    }
+    const params = CollectionParamsSchema.parse(request.params);
+    setRouteName("collections.cover.post");
+    let coverUri = "";
+    const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
+    if (contentType.includes("multipart/form-data")) {
+      const part = await request.file();
+      if (!part) {
+        return reply.status(400).send(failure("invalid_request", "cover file required"));
+      }
+      const cfg = getWasabiConfigOrNull();
+      if (!cfg) {
+        return reply.status(503).send(failure("storage_unavailable", "Wasabi configuration unavailable"));
+      }
+      const fileBuffer = await part.toBuffer();
+      const destinationKey = `collections/covers/${viewer.viewerId}/${params.collectionId}/${Date.now()}.jpg`;
+      const upload = await uploadPostSessionStagingFromBuffer(
+        cfg,
+        viewer.viewerId,
+        `collection-cover-${params.collectionId}`,
+        0,
+        "photo",
+        fileBuffer,
+        { destinationKey, contentType: "image/jpeg" }
+      );
+      if (!upload.success) {
+        return reply
+          .status(500)
+          .send(failure("cover_upload_failed", upload.error ?? "Failed to upload cover"));
+      }
+      coverUri = wasabiPublicUrlForKey(cfg, destinationKey);
+    } else {
+      const raw = CoverBodySchema.parse(request.body ?? {});
+      coverUri = String(raw.coverUri ?? raw.url ?? raw.imageUrl ?? "").trim();
+    }
+    if (!coverUri) {
+      return reply.status(400).send(failure("invalid_request", "cover URL or file required"));
+    }
+    const updated = await collectionsAdapter.updateCollection({
+      viewerId: viewer.viewerId,
+      collectionId: params.collectionId,
+      updates: { coverUri }
+    });
+    if (!updated.collection) {
+      return reply.status(404).send(failure("collection_not_found", "Collection not found"));
+    }
+    return success({
+      routeName: "collections.cover.post" as const,
+      collectionId: params.collectionId,
+      displayPhotoUrl: updated.collection.coverUri ?? coverUri
+    });
   });
 
   app.post("/v2/collections", async (request, reply) => {

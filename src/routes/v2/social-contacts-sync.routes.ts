@@ -21,6 +21,14 @@ export async function registerV2SocialContactsSyncRoutes(app: FastifyInstance): 
       viewerId: viewer.viewerId,
       contacts: body.contacts
     });
+    request.log.info(
+      {
+        routeName: socialContactsSyncContract.routeName,
+        viewerId: viewer.viewerId,
+        contactSyncDiagnostics: data.diagnostics
+      },
+      "social contacts sync diagnostics"
+    );
     return success({
       routeName: socialContactsSyncContract.routeName,
       matchedUsers: data.matchedUsers,

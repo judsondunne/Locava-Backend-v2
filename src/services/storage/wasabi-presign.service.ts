@@ -17,6 +17,8 @@ export type StagingPresignUrlSlot = {
   uploadUrl: string;
   key: string;
   contentType: string;
+  /** Second PUT URL for `videos/…_poster.jpg` when assetType is video (same ACL as main object). */
+  posterPutUrl?: string;
 };
 
 export type StagingPresignResult =
@@ -132,7 +134,25 @@ export async function presignPostSessionStagingBatch(
       });
 
       const uploadUrl = await getSignedUrl(client, command, { expiresIn: PRESIGN_EXPIRES_SECONDS });
-      urls.push({ index: item.index, uploadUrl, key, contentType });
+
+      let posterPutUrl: string | undefined;
+      if (item.assetType === "video" && finalized.posterKey) {
+        const posterCmd = new PutObjectCommand({
+          Bucket: cfg.bucketName,
+          Key: finalized.posterKey,
+          ContentType: "image/jpeg",
+          ACL: "public-read"
+        });
+        posterPutUrl = await getSignedUrl(client, posterCmd, { expiresIn: PRESIGN_EXPIRES_SECONDS });
+      }
+
+      urls.push({
+        index: item.index,
+        uploadUrl,
+        key,
+        contentType,
+        ...(posterPutUrl ? { posterPutUrl } : {})
+      });
     }
 
     return { ok: true, urls };

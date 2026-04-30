@@ -64,6 +64,12 @@ export type FirestoreFeedCandidatesPage = {
 
 type FeedTabMode = "explore" | "following";
 
+type EmbeddedCommentWire = {
+  id?: unknown;
+  commentId?: unknown;
+  replyingTo?: unknown;
+};
+
 const FEED_CANDIDATE_SELECT_FIELDS = [
   "feedSlot",
   "time",
@@ -115,7 +121,7 @@ const FEED_CANDIDATE_SELECT_FIELDS = [
 export class FeedFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
   private static readonly MAX_SCAN_LIMIT = 320;
-  private static readonly MAX_SCAN_LIMIT_FOLLOWING = 2_000;
+  private static readonly MAX_SCAN_LIMIT_FOLLOWING = 50_000;
   private static readonly QUERY_CHUNK_LIMIT = 80;
   private static readonly PAGE_BUFFER = 24;
   private static readonly FIRST_PAGE_BUFFER = 8;
@@ -194,7 +200,7 @@ export class FeedFirestoreAdapter {
       if (tab === "following") {
         const requiredFloor = Math.max(FeedFirestoreAdapter.FOLLOWING_SCAN_FLOOR, scanFloor);
         const scarcityMultiplier = Math.max(1, Math.ceil(60 / Math.max(1, followingCount)));
-        const adjustedPerPageMultiplier = Math.min(90, Math.max(12, basePerPageMultiplier * scarcityMultiplier));
+        const adjustedPerPageMultiplier = Math.min(400, Math.max(16, basePerPageMultiplier * scarcityMultiplier));
         scanLimit = Math.min(
           FeedFirestoreAdapter.MAX_SCAN_LIMIT_FOLLOWING,
           Math.max(requiredCandidateCount + pageBuffer, limit * adjustedPerPageMultiplier, requiredFloor)
@@ -252,7 +258,7 @@ export class FeedFirestoreAdapter {
               }
               if (!radiusActive) return true;
               const postLat = normalizeGeo(data.lat ?? data.latitude);
-              const postLng = normalizeGeo(data.lng ?? data.longitude);
+              const postLng = normalizeGeo(data.long ?? data.lng ?? data.longitude);
               if (postLat == null || postLng == null) return false;
               const distance = computeDistanceKm(lat as number, lng as number, postLat, postLng);
               return distance != null && distance <= (radiusKm as number);
@@ -419,6 +425,8 @@ function mapDocToCandidate(doc: QueryDocumentSnapshot): FirestoreFeedCandidate {
     : [];
   const tags = Array.isArray(data.tags) ? data.tags.map((v) => String(v ?? "").trim()).filter(Boolean) : [];
   const geoData = (data.geoData ?? {}) as Record<string, unknown>;
+  const comments = Array.isArray(data.comments) ? data.comments : [];
+  const topLevelEmbeddedCommentCount = comments.filter((entry) => isTopLevelEmbeddedComment(entry)).length;
   const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(data);
   return {
     postId: doc.id,
@@ -453,9 +461,21 @@ function mapDocToCandidate(doc: QueryDocumentSnapshot): FirestoreFeedCandidate {
     letterboxGradientBottom,
     letterboxGradients,
     likeCount: normalizeCount(data.likesCount ?? data.likeCount),
-    commentCount: normalizeCount(data.commentsCount ?? data.commentCount),
+    commentCount: resolveCommentCount(
+      data.commentsCount ?? data.commentCount,
+      topLevelEmbeddedCommentCount,
+    ),
     likedByUserIds: normalizeIdArray(data.likes)
   };
+}
+
+function isTopLevelEmbeddedComment(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const wire = value as EmbeddedCommentWire;
+  const commentIdRaw = wire.id ?? wire.commentId;
+  const commentId = typeof commentIdRaw === "string" ? commentIdRaw.trim() : "";
+  if (!commentId) return false;
+  return wire.replyingTo == null;
 }
 
 function normalizeLetterboxHints(data: Record<string, unknown>): {
@@ -578,6 +598,12 @@ function normalizeCount(value: unknown): number {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.floor(n);
+}
+
+function resolveCommentCount(value: unknown, embeddedTopLevelCount: number): number {
+  const explicit = normalizeCount(value);
+  if (explicit > 0) return explicit;
+  return Math.max(0, Math.floor(embeddedTopLevelCount));
 }
 
 function normalizeIdArray(value: unknown): string[] {

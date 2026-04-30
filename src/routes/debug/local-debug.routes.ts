@@ -2,6 +2,9 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { diagnosticsStore, type RequestDiagnostic } from "../../observability/diagnostics-store.js";
 import { isLocalDevIdentityModeEnabled, resolveLocalDevIdentityContext } from "../../lib/local-dev-identity.js";
+import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { legendRepository } from "../../domains/legends/legend.repository.js";
+import { buildLegendScopeId } from "../../domains/legends/legends.types.js";
 
 const LocalViewerQuerySchema = z.object({
   viewerId: z.string().min(1).optional(),
@@ -48,6 +51,99 @@ type ParsedEnvelope = {
   error?: unknown;
   meta?: { requestId?: string; latencyMs?: number; db?: unknown };
 };
+
+function normalizeActivityForBackfill(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  return trimmed.replace(/\s+/g, "_").slice(0, 128);
+}
+
+function normalizeCityKey(state: string, city: string): string {
+  return `${state}_${normalizeLowerLocationKey(city)}`;
+}
+
+function normalizeStateKey(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return normalizeUpperLocationKey(value);
+}
+
+function normalizeCountryKey(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return normalizeUpperLocationKey(trimmed);
+}
+
+function normalizeUpperLocationKey(value: unknown): string {
+  if (typeof value !== "string") return "";
+  return value
+    .trim()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+}
+
+function normalizeLowerLocationKey(value: string): string {
+  return value
+    .trim()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+}
+
+function resolveLegendScopeMetaForBackfill(scopeId: string): {
+  scopeType: "place" | "activity" | "placeActivity";
+  title: string;
+  subtitle: string;
+  placeType: "state" | "city" | "country" | null;
+  placeId: string | null;
+  activityId: string | null;
+} {
+  const parts = scopeId.split(":").map((part) => part.trim());
+  if (parts[0] === "activity") {
+    const activityId = parts[1] ?? "";
+    const label = activityId.replace(/_/g, " ").trim() || "Activity";
+    return {
+      scopeType: "activity",
+      title: `${label} Legend`,
+      subtitle: "Across Locava",
+      placeType: null,
+      placeId: null,
+      activityId: activityId || null
+    };
+  }
+  if (parts[0] === "placeActivity") {
+    const placeType = parts[1] === "city" ? "city" : parts[1] === "country" ? "country" : "state";
+    const placeId = parts[2] ?? "";
+    const activityId = parts[3] ?? "";
+    const label = activityId.replace(/_/g, " ").trim() || "Activity";
+    return {
+      scopeType: "placeActivity",
+      title: `${label} Legend`,
+      subtitle: placeId ? `${placeType.toUpperCase()} ${placeId}` : placeType.toUpperCase(),
+      placeType,
+      placeId: placeId || null,
+      activityId: activityId || null
+    };
+  }
+  const placeType = parts[1] === "city" ? "city" : parts[1] === "country" ? "country" : "state";
+  const placeId = parts[2] ?? "";
+  return {
+    scopeType: "place",
+    title: "Local Legend",
+    subtitle: placeId ? `${placeType.toUpperCase()} ${placeId}` : placeType.toUpperCase(),
+    placeType,
+    placeId: placeId || null,
+    activityId: null
+  };
+}
 
 function parseJsonPayload(payload: string): ParsedEnvelope | null {
   if (!payload || payload.length === 0) {
@@ -855,6 +951,347 @@ export async function registerLocalDebugRoutes(app: FastifyInstance): Promise<vo
       explicitViewerId: body.viewerId,
       internal: true
     });
+  });
+
+  app.post("/debug/local/legends/backfill", async (request) => {
+    const body = z
+      .object({
+        dryRun: z.boolean().default(true),
+        pageSize: z.number().int().min(50).max(2000).default(500),
+        cursorPostId: z.string().min(1).optional(),
+        forceRebuild: z.boolean().optional().default(false)
+      })
+      .parse(request.body ?? {});
+    const db = getFirestoreSourceClient();
+    if (!db) {
+      return { ok: false, error: "firestore_unavailable" };
+    }
+
+    const startedAt = Date.now();
+    const postsCol = db.collection("posts");
+    const firstWinners = new Map<string, { userId: string; postId: string; createdAtMs: number; title: string; subtitle: string; kind: string; activityKey?: string | null; locationScope?: "state" | "city" | "country" | null; locationKey?: string | null }>();
+    const rankCounts = new Map<string, Map<string, number>>();
+    const scopeCounts = new Map<string, Map<string, number>>();
+    let totalProcessed = 0;
+    let pages = 0;
+    let nextCursorPostId: string | null = null;
+    let cursor = body.cursorPostId ?? null;
+    while (true) {
+      let query = postsCol.orderBy("__name__").limit(body.pageSize);
+      if (cursor) query = postsCol.orderBy("__name__").startAfter(cursor).limit(body.pageSize);
+      const snap = await query.get();
+      pages += 1;
+      if (snap.empty) break;
+      for (const doc of snap.docs) {
+      nextCursorPostId = doc.id;
+      cursor = doc.id;
+      const row = (doc.data() ?? {}) as Record<string, unknown>;
+      const postId = doc.id;
+      const userId = typeof row.userId === "string" && row.userId.trim() ? row.userId.trim() : null;
+      if (!userId) continue;
+      const geoData = row.geoData && typeof row.geoData === "object" ? (row.geoData as Record<string, unknown>) : null;
+      const stateRegionId = typeof row.stateRegionId === "string" ? row.stateRegionId.trim() : "";
+      const countryRegionId = typeof row.countryRegionId === "string" ? row.countryRegionId.trim() : "";
+      const stateFromRegion = stateRegionId ? stateRegionId.split("-").slice(1).join("_") : "";
+      const state = normalizeStateKey(
+        typeof row.state === "string"
+          ? row.state
+          : geoData && typeof geoData.state === "string"
+            ? geoData.state
+            : stateFromRegion
+      );
+      const city =
+        typeof row.city === "string"
+          ? row.city.trim()
+          : geoData && typeof geoData.city === "string"
+            ? geoData.city.trim()
+            : "";
+      const country = normalizeCountryKey(
+        countryRegionId ||
+          (geoData && typeof geoData.country === "string" ? geoData.country : "")
+      );
+      const createdAtMs =
+        typeof row.createdAtMs === "number"
+          ? row.createdAtMs
+          : typeof row.createdAt === "object" && row.createdAt && "toMillis" in (row.createdAt as object)
+            ? Number((row.createdAt as { toMillis: () => number }).toMillis())
+            : 0;
+      const activities = Array.isArray(row.activities) ? row.activities.map((v) => normalizeActivityForBackfill(v)).filter((v): v is string => Boolean(v)) : [];
+
+      const bump = (key: string) => {
+        const existing = rankCounts.get(key) ?? new Map<string, number>();
+        existing.set(userId, (existing.get(userId) ?? 0) + 1);
+        rankCounts.set(key, existing);
+      };
+      const bumpScope = (scopeId: string) => {
+        const existing = scopeCounts.get(scopeId) ?? new Map<string, number>();
+        existing.set(userId, (existing.get(userId) ?? 0) + 1);
+        scopeCounts.set(scopeId, existing);
+      };
+      const applyFirst = (
+        key: string,
+        payload: { title: string; subtitle: string; kind: string; activityKey?: string | null; locationScope?: "state" | "city" | "country" | null; locationKey?: string | null }
+      ) => {
+        const existing = firstWinners.get(key);
+        if (!existing || createdAtMs < existing.createdAtMs || (createdAtMs === existing.createdAtMs && postId < existing.postId)) {
+          firstWinners.set(key, { userId, postId, createdAtMs, ...payload });
+        }
+      };
+
+      if (country) {
+        bump(`location_rank:country:${country}`);
+        bumpScope(buildLegendScopeId(["place", "country", country]));
+        applyFirst(`location_first:country:${country}`, {
+          title: `First Poster in ${country}`,
+          subtitle: "Original legend",
+          kind: "location_first",
+          locationScope: "country",
+          locationKey: country
+        });
+      }
+      if (state) {
+        const locState = `location_rank:state:${state}`;
+        bump(locState);
+        bumpScope(buildLegendScopeId(["place", "state", state]));
+        applyFirst(`location_first:state:${state}`, {
+          title: `First Poster in ${state}`,
+          subtitle: "Original legend",
+          kind: "location_first",
+          locationScope: "state",
+          locationKey: state
+        });
+      }
+      if (state && city) {
+        const cityKey = normalizeCityKey(state, city);
+        const locCity = `location_rank:city:${cityKey}`;
+        bump(locCity);
+        bumpScope(buildLegendScopeId(["place", "city", cityKey]));
+        applyFirst(`location_first:city:${cityKey}`, {
+          title: `First Poster in ${city}`,
+          subtitle: `Original legend • ${state}`,
+          kind: "location_first",
+          locationScope: "city",
+          locationKey: cityKey
+        });
+      }
+
+      for (const activity of activities) {
+        bump(`activity_rank:${activity}`);
+        bumpScope(`activity:${activity}`);
+        applyFirst(`activity_first:${activity}`, {
+          title: `First ${activity.replace(/_/g, " ")} on Locava`,
+          subtitle: "Original legend",
+          kind: "activity_first",
+          activityKey: activity
+        });
+        if (state) {
+          const comboState = `combo_rank:state:${state}:activity:${activity}`;
+          bump(comboState);
+          bumpScope(buildLegendScopeId(["placeActivity", "state", state, activity]));
+          applyFirst(`combo_first:state:${state}:activity:${activity}`, {
+            title: `First ${activity.replace(/_/g, " ")} in ${state}`,
+            subtitle: "Original legend",
+            kind: "combo_first",
+            activityKey: activity,
+            locationScope: "state",
+            locationKey: state
+          });
+        }
+        if (state && city) {
+          const cityKey = normalizeCityKey(state, city);
+          const comboCity = `combo_rank:city:${cityKey}:activity:${activity}`;
+          bump(comboCity);
+          bumpScope(buildLegendScopeId(["placeActivity", "city", cityKey, activity]));
+          applyFirst(`combo_first:city:${cityKey}:activity:${activity}`, {
+            title: `First ${activity.replace(/_/g, " ")} in ${city}`,
+            subtitle: `Original legend • ${state}`,
+            kind: "combo_first",
+            activityKey: activity,
+            locationScope: "city",
+            locationKey: cityKey
+          });
+        }
+        if (country) {
+          const comboCountry = `combo_rank:country:${country}:activity:${activity}`;
+          bump(comboCountry);
+          bumpScope(buildLegendScopeId(["placeActivity", "country", country, activity]));
+          applyFirst(`combo_first:country:${country}:activity:${activity}`, {
+            title: `First ${activity.replace(/_/g, " ")} in ${country}`,
+            subtitle: "Original legend",
+            kind: "combo_first",
+            activityKey: activity,
+            locationScope: "country",
+            locationKey: country
+          });
+        }
+      }
+        totalProcessed += 1;
+      }
+      if (snap.size < body.pageSize) break;
+    }
+
+    const writesSummary = { firstClaimsCreated: 0, rankAggregatesWritten: 0, scopeDocsWritten: 0, userStatsWritten: 0 };
+    if (!body.dryRun) {
+      let batch = db.batch();
+      let batchOps = 0;
+      const queueDelete = (ref: FirebaseFirestore.DocumentReference) => {
+        batch.delete(ref);
+        batchOps += 1;
+      };
+      const queueSet = (
+        ref: FirebaseFirestore.DocumentReference,
+        data: Record<string, unknown>,
+        options: FirebaseFirestore.SetOptions = { merge: true }
+      ) => {
+        batch.set(ref, data, options);
+        batchOps += 1;
+      };
+      const flushBatch = async () => {
+        if (batchOps === 0) return;
+        await batch.commit();
+        batch = db.batch();
+        batchOps = 0;
+      };
+      if (body.forceRebuild) {
+        const [claimsSnap, aggSnap, scopesSnap, statsSnap] = await Promise.all([
+          db.collection("legendFirstClaims").limit(2000).get(),
+          db.collection("legendRankAggregates").limit(2000).get(),
+          db.collection("legendScopes").limit(2000).get(),
+          db.collection("legendUserStats").limit(8000).get()
+        ]);
+        for (const d of claimsSnap.docs) {
+          queueDelete(d.ref);
+          if (batchOps >= 400) await flushBatch();
+        }
+        for (const d of aggSnap.docs) {
+          queueDelete(d.ref);
+          if (batchOps >= 400) await flushBatch();
+        }
+        for (const d of scopesSnap.docs) {
+          queueDelete(d.ref);
+          if (batchOps >= 400) await flushBatch();
+        }
+        for (const d of statsSnap.docs) {
+          queueDelete(d.ref);
+          if (batchOps >= 400) await flushBatch();
+        }
+      }
+      for (const [claimKey, claim] of firstWinners.entries()) {
+        queueSet(
+          legendRepository.firstClaimRef(claimKey),
+          {
+            claimKey,
+            kind: claim.kind,
+            family: "first",
+            dimension: claim.kind === "activity_first" ? "activity" : claim.kind === "combo_first" ? "combo" : "location",
+            userId: claim.userId,
+            postId: claim.postId,
+            title: claim.title,
+            subtitle: claim.subtitle,
+            description: "Backfilled original legend claim.",
+            iconContext: claim.kind === "activity_first" ? "activity" : claim.kind === "combo_first" ? "combo" : "location",
+            activityKey: claim.activityKey ?? null,
+            locationScope: claim.locationScope ?? null,
+            locationKey: claim.locationKey ?? null,
+            claimedAt: new Date(claim.createdAtMs || Date.now()),
+            createdAt: new Date(claim.createdAtMs || Date.now())
+          },
+          { merge: true }
+        );
+        if (batchOps >= 400) await flushBatch();
+        writesSummary.firstClaimsCreated += 1;
+      }
+      for (const [aggregateKey, counts] of rankCounts.entries()) {
+        const rows = [...counts.entries()].map(([userId, count]) => ({ userId, count }));
+        rows.sort((a, b) => (b.count - a.count) || a.userId.localeCompare(b.userId));
+        const topUsers = rows.slice(0, 20);
+        const [kind, maybeScope, maybeLocation, maybeActivityLabel, maybeActivity] = aggregateKey.split(":");
+        queueSet(
+          legendRepository.rankAggregateRef(aggregateKey),
+          {
+            aggregateKey,
+            kind,
+            family: "rank",
+            dimension: kind === "activity_rank" ? "activity" : kind === "combo_rank" ? "combo" : "location",
+            locationScope: maybeScope === "state" || maybeScope === "city" || maybeScope === "country" ? maybeScope : null,
+            locationKey: maybeLocation ?? null,
+            activityKey: aggregateKey.includes(":activity:") ? aggregateKey.split(":activity:")[1] : kind === "activity_rank" ? maybeScope ?? null : null,
+            countsByUser: Object.fromEntries(counts.entries()),
+            topUsers,
+            totalPosts: rows.reduce((sum, row) => sum + row.count, 0),
+            updatedAt: new Date()
+          },
+          { merge: true }
+        );
+        if (batchOps >= 400) await flushBatch();
+        writesSummary.rankAggregatesWritten += 1;
+        void maybeActivityLabel;
+        void maybeActivity;
+      }
+      for (const [scopeId, counts] of scopeCounts.entries()) {
+        const rows = [...counts.entries()].map(([userId, count]) => ({ userId, count }));
+        rows.sort((a, b) => (b.count - a.count) || a.userId.localeCompare(b.userId));
+        const topUsers = rows.slice(0, 20);
+        const leader = topUsers[0] ?? null;
+        const scopeMeta = resolveLegendScopeMetaForBackfill(scopeId);
+        queueSet(
+          legendRepository.scopeRef(scopeId),
+          {
+            scopeId,
+            scopeType: scopeMeta.scopeType,
+            title: scopeMeta.title,
+            subtitle: scopeMeta.subtitle,
+            placeType: scopeMeta.placeType,
+            placeId: scopeMeta.placeId,
+            activityId: scopeMeta.activityId,
+            geohashPrecision: null,
+            geohash: null,
+            totalPosts: rows.reduce((sum, row) => sum + row.count, 0),
+            leaderUserId: leader?.userId ?? null,
+            leaderCount: leader?.count ?? 0,
+            topUsers,
+            lastPostId: null,
+            updatedAt: new Date()
+          },
+          { merge: true }
+        );
+        if (batchOps >= 400) await flushBatch();
+        writesSummary.scopeDocsWritten += 1;
+        for (let idx = 0; idx < rows.length; idx += 1) {
+          const row = rows[idx]!;
+          queueSet(
+            legendRepository.userStatRef(scopeId, row.userId),
+            {
+              scopeId,
+              userId: row.userId,
+              count: row.count,
+              rankSnapshot: idx + 1,
+              isLeader: idx === 0,
+              lastPostId: null,
+              updatedAt: new Date()
+            },
+            { merge: true }
+          );
+          writesSummary.userStatsWritten += 1;
+          if (batchOps >= 400) await flushBatch();
+        }
+      }
+      await flushBatch();
+    }
+
+    return {
+      ok: true,
+      dryRun: body.dryRun,
+      pageSize: body.pageSize,
+      pages,
+      processedPosts: totalProcessed,
+      firstClaimsCandidateCount: firstWinners.size,
+      rankAggregateCount: rankCounts.size,
+      scopeCount: scopeCounts.size,
+      writesSummary,
+      nextCursorPostId,
+      elapsedMs: Date.now() - startedAt
+    };
   });
 
   app.get("/debug/local-run/feed", async (request) => {

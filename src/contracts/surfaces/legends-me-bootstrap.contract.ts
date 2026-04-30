@@ -1,6 +1,12 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { LegendsPreviewCardSchema } from "./legends-stage-post.contract.js";
+import {
+  CanonicalLegendItemSchema,
+  LegendKindSchema,
+  LegendFamilySchema,
+  LegendDimensionSchema
+} from "../entities/achievement-entities.contract.js";
 
 export const LegendScopeSummarySchema = z.object({
   scopeId: z.string(),
@@ -18,6 +24,23 @@ export const LegendScopeSummarySchema = z.object({
 export const LegendAwardWireSchema = z.object({
   awardId: z.string(),
   awardType: z.string(),
+  id: z.string().optional(),
+  kind: LegendKindSchema.optional(),
+  family: LegendFamilySchema.optional(),
+  dimension: LegendDimensionSchema.optional(),
+  iconContext: z.string().optional(),
+  activityKey: z.string().nullable().optional(),
+  activityLabel: z.string().nullable().optional(),
+  locationKey: z.string().nullable().optional(),
+  locationLabel: z.string().nullable().optional(),
+  comboKey: z.string().nullable().optional(),
+  rank: z.number().int().positive().nullable().optional(),
+  isPermanent: z.boolean().optional(),
+  claimedAt: z.unknown().optional(),
+  updatedAt: z.unknown().optional(),
+  sourcePostId: z.string().nullable().optional(),
+  viewerStatus: z.string().optional(),
+  displayPriority: z.number().int().nonnegative().optional(),
   scopeId: z.string(),
   scopeType: z.string(),
   title: z.string(),
@@ -59,6 +82,8 @@ export const LegendsMeBootstrapResponseSchema = z.object({
   activeLegends: z.array(LegendScopeSummarySchema).max(12),
   closeToLegends: z.array(LegendScopeSummarySchema).max(12),
   recentAwards: z.array(LegendAwardWireSchema).max(20),
+  firstLegends: z.array(CanonicalLegendItemSchema).max(64).optional(),
+  rankLegends: z.array(CanonicalLegendItemSchema).max(64).optional(),
   recentEvents: z.array(LegendEventWireSchema).max(20),
   defense: z
     .object({

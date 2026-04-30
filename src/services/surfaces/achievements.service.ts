@@ -166,6 +166,12 @@ export class AchievementsService {
     );
   }
 
+  async claimIntroBonus(viewerId: string): Promise<{ reward: AchievementClaimRewardPayload; alreadyClaimed: boolean }> {
+    return dedupeInFlight(`achievements:claim:intro:${viewerId}`, () =>
+      withConcurrencyLimit("achievements-claim-repo", 6, () => this.repository.claimIntroBonus(viewerId))
+    );
+  }
+
   async loadClaimables(viewerId: string): Promise<{
     totalCount: number;
     weeklyCaptures: Array<{ id: string; title: string; xpReward: number }>;

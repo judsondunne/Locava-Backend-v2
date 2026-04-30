@@ -81,6 +81,8 @@ export const routeContracts: RouteContract[] = [
   { method: "GET", path: "/v2/search/users", description: "V2 search users/profiles results surface", tags: ["v2", "search", "users"], querySchema: { q: "string (1-80) required", cursor: "string optional", limit: "number (5-12) optional" } },
   { method: "GET", path: "/v2/search/suggest", description: "V2 search typing suggestions (users/activities/locations/sentences)", tags: ["v2", "search"], querySchema: { q: "string (1-80) required" } },
   { method: "GET", path: "/v2/search/bootstrap", description: "V2 search idle bootstrap rails and previews", tags: ["v2", "search"], querySchema: { q: "string (0-80) optional", limit: "number (1-80) optional" } },
+  { method: "GET", path: "/v2/search/home-bootstrap", description: "Search home v1 bootstrap (suggested users + 8 activity mix previews)", tags: ["v2", "search", "home"], querySchema: { includeDebug: "0|1 optional", bypassCache: "0|1 optional" } },
+  { method: "GET", path: "/v2/search/mixes/:activityKey/page", description: "Cursor page for activity mix posts (search home deep link)", tags: ["v2", "search", "mixes"], querySchema: { cursor: "string optional", limit: "number optional", includeDebug: "0|1 optional" } },
   { method: "GET", path: "/v2/search/mixes/bootstrap", description: "V2 search mixes bootstrap (mix shelves)", tags: ["v2", "search", "mixes"], querySchema: { lat: "number optional", lng: "number optional", limit: "number (1-24) optional", includeDebug: "0|1 optional" } },
   { method: "POST", path: "/v2/search/mixes/feed", description: "V2 search mixes feed page", tags: ["v2", "search", "mixes"], bodySchema: { mixId: "string required", cursor: "string|null optional", limit: "number (4-36) optional", lat: "number|null optional", lng: "number|null optional", includeDebug: "boolean optional" } },
   {
@@ -444,6 +446,12 @@ export const routeContracts: RouteContract[] = [
     method: "POST",
     path: "/v2/achievements/claim-challenge",
     description: "V2 achievements challenge claim",
+    tags: ["v2", "achievements"]
+  },
+  {
+    method: "POST",
+    path: "/v2/achievements/claim-intro-bonus",
+    description: "V2 achievements onboarding intro bonus claim",
     tags: ["v2", "achievements"]
   },
   {

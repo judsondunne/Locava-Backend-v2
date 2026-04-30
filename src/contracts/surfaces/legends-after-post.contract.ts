@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { LegendAwardWireSchema } from "./legends-me-bootstrap.contract.js";
+import { LegendRewardEnvelopeSchema } from "../entities/achievement-entities.contract.js";
 
 export const LegendsAfterPostParamsSchema = z.object({
   postId: z.string().min(3)
@@ -11,7 +12,8 @@ export const LegendsAfterPostResponseSchema = z.object({
   postId: z.string(),
   status: z.enum(["processing", "complete", "failed"]),
   pollAfterMs: z.number().int().nonnegative(),
-  awards: z.array(LegendAwardWireSchema).max(40)
+  awards: z.array(LegendAwardWireSchema).max(40),
+  rewards: LegendRewardEnvelopeSchema.optional()
 });
 
 export const legendsAfterPostContract = defineContract({

@@ -60,7 +60,10 @@ export const ProfilePostDetailResponseSchema = z.object({
           commentId: z.string(),
           userId: z.string(),
           text: z.string(),
-          createdAtMs: z.number().int().nonnegative()
+          createdAtMs: z.number().int().nonnegative(),
+          userName: z.string().nullable().optional(),
+          userHandle: z.string().nullable().optional(),
+          userPic: z.string().nullable().optional()
         })
       )
       .nullable()

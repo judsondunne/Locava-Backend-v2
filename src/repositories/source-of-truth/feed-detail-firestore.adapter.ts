@@ -104,7 +104,9 @@ export class FeedDetailFirestoreAdapter {
           "letterbox_gradient_bottom",
           "legacy",
           "likeCount",
-          "commentCount"
+          "commentsCount",
+          "commentCount",
+          "comments"
         )
         .limit(1)
         .get(),
@@ -231,6 +233,8 @@ type PostDataShape = {
   likeCount?: number;
   likesCount?: number;
   commentCount?: number;
+  commentsCount?: number;
+  comments?: unknown[];
   carouselFitWidth?: unknown;
   layoutLetterbox?: unknown;
   letterboxGradientTop?: unknown;
@@ -319,7 +323,7 @@ function buildFeedDetailBundleFromParts(input: {
     },
     social: {
       likeCount: normalizeCounter(input.postData.likesCount ?? input.postData.likeCount),
-      commentCount: normalizeCounter(input.postData.commentCount)
+      commentCount: resolveCommentCount(input.postData)
     },
     viewer: {
       liked: input.liked,
@@ -426,6 +430,22 @@ function normalizeNullable(value: unknown): string | null {
 function normalizeCounter(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return 0;
   return Math.floor(value);
+}
+
+function resolveCommentCount(post: PostDataShape): number {
+  const explicit = normalizeCounter(post.commentsCount ?? post.commentCount);
+  if (explicit > 0) return explicit;
+  if (!Array.isArray(post.comments)) return 0;
+  return post.comments.filter((entry) => isTopLevelEmbeddedComment(entry)).length;
+}
+
+function isTopLevelEmbeddedComment(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const wire = value as { id?: unknown; commentId?: unknown; replyingTo?: unknown };
+  const commentIdRaw = wire.id ?? wire.commentId;
+  const commentId = typeof commentIdRaw === "string" ? commentIdRaw.trim() : "";
+  if (!commentId) return false;
+  return wire.replyingTo == null;
 }
 
 function normalizeNullableNumber(value: unknown): number | null {

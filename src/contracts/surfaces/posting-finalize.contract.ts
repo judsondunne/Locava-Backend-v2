@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
-import { AchievementDeltaSchema } from "../entities/achievement-entities.contract.js";
+import { AchievementDeltaSchema, LegendRewardEnvelopeSchema } from "../entities/achievement-entities.contract.js";
 
 /** Fastify `bodyLimit` for POST /v2/posting/finalize — must exceed worst-case JSON for base64 fields below. */
 const DISPLAY_PHOTO_B64_MAX = 6_000_000;
@@ -55,6 +55,7 @@ export const PostingFinalizeResponseSchema = z.object({
     pollAfterMs: z.number().int().positive()
   }),
   achievementDelta: AchievementDeltaSchema.optional(),
+  legendRewards: LegendRewardEnvelopeSchema.optional(),
   canonicalCreated: z.boolean(),
   idempotency: z.object({
     replayed: z.boolean()

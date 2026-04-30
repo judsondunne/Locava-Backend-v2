@@ -80,7 +80,7 @@ describe("achievements repository helpers", () => {
     expect(exploration.postsThisWeek).toBe(0);
   });
 
-  it("filters competitive badges out of the canonical static badge surface", () => {
+  it("includes competitive badges in canonical badge rows with ownership metadata", () => {
     const snapshot = buildSnapshotWithBadges([
       {
         id: "activity_swimming",
@@ -98,6 +98,7 @@ describe("achievements repository helpers", () => {
         description: "Lead New York",
         badgeSource: "competitive",
         badgeType: "region",
+        ownershipVersion: 3,
         earned: true,
         claimed: false,
         rewardPoints: 100,
@@ -110,8 +111,12 @@ describe("achievements repository helpers", () => {
 
     expect(status.badgeCount).toBe(1);
     expect(status.earnedBadgeCount).toBe(1);
-    expect(canonicalBadges).toHaveLength(1);
-    expect(canonicalBadges[0]?.badgeId).toBe("activity_swimming");
+    expect(canonicalBadges).toHaveLength(2);
+    const competitiveRow = canonicalBadges.find((row) => row.badgeId === "region_nyc");
+    expect(competitiveRow?.badgeSource).toBe("competitive");
+    expect(competitiveRow?.badgeType).toBe("region");
+    expect(competitiveRow?.currentOwner).toBe(true);
+    expect(competitiveRow?.ownershipVersion).toBe(3);
   });
 
   it("classifies static and competitive badge sources explicitly", () => {

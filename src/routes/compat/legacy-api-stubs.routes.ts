@@ -14,8 +14,6 @@ import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/
 import { readMaybeMillis } from "../../repositories/source-of-truth/post-firestore-projection.js";
 import { getWasabiConfigOrNull, uploadPostSessionStagingFromBuffer } from "../../services/storage/wasabi-staging.service.js";
 import { wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
-import { readWasabiConfigFromEnv } from "../../services/storage/wasabi-config.js";
-import { uploadUserProfilePicture } from "../../services/storage/wasabi-userpics.service.js";
 import { mapV2NotificationListToLegacyItems } from "./map-v2-notification-to-legacy-product.js";
 import { postingMutationRepository } from "../../repositories/mutations/posting-mutation.repository.js";
 import { CompatPostsBatchOrchestrator } from "../../orchestration/compat/posts-batch.orchestrator.js";
@@ -83,68 +81,7 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     }
   >();
 
-  /**
-   * Legacy native onboarding/edit-profile flow expects:
-   * `POST /api/upload/profile-picture` (multipart `file`) → { url } where url is a public Wasabi link.
-   *
-   * Backend v1 also best-effort writes the URL into `users/{userId}`; do the same here so the profile
-   * doc is correct even if the client forgets to patch it post-upload.
-   */
-  app.post("/api/upload/profile-picture", async (request, reply) => {
-    setRouteName("compat.upload.profile-picture.post");
-    const viewerId = resolveCompatViewerId(request);
-    if (!viewerId || viewerId === "anonymous") {
-      return reply.status(401).send({ success: false, error: "Unauthorized" });
-    }
-
-    const cfg = readWasabiConfigFromEnv();
-    if (!cfg) {
-      return reply.status(503).send({ success: false, error: "Wasabi configuration unavailable" });
-    }
-
-    const part = await request.file();
-    if (!part) {
-      return reply.status(400).send({ success: false, error: "No file provided" });
-    }
-
-    const contentType = String(part.mimetype ?? "").trim() || "image/jpeg";
-    const allowed = ["image/jpeg", "image/jpg", "image/png", "image/webp"];
-    if (!allowed.includes(contentType.toLowerCase())) {
-      return reply.status(400).send({ success: false, error: `Invalid file type (${contentType})` });
-    }
-
-    const bytes = await part.toBuffer();
-    if (!bytes.length) {
-      return reply.status(400).send({ success: false, error: "Empty file" });
-    }
-
-    const up = await uploadUserProfilePicture({ cfg, userId: viewerId, bytes, contentType });
-    if (!up.ok) {
-      return reply.status(500).send({ success: false, error: up.message });
-    }
-
-    if (db) {
-      try {
-        const payload = mergeUserDocumentWritePayload({
-          profilePic: up.url,
-          photoURL: up.url,
-          avatarUrl: up.url,
-          profilePicPath: up.key
-        });
-        await db.collection("users").doc(viewerId).set(payload, { merge: true });
-      } catch {
-        // Best-effort, matches v1 semantics when user doc doesn't exist yet.
-      }
-    }
-
-    return reply.send({
-      success: true,
-      url: up.url,
-      profilePicUrl: up.url,
-      storagePath: up.key,
-      profilePicPath: up.key
-    });
-  });
+  /** `POST /api/upload/profile-picture` is registered globally in `profile-picture-upload.routes.ts` (always on). */
 
   async function loadFollowingIdsCached(viewerId: string): Promise<string[]> {
     const cached = storyFollowingCache.get(viewerId);
@@ -953,6 +890,24 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
         : typeof c.displayPhotoUrl === "string" && /^https?:\/\//i.test(c.displayPhotoUrl.trim())
           ? c.displayPhotoUrl.trim()
           : mixCoverThumbUrls[0] ?? null;
+    const collaboratorInfo = Array.isArray(c.collaboratorInfo)
+      ? c.collaboratorInfo
+          .filter((row): row is Record<string, unknown> => Boolean(row && typeof row === "object"))
+          .map((row) => {
+            const id = String(row.id ?? "").trim();
+            if (!id) return null;
+            const name = String(row.name ?? "").trim();
+            const handle = String(row.handle ?? "").trim().replace(/^@+/, "");
+            const profilePic = String(row.profilePic ?? "").trim();
+            return {
+              id,
+              ...(name ? { name } : {}),
+              ...(handle ? { handle } : {}),
+              profilePic: profilePic || null
+            };
+          })
+          .filter((row): row is { id: string; name?: string; handle?: string; profilePic: string | null } => Boolean(row))
+      : [];
     return {
       id,
       collectionId: id,
@@ -963,6 +918,7 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       description: c.description ?? "",
       items: Array.isArray(c.items) ? c.items : [],
       collaborators: Array.isArray(c.collaborators) ? c.collaborators : [],
+      collaboratorInfo,
       itemsCount: Number(c.itemsCount ?? 0),
       coverUri,
       displayPhotoUrl: coverUri,
@@ -2250,9 +2206,7 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     const row = await collectionTelemetryRepository.recordAccentEnsured(viewerId, collectionId);
     return reply.send({ success: true, accentEnsuredAtMs: row.accentEnsuredAtMs });
   });
-  app.put<{ Params: { collectionId: string }; Body: Record<string, unknown> }>(
-    "/api/v1/product/collections/:collectionId/cover",
-    async (request, reply) => {
+  const handleCollectionCoverUpload = async (request: any, reply: any) => {
       const viewerId = resolveCompatViewerId(request);
       const collectionId = String(request.params.collectionId ?? "").trim();
       let coverUri = "";
@@ -2304,7 +2258,14 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
         return reply.status(404).send({ success: false, error: "Collection not found or not permitted" });
       }
       return reply.send({ success: true, collection: mapV2CollectionToLegacy(updated.collection as unknown as Record<string, unknown>) });
-    }
+  };
+  app.put<{ Params: { collectionId: string }; Body: Record<string, unknown> }>(
+    "/api/v1/product/collections/:collectionId/cover",
+    async (request, reply) => handleCollectionCoverUpload(request, reply)
+  );
+  app.post<{ Params: { collectionId: string }; Body: Record<string, unknown> }>(
+    "/api/v1/product/collections/:collectionId/cover",
+    async (request, reply) => handleCollectionCoverUpload(request, reply)
   );
 
   /**
@@ -2353,7 +2314,18 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       const viewerId = resolveCompatViewerId(request);
       const collectionId = String(request.params.collectionId ?? "").trim();
       const collaboratorId = String(request.params.collaboratorId ?? "").trim();
-      return reply.status(501).send({ success: false, error: "collaborator_manage_not_implemented" });
+      if (!collectionId || !collaboratorId) {
+        return reply.status(400).send({ success: false, error: "collectionId and collaboratorId are required" });
+      }
+      const updated = await collectionsAdapter.addCollaboratorToCollection({
+        viewerId,
+        collectionId,
+        collaboratorId
+      });
+      if (!updated.collection) {
+        return reply.status(404).send({ success: false, error: "Collection not found or not permitted" });
+      }
+      return reply.send({ success: true });
     }
   );
   app.delete<{ Params: { collectionId: string; collaboratorId: string } }>(
@@ -2362,7 +2334,18 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       const viewerId = resolveCompatViewerId(request);
       const collectionId = String(request.params.collectionId ?? "").trim();
       const collaboratorId = String(request.params.collaboratorId ?? "").trim();
-      return reply.status(501).send({ success: false, error: "collaborator_manage_not_implemented" });
+      if (!collectionId || !collaboratorId) {
+        return reply.status(400).send({ success: false, error: "collectionId and collaboratorId are required" });
+      }
+      const updated = await collectionsAdapter.removeCollaboratorFromCollection({
+        viewerId,
+        collectionId,
+        collaboratorId
+      });
+      if (!updated.collection) {
+        return reply.status(404).send({ success: false, error: "Collection not found or not permitted" });
+      }
+      return reply.send({ success: true });
     }
   );
   app.post<{ Params: { collectionId: string }; Body: Record<string, unknown> }>(
@@ -2375,7 +2358,15 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       if (!collaboratorId) {
         return reply.status(400).send({ success: false, error: "userId or collaboratorId required" });
       }
-      return reply.status(501).send({ success: false, error: "collaborator_manage_not_implemented" });
+      const updated = await collectionsAdapter.addCollaboratorToCollection({
+        viewerId,
+        collectionId,
+        collaboratorId
+      });
+      if (!updated.collection) {
+        return reply.status(404).send({ success: false, error: "Collection not found or not permitted" });
+      }
+      return reply.send({ success: true });
     }
   );
   app.post<{ Params: { collectionId: string }; Body: Record<string, unknown> }>(

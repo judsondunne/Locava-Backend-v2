@@ -21,6 +21,7 @@ export class LegendScopeDeriver {
     activities?: string[] | null;
     city?: string | null;
     state?: string | null;
+    country?: string | null;
     region?: string | null;
   }): { scopes: LegendScopeId[]; reasons: string[] } {
     const reasons: string[] = [];
@@ -53,14 +54,29 @@ export class LegendScopeDeriver {
     }
 
     if (enablePlace) {
-      const state = typeof input.state === "string" ? input.state.trim().toUpperCase() : "";
+      const country = normalizeUpperLocationKey(input.country);
+      const state = normalizeUpperLocationKey(input.state);
+      const cityRaw = typeof input.city === "string" ? input.city.trim() : "";
+      const city = cityRaw ? normalizeLowerLocationKey(cityRaw) : "";
+      if (country) {
+        scopes.push(buildLegendScopeId(["place", "country", country]));
+        for (const activityId of activityIds) {
+          scopes.push(buildLegendScopeId(["placeActivity", "country", country, activityId]));
+        }
+      }
       if (state) {
         scopes.push(buildLegendScopeId(["place", "state", state]));
         for (const activityId of activityIds) {
           scopes.push(buildLegendScopeId(["placeActivity", "state", state, activityId]));
         }
       }
-      // TODO(legends): add city/region/campus once reliably present in post metadata.
+      if (state && city) {
+        const cityKey = `${state}_${city}`;
+        scopes.push(buildLegendScopeId(["place", "city", cityKey]));
+        for (const activityId of activityIds) {
+          scopes.push(buildLegendScopeId(["placeActivity", "city", cityKey, activityId]));
+        }
+      }
       if (!state) reasons.push("place_scopes_missing_state");
     }
 
@@ -74,5 +90,29 @@ export class LegendScopeDeriver {
       reasons
     };
   }
+}
+
+function normalizeUpperLocationKey(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  return trimmed
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+}
+
+function normalizeLowerLocationKey(value: string): string {
+  return value
+    .trim()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
 }
 

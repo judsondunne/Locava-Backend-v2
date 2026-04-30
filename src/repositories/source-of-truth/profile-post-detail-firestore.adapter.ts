@@ -141,6 +141,8 @@ function mapProfilePostDetail(input: {
     likeCount?: number;
     likesCount?: number;
     commentCount?: number;
+    commentsCount?: number;
+    comments?: unknown[];
     likes?: unknown;
     carouselFitWidth?: unknown;
     layoutLetterbox?: unknown;
@@ -198,10 +200,30 @@ function mapProfilePostDetail(input: {
     },
     social: {
       likeCount,
-      commentCount: normalizeCounter(postData.commentCount),
+      commentCount: resolveCommentCount(postData),
       viewerHasLiked: (input.likedDoc.exists || likedViaArray) && input.viewerId.length > 0
     }
   };
+}
+
+function resolveCommentCount(post: {
+  commentsCount?: number;
+  commentCount?: number;
+  comments?: unknown[];
+}): number {
+  const explicit = normalizeCounter(post.commentsCount ?? post.commentCount);
+  if (explicit > 0) return explicit;
+  if (!Array.isArray(post.comments)) return 0;
+  return post.comments.filter((entry) => isTopLevelEmbeddedComment(entry)).length;
+}
+
+function isTopLevelEmbeddedComment(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const wire = value as { id?: unknown; commentId?: unknown; replyingTo?: unknown };
+  const commentIdRaw = wire.id ?? wire.commentId;
+  const commentId = typeof commentIdRaw === "string" ? commentIdRaw.trim() : "";
+  if (!commentId) return false;
+  return wire.replyingTo == null;
 }
 
 function normalizeLetterboxHints(data: {

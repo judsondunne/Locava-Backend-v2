@@ -44,5 +44,19 @@ describe("v2 search mixes routes", () => {
     expect(Array.isArray(body.data.posts)).toBe(true);
     expect(typeof body.data.hasMore).toBe("boolean");
   });
+
+  it("supports canonical mix feed path route (or 503 when upstream is unavailable)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/search/mixes/activity:hiking/feed?limit=8&includeDebug=1",
+      headers,
+    });
+    expect([200, 503]).toContain(res.statusCode);
+    if (res.statusCode !== 200) return;
+    const body = res.json();
+    expect(body.data.routeName).toBe("search.mixes.feed.post");
+    expect(body.data.mixId).toBe("activity:hiking");
+    expect(Array.isArray(body.data.posts)).toBe(true);
+  });
 });
 

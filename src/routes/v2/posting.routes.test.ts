@@ -108,6 +108,103 @@ describe("v2 posting/upload first slice", () => {
     expect(secondBody.data.uploadSession.sessionId).toBe(firstBody.data.uploadSession.sessionId);
   });
 
+  it("reuses presign for same user + clientStagingKey", async () => {
+    process.env.WASABI_ACCESS_KEY_ID = process.env.WASABI_ACCESS_KEY_ID ?? "test-access";
+    process.env.WASABI_SECRET_ACCESS_KEY = process.env.WASABI_SECRET_ACCESS_KEY ?? "test-secret";
+    process.env.WASABI_ENDPOINT = process.env.WASABI_ENDPOINT ?? "https://s3.us-east-1.wasabisys.com";
+    process.env.WASABI_BUCKET_NAME = process.env.WASABI_BUCKET_NAME ?? "locava.app";
+    const sessionId = `ps-${Date.now()}-${randomUUID().slice(0, 6)}`;
+    const clientStagingKey = `asset://${randomUUID()}`;
+    const payload = {
+      sessionId,
+      items: [{ index: 0, assetType: "video" as const, clientStagingKey }],
+    };
+    const first = await app.inject({
+      method: "POST",
+      url: "/v2/posting/staging/presign",
+      headers: viewerHeaders,
+      payload,
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v2/posting/staging/presign",
+      headers: viewerHeaders,
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const firstUrl = first.json().data.urls[0].uploadUrl as string;
+    const secondUrl = second.json().data.urls[0].uploadUrl as string;
+    const firstKey = first.json().data.urls[0].originalKey as string;
+    const secondKey = second.json().data.urls[0].originalKey as string;
+    expect(secondUrl).toBe(firstUrl);
+    expect(secondKey).toBe(firstKey);
+
+    const diagnostics = await app.inject({
+      method: "GET",
+      url: "/diagnostics?limit=80",
+    });
+    expect(diagnostics.statusCode).toBe(200);
+    const rows = diagnostics.json().data.recentRequests as Array<{
+      routeName?: string;
+      idempotency?: { hits?: number };
+    }>;
+    const row = rows.find((item) => item.routeName === "posting.stagingpresign.post");
+    expect((row?.idempotency?.hits ?? 0) >= 1).toBe(true);
+  });
+
+  it("creates new presign session for different clientStagingKey", async () => {
+    process.env.WASABI_ACCESS_KEY_ID = process.env.WASABI_ACCESS_KEY_ID ?? "test-access";
+    process.env.WASABI_SECRET_ACCESS_KEY = process.env.WASABI_SECRET_ACCESS_KEY ?? "test-secret";
+    const sessionId = `ps-${Date.now()}-${randomUUID().slice(0, 6)}`;
+    const first = await app.inject({
+      method: "POST",
+      url: "/v2/posting/staging/presign",
+      headers: viewerHeaders,
+      payload: {
+        sessionId,
+        items: [{ index: 0, assetType: "video", clientStagingKey: `asset://${randomUUID()}` }],
+      },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/v2/posting/staging/presign",
+      headers: viewerHeaders,
+      payload: {
+        sessionId,
+        items: [{ index: 0, assetType: "video", clientStagingKey: `asset://${randomUUID()}` }],
+      },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const firstUrl = first.json().data.urls[0].uploadUrl as string;
+    const secondUrl = second.json().data.urls[0].uploadUrl as string;
+    expect(secondUrl).not.toBe(firstUrl);
+  });
+
+  it("presign loop guard reuses existing object key", async () => {
+    process.env.WASABI_ACCESS_KEY_ID = process.env.WASABI_ACCESS_KEY_ID ?? "test-access";
+    process.env.WASABI_SECRET_ACCESS_KEY = process.env.WASABI_SECRET_ACCESS_KEY ?? "test-secret";
+    const sessionId = `ps-${Date.now()}-${randomUUID().slice(0, 6)}`;
+    const clientStagingKey = `asset://${randomUUID()}`;
+    let baselineKey = "";
+    for (let i = 0; i < 7; i += 1) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v2/posting/staging/presign",
+        headers: viewerHeaders,
+        payload: {
+          sessionId,
+          items: [{ index: 0, assetType: "video", clientStagingKey }],
+        },
+      });
+      expect(res.statusCode).toBe(200);
+      const key = String(res.json().data.urls[0].originalKey ?? "");
+      if (!baselineKey) baselineKey = key;
+      expect(key).toBe(baselineKey);
+    }
+  });
+
   it("finalizes once and replays duplicate finalize idempotently", async () => {
     const unique = randomUUID().slice(0, 8);
     const sessionId = await createReadyUploadSession(unique, `client-session-finalize-001-${unique}`);

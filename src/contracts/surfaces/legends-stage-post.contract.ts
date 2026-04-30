@@ -16,6 +16,7 @@ export const LegendsStagePostBodySchema = z.object({
   activityIds: z.array(z.string().min(1).max(128)).max(20).default([]),
   city: z.string().max(120).nullable().optional(),
   state: z.string().max(16).nullable().optional(),
+  country: z.string().max(64).nullable().optional(),
   region: z.string().max(64).nullable().optional()
 });
 

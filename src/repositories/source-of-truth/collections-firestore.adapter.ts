@@ -1055,6 +1055,76 @@ export class CollectionsFirestoreAdapter {
     return { changed: true, collection: merged, updatedFields };
   }
 
+  async addCollaboratorToCollection(input: {
+    viewerId: string;
+    collectionId: string;
+    collaboratorId: string;
+  }): Promise<{ changed: boolean; collection: FirestoreCollectionRecord | null }> {
+    const collaboratorId = String(input.collaboratorId ?? "").trim();
+    if (!collaboratorId) return { changed: false, collection: null };
+    const db = this.requireDb();
+    const existing = await this.getCollectionForMutation({ viewerId: input.viewerId, collectionId: input.collectionId });
+    if (!existing || !existing.permissions.isOwner) {
+      return { changed: false, collection: null };
+    }
+    if (existing.collaborators.includes(collaboratorId)) {
+      return { changed: false, collection: existing };
+    }
+    const nextCollaborators = Array.from(new Set([...existing.collaborators, collaboratorId]));
+    const { collaboratorInfo } = await normalizeCollaboratorTokens(db, existing.ownerId, nextCollaborators);
+    incrementDbOps("writes", 1);
+    await db.collection("collections").doc(input.collectionId).update({
+      collaborators: nextCollaborators,
+      collaboratorInfo,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    const merged: FirestoreCollectionRecord = {
+      ...existing,
+      collaborators: nextCollaborators,
+      collaboratorInfo,
+      updatedAt: new Date().toISOString()
+    };
+    await this.upsertCollectionInViewerIndexes(nextCollaborators, merged);
+    return { changed: true, collection: merged };
+  }
+
+  async removeCollaboratorFromCollection(input: {
+    viewerId: string;
+    collectionId: string;
+    collaboratorId: string;
+  }): Promise<{ changed: boolean; collection: FirestoreCollectionRecord | null }> {
+    const collaboratorId = String(input.collaboratorId ?? "").trim();
+    if (!collaboratorId) return { changed: false, collection: null };
+    const db = this.requireDb();
+    const existing = await this.getCollectionForMutation({ viewerId: input.viewerId, collectionId: input.collectionId });
+    if (!existing || !existing.permissions.isOwner) {
+      return { changed: false, collection: null };
+    }
+    if (collaboratorId === existing.ownerId) {
+      return { changed: false, collection: existing };
+    }
+    if (!existing.collaborators.includes(collaboratorId)) {
+      return { changed: false, collection: existing };
+    }
+    const nextCollaborators = existing.collaborators.filter((id) => id !== collaboratorId);
+    const { collaboratorInfo } = await normalizeCollaboratorTokens(db, existing.ownerId, nextCollaborators);
+    incrementDbOps("writes", 1);
+    await db.collection("collections").doc(input.collectionId).update({
+      collaborators: nextCollaborators,
+      collaboratorInfo,
+      updatedAt: FieldValue.serverTimestamp()
+    });
+    const merged: FirestoreCollectionRecord = {
+      ...existing,
+      collaborators: nextCollaborators,
+      collaboratorInfo,
+      updatedAt: new Date().toISOString()
+    };
+    await this.removeCollectionFromViewerIndexes([collaboratorId], input.collectionId);
+    await this.upsertCollectionInViewerIndexes(nextCollaborators, merged);
+    return { changed: true, collection: merged };
+  }
+
   async deleteCollection(input: {
     viewerId: string;
     collectionId: string;

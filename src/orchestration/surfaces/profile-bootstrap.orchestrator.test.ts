@@ -3,6 +3,7 @@ import { ProfileBootstrapOrchestrator } from "./profile-bootstrap.orchestrator.j
 
 describe("profile bootstrap orchestrator aliases", () => {
   it("populates native count aliases from resolved follow counts", async () => {
+    const loadBadgeSummary = async () => ({ badge: "rising", score: 62 });
     const orchestrator = new ProfileBootstrapOrchestrator({
       loadHeader: async () => ({
         userId: "u-1",
@@ -22,7 +23,7 @@ describe("profile bootstrap orchestrator aliases", () => {
         items: [],
         nextCursor: null
       }),
-      loadBadgeSummary: async () => null
+      loadBadgeSummary
     } as never);
 
     const payload = await orchestrator.run({
@@ -40,5 +41,6 @@ describe("profile bootstrap orchestrator aliases", () => {
     expect(payload.firstRender.profile.followingCount).toBe(9);
     expect(payload.firstRender.counts.followersCount).toBe(13);
     expect(payload.firstRender.counts.followingCount).toBe(9);
+    expect(payload.deferred.profileBadgeSummary).toEqual({ badge: "rising", score: 62 });
   });
 });

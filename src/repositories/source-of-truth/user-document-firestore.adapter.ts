@@ -12,6 +12,11 @@ export function mergeUserDocumentWritePayload(fields: Record<string, unknown>): 
   const normalizedProfilePic = typeof rawProfilePic === "string" ? rawProfilePic.trim() : "";
   if (normalizedProfilePic.length > 0) {
     next.profilePic = normalizedProfilePic;
+    // Keep legacy aliases in sync so mixed readers (old/new/native/web) resolve the same photo.
+    next.profilePicture = normalizedProfilePic;
+    next.photoURL = normalizedProfilePic;
+    next.avatarUrl = normalizedProfilePic;
+    next.photo = normalizedProfilePic;
   } else {
     delete next.profilePic;
   }

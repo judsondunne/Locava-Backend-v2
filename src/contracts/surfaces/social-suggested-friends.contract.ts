@@ -32,6 +32,7 @@ export const SocialSuggestedFriendsResponseSchema = z.object({
         .optional(),
       isFollowing: z.boolean(),
       followerCount: z.number().int().nonnegative().optional(),
+      postCount: z.number().int().nonnegative().optional(),
       score: z.number().optional()
     })
   ),

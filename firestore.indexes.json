@@ -82,6 +82,15 @@
         { "fieldPath": "createdAt", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "competitiveBadges",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "badgeKey", "order": "ASCENDING" },
+        { "fieldPath": "currentOwner", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

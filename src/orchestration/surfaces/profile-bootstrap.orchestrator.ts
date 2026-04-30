@@ -82,10 +82,11 @@ export class ProfileBootstrapOrchestrator {
       return value;
     });
 
-    const [header, relationship, gridPreview] = await Promise.all([
+    const [header, relationship, gridPreview, profileBadgeSummary] = await Promise.all([
       headerPromise,
       relationshipPromise,
-      gridPromise
+      gridPromise,
+      this.service.loadBadgeSummary(userId, debugSlowDeferredMs).catch(() => null)
     ]);
 
     const profilePic = header.profilePic;
@@ -127,7 +128,7 @@ export class ProfileBootstrapOrchestrator {
         }
       },
       deferred: {
-        profileBadgeSummary: null
+        profileBadgeSummary
       },
       background: {
         cacheWarmScheduled: true,

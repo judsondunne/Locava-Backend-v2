@@ -50,6 +50,11 @@ const EnvSchema = z.object({
   ALLOW_PUBLIC_POSTING_TEST: z.coerce.boolean().default(false),
   /** Optional shared bearer token used by Backendv2 when forwarding publish to legacy monolith. */
   LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN: z.string().optional(),
+  /**
+   * Cutover guard: keep legacy compat/proxy routes disabled by default.
+   * Enable only for explicit dev migration testing.
+   */
+  ENABLE_LEGACY_COMPAT_ROUTES: z.coerce.boolean().default(false),
   /** Cloud Function / Run URL for `video-processor` (native finalize enqueues a Cloud Task to this target). */
   VIDEO_PROCESSOR_FUNCTION_URL: z.string().url().optional(),
   /** Cloud Tasks queue for video jobs (default matches classic monolith). */

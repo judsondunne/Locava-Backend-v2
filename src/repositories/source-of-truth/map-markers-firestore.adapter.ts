@@ -240,34 +240,41 @@ export class MapMarkersFirestoreAdapter {
       "hidden"
     ] as const;
 
-    const base = db.collection("posts").where("userId", "==", input.ownerId);
-
-    let snapshot;
-    incrementDbOps("queries", 1);
-    try {
-      snapshot = await base.orderBy("time", "desc").select(...selectFields).limit(input.maxDocs).get();
-    } catch (error) {
-      // Some environments may be missing the composite index (userId + time). Fall back
-      // to an unsorted query rather than returning no markers for profile minimaps.
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.toLowerCase().includes("index")) {
-        snapshot = await base.select(...selectFields).limit(input.maxDocs).get();
-      } else {
-        throw error;
+    const queryByField = async (field: "userId" | "ownerId"): Promise<QueryDocumentSnapshot[]> => {
+      const base = db.collection("posts").where(field, "==", input.ownerId);
+      incrementDbOps("queries", 1);
+      try {
+        const snapshot = await base.orderBy("time", "desc").select(...selectFields).limit(input.maxDocs).get();
+        incrementDbOps("reads", snapshot.docs.length);
+        return snapshot.docs;
+      } catch (error) {
+        // Some environments may be missing the composite index (<field> + time). Fall back
+        // to an unsorted query rather than returning no markers for profile minimaps.
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.toLowerCase().includes("index")) {
+          throw error;
+        }
+        const snapshot = await base.select(...selectFields).limit(input.maxDocs).get();
+        incrementDbOps("reads", snapshot.docs.length);
+        return snapshot.docs;
       }
-    }
-    incrementDbOps("reads", snapshot.docs.length);
-    const projected = project(snapshot.docs, { includeNonPublic: input.includeNonPublic });
+    };
+    const [userIdDocs, ownerIdDocs] = await Promise.all([queryByField("userId"), queryByField("ownerId")]);
+    const dedupedDocs = new Map<string, QueryDocumentSnapshot>();
+    for (const doc of userIdDocs) dedupedDocs.set(doc.id, doc);
+    for (const doc of ownerIdDocs) dedupedDocs.set(doc.id, doc);
+    const projected = project([...dedupedDocs.values()], { includeNonPublic: input.includeNonPublic });
+    const limitedMarkers = projected.markers.slice(0, input.maxDocs);
     const generatedAt = Date.now();
-    const etag = buildEtag(projected.markers);
+    const etag = buildEtag(limitedMarkers);
     return {
-      markers: projected.markers,
-      count: projected.markers.length,
+      markers: limitedMarkers,
+      count: limitedMarkers.length,
       generatedAt,
       version: "map-markers-v2-owner",
       etag,
-      queryCount: 1,
-      readCount: snapshot.docs.length,
+      queryCount: 2,
+      readCount: userIdDocs.length + ownerIdDocs.length,
       invalidCoordinateDrops: projected.invalidCoordinateDrops
     };
   }

@@ -130,7 +130,10 @@ describe("v2 map markers route", () => {
     expect(data.routeName).toBe("map.markers.get");
     expect(data.count).toBe(1);
     expect(data.markers[0].lat).toBe(40.7);
-    expect(data.markers[0].thumbnailUrl).toBeUndefined();
+    expect(data.markers[0].activity).toBe("hike");
+    expect(data.markers[0].activities).toEqual(["hike"]);
+    expect(data.markers[0].ownerId).toBe("u1");
+    expect(data.markers[0].thumbnailUrl).toBe("https://cdn/p1.jpg");
     expect(data.markers[0].description).toBeUndefined();
     expect(data.markers[0].comments).toBeUndefined();
     expect(data.diagnostics.payloadMode).toBe("compact");

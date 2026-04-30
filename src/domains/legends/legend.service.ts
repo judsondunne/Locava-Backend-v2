@@ -6,6 +6,8 @@ import { LegendAwardService, capTopUsers, findRank } from "./legend-award.servic
 import { LegendScopeDeriver } from "./legend-scope-deriver.js";
 import { LegendRepository, legendRepository } from "./legend.repository.js";
 import {
+  type CanonicalLegendKind,
+  type CanonicalRankAggregateDoc,
   normalizeLegendActivityId,
   type LegendAwardDoc,
   type LegendEventDoc,
@@ -19,6 +21,54 @@ import {
 } from "./legends.types.js";
 
 type FirestoreMap = Record<string, unknown>;
+
+export function canonicalFromAwardType(
+  awardType: string,
+  scopeType: LegendScopeType
+): { kind: CanonicalLegendKind; family: "first" | "rank"; dimension: "location" | "activity" | "combo"; priority: number } {
+  if (awardType === "first_finder") {
+    if (scopeType === "place") return { kind: "location_first", family: "first", dimension: "location", priority: 20 };
+    return { kind: "location_first", family: "first", dimension: "location", priority: 30 };
+  }
+  if (awardType === "first_activity_finder") {
+    if (scopeType === "activity") return { kind: "activity_first", family: "first", dimension: "activity", priority: 40 };
+    return { kind: "combo_first", family: "first", dimension: "combo", priority: 10 };
+  }
+  if (scopeType === "place") return { kind: "location_rank", family: "rank", dimension: "location", priority: 50 };
+  if (scopeType === "activity") return { kind: "activity_rank", family: "rank", dimension: "activity", priority: 60 };
+  if (scopeType === "placeActivity") return { kind: "combo_rank", family: "rank", dimension: "combo", priority: 45 };
+  return { kind: "location_rank", family: "rank", dimension: "location", priority: 90 };
+}
+
+function parseLocationFromScopeId(scopeId: string): { locationScope: "state" | "city" | "country" | null; locationKey: string | null } {
+  const parts = scopeId.split(":").map((p) => p.trim());
+  if (parts[0] !== "place" && parts[0] !== "placeActivity") return { locationScope: null, locationKey: null };
+  const locationScope = parts[1] === "state" || parts[1] === "city" || parts[1] === "country" ? parts[1] : null;
+  const locationKey = parts[2] || null;
+  return { locationScope, locationKey };
+}
+
+export function buildFirstClaimKey(params: {
+  kind: "location_first" | "activity_first" | "combo_first";
+  locationScope?: "state" | "city" | "country" | null;
+  locationKey?: string | null;
+  activityKey?: string | null;
+}): string | null {
+  if (params.kind === "location_first") {
+    if (!params.locationScope || !params.locationKey) return null;
+    return `location_first:${params.locationScope}:${params.locationKey}`.slice(0, 240);
+  }
+  if (params.kind === "activity_first") {
+    if (!params.activityKey) return null;
+    return `activity_first:${params.activityKey}`.slice(0, 240);
+  }
+  if (!params.locationScope || !params.locationKey || !params.activityKey) return null;
+  return `combo_first:${params.locationScope}:${params.locationKey}:activity:${params.activityKey}`.slice(0, 240);
+}
+
+export function sortLegendDisplayCards<T extends { displayPriority?: number }>(cards: T[]): T[] {
+  return [...cards].sort((a, b) => Number(a.displayPriority ?? 0) - Number(b.displayPriority ?? 0));
+}
 
 function asObject(value: unknown): FirestoreMap {
   if (value && typeof value === "object") return value as FirestoreMap;
@@ -148,6 +198,7 @@ export class LegendService {
       activities: input.activityIds ?? [],
       city: input.city ?? null,
       state: input.state ?? null,
+      country: input.country ?? null,
       region: input.region ?? null
     });
 
@@ -308,9 +359,26 @@ export class LegendService {
       const closeScopeIdsThisCommit: string[] = [];
       const awardIdsThisCommit: string[] = [];
       const defenseAtRiskScopeIdsThisCommit: string[] = [];
+      const earnedFirstLegends: Array<Record<string, unknown>> = [];
+      const earnedRankLegends: Array<Record<string, unknown>> = [];
+      const rankChanges: Array<Record<string, unknown>> = [];
+      const displayCards: Array<Record<string, unknown>> = [];
       const awardSummaries: Array<{
         awardId: string;
         awardType: string;
+        kind?: CanonicalLegendKind;
+        family?: "first" | "rank";
+        dimension?: "location" | "activity" | "combo";
+        iconContext?: string;
+        activityKey?: string | null;
+        activityLabel?: string | null;
+        locationKey?: string | null;
+        locationLabel?: string | null;
+        comboKey?: string | null;
+        rank?: number | null;
+        isPermanent?: boolean;
+        viewerStatus?: string;
+        displayPriority?: number;
         scopeId: string;
         scopeType: string;
         title: string;
@@ -511,9 +579,29 @@ export class LegendService {
         if (award && kind) {
           const awardId = `${params.post.postId}_${scopeId}_${kind}`.slice(0, 240);
           const awardRef = this.repo.awardRef(params.post.userId, awardId);
+          const canonical = canonicalFromAwardType(kind, parsed.scopeType);
+          const locationParsed = parseLocationFromScopeId(scopeId);
+          const activityKey = parsed.activityId ?? null;
+          const comboKey =
+            locationParsed.locationScope && locationParsed.locationKey && activityKey
+              ? `${locationParsed.locationScope}:${locationParsed.locationKey}:activity:${activityKey}`
+              : null;
           const awardPayload: LegendAwardDoc = this.repo.buildAwardDoc({
             awardId,
             awardType: kind,
+            kind: canonical.kind,
+            family: canonical.family,
+            dimension: canonical.dimension,
+            iconContext: canonical.dimension,
+            activityKey,
+            activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
+            locationKey: locationParsed.locationKey,
+            locationLabel: locationParsed.locationKey,
+            comboKey,
+            rank: newRank ?? null,
+            isPermanent: canonical.family === "first",
+            viewerStatus: canonical.family === "first" ? "claimed" : "active",
+            displayPriority: canonical.priority,
             scopeId,
             scopeType: parsed.scopeType,
             title: award.title,
@@ -528,6 +616,112 @@ export class LegendService {
           tx.set(awardRef, awardPayload, { merge: true });
           awardsCreated += 1;
           awardIdsThisCommit.push(awardId);
+
+          const canonicalCard = {
+            id: awardId,
+            kind: canonical.kind,
+            family: canonical.family,
+            dimension: canonical.dimension,
+            title: award.title,
+            subtitle: award.subtitle,
+            description:
+              canonical.family === "first"
+                ? "Original legend claim. This badge is permanent."
+                : "Current competitive legend status.",
+            iconContext: canonical.dimension,
+            activityKey,
+            activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
+            locationKey: locationParsed.locationKey,
+            locationLabel: locationParsed.locationKey,
+            comboKey,
+            rank: newRank ?? null,
+            isPermanent: canonical.family === "first",
+            claimedAt: Timestamp.fromMillis(Date.now()),
+            updatedAt: Timestamp.fromMillis(Date.now()),
+            sourcePostId: params.post.postId,
+            viewerStatus: canonical.family === "first" ? "claimed" : "active",
+            displayPriority: canonical.priority
+          };
+
+          if (canonical.family === "first") {
+            earnedFirstLegends.push(canonicalCard);
+          } else {
+            earnedRankLegends.push(canonicalCard);
+            rankChanges.push({
+              id: `rankchange:${awardId}`,
+              kind: canonical.kind,
+              scopeId,
+              previousRank,
+              newRank,
+              passedUserId: previousRank != null && newRank != null && newRank < previousRank ? "unknown" : null,
+              postsNeededToPass: Math.max(0, nextScope.leaderCount - nextUserCount + 1),
+              viewerCount: nextUserCount,
+              targetCount: nextScope.leaderCount,
+              becameNumberOne: newRank === 1
+            });
+          }
+          displayCards.push(canonicalCard);
+
+          if (canonical.family === "rank") {
+            const rankAggregateKey = `${canonical.kind}:${scopeId}`.slice(0, 240);
+            const rankAggregateRef = this.repo.rankAggregateRef(rankAggregateKey);
+            tx.set(
+              rankAggregateRef,
+              {
+                aggregateKey: rankAggregateKey,
+                kind: canonical.kind as CanonicalRankAggregateDoc["kind"],
+                family: "rank",
+                dimension: canonical.dimension,
+                locationScope: locationParsed.locationScope,
+                locationKey: locationParsed.locationKey,
+                locationLabel: locationParsed.locationKey,
+                activityKey,
+                activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
+                comboKey,
+                [`countsByUser.${params.post.userId}`]: nextUserCount,
+                topUsers: nextTopUsers,
+                totalPosts: nextScope.totalPosts,
+                updatedAt: FieldValue.serverTimestamp()
+              } satisfies Partial<CanonicalRankAggregateDoc>,
+              { merge: true }
+            );
+          }
+
+          if (canonical.kind === "location_first" || canonical.kind === "activity_first" || canonical.kind === "combo_first") {
+            const claimKey = buildFirstClaimKey({
+              kind: canonical.kind,
+              locationScope: locationParsed.locationScope,
+              locationKey: locationParsed.locationKey,
+              activityKey
+            });
+            if (claimKey) {
+              const claimRef = this.repo.firstClaimRef(claimKey);
+              const claimSnap = await tx.get(claimRef);
+              if (!claimSnap.exists) {
+                tx.create(
+                  claimRef,
+                  this.repo.buildFirstClaimDoc({
+                    claimKey,
+                    kind: canonical.kind,
+                    family: "first",
+                    dimension: canonical.dimension,
+                    userId: params.post.userId,
+                    postId: params.post.postId,
+                    locationScope: locationParsed.locationScope,
+                    locationKey: locationParsed.locationKey,
+                    locationLabel: locationParsed.locationKey,
+                    activityKey,
+                    activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
+                    comboKey,
+                    title: award.title,
+                    subtitle: award.subtitle,
+                    description: "Original legend claim. First to discover.",
+                    iconContext: canonical.dimension
+                  })
+                );
+              }
+            }
+          }
           awardSummaries.push({
             awardId,
             awardType: kind,
@@ -535,6 +729,19 @@ export class LegendService {
             scopeType: parsed.scopeType,
             title: award.title,
             subtitle: award.subtitle,
+            kind: canonical.kind as any,
+            family: canonical.family as any,
+            dimension: canonical.dimension as any,
+            iconContext: canonical.dimension,
+            activityKey,
+            activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
+            locationKey: locationParsed.locationKey,
+            locationLabel: locationParsed.locationKey,
+            comboKey,
+            rank: newRank ?? null,
+            isPermanent: canonical.family === "first",
+            viewerStatus: canonical.family === "first" ? "claimed" : "active",
+            displayPriority: canonical.priority,
             postId: params.post.postId,
             previousRank,
             newRank,
@@ -602,6 +809,17 @@ export class LegendService {
           status: "complete",
           awards: awardSummaries,
           awardIds: awardIdsThisCommit,
+          rewards: {
+            postId: params.post.postId,
+            viewerId: params.post.userId,
+            hasRewards: displayCards.length > 0,
+            earnedFirstLegends: sortLegendDisplayCards(earnedFirstLegends),
+            earnedRankLegends: sortLegendDisplayCards(earnedRankLegends),
+            rankChanges,
+            closeTargets: rankChanges.filter((c) => Number(c.postsNeededToPass ?? 0) > 0 && Number(c.postsNeededToPass ?? 0) <= 3),
+            overtakenUsers: rankChanges.filter((c) => c.passedUserId != null),
+            displayCards: sortLegendDisplayCards(displayCards)
+          },
           completedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         },
@@ -634,6 +852,7 @@ export class LegendService {
       activities: post.activities ?? [],
       city: post.city ?? null,
       state: post.state ?? null,
+      country: post.country ?? null,
       region: post.region ?? null
     });
     const stageId = `legdirect_${post.postId}`;

@@ -120,6 +120,22 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+function activityAliases(activity: string): string[] {
+  const a = String(activity ?? "").trim().toLowerCase();
+  const map: Record<string, string[]> = {
+    hiking: ["hiking", "hike", "trail"],
+    biking: ["biking", "bike", "cycling"],
+    cafes: ["cafes", "cafe", "coffee"],
+    beach: ["beach", "ocean"],
+    park: ["park", "parks"],
+    swimming: ["swimming", "swim"],
+    sunset: ["sunset", "sunrise", "view"],
+    food: ["food", "restaurant", "restaurants"],
+  };
+  const aliases = map[a] ?? [a];
+  return [...new Set(aliases.map((x) => String(x ?? "").trim().toLowerCase()).filter(Boolean))];
+}
+
 export class SearchMixesServiceV2 {
   private readonly mixesRepo = new MixesRepository();
   private readonly postsRepo = new MixPostsRepository();
@@ -324,9 +340,10 @@ export class SearchMixesServiceV2 {
 
     if (input.mixId.startsWith("activity:")) {
       const activity = input.mixId.split(":").slice(1).join(":").trim().toLowerCase();
+      const aliases = activityAliases(activity);
       const cursor = input.cursor ? decodeMixCursorV2(input.cursor) : null;
-      const page = await this.postsRepo.pageByActivity({
-        activity,
+      const page = await this.postsRepo.pageByActivities({
+        activities: aliases,
         limit,
         cursor:
           cursor && cursor.kind === "activity"
@@ -345,7 +362,7 @@ export class SearchMixesServiceV2 {
             })
           : null;
       const debug = input.includeDebug
-        ? { kind: "activity", activity, returnedCount: page.items.length }
+        ? { kind: "activity", activity, aliases, returnedCount: page.items.length }
         : undefined;
       return {
         mixId: input.mixId,

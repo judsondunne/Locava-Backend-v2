@@ -56,6 +56,15 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
               postId: marker.postId,
               lat: marker.lat,
               lng: marker.lng,
+              activity: marker.activity ?? null,
+              activities: Array.isArray(marker.activities) ? marker.activities : [],
+              createdAt: marker.createdAt ?? null,
+              updatedAt: marker.updatedAt ?? null,
+              visibility: marker.visibility ?? null,
+              ownerId: marker.ownerId ?? null,
+              thumbnailUrl: marker.thumbnailUrl ?? null,
+              thumbKey: marker.thumbKey ?? null,
+              followedUserPic: marker.followedUserPic ?? null,
               hasPhoto: marker.hasPhoto,
               hasVideo: marker.hasVideo
             }))

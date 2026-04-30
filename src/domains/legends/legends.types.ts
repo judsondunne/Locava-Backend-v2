@@ -5,11 +5,23 @@ export type LegendScopeType =
   | "cell"
   | "cellActivity";
 
-export type LegendPlaceType = "state" | "city" | "region" | "campus";
+export type LegendPlaceType = "state" | "city" | "country" | "region" | "campus";
 
 export type LegendGeohashPrecision = 6;
 
 export type LegendScopeId = string;
+
+export type CanonicalLegendKind =
+  | "location_first"
+  | "activity_first"
+  | "combo_first"
+  | "location_rank"
+  | "activity_rank"
+  | "combo_rank";
+
+export type CanonicalLegendFamily = "first" | "rank";
+
+export type CanonicalLegendDimension = "location" | "activity" | "combo";
 
 export type LegendAwardType =
   | "first_finder"
@@ -59,6 +71,19 @@ export type LegendUserStatDoc = {
 export type LegendAwardDoc = {
   awardId: string;
   awardType: LegendAwardType;
+  kind?: CanonicalLegendKind;
+  family?: CanonicalLegendFamily;
+  dimension?: CanonicalLegendDimension;
+  iconContext?: string;
+  activityKey?: string | null;
+  activityLabel?: string | null;
+  locationKey?: string | null;
+  locationLabel?: string | null;
+  comboKey?: string | null;
+  rank?: number | null;
+  isPermanent?: boolean;
+  viewerStatus?: string;
+  displayPriority?: number;
   scopeId: LegendScopeId;
   scopeType: LegendScopeType;
   title: string;
@@ -71,6 +96,44 @@ export type LegendAwardDoc = {
   deltaToLeader: number;
   createdAt: unknown;
   seen: boolean;
+};
+
+export type CanonicalFirstClaimDoc = {
+  claimKey: string;
+  kind: Extract<CanonicalLegendKind, "location_first" | "activity_first" | "combo_first">;
+  family: "first";
+  dimension: CanonicalLegendDimension;
+  userId: string;
+  postId: string;
+  claimedAt: unknown;
+  createdAt: unknown;
+  locationScope?: "state" | "city" | "country" | null;
+  locationKey?: string | null;
+  locationLabel?: string | null;
+  activityKey?: string | null;
+  activityLabel?: string | null;
+  comboKey?: string | null;
+  title: string;
+  subtitle: string;
+  description: string;
+  iconContext: string;
+};
+
+export type CanonicalRankAggregateDoc = {
+  aggregateKey: string;
+  kind: Extract<CanonicalLegendKind, "location_rank" | "activity_rank" | "combo_rank">;
+  family: "rank";
+  dimension: CanonicalLegendDimension;
+  locationScope?: "state" | "city" | "country" | null;
+  locationKey?: string | null;
+  locationLabel?: string | null;
+  activityKey?: string | null;
+  activityLabel?: string | null;
+  comboKey?: string | null;
+  countsByUser: Record<string, number>;
+  topUsers: LegendTopUserRow[];
+  totalPosts: number;
+  updatedAt: unknown;
 };
 
 export type LegendEventDoc = {
@@ -131,6 +194,7 @@ export type LegendPostCreatedInput = {
   activities?: string[];
   city?: string | null;
   state?: string | null;
+  country?: string | null;
   region?: string | null;
   createdAt?: string | number | Date | null;
 };
@@ -143,6 +207,7 @@ export type LegendStagePostInput = {
   activityIds?: string[];
   city?: string | null;
   state?: string | null;
+  country?: string | null;
   region?: string | null;
 };
 

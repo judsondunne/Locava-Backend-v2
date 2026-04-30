@@ -51,6 +51,17 @@ export class PostingFinalizeOrchestrator {
         pollAfterMs: result.operation.pollAfterMs
       },
       ...(result.achievementDelta ? { achievementDelta: result.achievementDelta } : {}),
+      legendRewards: {
+        postId: result.operation.postId,
+        viewerId: input.viewerId,
+        hasRewards: false,
+        earnedFirstLegends: [],
+        earnedRankLegends: [],
+        rankChanges: [],
+        closeTargets: [],
+        overtakenUsers: [],
+        displayCards: []
+      },
       canonicalCreated: result.canonicalCreated,
       idempotency: {
         replayed: result.idempotent

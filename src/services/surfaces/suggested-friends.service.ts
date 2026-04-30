@@ -1,6 +1,7 @@
 import { globalCache } from "../../cache/global-cache.js";
 import {
   SuggestedFriendsRepository,
+  type ContactSyncDiagnostics,
   type SuggestedFriendsOptions,
   type UserSuggestionSummary,
   buildSuggestedFriendsCacheKey
@@ -15,7 +16,7 @@ export class SuggestedFriendsService {
   async syncContacts(input: {
     viewerId: string;
     contacts: Array<{ name?: string | null; phoneNumbers?: string[]; emails?: string[] }>;
-  }): Promise<{ matchedUsers: UserSuggestionSummary[]; matchedCount: number; syncedAt: number }> {
+  }): Promise<{ matchedUsers: UserSuggestionSummary[]; matchedCount: number; syncedAt: number; diagnostics: ContactSyncDiagnostics }> {
     const result = await this.repository.syncContacts({ viewerId: input.viewerId, contacts: input.contacts });
     await this.invalidateViewerCaches(input.viewerId);
     return result;
@@ -28,16 +29,20 @@ export class SuggestedFriendsService {
     const limit = Math.max(1, Math.min(options.limit ?? 20, 50));
     const surface = options.surface ?? "generic";
     const cacheKey = buildSuggestedFriendsCacheKey(viewerId, surface, limit);
-    const cached = await globalCache.get<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag: string }>(
-      cacheKey
-    );
-    if (cached) {
-      recordCacheHit();
-      return cached;
+    if (!options.bypassCache) {
+      const cached = await globalCache.get<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag: string }>(
+        cacheKey
+      );
+      if (cached) {
+        recordCacheHit();
+        return cached;
+      }
     }
     recordCacheMiss();
     const computed = await this.repository.getSuggestionsForUser(viewerId, { ...options, limit, surface });
-    await globalCache.set(cacheKey, computed, TTL_MS);
+    if (!options.bypassCache) {
+      await globalCache.set(cacheKey, computed, TTL_MS);
+    }
     return computed;
   }
 

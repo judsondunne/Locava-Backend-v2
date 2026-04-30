@@ -293,6 +293,21 @@ function mergeBundleIntoFeedCard(
   const postId = bundle.post.postId;
   const mediaType = bundle.post.mediaType;
   const posterUrl = bundle.post.thumbUrl;
+  const firstAsset = bundle.post.assets[0];
+  const firstMain720 =
+    typeof firstAsset?.variants?.main720Avc === "string" && firstAsset.variants.main720Avc.trim()
+      ? firstAsset.variants.main720Avc.trim()
+      : null;
+  const firstStartup720 =
+    typeof firstAsset?.variants?.startup720FaststartAvc === "string" && firstAsset.variants.startup720FaststartAvc.trim()
+      ? firstAsset.variants.startup720FaststartAvc.trim()
+      : null;
+  const firstAssetUrl =
+    (typeof firstAsset?.original === "string" && firstAsset.original.trim() ? firstAsset.original.trim() : null) ??
+    firstMain720 ??
+    firstStartup720 ??
+    (typeof firstAsset?.thumbnail === "string" && firstAsset.thumbnail.trim() ? firstAsset.thumbnail.trim() : null) ??
+    card.firstAssetUrl;
   return {
     ...card,
     postId,
@@ -300,7 +315,32 @@ function mergeBundleIntoFeedCard(
     activities: card.activities,
     address: card.address,
     geo: card.geo,
-    assets: card.assets,
+    assets: bundle.post.assets.map((asset) => ({
+      id: asset.id,
+      type: asset.type,
+      previewUrl:
+        typeof asset.variants?.startup720FaststartAvc === "string" && asset.variants.startup720FaststartAvc.trim()
+          ? asset.variants.startup720FaststartAvc.trim()
+          : typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
+            ? asset.variants.main720Avc.trim()
+            : typeof asset.thumbnail === "string" && asset.thumbnail.trim()
+              ? asset.thumbnail.trim()
+              : null,
+      posterUrl: asset.poster,
+      originalUrl:
+        typeof asset.original === "string" && asset.original.trim()
+          ? asset.original.trim()
+          : typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
+            ? asset.variants.main720Avc.trim()
+            : typeof asset.variants?.startup720FaststartAvc === "string" && asset.variants.startup720FaststartAvc.trim()
+              ? asset.variants.startup720FaststartAvc.trim()
+              : null,
+      blurhash: null,
+      width: null,
+      height: null,
+      aspectRatio: null,
+      orientation: null
+    })),
     title: card.title,
     description: bundle.post.description ?? card.description ?? null,
     captionPreview: bundle.post.caption,
@@ -326,7 +366,7 @@ function mergeBundleIntoFeedCard(
         ? bundle.post.letterboxGradients
         : card.letterboxGradients,
     createdAtMs: bundle.post.createdAtMs,
-    firstAssetUrl: bundle.post.assets[0]?.thumbnail ?? card.firstAssetUrl,
+    firstAssetUrl,
     media: {
       type: mediaType,
       posterUrl,
@@ -421,7 +461,11 @@ export class FeedRepository {
           buildFeedCardShell(viewerId, item)
         );
         const withAuthors = await this.hydrateCardAuthors(shells);
-        return applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
+        const hydrated =
+          queryContext.tab === "following"
+            ? await this.hydrateFeedCardsFromFirestore(viewerId, withAuthors)
+            : withAuthors;
+        return applyAuthorSpacingToFeedCards(hydrated, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
       } catch (error) {
         logFirestoreDebug("feed_candidates_firestore_failure", {
           strictSourceOfTruthLabel: "feed_candidates_firestore",
@@ -612,7 +656,15 @@ export class FeedRepository {
     throw new SourceOfTruthRequiredError("feed_detail_firestore");
   }
 
-  async getCommentsPreview(postId: string, slowMs: number): Promise<Array<{ commentId: string; userId: string; text: string; createdAtMs: number }>> {
+  async getCommentsPreview(postId: string, slowMs: number): Promise<Array<{
+    commentId: string;
+    userId: string;
+    text: string;
+    createdAtMs: number;
+    userName: string | null;
+    userHandle: string | null;
+    userPic: string | null;
+  }>> {
     const page = await commentsRepository.listTopLevelComments({
       viewerId: "anonymous",
       postId,
@@ -626,7 +678,10 @@ export class FeedRepository {
       commentId: item.commentId,
       userId: item.author.userId,
       text: item.text,
-      createdAtMs: item.createdAtMs
+      createdAtMs: item.createdAtMs,
+      userName: item.author.name ?? null,
+      userHandle: item.author.handle ?? null,
+      userPic: item.author.pic ?? null
     }));
   }
 
@@ -653,7 +708,11 @@ export class FeedRepository {
           buildFeedCardShell(viewerId, item)
         );
         const withAuthors = await this.hydrateCardAuthors(shells);
-        const spaced = applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
+        const hydrated =
+          queryContext.tab === "following"
+            ? await this.hydrateFeedCardsFromFirestore(viewerId, withAuthors)
+            : withAuthors;
+        const spaced = applyAuthorSpacingToFeedCards(hydrated, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
         return {
           cursorIn: cursor,
           items: spaced,

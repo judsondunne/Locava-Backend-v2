@@ -58,6 +58,7 @@ export const AchievementBadgeSummarySchema = z.object({
   iconKey: z.string().optional(),
   activityKey: z.string().nullable().optional(),
   regionKey: z.string().nullable().optional(),
+  ownershipVersion: z.number().int().positive().optional(),
   earned: z.boolean(),
   claimed: z.boolean(),
   progress: z.object({
@@ -80,6 +81,42 @@ export const LegendTopUserRowSchema = z.object({
   count: z.number().int().nonnegative()
 });
 
+export const LegendKindSchema = z.enum([
+  "location_first",
+  "activity_first",
+  "combo_first",
+  "location_rank",
+  "activity_rank",
+  "combo_rank"
+]);
+
+export const LegendFamilySchema = z.enum(["first", "rank"]);
+
+export const LegendDimensionSchema = z.enum(["location", "activity", "combo"]);
+
+export const CanonicalLegendItemSchema = z.object({
+  id: z.string().min(1),
+  kind: LegendKindSchema,
+  family: LegendFamilySchema,
+  dimension: LegendDimensionSchema,
+  title: z.string().min(1),
+  subtitle: z.string(),
+  description: z.string(),
+  iconContext: z.string().min(1),
+  activityKey: z.string().nullable().optional(),
+  activityLabel: z.string().nullable().optional(),
+  locationKey: z.string().nullable().optional(),
+  locationLabel: z.string().nullable().optional(),
+  comboKey: z.string().nullable().optional(),
+  rank: z.number().int().positive().nullable().optional(),
+  isPermanent: z.boolean().optional(),
+  claimedAt: z.unknown().optional(),
+  updatedAt: z.unknown().optional(),
+  sourcePostId: z.string().nullable().optional(),
+  viewerStatus: z.string().min(1),
+  displayPriority: z.number().int().nonnegative()
+});
+
 export const AchievementLegendScopeSummarySchema = z.object({
   scopeId: z.string(),
   scopeType: z.string(),
@@ -96,6 +133,7 @@ export const AchievementLegendScopeSummarySchema = z.object({
 export const AchievementLegendAwardSchema = z.object({
   awardId: z.string(),
   awardType: z.string(),
+  canonical: CanonicalLegendItemSchema.optional(),
   scopeId: z.string(),
   scopeType: z.string(),
   title: z.string(),
@@ -108,6 +146,34 @@ export const AchievementLegendAwardSchema = z.object({
   deltaToLeader: z.number().int().nonnegative(),
   createdAt: z.unknown().optional(),
   seen: z.boolean().optional()
+});
+
+export const LegendRankChangeSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["location_rank", "activity_rank", "combo_rank"]),
+  scopeId: z.string().nullable().optional(),
+  previousRank: z.number().int().positive().nullable(),
+  newRank: z.number().int().positive().nullable(),
+  passedUserId: z.string().nullable().optional(),
+  passedUserLabel: z.string().nullable().optional(),
+  nextTargetUserId: z.string().nullable().optional(),
+  nextTargetUserLabel: z.string().nullable().optional(),
+  postsNeededToPass: z.number().int().nonnegative().nullable().optional(),
+  viewerCount: z.number().int().nonnegative().optional(),
+  targetCount: z.number().int().nonnegative().optional(),
+  becameNumberOne: z.boolean().optional()
+});
+
+export const LegendRewardEnvelopeSchema = z.object({
+  postId: z.string().min(1),
+  viewerId: z.string().min(1),
+  hasRewards: z.boolean(),
+  earnedFirstLegends: z.array(CanonicalLegendItemSchema),
+  earnedRankLegends: z.array(CanonicalLegendItemSchema),
+  rankChanges: z.array(LegendRankChangeSchema),
+  closeTargets: z.array(LegendRankChangeSchema),
+  overtakenUsers: z.array(LegendRankChangeSchema),
+  displayCards: z.array(CanonicalLegendItemSchema)
 });
 
 export const AchievementLegendsSliceSchema = z.object({
@@ -216,6 +282,13 @@ export const AchievementsCanonicalBadgeRowSchema = z.object({
   title: z.string().min(1),
   description: z.string(),
   icon: z.string(),
+  badgeSource: z.enum(["static", "competitive"]).optional(),
+  badgeType: z.enum(["activity", "region"]).optional(),
+  iconKey: z.string().optional(),
+  activityKey: z.string().nullable().optional(),
+  regionKey: z.string().nullable().optional(),
+  currentOwner: z.boolean().optional(),
+  ownershipVersion: z.number().int().positive().optional(),
   rarity: z.enum(["common", "uncommon", "rare", "epic", "legendary"]).optional(),
   unlocked: z.boolean(),
   unlockedAt: z.string().nullable(),
@@ -273,6 +346,12 @@ export type AchievementHeroSummary = z.infer<typeof AchievementHeroSummarySchema
 export type AchievementSnapshot = z.infer<typeof AchievementSnapshotSchema>;
 export type AchievementPendingDelta = z.infer<typeof AchievementPendingDeltaSchema>;
 export type AchievementDelta = z.infer<typeof AchievementDeltaSchema>;
+export type LegendKind = z.infer<typeof LegendKindSchema>;
+export type LegendFamily = z.infer<typeof LegendFamilySchema>;
+export type LegendDimension = z.infer<typeof LegendDimensionSchema>;
+export type CanonicalLegendItem = z.infer<typeof CanonicalLegendItemSchema>;
+export type LegendRankChange = z.infer<typeof LegendRankChangeSchema>;
+export type LegendRewardEnvelope = z.infer<typeof LegendRewardEnvelopeSchema>;
 export type AchievementsCanonicalStatus = z.infer<typeof AchievementsCanonicalStatusSchema>;
 export type AchievementsCanonicalBadgeRow = z.infer<typeof AchievementsCanonicalBadgeRowSchema>;
 export type AchievementLeagueDefinition = z.infer<typeof AchievementLeagueDefinitionSchema>;

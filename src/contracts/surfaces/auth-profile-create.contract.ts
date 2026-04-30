@@ -3,6 +3,8 @@ import { defineContract } from "../conventions.js";
 
 export const AuthProfileCreateBodySchema = z.object({
   userId: z.string().min(1),
+  /** Login identity for email/password users; also accepted for OAuth when clients send it explicitly. */
+  email: z.string().trim().email().optional(),
   name: z.string().trim().min(1).max(80),
   age: z.number().int().min(13).max(120),
   explorerLevel: z.string().optional(),

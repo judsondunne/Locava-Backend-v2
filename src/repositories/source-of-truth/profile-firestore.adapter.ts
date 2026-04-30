@@ -49,8 +49,10 @@ type ProfileUserDoc = {
   profilePicPath?: string;
   profilePicLarge?: string;
   profilePic?: string;
+  profilePicture?: string;
   profilePicSmallPath?: string;
   profilePicSmall?: string;
+  photo?: string;
   photoURL?: string;
   avatarUrl?: string;
   bio?: string;
@@ -84,8 +86,12 @@ export class ProfileFirestoreAdapter {
     "displayName",
     "profilePicPath",
     "profilePicLarge",
+    "profilePic",
+    "profilePicture",
     "profilePicSmall",
+    "photo",
     "photoURL",
+    "avatarUrl",
     "bio",
     "postCount",
     "postsCount",
@@ -136,7 +142,10 @@ export class ProfileFirestoreAdapter {
       const followSnaps = await Promise.all(followRefs.map((r) => r.get()));
       const followingSet = new Set<string>();
       followSnaps.forEach((s, idx) => {
-        if (s.exists) followingSet.add(unique[idx]);
+        const followedId = unique[idx];
+        if (s.exists && typeof followedId === "string" && followedId.length > 0) {
+          followingSet.add(followedId);
+        }
       });
       return rows.map((r) => ({ ...r, isFollowing: followingSet.has(r.userId) }));
     } catch {
@@ -161,7 +170,8 @@ export class ProfileFirestoreAdapter {
     const snap = await q.get();
     const ids = snap.docs.map((d) => d.id);
     const rows = await this.loadUserDiscoveryRows(params.viewerId, ids);
-    const nextCursor = snap.docs.length === safeLimit ? snap.docs[snap.docs.length - 1].id : null;
+    const tailDoc = snap.docs[snap.docs.length - 1];
+    const nextCursor = snap.docs.length === safeLimit && tailDoc ? tailDoc.id : null;
     return {
       items: rows,
       totalCount: Number(totalAgg.data().count ?? 0),
@@ -188,7 +198,8 @@ export class ProfileFirestoreAdapter {
     const snap = await q.get();
     const ids = snap.docs.map((d) => d.id);
     const rows = await this.loadUserDiscoveryRows(params.viewerId, ids);
-    const nextCursor = snap.docs.length === safeLimit ? snap.docs[snap.docs.length - 1].id : null;
+    const tailDoc = snap.docs[snap.docs.length - 1];
+    const nextCursor = snap.docs.length === safeLimit && tailDoc ? tailDoc.id : null;
     return {
       items: rows,
       totalCount: Number(totalAgg.data().count ?? 0),
@@ -763,17 +774,21 @@ function pickPic(data: {
   profilePicPath?: string;
   profilePicLarge?: string;
   profilePic?: string;
+  profilePicture?: string;
   profilePicSmallPath?: string;
   profilePicSmall?: string;
+  photo?: string;
   photoURL?: string;
   avatarUrl?: string;
 }): string | null {
   const raw =
     data.profilePicLarge ??
     data.profilePic ??
+    data.profilePicture ??
     data.profilePicPath ??
     data.profilePicSmallPath ??
     data.profilePicSmall ??
+    data.photo ??
     data.photoURL ??
     data.avatarUrl ??
     null;

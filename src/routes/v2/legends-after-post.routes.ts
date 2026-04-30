@@ -70,12 +70,27 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       createdAt: a.createdAt,
       seen: a.seen === true
     })).filter((a) => Boolean(a.awardId) && Boolean(a.awardType) && Boolean(a.scopeId) && Boolean(a.scopeType) && Boolean(a.title)) : [];
+    const rewards =
+      row.rewards && typeof row.rewards === "object"
+        ? (row.rewards as Record<string, unknown>)
+        : {
+            postId: params.postId,
+            viewerId: viewer.viewerId,
+            hasRewards: false,
+            earnedFirstLegends: [],
+            earnedRankLegends: [],
+            rankChanges: [],
+            closeTargets: [],
+            overtakenUsers: [],
+            displayCards: []
+          };
     return success({
       routeName: legendsAfterPostContract.routeName,
       postId: params.postId,
       status,
       pollAfterMs: status === "processing" ? 500 : 0,
-      awards
+      awards,
+      rewards
     });
   });
 }

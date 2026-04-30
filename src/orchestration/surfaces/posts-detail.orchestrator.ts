@@ -21,7 +21,7 @@ export class PostsDetailOrchestrator {
     const author = cardSummary.author;
     const social = cardSummary.social;
     const viewer = cardSummary.viewer;
-    void this.service.loadCommentsPreview(postId, 0).catch(() => undefined);
+    const commentsPreview = await this.service.loadCommentsPreview(postId, 0).catch(() => null);
     return {
       routeName: "posts.detail.get",
       firstRender: {
@@ -80,7 +80,7 @@ export class PostsDetailOrchestrator {
               : undefined
         }
       },
-      deferred: { commentsPreview: null },
+      deferred: { commentsPreview },
       degraded: false,
       fallbacks: [],
       debugHydrationSource: "mixed",
@@ -206,7 +206,7 @@ export class PostsDetailOrchestrator {
       assets: Array.isArray(detail.assets) && detail.assets.length > 0 ? detail.assets : [],
       letterboxGradients: Array.isArray(detail.letterboxGradients) ? detail.letterboxGradients : undefined
     };
-    if (input.hydrationMode === "full") {
+    if (input.hydrationMode === "open" || input.hydrationMode === "full") {
       const commentsPreview = await this.service.loadCommentsPreview(input.postId, 0).catch(() => null);
       return {
         routeName: "posts.detail.get",

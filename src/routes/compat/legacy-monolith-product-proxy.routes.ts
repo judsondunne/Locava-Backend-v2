@@ -68,12 +68,6 @@ export async function registerLegacyMonolithProductProxyRoutes(app: FastifyInsta
   app.post(`${REELS_PREFIX}/following-bootstrap`, async (_request, reply) =>
     reply.status(503).send(upstreamUnavailable)
   );
-  app.get(`${REELS_PREFIX}/near-me`, async (_request, reply) =>
-    reply.status(503).send(upstreamUnavailable)
-  );
-  app.get(`${REELS_PREFIX}/near-me/count`, async (_request, reply) =>
-    reply.status(503).send(upstreamUnavailable)
-  );
   app.get<{ Params: { slug: string } }>(`${DYNAMIC_PREFIX}/by-slug/:slug`, async (request, reply) =>
     reply.status(503).send({ ...upstreamUnavailable, slug: request.params.slug })
   );

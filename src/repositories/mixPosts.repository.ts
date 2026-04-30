@@ -76,8 +76,9 @@ function mapDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): MixPostRow {
 }
 
 function isVisiblePost(row: Record<string, unknown>): boolean {
-  const privacy = String(row.privacy ?? "public");
-  if (privacy !== "public") return false;
+  /** Align with feed surfaces: only hard-private posts are excluded (e.g. "Public Spot" stays visible). */
+  const privacy = typeof row.privacy === "string" ? row.privacy.trim().toLowerCase() : "public";
+  if (privacy === "private") return false;
   if (row.deleted === true || row.isDeleted === true) return false;
   if (row.archived === true) return false;
   if (row.hidden === true) return false;
@@ -128,11 +129,56 @@ export class MixPostsRepository {
     });
   }
 
+  /**
+   * Recent public posts for one author. Single-field `userId` equality + bounded limit (no orderBy) to avoid composite indexes; sort in-memory.
+   */
+  async listRecentPostsByUserId(userId: string, limit = 12): Promise<MixPostRow[]> {
+    const uid = String(userId ?? "").trim();
+    if (!uid) return [];
+    const safe = Math.max(1, Math.min(40, Math.floor(limit)));
+    const rows = await this.runQuery((db) => db.collection("posts").where("userId", "==", uid).limit(safe));
+    return this.sortByTimeDescIdDesc(rows.filter(isVisiblePost)).slice(0, safe);
+  }
+
   async loadRecentPool(limit = 420): Promise<MixPostRow[]> {
     const safe = Math.max(60, Math.min(900, Math.floor(limit)));
     // Single query: recency only. Visibility filtering is done in-memory via runQuery().
     const pooled = await this.runQuery((db) => db.collection("posts").orderBy("time", "desc").limit(safe));
     return this.sortByTimeDescIdDesc(pooled);
+  }
+
+  /**
+   * One bounded pool query per mix using `array-contains` or `array-contains-any` (max 10 tags — Firestore limit).
+   */
+  async pageByActivityAliases(input: {
+    aliases: string[];
+    limit: number;
+    cursor: { lastTime: number | null; lastId: string | null } | null;
+  }): Promise<{ items: MixPostRow[]; nextCursor: { lastTime: number; lastId: string } | null; hasMore: boolean }> {
+    const tags = [...new Set((input.aliases ?? []).map((a) => String(a ?? "").trim().toLowerCase()).filter(Boolean))].slice(
+      0,
+      10,
+    );
+    if (tags.length === 0) return { items: [], nextCursor: null, hasMore: false };
+    const limit = Math.max(1, Math.min(36, Math.floor(input.limit)));
+    const poolCap = Math.max(72, Math.min(520, limit * 22));
+    /** No composite index required — ordering is applied in-memory after fetch. */
+    const pooled = await this.runQuery((db) => {
+      if (tags.length === 1) {
+        return db.collection("posts").where("activities", "array-contains", tags[0]!).limit(poolCap);
+      }
+      return db.collection("posts").where("activities", "array-contains-any", tags).limit(poolCap);
+    });
+    const ranked = this.sortByTimeDescIdDesc(pooled);
+    const afterCursor = this.applyCursorDesc(ranked, input.cursor);
+    const slice = afterCursor.slice(0, limit);
+    const hasMore = afterCursor.length > limit;
+    const last = slice[slice.length - 1];
+    return {
+      items: slice,
+      nextCursor: hasMore && last ? { lastTime: Number(last.time ?? 0) || 0, lastId: String(last.postId ?? last.id ?? "") } : null,
+      hasMore,
+    };
   }
 
   async pageByActivity(input: {
@@ -142,14 +188,30 @@ export class MixPostsRepository {
   }): Promise<{ items: MixPostRow[]; nextCursor: { lastTime: number; lastId: string } | null; hasMore: boolean }> {
     const activity = String(input.activity ?? "").trim().toLowerCase();
     if (!activity) return { items: [], nextCursor: null, hasMore: false };
+    return this.pageByActivityAliases({ aliases: [activity], limit: input.limit, cursor: input.cursor });
+  }
+
+  async pageByActivities(input: {
+    activities: string[];
+    limit: number;
+    cursor: { lastTime: number | null; lastId: string | null } | null;
+  }): Promise<{ items: MixPostRow[]; nextCursor: { lastTime: number; lastId: string } | null; hasMore: boolean }> {
+    const activities = [...new Set((input.activities ?? []).map((a) => String(a ?? "").trim().toLowerCase()).filter(Boolean))].slice(0, 4);
+    if (activities.length === 0) return { items: [], nextCursor: null, hasMore: false };
     const limit = Math.max(1, Math.min(36, Math.floor(input.limit)));
-    // Avoid composite-index requirements (activities + time + __name__) by fetching a bounded pool and
-    // doing deterministic ordering + cursoring in-memory.
-    const poolCap = Math.max(72, Math.min(520, limit * 22));
-    const pooled = await this.runQuery((db) =>
-      db.collection("posts").where("activities", "array-contains", activity).limit(poolCap)
-    );
-    const ranked = this.sortByTimeDescIdDesc(pooled);
+    const poolLimit = Math.max(64, Math.min(220, limit * 10));
+    const merged: MixPostRow[] = [];
+    const seen = new Set<string>();
+    for (const activity of activities) {
+      const pooled = await this.runQuery((db) => db.collection("posts").where("activities", "array-contains", activity).limit(poolLimit));
+      for (const row of pooled) {
+        const id = String((row as any)?.postId ?? (row as any)?.id ?? "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        merged.push(row);
+      }
+    }
+    const ranked = this.sortByTimeDescIdDesc(merged);
     const afterCursor = this.applyCursorDesc(ranked, input.cursor);
     const slice = afterCursor.slice(0, limit);
     const hasMore = afterCursor.length > limit;
@@ -308,6 +370,24 @@ export class MixPostsRepository {
       if (cover.coverImageUrl) return { postIds: ids, coverImageUrl: cover.coverImageUrl, coverPostId: cover.coverPostId };
     }
     return { postIds: ids, coverImageUrl: null, coverPostId: ids[0] ?? null };
+  }
+
+  async firstCoverByActivity(activity: string): Promise<{ coverImageUrl: string | null; coverPostId: string | null }> {
+    const normalized = String(activity ?? "").trim().toLowerCase();
+    if (!normalized) return { coverImageUrl: null, coverPostId: null };
+    const pooled = await this.runQuery((db) =>
+      db.collection("posts").where("activities", "array-contains", normalized).limit(10)
+    );
+    const ranked = this.sortByTimeDescIdDesc(pooled);
+    for (const candidate of ranked) {
+      const cover = getBestPostCover(candidate);
+      if (cover.coverImageUrl) {
+        return { coverImageUrl: cover.coverImageUrl, coverPostId: cover.coverPostId };
+      }
+    }
+    const first = ranked[0];
+    const firstId = first ? String((first as any)?.postId ?? (first as any)?.id ?? "").trim() : null;
+    return { coverImageUrl: null, coverPostId: firstId || null };
   }
 
   async loadTopActivities(limit = 24): Promise<string[]> {

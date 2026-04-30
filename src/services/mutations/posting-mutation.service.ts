@@ -8,6 +8,7 @@ import { withMutationLock } from "../../lib/mutation-lock.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { achievementsRepository } from "../../repositories/surfaces/achievements.repository.js";
 import { AuthBootstrapFirestoreAdapter } from "../../repositories/source-of-truth/auth-bootstrap-firestore.adapter.js";
 import { encodeGeohash } from "../../lib/latlng-geohash.js";
 import { buildCityRegionId, buildStateRegionId } from "../../lib/search-query-intent.js";
@@ -233,6 +234,7 @@ export class PostingMutationService {
             stageId,
             post: { postId: input.postId, userId: input.userId }
           });
+          await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
           return;
         }
         // Fallback: derive scopes from canonical post doc (single bounded read).
@@ -241,10 +243,27 @@ export class PostingMutationService {
         const postSnap = await db.collection("posts").doc(input.postId).get();
         if (!postSnap.exists) return;
         const data = postSnap.data() as Record<string, unknown> | undefined;
+        const geoData = data?.geoData && typeof data.geoData === "object" ? (data.geoData as Record<string, unknown>) : null;
         const geohash = typeof data?.geohash === "string" ? data.geohash : null;
         const activities = Array.isArray(data?.activities) ? data!.activities.map((v) => String(v ?? "")).filter(Boolean) : [];
-        const city = typeof data?.city === "string" ? data.city : null;
-        const state = typeof data?.state === "string" ? data.state : null;
+        const city =
+          typeof data?.city === "string"
+            ? data.city
+            : geoData && typeof geoData.city === "string"
+              ? geoData.city
+              : null;
+        const state =
+          typeof data?.state === "string"
+            ? data.state
+            : geoData && typeof geoData.state === "string"
+              ? geoData.state
+              : null;
+        const country =
+          typeof data?.countryRegionId === "string"
+            ? data.countryRegionId
+            : geoData && typeof geoData.country === "string"
+              ? geoData.country
+              : null;
         const region = typeof data?.region === "string" ? data.region : null;
         await legendService.processPostCreated({
           postId: input.postId,
@@ -253,8 +272,10 @@ export class PostingMutationService {
           activities,
           city,
           state,
+          country,
           region
         });
+        await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
       } catch (error) {
         console.warn("[posting.legends] commit failed", {
           postId: input.postId,
@@ -387,9 +408,9 @@ export class PostingMutationService {
 
   private shouldUseSynchronousFinalizeAchievements(): boolean {
     if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") return true;
-    // Production default: async achievements to keep finalize latency low and avoid client timeout false-failures.
-    // Set POSTING_FINALIZE_SYNC_ACHIEVEMENTS=1 to force synchronous behavior for debugging.
-    return process.env.POSTING_FINALIZE_SYNC_ACHIEVEMENTS === "1";
+    // Default: award XP in the finalize response so clients show correct toast/onboarding.
+    // Set POSTING_FINALIZE_ASYNC_ACHIEVEMENTS=1 to defer awards (lower finalize latency at scale).
+    return process.env.POSTING_FINALIZE_ASYNC_ACHIEVEMENTS !== "1";
   }
 
   private scheduleViewerDocCacheWarm(viewerId: string): void {
@@ -690,7 +711,6 @@ export class PostingMutationService {
   }): Promise<string> {
     const debugTimings = process.env.POSTING_FINALIZE_DEBUG_TIMINGS === "1";
     const startedAt = debugTimings ? Date.now() : 0;
-    const base = process.env.LEGACY_MONOLITH_PROXY_BASE_URL?.trim();
     if (process.env.NODE_ENV === "test") {
       return this.createCanonicalPostFallbackForTests(input);
     }
@@ -760,72 +780,9 @@ export class PostingMutationService {
           ...(finalized.posterUrl ? { posterUrl: finalized.posterUrl } : {})
         };
       });
-    const authHeader =
-      input.authorizationHeader?.trim() ||
-      (process.env.LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN?.trim()
-        ? `Bearer ${process.env.LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN.trim()}`
-        : "");
-    const useLegacyCreateFromStaged =
-      process.env.POSTING_FINALIZE_USE_LEGACY_PROXY === "1" && Boolean(base && authHeader);
-
-    if (useLegacyCreateFromStaged) {
-      const legacyBase = base as string;
-      const body: Record<string, unknown> = {
-      sessionId: canonicalSessionId,
-      userId: viewer,
-      title: input.title ?? "",
-      content: input.content ?? "",
-      activities:
-        Array.isArray(input.activities) && input.activities.length > 0
-          ? input.activities
-          : ["misc"],
-      lat: String(input.lat ?? 0),
-      long: String(input.long ?? 0),
-      address: input.address ?? "",
-      privacy: input.privacy ?? "Public Spot",
-      tags: Array.isArray(input.tags) ? input.tags : [],
-      texts: Array.isArray(input.texts) ? input.texts : [],
-      recordings: Array.isArray(input.recordings) ? input.recordings : [],
-      stagedItems,
-      ...(typeof input.displayPhotoBase64 === "string" && input.displayPhotoBase64.trim().length > 0
-        ? { displayPhotoBase64: input.displayPhotoBase64.trim() }
-        : {}),
-      ...(Array.isArray(input.videoPostersBase64) ? { videoPostersBase64: input.videoPostersBase64 } : {}),
-      idempotencyKey: createHash("sha256").update(`${viewer}:${input.idempotencyKey}`).digest("hex")
-    };
-      const url = `${legacyBase.replace(/\/+$/, "")}/api/v1/product/upload/create-from-staged`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(authHeader ? { authorization: authHeader } : {})
-      },
-      body: JSON.stringify(body)
-    });
-    const payload = (await response.json().catch(() => ({}))) as { success?: boolean; postId?: string; error?: string; message?: string };
-    if (!response.ok || !payload.success || !payload.postId) {
-      throw new Error(payload.error || payload.message || "publish_failed");
-    }
-    if (process.env.NODE_ENV !== "test") {
-      this.scheduleCanonicalMediaVerification(payload.postId);
-    }
-    if (debugTimings) {
-      console.info("[posting.finalize.timing] legacy-proxy-total", { ms: Date.now() - startedAt });
-    }
-    console.info("[posting.finalize]", {
-      event: "finalize_path",
-      finalizePath: "legacy_proxy",
-      postId: payload.postId,
-      sessionIdPrefix: input.sessionId.slice(0, 8)
-    });
-    return payload.postId;
-    }
-
-    if (process.env.POSTING_FINALIZE_USE_LEGACY_PROXY === "1" && (!base || !authHeader)) {
-      throw new Error(
-        "publish_requires_legacy_proxy_config: POSTING_FINALIZE_USE_LEGACY_PROXY=1 requires LEGACY_MONOLITH_PROXY_BASE_URL and publish Authorization (or LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN)."
-      );
-    }
+    void input.authorizationHeader;
+    void input.displayPhotoBase64;
+    void input.videoPostersBase64;
 
     const beforeNative = debugTimings ? Date.now() : 0;
     const postId = await this.publishNativeCanonicalPost({
@@ -881,7 +838,10 @@ export class PostingMutationService {
     const city = parts[0] || "Unknown";
     const state = parts[1] || "Unknown";
     const country = parts[2] || "United States";
-    const countryCode = "US";
+    const normalizedCountry = String(country).trim();
+    const countryCode = /^[A-Za-z]{2}$/.test(normalizedCountry)
+      ? normalizedCountry.toUpperCase()
+      : normalizedCountry || "US";
     return {
       cityRegionId: buildCityRegionId(countryCode, state, city),
       stateRegionId: buildStateRegionId(countryCode, state),

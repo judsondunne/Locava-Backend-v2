@@ -10,6 +10,7 @@ import { globalCache } from "./global-cache.js";
 import { invalidateRouteCacheByTags } from "./route-cache-index.js";
 import { recordInvalidation } from "../observability/request-context.js";
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
+import { searchHomeV1CacheKeys } from "../services/surfaces/search-home-v1.service.js";
 
 export type MutationInvalidationInput =
   | {
@@ -264,9 +265,12 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     ];
     await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));
     invalidatedKeys.push(...profileRouteKeys);
+    const searchHomeKey = searchHomeV1CacheKeys.homeFull(viewerId);
+    await globalCache.del(searchHomeKey);
+    invalidatedKeys.push(searchHomeKey);
     recordInvalidation(input.mutationType, {
       entityKeyCount: entityKeys.length,
-      routeKeyCount: targetedRouteCacheKeys.length + visibilityRouteCacheKeys.length + mapBootstrapRouteKeys.length + profileRouteKeys.length
+      routeKeyCount: targetedRouteCacheKeys.length + visibilityRouteCacheKeys.length + mapBootstrapRouteKeys.length + profileRouteKeys.length + 1
     });
     return {
       mutationType: input.mutationType,
@@ -283,7 +287,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         "profile.grid_preview",
         "profile.grid_page",
         "route.map_bootstrap",
-        "route.map_markers"
+        "route.map_markers",
+        "search.home_bootstrap.v1"
       ],
       invalidatedKeys
     };
@@ -410,6 +415,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, viewerId, String(previewLimit)])
   );
   await deleteEntityCacheKeys(baseKeys);
+  const searchHomeKey = searchHomeV1CacheKeys.homeFull(viewerId);
   await Promise.all(
     [
       ...profileHeaderKeys,
@@ -419,7 +425,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       ...selfGridPageStartKeys,
       ...relationshipKeys,
       ...bootstrapKeys,
-      ...selfBootstrapKeys
+      ...selfBootstrapKeys,
+      searchHomeKey,
     ].map((key) => globalCache.del(key))
   );
   if (viewerStateKeys.length > 0) {
@@ -435,7 +442,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     ...selfGridPageStartKeys,
     ...relationshipKeys,
     ...bootstrapKeys,
-    ...selfBootstrapKeys
+    ...selfBootstrapKeys,
+    searchHomeKey,
   ];
   recordInvalidation(input.mutationType, {
     entityKeyCount: baseKeys.length + viewerStateKeys.length,
@@ -447,7 +455,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       selfGridPageStartKeys.length +
       relationshipKeys.length +
       bootstrapKeys.length +
-      selfBootstrapKeys.length
+      selfBootstrapKeys.length +
+      1
   });
   return {
     mutationType: input.mutationType,
@@ -459,7 +468,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       "profile.grid_preview",
       "profile.grid_page",
       "profile.relationship",
-      "route.profile_bootstrap"
+      "route.profile_bootstrap",
+      "search.home_bootstrap.v1"
     ],
     invalidatedKeys
   };
