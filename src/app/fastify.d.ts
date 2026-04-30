@@ -9,5 +9,6 @@ declare module "fastify" {
   interface FastifyRequest {
     requestStartNs: bigint;
     requestIdValue: string;
+    analyticsErrorCode?: string;
   }
 }

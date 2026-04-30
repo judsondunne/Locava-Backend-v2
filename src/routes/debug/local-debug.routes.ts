@@ -5,6 +5,7 @@ import { isLocalDevIdentityModeEnabled, resolveLocalDevIdentityContext } from ".
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { legendRepository } from "../../domains/legends/legend.repository.js";
 import { buildLegendScopeId } from "../../domains/legends/legends.types.js";
+import { getAnalyticsIngestService } from "../../services/analytics/analytics-runtime.js";
 
 const LocalViewerQuerySchema = z.object({
   viewerId: z.string().min(1).optional(),
@@ -248,6 +249,17 @@ export async function registerLocalDebugRoutes(app: FastifyInstance): Promise<vo
     app.log.info({ routeFamily: "/debug/local/*" }, "local debug routes disabled (ENABLE_LOCAL_DEV_IDENTITY!=1)");
     return;
   }
+
+  app.get("/debug/local/analytics/events", async () => getAnalyticsIngestService(app.config).getDebugSnapshot());
+
+  app.post("/debug/local/analytics/test-publish", async () => {
+    const accepted = await getAnalyticsIngestService(app.config).publishDebugProbe();
+    return {
+      ok: true,
+      accepted,
+      snapshot: getAnalyticsIngestService(app.config).getDebugSnapshot()
+    };
+  });
 
   app.get("/debug/local/bootstrap", async (request) => {
     const query = LocalViewerQuerySchema.parse(request.query);

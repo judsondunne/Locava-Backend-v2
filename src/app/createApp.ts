@@ -52,6 +52,7 @@ import { registerV2LegendsAfterPostRoutes } from "../routes/v2/legends-after-pos
 import { registerV2LegendsEventsRoutes } from "../routes/v2/legends-events.routes.js";
 import { registerV2CommentsListRoutes } from "../routes/v2/comments-list.routes.js";
 import { registerV2CommentsCreateRoutes } from "../routes/v2/comments-create.routes.js";
+import { registerV2AnalyticsEventsRoutes } from "../routes/v2/analytics-events.routes.js";
 import { registerV2CommentsLikeRoutes } from "../routes/v2/comments-like.routes.js";
 import { registerV2CommentsDeleteRoutes } from "../routes/v2/comments-delete.routes.js";
 import { registerV2NotificationsListRoutes } from "../routes/v2/notifications-list.routes.js";
@@ -118,6 +119,7 @@ import { globalCache } from "../cache/global-cache.js";
 import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
 import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
+import { recordBackendRouteObservation } from "../services/analytics/analytics-route-observer.js";
 
 function classifyError(error: unknown): { code: string; statusCode: number; details?: unknown } {
   if (error instanceof ZodError) {
@@ -334,6 +336,15 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       timestamp: new Date().toISOString()
     });
 
+    recordBackendRouteObservation({
+      env,
+      request,
+      reply,
+      ctx,
+      latencyMs,
+      budgetViolations
+    });
+
     const verboseRequestLogs = process.env.BACKENDV2_VERBOSE_REQUEST_LOGS === "1";
     if (verboseRequestLogs) {
       request.log.info(
@@ -389,6 +400,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
 
   app.setErrorHandler((error, request, reply) => {
     const classification = classifyError(error);
+    request.analyticsErrorCode = classification.code;
     const errorCause =
       error instanceof Error && "cause" in error ? (error as Error & { cause?: unknown }).cause : undefined;
 
@@ -411,6 +423,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerTestRoutes);
   app.register(registerV2AuthBootstrapRoutes);
   app.register(registerV2AuthMutationRoutes);
+  app.register(registerV2AnalyticsEventsRoutes);
   app.register(async (instance) => {
     await registerProfilePictureUploadRoutes(instance, env);
   });

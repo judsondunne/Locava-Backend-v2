@@ -19,6 +19,13 @@ export const routeContracts: RouteContract[] = [
   { method: "GET", path: "/test/slow", description: "Slow endpoint simulation", tags: ["test"], querySchema: { ms: "number (0-10000)" } },
   { method: "GET", path: "/test/db-simulate", description: "Database operation simulation", tags: ["test", "database"], querySchema: { reads: "number (0-1000)", writes: "number (0-1000)" } },
   { method: "GET", path: "/v2/auth/session", description: "V2 auth/session surface", tags: ["v2", "auth"], querySchema: { debugSlowDeferredMs: "number (0-2000) optional" } },
+  {
+    method: "POST",
+    path: "/v2/analytics/events",
+    description: "V2 analytics batch ingest surface",
+    tags: ["v2", "analytics"],
+    bodySchema: { events: "Array<analytics_event> required (1-250)" }
+  },
   { method: "GET", path: "/v2/auth/check-handle", description: "V2 auth handle availability", tags: ["v2", "auth"], querySchema: { handle: "string (1-40) required" } },
   { method: "GET", path: "/v2/auth/check-user-exists", description: "V2 auth email existence check", tags: ["v2", "auth"], querySchema: { email: "email required" } },
   {

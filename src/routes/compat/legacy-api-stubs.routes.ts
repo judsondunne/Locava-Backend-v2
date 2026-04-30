@@ -963,10 +963,6 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     forceUpdate: false
   }));
 
-  app.post("/api/analytics/v2/events", async (_request, reply) =>
-    reply.status(202).send({ ok: true, received: true, stub: "backendv2_analytics_compat" })
-  );
-
   app.get("/api/v1/product/viewer/bootstrap", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
     const session = await callV2GetOrThrowWithRetry("/v2/auth/session", viewerId, "/api/v1/product/viewer/bootstrap", 3);
