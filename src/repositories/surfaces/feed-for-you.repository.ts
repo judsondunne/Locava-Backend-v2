@@ -8,8 +8,11 @@ export type ForYouSourceBucket = "reel" | "regular" | "fallback";
 
 export type ForYouCursorState = {
   page: number;
-  reelOffset: number;
-  regularOffset: number;
+  reelCursorTime: number | null;
+  reelCursorPostId: string | null;
+  regularCursorTime: number | null;
+  regularCursorPostId: string | null;
+  recycleMode?: boolean;
 };
 
 export type ForYouCandidate = {
@@ -125,26 +128,29 @@ export class FeedForYouRepository {
     return this.db !== null;
   }
 
-  async fetchUnservedReelCandidates(
-    _viewerId: string,
-    limit: number,
-    cursorState: ForYouCursorState
-  ): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
-    return this.fetchCandidateWindow("reel", limit, cursorState.reelOffset);
+  async fetchReelWindow(input: {
+    limit: number;
+    cursorTime: number | null;
+    cursorPostId: string | null;
+  }): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
+    return this.fetchCandidateWindow("reel", input.limit, input.cursorTime, input.cursorPostId);
   }
 
-  async fetchUnservedRegularCandidates(
-    _viewerId: string,
-    limit: number,
-    cursorState: ForYouCursorState
-  ): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
-    return this.fetchCandidateWindow("regular", limit, cursorState.regularOffset);
+  async fetchRegularWindow(input: {
+    limit: number;
+    cursorTime: number | null;
+    cursorPostId: string | null;
+  }): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
+    return this.fetchCandidateWindow("regular", input.limit, input.cursorTime, input.cursorPostId);
   }
 
   async fetchServedPostIds(viewerId: string, candidatePostIds: string[]): Promise<Set<string>> {
     if (!this.db || !viewerId || viewerId === "anonymous") return new Set();
     const ids = [...new Set(candidatePostIds.map((id) => id.trim()).filter(Boolean))];
     if (ids.length === 0) return new Set();
+    const cacheKey = `feed:for-you:served:${viewerId}:${ids.slice().sort().join(",")}`;
+    const cached = await globalCache.get<string[]>(cacheKey);
+    if (cached) return new Set(cached);
     const chunks: string[][] = [];
     for (let i = 0; i < ids.length; i += 30) chunks.push(ids.slice(i, i + 30));
     const out = new Set<string>();
@@ -156,6 +162,7 @@ export class FeedForYouRepository {
         if (snap.exists) out.add(snap.id);
       }
     }
+    void globalCache.set(cacheKey, [...out], 5_000);
     return out;
   }
 
@@ -179,24 +186,29 @@ export class FeedForYouRepository {
   private async fetchCandidateWindow(
     bucket: "reel" | "regular",
     limit: number,
-    offset: number
+    cursorTime: number | null,
+    cursorPostId: string | null
   ): Promise<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }> {
     if (!this.db) throw new Error("feed_for_you_source_unavailable");
-    const oversample = Math.max(limit * 4, 24);
-    const cacheKey = `feed:for-you:candidates:${bucket}:${offset}:${limit}:v1`;
+    const boundedLimit = Math.max(1, Math.min(limit, 120));
+    const cacheKey = `feed:for-you:candidates:${bucket}:${boundedLimit}:${cursorTime ?? "none"}:${cursorPostId ?? "none"}:v2`;
     const cached = await globalCache.get<{ candidates: ForYouCandidate[]; reads: number; queries: number; hasMore: boolean }>(cacheKey);
     if (cached) return cached;
 
-    const queryBase = this.db.collection("posts").orderBy("time", "desc").select(...FEED_SELECT_FIELDS);
-    const query: Query = bucket === "reel" ? queryBase.where("reel", "==", true) : queryBase;
-    const snap = await query.offset(offset).limit(oversample).get();
+    const queryBase = this.db
+      .collection("posts")
+      .orderBy("time", "desc")
+      .orderBy(FieldPath.documentId(), "desc")
+      .select(...FEED_SELECT_FIELDS);
+    let query: Query = bucket === "reel" ? queryBase.where("reel", "==", true) : queryBase.where("reel", "==", false);
+    if (Number.isFinite(cursorTime) && cursorTime !== null && cursorPostId) {
+      query = query.startAfter(cursorTime, cursorPostId);
+    }
+    const snap = await query.limit(boundedLimit).get();
     incrementDbOps("queries", 1);
     incrementDbOps("reads", snap.docs.length);
     let candidates = snap.docs.map((d) => mapDoc(d.id, d.data() as Record<string, unknown>)).filter(Boolean) as ForYouCandidate[];
-    if (bucket === "regular") {
-      candidates = candidates.filter((item) => !item.reel);
-    }
-    const payload = { candidates, reads: snap.docs.length, queries: 1, hasMore: snap.docs.length >= oversample };
+    const payload = { candidates, reads: snap.docs.length, queries: 1, hasMore: snap.docs.length >= boundedLimit };
     void globalCache.set(cacheKey, payload, 6_000);
     return payload;
   }

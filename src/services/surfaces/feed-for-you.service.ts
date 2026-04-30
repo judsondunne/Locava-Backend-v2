@@ -1,168 +1,94 @@
 import { randomUUID } from "node:crypto";
-import type {
-  FeedForYouRepository,
-  ForYouCandidate,
-  ForYouCursorState,
-  ForYouServedWriteRecord,
-  ForYouSourceBucket
-} from "../../repositories/surfaces/feed-for-you.repository.js";
+import type { FeedForYouRepository, ForYouCandidate, ForYouCursorState, ForYouServedWriteRecord, ForYouSourceBucket } from "../../repositories/surfaces/feed-for-you.repository.js";
 
-const CURSOR_PREFIX = "fy:v1:";
-const RANKING_VERSION = "for_you_v2_simple_2026_04";
-
-type RankedCandidate = ForYouCandidate & { score: number; sourceBucket: "reel" | "regular" };
-type ForYouPostCard = {
-  postId: string;
-  rankToken: string;
-  author: { userId: string; handle: string; name: string | null; pic: string | null };
-  activities: string[];
-  address: string | null;
-  carouselFitWidth?: boolean;
-  layoutLetterbox?: boolean;
-  letterboxGradientTop?: string | null;
-  letterboxGradientBottom?: string | null;
-  letterboxGradients?: Array<{ top: string; bottom: string }>;
-  geo: ForYouCandidate["geo"];
-  assets: ForYouCandidate["assets"];
-  comments: ForYouCandidate["comments"];
-  commentsPreview: ForYouCandidate["commentsPreview"];
-  title: string | null;
-  captionPreview: string | null;
-  firstAssetUrl: string | null;
-  media: { type: "image" | "video"; posterUrl: string; aspectRatio: number; startupHint: "poster_only" | "poster_then_preview" };
-  social: { likeCount: number; commentCount: number };
-  viewer: { liked: boolean; saved: boolean };
-  createdAtMs: number;
-  updatedAtMs: number;
-};
+const CURSOR_PREFIX = "fy:v2:";
+const LEGACY_CURSOR_PREFIX = "fy:v1:";
+const RANKING_VERSION = "fast-reel-first-v2";
+const FIRST_PAGE_BUDGETS = { maxCandidateDocs: 60, maxQueries: 6, maxReadsSoft: 80 } as const;
+const NEXT_PAGE_BUDGETS = { maxCandidateDocs: 80, maxQueries: 8, maxReadsSoft: 120 } as const;
+type RankedCandidate = ForYouCandidate & { sourceBucket: "reel" | "regular" | "fallback" };
+type ForYouPostCard = { postId: string; rankToken: string; author: { userId: string; handle: string; name: string | null; pic: string | null }; activities: string[]; address: string | null; carouselFitWidth?: boolean; layoutLetterbox?: boolean; letterboxGradientTop?: string | null; letterboxGradientBottom?: string | null; letterboxGradients?: Array<{ top: string; bottom: string }>; geo: ForYouCandidate["geo"]; assets: ForYouCandidate["assets"]; comments: ForYouCandidate["comments"]; commentsPreview: ForYouCandidate["commentsPreview"]; title: string | null; captionPreview: string | null; firstAssetUrl: string | null; media: { type: "image" | "video"; posterUrl: string; aspectRatio: number; startupHint: "poster_only" | "poster_then_preview" }; social: { likeCount: number; commentCount: number }; viewer: { liked: boolean; saved: boolean }; createdAtMs: number; updatedAtMs: number };
 
 export class FeedForYouService {
-  constructor(private readonly repository: Pick<FeedForYouRepository, "fetchUnservedReelCandidates" | "fetchUnservedRegularCandidates" | "fetchServedPostIds" | "writeServedPosts">) {}
-
-  async getForYouPage(input: {
-    viewerId: string;
-    limit: number;
-    cursor: string | null;
-    debug: boolean;
-    requestId?: string;
-  }): Promise<{
-    requestId: string;
-    items: ForYouPostCard[];
-    nextCursor: string | null;
-    exhausted: boolean;
-    debug: {
-      requestId: string;
-      viewerId: string;
-      requestedLimit: number;
-      returnedCount: number;
-      reelCandidateCount: number;
-      regularCandidateCount: number;
-      servedWriteCount: number;
-      servedWriteOk: boolean;
-      sourceMix: { reel: number; regular: number; fallback: number };
-      latencyMs: number;
-      readEstimate: number;
-      rankingVersion: string;
-      cursorInfo: ForYouCursorState;
-    };
-  }> {
+  constructor(private readonly repository: Pick<FeedForYouRepository, "fetchReelWindow" | "fetchRegularWindow" | "fetchServedPostIds" | "writeServedPosts">) {}
+  async getForYouPage(input: { viewerId: string; limit: number; cursor: string | null; debug: boolean; requestId?: string }): Promise<{ requestId: string; items: ForYouPostCard[]; nextCursor: string | null; exhausted: boolean; debug: { requestId: string; viewerId: string; requestedLimit: number; returnedCount: number; reelCount: number; regularCount: number; recycledCount: number; candidateWindowSizes: { reels: number; regular: number; regularFallback: number }; servedCheckedCount: number; servedDroppedCount: number; servedWriteCount: number; servedWriteOk: boolean; queryCountEstimate: number; budgetCapped: boolean; latencyMs: number; readEstimate: number; rankingVersion: string; emptyReason: string | null; cursorInfo: ForYouCursorState } }> {
     const started = Date.now();
     const viewerId = input.viewerId.trim() || "anonymous";
     const requestId = input.requestId ?? randomUUID();
     const cursor = decodeCursor(input.cursor);
-    const oversampleLimit = Math.max(input.limit * 4, 24);
-    let scannedReads = 0;
-    let rankedReels: RankedCandidate[] = [];
-    let rankedRegular: RankedCandidate[] = [];
-    let sourceExhausted = false;
-    const maxScanWindows = 32;
-    for (let scan = 0; scan < maxScanWindows; scan += 1) {
-      const windowCursor: ForYouCursorState = {
-        page: cursor.page,
-        reelOffset: cursor.page * oversampleLimit + scan * oversampleLimit,
-        regularOffset: cursor.page * oversampleLimit + scan * oversampleLimit
-      };
-      const [reelRes, regularRes] = await Promise.all([
-        this.repository.fetchUnservedReelCandidates(viewerId, oversampleLimit, windowCursor),
-        this.repository.fetchUnservedRegularCandidates(viewerId, oversampleLimit, windowCursor)
-      ]);
-      scannedReads += reelRes.reads + regularRes.reads;
-      const candidateIds = [...reelRes.candidates.map((c) => c.postId), ...regularRes.candidates.map((c) => c.postId)];
-      const servedIds = await this.repository.fetchServedPostIds(viewerId, candidateIds);
-      rankedReels = rankCandidates(reelRes.candidates.filter((c) => !servedIds.has(c.postId)), viewerId, "reel");
-      rankedRegular = rankCandidates(regularRes.candidates.filter((c) => !servedIds.has(c.postId)), viewerId, "regular");
-      if (rankedReels.length + rankedRegular.length > 0) break;
-      if (!reelRes.hasMore && !regularRes.hasMore) {
-        sourceExhausted = true;
-        break;
+    const budgets = cursor.page <= 0 ? FIRST_PAGE_BUDGETS : NEXT_PAGE_BUDGETS;
+    const reelWindowLimit = Math.min(40, Math.max(input.limit * 3, 12));
+    const regularWindowLimit = Math.min(20, Math.max(input.limit + 3, 8));
+    const regularFallbackLimit = Math.min(20, Math.max(input.limit + 3, 8));
+    let queryCountEstimate = 0;
+    let readEstimate = 0;
+    let budgetCapped = false;
+    const consume = (queries: number, reads: number, candidateDocsFetched: number): boolean => {
+      queryCountEstimate += queries;
+      readEstimate += reads;
+      if (queryCountEstimate >= budgets.maxQueries || readEstimate >= budgets.maxReadsSoft || candidateDocsFetched >= budgets.maxCandidateDocs) {
+        budgetCapped = true;
+        return false;
       }
+      return true;
+    };
+    const reelRes = await this.repository.fetchReelWindow({ limit: reelWindowLimit, cursorTime: cursor.reelCursorTime, cursorPostId: cursor.reelCursorPostId });
+    const reels = reelRes.candidates;
+    consume(reelRes.queries, reelRes.reads, reels.length);
+    let regular: ForYouCandidate[] = [];
+    let regularHasMore = false;
+    if (!budgetCapped) {
+      const regularRes = await this.repository.fetchRegularWindow({ limit: regularWindowLimit, cursorTime: cursor.regularCursorTime, cursorPostId: cursor.regularCursorPostId });
+      regular = regularRes.candidates;
+      regularHasMore = regularRes.hasMore;
+      consume(regularRes.queries, regularRes.reads, reels.length + regular.length);
     }
-    const picked = mixBuckets(rankedReels, rankedRegular, input.limit);
+    const initialCandidates = dedupeByPostId([...reels, ...regular]);
+    const initialServed = await this.repository.fetchServedPostIds(viewerId, initialCandidates.map((c) => c.postId));
+    const servedAll = new Set(initialServed);
+    queryCountEstimate += Math.ceil(initialCandidates.length / 30);
+    readEstimate += initialCandidates.length;
+    let servedCheckedCount = initialCandidates.length;
+    let servedDroppedCount = initialCandidates.filter((c) => initialServed.has(c.postId)).length;
+    const unseenReels = reels.filter((c) => !initialServed.has(c.postId)).map((row) => ({ ...row, sourceBucket: "reel" as const }));
+    const unseenRegular = regular.filter((c) => !initialServed.has(c.postId)).map((row) => ({ ...row, sourceBucket: "regular" as const }));
+    let fallbackRegular: ForYouCandidate[] = [];
+    let picked = mixBuckets(unseenReels, unseenRegular, input.limit);
+    if (picked.length < input.limit && !budgetCapped) {
+      const lastRegular = regular[regular.length - 1];
+      const fallbackRes = await this.repository.fetchRegularWindow({ limit: regularFallbackLimit, cursorTime: lastRegular?.createdAtMs ?? cursor.regularCursorTime, cursorPostId: lastRegular?.postId ?? cursor.regularCursorPostId });
+      fallbackRegular = fallbackRes.candidates;
+      consume(fallbackRes.queries, fallbackRes.reads, reels.length + regular.length + fallbackRegular.length);
+      const fallbackServed = await this.repository.fetchServedPostIds(viewerId, fallbackRegular.map((c) => c.postId));
+      for (const postId of fallbackServed) servedAll.add(postId);
+      queryCountEstimate += Math.ceil(fallbackRegular.length / 30);
+      readEstimate += fallbackRegular.length;
+      servedCheckedCount += fallbackRegular.length;
+      servedDroppedCount += fallbackRegular.filter((c) => fallbackServed.has(c.postId)).length;
+      const unseenFallback = fallbackRegular.filter((c) => !fallbackServed.has(c.postId)).map((row) => ({ ...row, sourceBucket: "regular" as const }));
+      picked = mixBuckets(unseenReels, dedupeRanked([...unseenRegular, ...unseenFallback]), input.limit);
+    }
+    if (picked.length < input.limit) {
+      picked = [...picked, ...buildRecyclePool([...reels, ...regular, ...fallbackRegular], picked.map((p) => p.postId), servedAll, input.limit - picked.length)];
+    }
+    picked = dedupeRanked(picked).slice(0, input.limit);
     const postCards = enforceAuthorDiversity(picked).map((item, index) => toPostCard(item, viewerId, index, requestId));
-
-    const servedWrites: ForYouServedWriteRecord[] = picked.map((item, index) => ({
-      postId: item.postId,
-      servedAt: Date.now(),
-      feedSurface: "home_for_you",
-      feedRequestId: requestId,
-      rank: index + 1,
-      sourceBucket: item.sourceBucket,
-      authorId: item.authorId,
-      reel: item.reel
-    }));
+    const servedWrites: ForYouServedWriteRecord[] = picked.map((item, index) => ({ postId: item.postId, servedAt: Date.now(), feedSurface: "home_for_you", feedRequestId: requestId, rank: index + 1, sourceBucket: item.sourceBucket, authorId: item.authorId, reel: item.reel }));
     let servedWriteCount = 0;
     let servedWriteOk = true;
     try {
       servedWriteCount = await this.repository.writeServedPosts(viewerId, servedWrites);
     } catch (error) {
       servedWriteOk = false;
-      console.error("[feed-for-you][served-write-failed]", {
-        requestId,
-        viewerId,
-        returnedPostIds: picked.map((item) => item.postId),
-        error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error)
-      });
+      console.error("[feed-for-you][served-write-failed]", { requestId, viewerId, returnedPostIds: picked.map((item) => item.postId), error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) });
     }
-
-    const sourceMix = picked.reduce(
-      (acc, row) => {
-        acc[row.sourceBucket] += 1;
-        return acc;
-      },
-      { reel: 0, regular: 0, fallback: 0 } as Record<ForYouSourceBucket, number>
-    );
-    const nextCursorState: ForYouCursorState = {
-      page: cursor.page + 1,
-      reelOffset: (cursor.page + 1) * oversampleLimit,
-      regularOffset: (cursor.page + 1) * oversampleLimit
-    };
-    const exhausted = postCards.length === 0 && sourceExhausted;
-
-    return {
-      requestId,
-      items: postCards,
-      nextCursor: exhausted ? null : encodeCursor(nextCursorState),
-      exhausted,
-      debug: {
-        requestId,
-        viewerId,
-        requestedLimit: input.limit,
-        returnedCount: postCards.length,
-        reelCandidateCount: rankedReels.length,
-        regularCandidateCount: rankedRegular.length,
-        servedWriteCount,
-        servedWriteOk,
-        sourceMix: {
-          reel: sourceMix.reel,
-          regular: sourceMix.regular,
-          fallback: sourceMix.fallback
-        },
-        latencyMs: Date.now() - started,
-        readEstimate: scannedReads,
-        rankingVersion: RANKING_VERSION,
-        cursorInfo: nextCursorState
-      }
-    };
+    const sourceMix = picked.reduce((acc, row) => { acc[row.sourceBucket] += 1; return acc; }, { reel: 0, regular: 0, fallback: 0 } as Record<ForYouSourceBucket, number>);
+    const lastReel = reels[reels.length - 1];
+    const allRegular = [...regular, ...fallbackRegular];
+    const lastRegular = allRegular[allRegular.length - 1];
+    const nextCursorState: ForYouCursorState = { page: cursor.page + 1, reelCursorTime: lastReel?.createdAtMs ?? cursor.reelCursorTime, reelCursorPostId: lastReel?.postId ?? cursor.reelCursorPostId, regularCursorTime: lastRegular?.createdAtMs ?? cursor.regularCursorTime, regularCursorPostId: lastRegular?.postId ?? cursor.regularCursorPostId, recycleMode: sourceMix.fallback > 0 };
+    const exhausted = postCards.length === 0 && !reelRes.hasMore && !regularHasMore;
+    return { requestId, items: postCards, nextCursor: exhausted ? null : encodeCursor(nextCursorState), exhausted, debug: { requestId, viewerId, requestedLimit: input.limit, returnedCount: postCards.length, reelCount: sourceMix.reel, regularCount: sourceMix.regular, recycledCount: sourceMix.fallback, candidateWindowSizes: { reels: reels.length, regular: regular.length, regularFallback: fallbackRegular.length }, servedCheckedCount, servedDroppedCount, servedWriteCount, servedWriteOk, queryCountEstimate, budgetCapped, latencyMs: Date.now() - started, readEstimate, rankingVersion: RANKING_VERSION, emptyReason: postCards.length > 0 ? null : exhausted ? "no_eligible_visible_posts" : "budget_or_cursor_exhausted", cursorInfo: nextCursorState } };
   }
 }
 
@@ -207,25 +133,6 @@ function toPostCard(candidate: RankedCandidate, _viewerId: string, idx: number, 
     createdAtMs: candidate.createdAtMs,
     updatedAtMs: candidate.updatedAtMs
   };
-}
-
-function rankCandidates(candidates: ForYouCandidate[], viewerId: string, bucket: "reel" | "regular"): RankedCandidate[] {
-  const now = Date.now();
-  return candidates
-    .map((candidate) => {
-      const ageHours = Math.max(1, (now - candidate.createdAtMs) / (1000 * 60 * 60));
-      const recencyScore = 1000 / ageHours;
-      const reelBoost = candidate.reel ? 500 : 0;
-      const engagementScore = Math.log10(1 + candidate.likeCount + candidate.commentCount * 2) * 20;
-      const tieBreaker = hash(`${viewerId}:${candidate.postId}`) % 1000;
-      const sourceBias = bucket === "reel" ? 150 : 20;
-      return {
-        ...candidate,
-        sourceBucket: bucket,
-        score: reelBoost + recencyScore + engagementScore + sourceBias + tieBreaker / 1000
-      };
-    })
-    .sort((a, b) => (b.score === a.score ? a.postId.localeCompare(b.postId) : b.score - a.score));
 }
 
 function mixBuckets(reels: RankedCandidate[], regular: RankedCandidate[], limit: number): RankedCandidate[] {
@@ -274,27 +181,55 @@ function encodeCursor(state: ForYouCursorState): string {
 }
 
 function decodeCursor(cursor: string | null): ForYouCursorState {
-  if (!cursor) return { page: 0, reelOffset: 0, regularOffset: 0 };
+  if (!cursor) return { page: 0, reelCursorTime: null, reelCursorPostId: null, regularCursorTime: null, regularCursorPostId: null, recycleMode: false };
   const normalized = cursor.trim();
   if (!normalized.startsWith("fy:")) throw new Error("invalid_feed_for_you_cursor");
+  if (normalized.startsWith(LEGACY_CURSOR_PREFIX)) {
+    return { page: 0, reelCursorTime: null, reelCursorPostId: null, regularCursorTime: null, regularCursorPostId: null, recycleMode: false };
+  }
   if (!normalized.startsWith(CURSOR_PREFIX)) throw new Error("unsupported_feed_for_you_cursor_version");
   try {
     const raw = Buffer.from(normalized.slice(CURSOR_PREFIX.length), "base64url").toString("utf8");
     const parsed = JSON.parse(raw) as Partial<ForYouCursorState>;
     const page = Number(parsed.page);
-    const reelOffset = Number(parsed.reelOffset ?? 0);
-    const regularOffset = Number(parsed.regularOffset ?? 0);
-    if (![page, reelOffset, regularOffset].every((n) => Number.isFinite(n) && n >= 0)) {
-      throw new Error("invalid_feed_for_you_cursor");
-    }
-    return { page: Math.floor(page), reelOffset: Math.floor(reelOffset), regularOffset: Math.floor(regularOffset) };
+    if (!Number.isFinite(page) || page < 0) throw new Error("invalid_feed_for_you_cursor");
+    const reelCursorTime = parsed.reelCursorTime == null ? null : Number(parsed.reelCursorTime);
+    const regularCursorTime = parsed.regularCursorTime == null ? null : Number(parsed.regularCursorTime);
+    return { page: Math.floor(page), reelCursorTime: Number.isFinite(reelCursorTime) ? reelCursorTime : null, reelCursorPostId: typeof parsed.reelCursorPostId === "string" ? parsed.reelCursorPostId : null, regularCursorTime: Number.isFinite(regularCursorTime) ? regularCursorTime : null, regularCursorPostId: typeof parsed.regularCursorPostId === "string" ? parsed.regularCursorPostId : null, recycleMode: parsed.recycleMode === true };
   } catch {
     throw new Error("invalid_feed_for_you_cursor");
   }
 }
 
-function hash(seed: string): number {
-  let n = 0;
-  for (let i = 0; i < seed.length; i += 1) n = (n * 33 + seed.charCodeAt(i)) >>> 0;
-  return n;
+function dedupeByPostId(candidates: ForYouCandidate[]): ForYouCandidate[] {
+  const seen = new Set<string>();
+  const out: ForYouCandidate[] = [];
+  for (const row of candidates) {
+    if (seen.has(row.postId)) continue;
+    seen.add(row.postId);
+    out.push(row);
+  }
+  return out;
+}
+
+function dedupeRanked(candidates: RankedCandidate[]): RankedCandidate[] {
+  const seen = new Set<string>();
+  const out: RankedCandidate[] = [];
+  for (const row of candidates) {
+    if (seen.has(row.postId)) continue;
+    seen.add(row.postId);
+    out.push(row);
+  }
+  return out;
+}
+
+function buildRecyclePool(allCandidates: ForYouCandidate[], alreadyPickedIds: string[], served: Set<string>, needed: number): RankedCandidate[] {
+  if (needed <= 0) return [];
+  const picked = new Set(alreadyPickedIds);
+  return allCandidates
+    .filter((c) => served.has(c.postId))
+    .filter((c) => !picked.has(c.postId))
+    .sort((a, b) => (a.createdAtMs === b.createdAtMs ? a.postId.localeCompare(b.postId) : a.createdAtMs - b.createdAtMs))
+    .slice(0, needed)
+    .map((row) => ({ ...row, sourceBucket: "fallback" as const }));
 }

@@ -16,22 +16,31 @@ export const FeedForYouDebugSchema = z.object({
   viewerId: z.string(),
   requestedLimit: z.number().int().positive(),
   returnedCount: z.number().int().nonnegative(),
-  reelCandidateCount: z.number().int().nonnegative(),
-  regularCandidateCount: z.number().int().nonnegative(),
+  reelCount: z.number().int().nonnegative(),
+  regularCount: z.number().int().nonnegative(),
+  recycledCount: z.number().int().nonnegative(),
+  candidateWindowSizes: z.object({
+    reels: z.number().int().nonnegative(),
+    regular: z.number().int().nonnegative(),
+    regularFallback: z.number().int().nonnegative()
+  }),
+  servedCheckedCount: z.number().int().nonnegative(),
+  servedDroppedCount: z.number().int().nonnegative(),
   servedWriteCount: z.number().int().nonnegative(),
   servedWriteOk: z.boolean(),
-  sourceMix: z.object({
-    reel: z.number().int().nonnegative(),
-    regular: z.number().int().nonnegative(),
-    fallback: z.number().int().nonnegative()
-  }),
+  queryCountEstimate: z.number().int().nonnegative(),
+  budgetCapped: z.boolean(),
   latencyMs: z.number().nonnegative(),
   readEstimate: z.number().int().nonnegative(),
   rankingVersion: z.string(),
+  emptyReason: z.string().nullable(),
   cursorInfo: z.object({
     page: z.number().int().nonnegative(),
-    reelOffset: z.number().int().nonnegative(),
-    regularOffset: z.number().int().nonnegative()
+    reelCursorTime: z.number().nullable(),
+    reelCursorPostId: z.string().nullable(),
+    regularCursorTime: z.number().nullable(),
+    regularCursorPostId: z.string().nullable(),
+    recycleMode: z.boolean().optional()
   })
 });
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FeedForYouService } from "./feed-for-you.service.js";
-import type { ForYouCandidate, ForYouCursorState, ForYouServedWriteRecord } from "../../repositories/surfaces/feed-for-you.repository.js";
+import type { ForYouCandidate, ForYouServedWriteRecord } from "../../repositories/surfaces/feed-for-you.repository.js";
 
 class FakeRepo {
   constructor(
@@ -9,13 +9,15 @@ class FakeRepo {
   ) {}
   servedByViewer = new Map<string, Set<string>>();
   writes = 0;
-  async fetchUnservedReelCandidates(_viewerId: string, _limit: number, cursor: ForYouCursorState) {
-    const candidates = this.reels.slice(cursor.reelOffset, cursor.reelOffset + 40);
-    return { candidates, reads: 10, queries: 1, hasMore: cursor.reelOffset + 40 < this.reels.length };
+  async fetchReelWindow(input: { limit: number; cursorPostId: string | null }) {
+    const start = input.cursorPostId ? Math.max(this.reels.findIndex((r) => r.postId === input.cursorPostId) + 1, 0) : 0;
+    const candidates = this.reels.slice(start, start + input.limit);
+    return { candidates, reads: candidates.length, queries: 1, hasMore: start + input.limit < this.reels.length };
   }
-  async fetchUnservedRegularCandidates(_viewerId: string, _limit: number, cursor: ForYouCursorState) {
-    const candidates = this.regular.slice(cursor.regularOffset, cursor.regularOffset + 40);
-    return { candidates, reads: 10, queries: 1, hasMore: cursor.regularOffset + 40 < this.regular.length };
+  async fetchRegularWindow(input: { limit: number; cursorPostId: string | null }) {
+    const start = input.cursorPostId ? Math.max(this.regular.findIndex((r) => r.postId === input.cursorPostId) + 1, 0) : 0;
+    const candidates = this.regular.slice(start, start + input.limit);
+    return { candidates, reads: candidates.length, queries: 1, hasMore: start + input.limit < this.regular.length };
   }
   async fetchServedPostIds(viewerId: string, candidatePostIds: string[]) {
     const seen = this.servedByViewer.get(viewerId) ?? new Set<string>();
@@ -56,7 +58,7 @@ function candidate(idx: number, input: Partial<ForYouCandidate> = {}): ForYouCan
 }
 
 describe("feed for you service", () => {
-  it("favors reels, avoids duplicates, persists served, and paginates deterministically", async () => {
+  it("favors reels, writes served records, and paginates without overlap", async () => {
     const reels = Array.from({ length: 30 }, (_, i) => candidate(i + 1, { reel: true }));
     const regular = Array.from({ length: 30 }, (_, i) => candidate(200 + i, { reel: false, mediaType: "image" }));
     const repo = new FakeRepo(reels, regular);
@@ -81,6 +83,7 @@ describe("feed for you service", () => {
     const overlap = second.items.filter((item) => first.items.some((p) => p.postId === item.postId));
     expect(overlap.length).toBe(0);
     expect(second.debug.cursorInfo.page).toBe(2);
+    expect(first.debug.rankingVersion).toBe("fast-reel-first-v2");
   });
 
   it("keeps served scope per viewer", async () => {
@@ -97,7 +100,7 @@ describe("feed for you service", () => {
     expect(overlap.length).toBeGreaterThan(0);
   });
 
-  it("falls back to regular then empty state when exhausted", async () => {
+  it("recycles real posts when viewer exhausted instead of empty page", async () => {
     const reels = Array.from({ length: 3 }, (_, i) => candidate(i + 1, { reel: true }));
     const regular = Array.from({ length: 4 }, (_, i) => candidate(100 + i, { reel: false, mediaType: "image" }));
     const repo = new FakeRepo(reels, regular);
@@ -105,15 +108,13 @@ describe("feed for you service", () => {
 
     const first = await service.getForYouPage({ viewerId: "viewer", limit: 6, cursor: null, debug: true });
     expect(first.items.length).toBe(6);
-    const second = await service.getForYouPage({ viewerId: "viewer", limit: 6, cursor: first.nextCursor, debug: true });
-    expect(second.items.length).toBeGreaterThanOrEqual(0);
-    if (second.items.length === 0) {
-      expect(second.exhausted).toBe(true);
-      expect(second.nextCursor).toBeNull();
-    }
+    await service.getForYouPage({ viewerId: "viewer", limit: 6, cursor: first.nextCursor, debug: true });
+    const third = await service.getForYouPage({ viewerId: "viewer", limit: 6, cursor: null, debug: true });
+    expect(third.items.length).toBeGreaterThan(0);
+    expect(third.debug.recycledCount).toBeGreaterThanOrEqual(1);
   });
 
-  it("keeps author diversity observable in debug metadata", async () => {
+  it("keeps author diversity observable in returned ordering", async () => {
     const reels = [
       candidate(1, { authorId: "same", reel: true }),
       candidate(2, { authorId: "same", reel: true }),
@@ -135,8 +136,15 @@ describe("feed for you service", () => {
     await expect(service.getForYouPage({ viewerId: "v", limit: 8, cursor: "bad", debug: true })).rejects.toThrow(
       "invalid_feed_for_you_cursor"
     );
-    await expect(service.getForYouPage({ viewerId: "v", limit: 8, cursor: "fy:v2:abc", debug: true })).rejects.toThrow(
+    await expect(service.getForYouPage({ viewerId: "v", limit: 8, cursor: "fy:v9:abc", debug: true })).rejects.toThrow(
       "unsupported_feed_for_you_cursor_version"
     );
+  });
+
+  it("accepts legacy fy:v1 cursor without crashing", async () => {
+    const repo = new FakeRepo([candidate(1, { reel: true })], [candidate(100, { reel: false })]);
+    const service = new FeedForYouService(repo as never);
+    const page = await service.getForYouPage({ viewerId: "v", limit: 4, cursor: "fy:v1:eyJwYWdlIjoxfQ", debug: true });
+    expect(page.items.length).toBeGreaterThan(0);
   });
 });

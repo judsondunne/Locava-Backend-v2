@@ -227,7 +227,7 @@ describe.runIf(isEmulator)("v2 feed for-you route (emulator)", () => {
     expect(p1.items.every((item) => [...inventory.reelIds, ...inventory.regularIds].includes(item.postId))).toBe(true);
   });
 
-  it("falls back to regular when reels are exhausted and reports truthful empty exhausted state", async () => {
+  it("falls back to regular and recycles real posts when exhausted", async () => {
     const seedKey = `feedforyou-exhaust-${Date.now()}`;
     await seedForYouInventory(seedKey);
     const db = getFirestoreSourceClient();
@@ -255,16 +255,19 @@ describe.runIf(isEmulator)("v2 feed for-you route (emulator)", () => {
     const exhaustedViewer = `${seedKey}-viewer-exhausted`;
     await markTopPostsServed(exhaustedViewer, 260);
 
-    const empty = await app.inject({
+    const recycled = await app.inject({
       method: "GET",
       url: `/v2/feed/for-you?limit=12&debug=1`,
       headers: { ...headers, "x-viewer-id": exhaustedViewer }
     });
-    expect(empty.statusCode).toBe(200);
-    const emptyData = empty.json().data as { items: unknown[]; nextCursor: string | null; exhausted: boolean };
-    expect(emptyData.items).toEqual([]);
-    expect(emptyData.nextCursor).toBeNull();
-    expect(emptyData.exhausted).toBe(true);
+    expect(recycled.statusCode).toBe(200);
+    const recycledData = recycled.json().data as {
+      items: Array<{ postId: string }>;
+      debug?: { recycledCount?: number; rankingVersion?: string };
+    };
+    expect(recycledData.items.length).toBeGreaterThan(0);
+    expect(Number(recycledData.debug?.recycledCount ?? 0)).toBeGreaterThan(0);
+    expect(String(recycledData.debug?.rankingVersion ?? "")).toBe("fast-reel-first-v2");
   });
 
   it("returns clean 400 for malformed and unsupported cursors", async () => {
@@ -272,7 +275,7 @@ describe.runIf(isEmulator)("v2 feed for-you route (emulator)", () => {
     const cases = [
       { cursor: "not-a-cursor", expectedCode: "invalid_cursor" },
       { cursor: "fy:v1:not_base64%%", expectedCode: "invalid_cursor" },
-      { cursor: "fy:v2:eyJwYWdlIjoxfQ", expectedCode: "unsupported_cursor_version" },
+      { cursor: "fy:v9:eyJwYWdlIjoxfQ", expectedCode: "unsupported_cursor_version" },
       { cursor: "cursor:legacy", expectedCode: "invalid_cursor" }
     ];
 

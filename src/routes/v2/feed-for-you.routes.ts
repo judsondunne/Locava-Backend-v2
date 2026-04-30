@@ -18,12 +18,36 @@ export async function registerV2FeedForYouRoutes(app: FastifyInstance): Promise<
     setRouteName(feedForYouContract.routeName);
     const viewerId = query.viewerId?.trim() || viewer.viewerId;
     try {
+      const startedAt = Date.now();
       const payload = await orchestrator.run({
         viewerId,
         limit: query.limit,
         cursor: query.cursor ?? null,
         debug: query.debug === "1" || query.debug === "true"
       });
+      request.log.info(
+        {
+          event: "feed_for_you_fast_summary",
+          requestId: payload.requestId,
+          viewerId,
+          latencyMs: Date.now() - startedAt,
+          returnedCount: payload.items.length,
+          reelCount: Number(payload.debug?.reelCount ?? 0),
+          regularCount: Number(payload.debug?.regularCount ?? 0),
+          recycledCount: Number(payload.debug?.recycledCount ?? 0),
+          candidateDocsFetched:
+            Number(payload.debug?.candidateWindowSizes?.reels ?? 0) +
+            Number(payload.debug?.candidateWindowSizes?.regular ?? 0) +
+            Number(payload.debug?.candidateWindowSizes?.regularFallback ?? 0),
+          servedDocsChecked: Number(payload.debug?.servedCheckedCount ?? 0),
+          servedDropped: Number(payload.debug?.servedDroppedCount ?? 0),
+          budgetCapped: Boolean(payload.debug?.budgetCapped ?? false),
+          servedWriteCount: Number(payload.debug?.servedWriteCount ?? 0),
+          servedWriteOk: Boolean(payload.debug?.servedWriteOk ?? false),
+          rankingVersion: String(payload.debug?.rankingVersion ?? "unknown")
+        },
+        "feed for-you summary"
+      );
       return success(payload);
     } catch (error) {
       if (error instanceof Error && error.message === "invalid_feed_for_you_cursor") {
