@@ -55,6 +55,13 @@ export type ContactSyncDiagnostics = {
   matchedByPhoneLast10Count: number;
   matchedByPhoneSearchKeysCount: number;
   matchedByEmailCount: number;
+  matchedByLegacyNumberCount: number;
+  matchedByLegacyPhoneNumberCount: number;
+  matchedByLegacyPhoneCount: number;
+  matchedByLegacyPhoneNumberUnderscoreCount: number;
+  lazyPhoneRepairsQueued: number;
+  lazyPhoneRepairsSucceeded: number;
+  usersMissingCanonicalPhoneFields: number;
   finalMatchedUserIds: string[];
   unmatchedContactPhonesSample: string[];
   matchedUsers: Array<{
@@ -65,6 +72,7 @@ export type ContactSyncDiagnostics = {
       phone: string | null;
       phone_number: string | null;
       number: string | null;
+      contactPhone: string | null;
       phoneLast10: string | null;
       phoneE164: string | null;
       phoneDigits: string | null;
@@ -88,6 +96,17 @@ const MAX_CONTACT_SYNC_PHONE_CHUNKS = 12;
 const MAX_CONTACT_SYNC_EMAIL_CHUNKS = 8; // 8 queries max
 
 const CONTACT_REASON_LABEL = "In your contacts";
+const LEGACY_PHONE_QUERY_FIELDS = [
+  "number",
+  "phoneNumber",
+  "phone",
+  "phone_number",
+  "contactPhone",
+  "phoneE164",
+  "phoneDigits",
+] as const;
+
+export type LegacyPhoneField = (typeof LEGACY_PHONE_QUERY_FIELDS)[number];
 
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
@@ -98,6 +117,39 @@ function redactPhone(value: unknown): string | null {
   const digits = digitsOnly(value);
   if (!digits) return null;
   return `***${digits.slice(-4)}`;
+}
+
+function formatAsUsPhone(ten: string): string {
+  return `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}`;
+}
+
+export function buildContactPhoneVariants(raw: string): {
+  raw: string;
+  variants: string[];
+  phoneLast10: string | null;
+} {
+  const normalized = normalizePhoneForSearch(raw);
+  if (!normalized.raw) {
+    return { raw: "", variants: [], phoneLast10: null };
+  }
+  const variants = new Set<string>();
+  variants.add(normalized.raw);
+  normalized.queryKeys.forEach((key) => variants.add(key));
+
+  if (normalized.phoneLast10) {
+    const ten = normalized.phoneLast10;
+    variants.add(ten);
+    variants.add(`1${ten}`);
+    variants.add(`+1${ten}`);
+    variants.add(formatAsUsPhone(ten));
+    variants.add(`${ten.slice(0, 3)}-${ten.slice(3, 6)}-${ten.slice(6)}`);
+    variants.add(`${ten.slice(0, 3)}.${ten.slice(3, 6)}.${ten.slice(6)}`);
+  }
+  return {
+    raw: normalized.raw,
+    variants: [...variants].filter((value) => value.trim().length > 0),
+    phoneLast10: normalized.phoneLast10,
+  };
 }
 
 const runtimeEnv = loadEnv();
@@ -214,20 +266,25 @@ export class SuggestedFriendsRepository {
     const viewerGraph = await this.loadViewerGraph(input.viewerId);
     const phoneLast10Set = new Set<string>();
     const phoneSearchKeysSet = new Set<string>();
+    const legacyPhoneQuerySet = new Set<string>();
     const addressBookPhonesCanonical = new Set<string>();
     const emailSet = new Set<string>();
     const rawPhoneSet = new Set<string>();
     for (const contact of input.contacts) {
       for (const phone of contact.phoneNumbers ?? []) {
-        const normalized = normalizePhoneForSearch(phone);
-        if (!normalized.raw) continue;
-        rawPhoneSet.add(normalized.raw);
-        normalized.queryKeys.forEach((key) => phoneSearchKeysSet.add(key));
-        if (normalized.phoneLast10) {
-          phoneLast10Set.add(normalized.phoneLast10);
-          addressBookPhonesCanonical.add(normalized.phoneLast10);
-        } else if (normalized.digits) {
-          addressBookPhonesCanonical.add(normalized.digits);
+        const built = buildContactPhoneVariants(phone);
+        if (!built.raw) continue;
+        rawPhoneSet.add(built.raw);
+        built.variants.forEach((key) => {
+          legacyPhoneQuerySet.add(key);
+          phoneSearchKeysSet.add(key);
+        });
+        if (built.phoneLast10) {
+          phoneLast10Set.add(built.phoneLast10);
+          addressBookPhonesCanonical.add(built.phoneLast10);
+        } else {
+          const digits = digitsOnly(built.raw);
+          if (digits) addressBookPhonesCanonical.add(digits);
         }
       }
       for (const email of contact.emails ?? []) {
@@ -253,6 +310,13 @@ export class SuggestedFriendsRepository {
           matchedByPhoneLast10Count: 0,
           matchedByPhoneSearchKeysCount: 0,
           matchedByEmailCount: 0,
+          matchedByLegacyNumberCount: 0,
+          matchedByLegacyPhoneNumberCount: 0,
+          matchedByLegacyPhoneCount: 0,
+          matchedByLegacyPhoneNumberUnderscoreCount: 0,
+          lazyPhoneRepairsQueued: 0,
+          lazyPhoneRepairsSucceeded: 0,
+          usersMissingCanonicalPhoneFields: 0,
           finalMatchedUserIds: [],
           unmatchedContactPhonesSample: [],
           matchedUsers: [],
@@ -265,8 +329,18 @@ export class SuggestedFriendsRepository {
     const matchedByPhoneLast10 = new Set<string>();
     const matchedByPhoneSearchKeys = new Set<string>();
     const emailMatchedUserIds = new Set<string>();
+    const matchedByLegacyField: Record<LegacyPhoneField, Set<string>> = {
+      number: new Set(),
+      phoneNumber: new Set(),
+      phone: new Set(),
+      phone_number: new Set(),
+      contactPhone: new Set(),
+      phoneE164: new Set(),
+      phoneDigits: new Set(),
+    };
     const phoneLast10List = [...phoneLast10Set];
     const phoneSearchKeysList = [...phoneSearchKeysSet];
+    const legacyPhoneList = [...legacyPhoneQuerySet];
     const emailList = [...emailSet];
     const phoneSelectFields = [
       "handle",
@@ -278,6 +352,7 @@ export class SuggestedFriendsRepository {
       "phone",
       "phone_number",
       "number",
+      "contactPhone",
       "phoneLast10",
       "phoneE164",
       "phoneDigits",
@@ -295,6 +370,11 @@ export class SuggestedFriendsRepository {
       const chunk = phoneSearchKeysList.slice(i, i + 10);
       if (chunk.length > 0) phoneSearchKeysChunks.push(chunk);
     }
+    const legacyPhoneChunks: string[][] = [];
+    for (let i = 0; i < legacyPhoneList.length; i += 10) {
+      const chunk = legacyPhoneList.slice(i, i + 10);
+      if (chunk.length > 0) legacyPhoneChunks.push(chunk);
+    }
     const emailChunks: string[][] = [];
     for (let i = 0; i < emailList.length; i += 10) {
       const chunk = emailList.slice(i, i + 10);
@@ -309,12 +389,14 @@ export class SuggestedFriendsRepository {
         storedPhoneFields: ContactSyncDiagnostics["matchedUsers"][number]["storedPhoneFields"];
       }
     >();
+    const lazyRepairByUser = new Map<string, Record<string, unknown>>();
     const matchedPhonesFromUsers = new Set<string>();
 
     const ingestMatchedDoc = (
       doc: { id: string; data: () => Record<string, unknown> },
       matchedKey: string,
-      source: "phoneLast10" | "phoneSearchKeys" | "email"
+      source: "phoneLast10" | "phoneSearchKeys" | "email" | "legacy",
+      options?: { matchedField?: LegacyPhoneField; matchedValue?: string }
     ): void => {
       if (doc.id === input.viewerId) return;
       const docData = doc.data() as Record<string, unknown>;
@@ -337,6 +419,7 @@ export class SuggestedFriendsRepository {
         phone: typeof docData.phone === "string" ? docData.phone : null,
         phone_number: typeof docData.phone_number === "string" ? docData.phone_number : null,
         number: typeof docData.number === "string" ? docData.number : null,
+        contactPhone: typeof docData.contactPhone === "string" ? docData.contactPhone : null,
         phoneLast10: typeof docData.phoneLast10 === "string" ? docData.phoneLast10 : null,
         phoneE164: typeof docData.phoneE164 === "string" ? docData.phoneE164 : null,
         phoneDigits: typeof docData.phoneDigits === "string" ? docData.phoneDigits : null,
@@ -346,6 +429,30 @@ export class SuggestedFriendsRepository {
       if (source === "phoneLast10") matchedByPhoneLast10.add(doc.id);
       if (source === "phoneSearchKeys") matchedByPhoneSearchKeys.add(doc.id);
       if (source === "email") emailMatchedUserIds.add(doc.id);
+      if (source === "legacy" && options?.matchedField) matchedByLegacyField[options.matchedField].add(doc.id);
+
+      if (
+        source === "legacy" &&
+        (!storedPhoneFields.phoneLast10 || !storedPhoneFields.phoneDigits || !storedPhoneFields.phoneE164)
+      ) {
+        const candidateSource =
+          storedPhoneFields.phoneNumber ??
+          storedPhoneFields.phone ??
+          storedPhoneFields.phone_number ??
+          storedPhoneFields.number ??
+          (typeof options?.matchedValue === "string" ? options.matchedValue : null) ??
+          "";
+        const normalized = normalizePhoneForSearch(candidateSource);
+        if (normalized.digits) {
+          const patch: Record<string, unknown> = {
+            phoneDigits: normalized.digits,
+            phoneSearchKeys: normalized.queryKeys,
+          };
+          if (normalized.phoneLast10) patch.phoneLast10 = normalized.phoneLast10;
+          if (normalized.phoneE164) patch.phoneE164 = normalized.phoneE164;
+          lazyRepairByUser.set(doc.id, patch);
+        }
+      }
 
       for (const raw of Object.values(storedPhoneFields)) {
         const digits = typeof raw === "string" ? digitsOnly(raw) : "";
@@ -360,14 +467,39 @@ export class SuggestedFriendsRepository {
       const q = await this.db!.collection("users").where("phoneLast10", "in", chunk).select(...phoneSelectFields).get();
       incrementDbOps("queries", 1);
       incrementDbOps("reads", q.size);
-      q.docs.forEach((doc) => ingestMatchedDoc(doc, `phoneLast10:${chunk.join(",")}`, "phoneLast10"));
+      q.docs.forEach((doc) => {
+        const docData = doc.data() as Record<string, unknown>;
+        const value =
+          typeof docData.phoneLast10 === "string" && chunk.includes(docData.phoneLast10)
+            ? docData.phoneLast10
+            : chunk[0] ?? "";
+        ingestMatchedDoc(doc, `phoneLast10:${value}`, "phoneLast10");
+      });
     };
 
     const runPhoneSearchKeysChunk = async (chunk: string[]): Promise<void> => {
       const q = await this.db!.collection("users").where("phoneSearchKeys", "array-contains-any", chunk).select(...phoneSelectFields).get();
       incrementDbOps("queries", 1);
       incrementDbOps("reads", q.size);
-      q.docs.forEach((doc) => ingestMatchedDoc(doc, `phoneSearchKeys:${chunk.join(",")}`, "phoneSearchKeys"));
+      q.docs.forEach((doc) => {
+        const docData = doc.data() as Record<string, unknown>;
+        const keys = Array.isArray(docData.phoneSearchKeys)
+          ? docData.phoneSearchKeys.filter((v): v is string => typeof v === "string")
+          : [];
+        const matched = keys.find((value) => chunk.includes(value)) ?? chunk[0] ?? "";
+        ingestMatchedDoc(doc, `phoneSearchKeys:${matched}`, "phoneSearchKeys");
+      });
+    };
+
+    const runLegacyFieldChunk = async (field: LegacyPhoneField, chunk: string[]): Promise<void> => {
+      const q = await this.db!.collection("users").where(field, "in", chunk).select(...phoneSelectFields).get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", q.size);
+      q.docs.forEach((doc) => {
+        const docData = doc.data() as Record<string, unknown>;
+        const matchedValue = typeof docData[field] === "string" && chunk.includes(docData[field] as string) ? (docData[field] as string) : chunk[0] ?? "";
+        ingestMatchedDoc(doc, `legacy:${field}:${matchedValue}`, "legacy", { matchedField: field, matchedValue });
+      });
     };
 
     const runEmailChunk = async (
@@ -382,19 +514,42 @@ export class SuggestedFriendsRepository {
       incrementDbOps("reads", q.size);
       q.docs.forEach((doc) => {
         if (doc.id === input.viewerId) return;
-        ingestMatchedDoc(doc, `email:${chunk.join(",")}`, "email");
+        const data = doc.data() as Record<string, unknown>;
+        const email = typeof data.email === "string" ? normalizeEmail(data.email) : chunk[0] ?? "";
+        ingestMatchedDoc(doc, `email:${email}`, "email");
       });
     };
 
     const boundedPhoneLast10Chunks = phoneLast10Chunks.slice(0, MAX_CONTACT_SYNC_PHONE_CHUNKS);
     const boundedPhoneSearchKeysChunks = phoneSearchKeysChunks.slice(0, MAX_CONTACT_SYNC_PHONE_CHUNKS);
+    const boundedLegacyPhoneChunks = legacyPhoneChunks.slice(0, MAX_CONTACT_SYNC_PHONE_CHUNKS);
     const boundedEmailChunks = emailChunks.slice(0, MAX_CONTACT_SYNC_EMAIL_CHUNKS);
     // Keep contact sync bounded so it never overloads launch-critical routes.
     await Promise.all([
       Promise.all(boundedPhoneLast10Chunks.map((c) => runPhoneLast10Chunk(c))),
       Promise.all(boundedPhoneSearchKeysChunks.map((c) => runPhoneSearchKeysChunk(c))),
+      Promise.all(
+        LEGACY_PHONE_QUERY_FIELDS.flatMap((field) =>
+          boundedLegacyPhoneChunks.map((chunk) => runLegacyFieldChunk(field, chunk))
+        )
+      ),
       Promise.all(boundedEmailChunks.map((c) => runEmailChunk(c)))
     ]);
+
+    let lazyPhoneRepairsSucceeded = 0;
+    if (lazyRepairByUser.size > 0) {
+      const writes = [...lazyRepairByUser.entries()].map(async ([userId, patch]) => {
+        try {
+          await this.db!.collection("users").doc(userId).set(patch, { merge: true });
+          return true;
+        } catch {
+          return false;
+        }
+      });
+      const outcomes = await Promise.all(writes);
+      lazyPhoneRepairsSucceeded = outcomes.filter(Boolean).length;
+      incrementDbOps("writes", lazyPhoneRepairsSucceeded);
+    }
 
     const matchedUsers = [...matchesByUser.values()].sort((a, b) => a.userId.localeCompare(b.userId));
     const unmatchedContactPhonesSample = [...rawPhoneSet]
@@ -417,6 +572,7 @@ export class SuggestedFriendsRepository {
             phone: redactPhone(detail.storedPhoneFields.phone),
             phone_number: redactPhone(detail.storedPhoneFields.phone_number),
             number: redactPhone(detail.storedPhoneFields.number),
+            contactPhone: redactPhone(detail.storedPhoneFields.contactPhone),
             phoneLast10: redactPhone(detail.storedPhoneFields.phoneLast10),
             phoneE164: redactPhone(detail.storedPhoneFields.phoneE164),
             phoneDigits: redactPhone(detail.storedPhoneFields.phoneDigits),
@@ -457,6 +613,18 @@ export class SuggestedFriendsRepository {
         matchedByPhoneLast10Count: matchedByPhoneLast10.size,
         matchedByPhoneSearchKeysCount: matchedByPhoneSearchKeys.size,
         matchedByEmailCount: emailMatchedUserIds.size,
+        matchedByLegacyNumberCount: matchedByLegacyField.number.size,
+        matchedByLegacyPhoneNumberCount: matchedByLegacyField.phoneNumber.size,
+        matchedByLegacyPhoneCount: matchedByLegacyField.phone.size,
+        matchedByLegacyPhoneNumberUnderscoreCount: matchedByLegacyField.phone_number.size,
+        lazyPhoneRepairsQueued: lazyRepairByUser.size,
+        lazyPhoneRepairsSucceeded,
+        usersMissingCanonicalPhoneFields: [...matchedDetails.values()].filter(
+          (row) =>
+            !row.storedPhoneFields.phoneLast10 ||
+            !row.storedPhoneFields.phoneDigits ||
+            !row.storedPhoneFields.phoneE164
+        ).length,
         finalMatchedUserIds: uniqueMatchedUserIds,
         unmatchedContactPhonesSample: allowVerboseContactSyncDiagnostics
           ? unmatchedContactPhonesSample

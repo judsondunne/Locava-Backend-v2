@@ -151,6 +151,29 @@ describe("backend foundation routes", () => {
     expect((res.json() as { viewer: { userId: string } }).viewer.userId).toBe("jwt-resolved-uid");
   });
 
+  it("PATCH /api/v1/product/viewer ignores generated fallback identity fields", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/v1/product/viewer",
+      headers: {
+        "x-viewer-id": "firebase-user-guarded",
+        "x-viewer-roles": "internal",
+        "content-type": "application/json"
+      },
+      payload: {
+        name: "user_fakepatch",
+        handle: "user_fakepatch",
+        profilePic: "   ",
+      }
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { viewer: { userId: string; name: string; handle: string; profilePic: string } };
+    expect(body.viewer.userId).toBe("firebase-user-guarded");
+    expect(body.viewer.handle).not.toBe("user_fakepatch");
+    expect(body.viewer.name).not.toBe("user_fakepatch");
+    expect(body.viewer.profilePic).toBe("");
+  });
+
   it("session bootstrap uses resolved viewer id from x-viewer-id", async () => {
     const res = await app.inject({
       method: "GET",

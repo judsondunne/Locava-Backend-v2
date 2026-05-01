@@ -250,6 +250,19 @@ export const AchievementLeaguePassCelebrationSchema = z.object({
   previousXp: z.number().int().nonnegative().optional(),
   newXp: z.number().int().nonnegative().optional(),
   source: z.string().nullable().optional(),
+  sourcePostId: z.string().nullable().optional(),
+  entries: z
+    .array(
+      z.object({
+        userId: z.string().min(1),
+        userName: z.string().min(1),
+        userPic: z.string().nullable().optional(),
+        rank: z.number().int().positive(),
+        xp: z.number().int().nonnegative(),
+        isCurrentUser: z.boolean().optional()
+      })
+    )
+    .optional(),
   createdAtMs: z.number().int().nonnegative().optional(),
   consumedAtMs: z.number().int().nonnegative().nullable().optional()
 });

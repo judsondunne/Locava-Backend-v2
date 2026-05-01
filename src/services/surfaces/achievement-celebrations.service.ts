@@ -8,11 +8,20 @@ type FirestoreMap = Record<string, unknown>;
 
 type CreateParams = {
   userId: string;
+  postId?: string;
   xpDelta: number;
   previousXp: number;
   newXp: number;
   source: string;
   requestedCelebrationId?: string;
+};
+type CelebrationEntry = {
+  userId: string;
+  userName: string;
+  userPic?: string | null;
+  rank: number;
+  xp: number;
+  isCurrentUser?: boolean;
 };
 
 export class AchievementCelebrationsService {
@@ -50,26 +59,31 @@ export class AchievementCelebrationsService {
       .filter((row) => row.active);
   }
 
-  private async loadGlobalXpRows(): Promise<Array<{ userId: string; xp: number; rank?: number }>> {
+  private async loadGlobalXpRows(): Promise<Array<{ userId: string; userName?: string; userPic?: string | null; xp: number; rank?: number }>> {
     const db = getFirestoreSourceClient();
     if (!db) return [];
     const cacheSnap = await db.collection("cache").doc("global_xp_leaderboard_v2").get();
     if (!cacheSnap.exists) return [];
     const data = (cacheSnap.data() as FirestoreMap | undefined) ?? {};
-    const rows = Array.isArray(data.leaderboard) ? data.leaderboard : [];
-    const mappedRows = rows
-      .map((row, index) => {
+    const rows = Array.isArray(data.entries) ? data.entries : Array.isArray(data.leaderboard) ? data.leaderboard : [];
+    const mappedRows = rows.map((row, index) => {
         const mapped = row as FirestoreMap;
         const userId = typeof mapped.userId === "string" ? mapped.userId : "";
         if (!userId) return null;
+        const userName = typeof mapped.userName === "string" && mapped.userName.trim().length > 0 ? mapped.userName.trim() : undefined;
+        const userPic = typeof mapped.userPic === "string" ? mapped.userPic : null;
         const xp = Number.isFinite(Number(mapped.xp)) ? Math.max(0, Math.trunc(Number(mapped.xp))) : 0;
         const rank = Number.isFinite(Number(mapped.rank)) ? Math.max(1, Math.trunc(Number(mapped.rank))) : index + 1;
-        return { userId, xp, rank };
+        return { userId, userName, userPic, xp, rank };
       });
-    return mappedRows.filter((row): row is { userId: string; xp: number; rank: number } => row !== null);
+    const out: Array<{ userId: string; userName?: string; userPic?: string | null; xp: number; rank: number }> = [];
+    for (const row of mappedRows) {
+      if (row) out.push(row);
+    }
+    return out;
   }
 
-  private computeRank(rows: Array<{ userId: string; xp: number; rank?: number }>, userId: string, xp: number): number | null {
+  private computeRank(rows: Array<{ userId: string; userName?: string; userPic?: string | null; xp: number; rank?: number }>, userId: string, xp: number): number | null {
     const exact = rows.find((row) => row.userId === userId);
     if (exact?.rank) return exact.rank;
     if (rows.length === 0) return null;
@@ -93,6 +107,24 @@ export class AchievementCelebrationsService {
       previousXp: Number.isFinite(Number(raw.previousXp)) ? Math.max(0, Math.trunc(Number(raw.previousXp))) : 0,
       newXp: Number.isFinite(Number(raw.newXp)) ? Math.max(0, Math.trunc(Number(raw.newXp))) : 0,
       source: typeof raw.source === "string" ? raw.source : null,
+      sourcePostId: typeof raw.sourcePostId === "string" ? raw.sourcePostId : null,
+      entries: Array.isArray(raw.entries)
+        ? raw.entries.reduce<CelebrationEntry[]>((acc, entry) => {
+            const row = (entry && typeof entry === "object" ? entry : {}) as FirestoreMap;
+            const userId = typeof row.userId === "string" ? row.userId : "";
+            const userName = typeof row.userName === "string" ? row.userName : "";
+            if (!userId || !userName) return acc;
+            acc.push({
+              userId,
+              userName,
+              userPic: typeof row.userPic === "string" ? row.userPic : null,
+              rank: Number.isFinite(Number(row.rank)) ? Math.max(1, Math.trunc(Number(row.rank))) : 1,
+              xp: Number.isFinite(Number(row.xp)) ? Math.max(0, Math.trunc(Number(row.xp))) : 0,
+              isCurrentUser: row.isCurrentUser === true
+            });
+            return acc;
+          }, [])
+        : undefined,
       createdAtMs: Number.isFinite(Number(raw.createdAtMs)) ? Math.max(0, Math.trunc(Number(raw.createdAtMs))) : 0,
       consumedAtMs: Number.isFinite(Number(raw.consumedAtMs)) ? Math.max(0, Math.trunc(Number(raw.consumedAtMs))) : null
     };
@@ -104,11 +136,60 @@ export class AchievementCelebrationsService {
     const [rows, leagues] = await Promise.all([this.loadGlobalXpRows(), this.loadLeagues()]);
     const previousRank = this.computeRank(rows, params.userId, params.previousXp);
     const newRank = this.computeRank(rows, params.userId, params.newXp);
-    if (previousRank == null || newRank == null || newRank >= previousRank) return null;
+    if (previousRank == null || newRank == null || newRank >= previousRank) {
+      console.info("[league_pass_computation]", {
+        event: "league_pass_computation",
+        userId: params.userId,
+        leaderboardKey: "xp_global",
+        previousRank,
+        newRank,
+        peoplePassed: 0,
+        shouldCreateCelebration: false,
+        reasonSkipped: "rank_not_improved_or_missing"
+      });
+      return null;
+    }
     const peoplePassed = Math.max(0, previousRank - newRank);
-    if (peoplePassed <= 0) return null;
+    if (peoplePassed <= 0) {
+      console.info("[league_pass_computation]", {
+        event: "league_pass_computation",
+        userId: params.userId,
+        leaderboardKey: "xp_global",
+        previousRank,
+        newRank,
+        peoplePassed,
+        shouldCreateCelebration: false,
+        reasonSkipped: "people_passed_zero"
+      });
+      return null;
+    }
     const previousLeague = this.resolveLeague(leagues, params.previousXp);
     const nextLeague = this.resolveLeague(leagues, params.newXp);
+    const sortedRows = [...rows].sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
+    const crossed = sortedRows
+      .filter((row) => row.userId !== params.userId && row.rank != null && row.rank > newRank && row.rank <= previousRank)
+      .slice(0, 24);
+    const viewerRow = sortedRows.find((row) => row.userId === params.userId) ?? null;
+    const entries: CelebrationEntry[] = [
+      ...crossed.map((row) => ({
+        userId: row.userId,
+        userName: row.userName ?? row.userId,
+        userPic: row.userPic ?? null,
+        rank: row.rank ?? 1,
+        xp: row.xp,
+        isCurrentUser: false
+      })),
+      {
+        userId: params.userId,
+        userName: "You",
+        userPic: null,
+        rank: newRank,
+        xp: params.newXp,
+        isCurrentUser: true
+      },
+    ]
+      .sort((a, b) => a.rank - b.rank)
+      .slice(0, 40);
     const createdAtMs = Date.now();
     const celebrationId =
       params.requestedCelebrationId && params.requestedCelebrationId.trim().length > 0
@@ -127,6 +208,8 @@ export class AchievementCelebrationsService {
       previousXp: Math.max(0, params.previousXp),
       newXp: Math.max(0, params.newXp),
       source: params.source,
+      sourcePostId: params.postId ?? null,
+      entries,
       createdAtMs,
       consumedAtMs: null
     };
@@ -145,16 +228,31 @@ export class AchievementCelebrationsService {
         },
         { merge: true }
       );
-    console.info("[achievements.league_pass.created]", {
+    console.info("[league_pass_computation]", {
+      event: "league_pass_computation",
       userId: params.userId,
-      celebrationId,
+      leaderboardKey: "xp_global",
       previousRank,
       newRank,
       peoplePassed,
-      previousXp: params.previousXp,
-      newXp: params.newXp,
+      shouldCreateCelebration: true,
+      reasonSkipped: null
+    });
+    console.info("[achievement_celebration_created]", {
+      event: "achievement_celebration_created",
+      userId: params.userId,
+      celebrationId,
+      type: "league_pass",
+      postId: params.postId ?? null,
+      sourcePostId: params.postId ?? null,
+      source: params.source,
       xpDelta: params.xpDelta,
-      source: params.source
+      previousRank,
+      newRank,
+      peoplePassed,
+      consumed: false,
+      createdAtMs,
+      path: `users/${params.userId}/achievementCelebrations/${celebrationId}`
     });
     return celebration;
   }
@@ -162,18 +260,46 @@ export class AchievementCelebrationsService {
   async getPendingCelebrations(userId: string): Promise<AchievementLeaguePassCelebration[]> {
     const db = getFirestoreSourceClient();
     if (!db) return [];
-    const snap = await db
-      .collection("users")
-      .doc(userId)
-      .collection("achievementCelebrations")
-      .where("consumed", "==", false)
-      .orderBy("createdAtMs", "asc")
-      .limit(10)
-      .get();
-    return snap.docs
+    let snap;
+    try {
+      snap = await db
+        .collection("users")
+        .doc(userId)
+        .collection("achievementCelebrations")
+        .where("consumed", "==", false)
+        .orderBy("createdAtMs", "asc")
+        .limit(10)
+        .get();
+    } catch (error) {
+      console.warn("[achievement_pending_celebrations_result]", {
+        event: "achievement_pending_celebrations_result",
+        userId,
+        queryPath: `users/${userId}/achievementCelebrations`,
+        queryFilters: ["consumed==false", "orderBy(createdAtMs,asc)", "limit(10)"],
+        returnedCount: 0,
+        celebrationIds: [],
+        types: [],
+        payloadBytes: 2,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      return [];
+    }
+    const results = snap.docs
       .map((doc) => this.mapCelebration((doc.data() as FirestoreMap | undefined) ?? null))
       .filter((row): row is AchievementLeaguePassCelebration => Boolean(row))
       .filter((row) => row.shouldShow && row.peoplePassed > 0);
+    const serialized = JSON.stringify(results);
+    console.info("[achievement_pending_celebrations_result]", {
+      event: "achievement_pending_celebrations_result",
+      userId,
+      queryPath: `users/${userId}/achievementCelebrations`,
+      queryFilters: ["consumed==false", "orderBy(createdAtMs,asc)", "limit(10)"],
+      returnedCount: results.length,
+      celebrationIds: results.map((row) => row.celebrationId),
+      types: results.map(() => "league_pass"),
+      payloadBytes: Buffer.byteLength(serialized, "utf8")
+    });
+    return results;
   }
 
   async consumeCelebration(userId: string, celebrationId: string): Promise<AchievementLeaguePassCelebration | null> {

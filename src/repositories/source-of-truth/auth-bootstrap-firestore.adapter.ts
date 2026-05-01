@@ -144,14 +144,14 @@ export class AuthBootstrapFirestoreAdapter {
     const onboardingComplete = !(data.profileComplete === false || data.onboardingComplete === false);
 
     const payload: AuthBootstrapUserFields = {
-      handle: handle || `user_${viewerId.slice(0, 8)}`,
+      handle,
       badge,
       unreadCount,
       onboardingComplete
     };
     const viewerSummary: AuthBootstrapViewerSummary = {
-      handle: handle || `user_${viewerId.slice(0, 8)}`,
-      name: pickString(data.name ?? data.displayName, handle || `User ${viewerId.slice(0, 8)}`),
+      handle,
+      name: pickString(data.name ?? data.displayName, ""),
       pic: pickNullableString(data.profilePic ?? data.profilePicture ?? data.photo)
     };
     AuthBootstrapFirestoreAdapter.userFieldsCache.set(viewerId, {

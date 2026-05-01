@@ -5,6 +5,7 @@ import type { AppEnv } from "../../config/env.js";
 import type { ProductCompatViewer } from "./compat-viewer-payload.js";
 import { buildProductCompatViewer } from "./compat-viewer-payload.js";
 import { resolveCompatViewerId } from "./resolve-compat-viewer-id.js";
+import { applyViewerPatchGuarded } from "./viewer-patch-guard.js";
 import { collectionTelemetryRepository } from "../../repositories/surfaces/collection-telemetry.repository.js";
 import { feedSeenRepository } from "../../repositories/surfaces/feed-seen.repository.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
@@ -25,27 +26,6 @@ import { userActivityRepository } from "../../repositories/surfaces/user-activit
 import { UserActivityService } from "../../services/surfaces/user-activity.service.js";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { uploadGroupChatAvatar, uploadGroupChatPhoto } from "../../services/storage/wasabi-chat-photos.service.js";
-
-function applyViewerPatch(base: ProductCompatViewer, patch: Record<string, unknown>): ProductCompatViewer {
-  const next: ProductCompatViewer = { ...base };
-  if (typeof patch.name === "string") next.name = patch.name;
-  if (typeof patch.handle === "string") next.handle = patch.handle;
-  if (typeof patch.profilePic === "string") next.profilePic = patch.profilePic;
-  if (typeof patch.bio === "string") next.bio = patch.bio;
-  if (patch.permissions && typeof patch.permissions === "object" && patch.permissions !== null) {
-    next.permissions = {
-      ...(base.permissions ?? {}),
-      ...(patch.permissions as Record<string, boolean>)
-    };
-  }
-  if (patch.settings && typeof patch.settings === "object" && patch.settings !== null) {
-    next.settings = {
-      ...(base.settings ?? {}),
-      ...(patch.settings as Record<string, unknown>)
-    };
-  }
-  return next;
-}
 
 function normalizeCompatPostRow(row: Record<string, unknown>): Record<string, unknown> {
   const next = { ...row };
@@ -1136,6 +1116,18 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
    */
   app.patch("/api/v1/product/viewer", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
+    const patch = (request.body ?? {}) as Record<string, unknown>;
+    request.log.info(
+      {
+        routeName: "compat.api.product.viewer.patch",
+        authViewerId: viewerId,
+        patchBody: patch,
+        patchFields: Object.keys(patch),
+        proxiesToOldBackend: false,
+        firestoreWritePath: "none",
+      },
+      "compat viewer patch request",
+    );
     let base = buildProductCompatViewer(viewerId);
     if (viewerId !== "anonymous") {
       const profile = await callV2GetOrThrow(
@@ -1152,8 +1144,20 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
         throw new Error("/api/v1/product/viewer: canonical profile identity required");
       }
     }
-    const patch = (request.body ?? {}) as Record<string, unknown>;
-    const viewer = applyViewerPatch(base, patch);
+    const viewer = applyViewerPatchGuarded(base, patch);
+    request.log.info(
+      {
+        routeName: "compat.api.product.viewer.patch",
+        authViewerId: viewerId,
+        mergedViewer: {
+          userId: viewer.userId,
+          handle: viewer.handle,
+          name: viewer.name,
+          profilePic: viewer.profilePic,
+        },
+      },
+      "compat viewer patch merged",
+    );
     const etag = `viewer:${viewer.userId}:compat:${Date.now()}`;
     return reply.status(200).send({ viewer, etag });
   });

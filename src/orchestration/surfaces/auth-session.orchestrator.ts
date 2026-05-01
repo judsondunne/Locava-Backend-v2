@@ -55,9 +55,26 @@ export class AuthSessionOrchestrator {
         fallbacks.push("viewer_summary_timeout");
         recordTimeout("auth.session.viewer_summary");
         recordFallback("viewer_summary_timeout");
+        console.log(
+          JSON.stringify({
+            event: "AUTH_SESSION_VIEWER_SUMMARY_TIMEOUT",
+            ts: Date.now(),
+            viewerId: viewer.viewerId,
+            fallback: "viewer_summary_timeout",
+          }),
+        );
       } else {
         fallbacks.push("viewer_summary_failed");
         recordFallback("viewer_summary_failed");
+        console.log(
+          JSON.stringify({
+            event: "AUTH_SESSION_VIEWER_SUMMARY_FAILED",
+            ts: Date.now(),
+            viewerId: viewer.viewerId,
+            fallback: "viewer_summary_failed",
+            message: error instanceof Error ? error.message : String(error),
+          }),
+        );
       }
     }
 
@@ -93,6 +110,16 @@ export class AuthSessionOrchestrator {
       degraded: fallbacks.length > 0,
       fallbacks
     };
+    console.log(
+      JSON.stringify({
+        event: "AUTH_SESSION_RESPONSE",
+        ts: Date.now(),
+        viewerId: viewer.viewerId,
+        degraded: response.degraded,
+        fallbacks: response.fallbacks,
+        viewerSummary: response.deferred.viewerSummary,
+      }),
+    );
 
     await globalCache.set(cacheKey, response, 5000);
     if (!viewerSummary) {

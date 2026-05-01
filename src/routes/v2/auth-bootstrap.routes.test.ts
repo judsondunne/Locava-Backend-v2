@@ -48,6 +48,8 @@ describe("v2 auth/session/bootstrap routes", () => {
     const body = res.json();
     expect(body.data.degraded).toBe(true);
     expect(body.data.fallbacks).toContain("viewer_summary_timeout");
+    const summaryHandle = String(body.data.deferred?.viewerSummary?.handle ?? "");
+    expect(summaryHandle.startsWith("user_")).toBe(false);
   });
 
   it("returns bootstrap payload for internal viewer", async () => {

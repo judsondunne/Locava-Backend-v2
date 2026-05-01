@@ -59,7 +59,7 @@ describe("auth bootstrap repository", () => {
 
     await withRequestContext(async () => {
       const summary = await repository.getViewerSummary("u-2");
-      expect(summary.handle).toBe("user_u-2");
+      expect(summary.handle).toBe("");
       const ctx = getRequestContext();
       expect(ctx?.fallbacks).toContain("auth_bootstrap_viewer_firestore_fallback");
       expect(ctx?.timeouts).toContain("auth_bootstrap_viewer_firestore");

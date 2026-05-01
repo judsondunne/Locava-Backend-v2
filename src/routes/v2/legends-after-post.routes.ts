@@ -5,6 +5,7 @@ import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { achievementCelebrationsService } from "../../services/surfaces/achievement-celebrations.service.js";
 
 type FirestoreMap = Record<string, unknown>;
 
@@ -35,6 +36,11 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
         routeName: legendsAfterPostContract.routeName,
         postId: "",
         status: "failed",
+        xpSettled: false,
+        xpDelta: 0,
+        xpClaim: null,
+        leaguePassCelebration: null,
+        pendingCelebrations: [],
         pollAfterMs: 0,
         awards: []
       });
@@ -52,6 +58,53 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       });
     }
     const row = (resSnap.data() as FirestoreMap | undefined) ?? {};
+    const awardSnap = await db.collection("users").doc(viewer.viewerId).collection("achievements_awards").doc(params.postId).get();
+    incrementDbOps("reads", awardSnap.exists ? 1 : 0);
+    const awardRow = (awardSnap.data() as FirestoreMap | undefined) ?? {};
+    const deltaRow = asObject(awardRow.delta);
+    const leaguePassCelebration =
+      deltaRow && typeof deltaRow === "object" && deltaRow.leaguePassCelebration && typeof deltaRow.leaguePassCelebration === "object"
+        ? (deltaRow.leaguePassCelebration as Record<string, unknown>)
+        : null;
+    const pendingCelebrations = await achievementCelebrationsService.getPendingCelebrations(viewer.viewerId);
+    const fromPending =
+      pendingCelebrations.length > 0 && !leaguePassCelebration
+        ? pendingCelebrations[0]
+        : null;
+    const directCelebration = leaguePassCelebration
+      ? {
+          shouldShow: leaguePassCelebration.shouldShow === true,
+          leaderboardKey: String(leaguePassCelebration.leaderboardKey ?? "xp_global"),
+          previousRank:
+            typeof leaguePassCelebration.previousRank === "number" ? Math.max(1, finiteInt(leaguePassCelebration.previousRank, 1)) : null,
+          newRank: typeof leaguePassCelebration.newRank === "number" ? Math.max(1, finiteInt(leaguePassCelebration.newRank, 1)) : null,
+          peoplePassed: Math.max(0, finiteInt(leaguePassCelebration.peoplePassed, 0)),
+          previousLeague: typeof leaguePassCelebration.previousLeague === "string" ? leaguePassCelebration.previousLeague : null,
+          newLeague: typeof leaguePassCelebration.newLeague === "string" ? leaguePassCelebration.newLeague : null,
+          celebrationId: String(leaguePassCelebration.celebrationId ?? ""),
+          xpDelta: Math.max(0, finiteInt(leaguePassCelebration.xpDelta, 0)),
+          previousXp: Math.max(0, finiteInt(leaguePassCelebration.previousXp, 0)),
+          newXp: Math.max(0, finiteInt(leaguePassCelebration.newXp, 0)),
+          source: typeof leaguePassCelebration.source === "string" ? leaguePassCelebration.source : null,
+          sourcePostId: typeof leaguePassCelebration.sourcePostId === "string" ? leaguePassCelebration.sourcePostId : params.postId,
+          entries: Array.isArray(leaguePassCelebration.entries)
+            ? leaguePassCelebration.entries
+                .map((entry) => asObject(entry))
+                .map((entry) => ({
+                  userId: String(entry.userId ?? ""),
+                  userName: String(entry.userName ?? "Explorer"),
+                  userPic: typeof entry.userPic === "string" ? entry.userPic : null,
+                  rank: Math.max(1, finiteInt(entry.rank, 1)),
+                  xp: Math.max(0, finiteInt(entry.xp, 0)),
+                  isCurrentUser: entry.isCurrentUser === true
+                }))
+                .filter((entry) => entry.userId.length > 0)
+            : undefined,
+          createdAtMs: Math.max(0, finiteInt(leaguePassCelebration.createdAtMs, Date.now())),
+          consumedAtMs:
+            typeof leaguePassCelebration.consumedAtMs === "number" ? Math.max(0, finiteInt(leaguePassCelebration.consumedAtMs, 0)) : null
+        }
+      : null;
     const statusRaw = String(row.status ?? "processing");
     const status = statusRaw === "complete" || statusRaw === "failed" || statusRaw === "processing" ? statusRaw : "processing";
     const awards = Array.isArray(row.awards) ? (row.awards as any[]).map((a) => asObject(a)).map((a) => ({
@@ -88,6 +141,18 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       routeName: legendsAfterPostContract.routeName,
       postId: params.postId,
       status,
+      xpSettled: awardSnap.exists && (awardRow.delta != null || finiteInt(awardRow.xp, 0) > 0),
+      xpDelta: Math.max(0, finiteInt(deltaRow.xpGained ?? awardRow.xp, 0)),
+      xpClaim: awardSnap.exists
+        ? {
+            xpGained: Math.max(0, finiteInt(deltaRow.xpGained ?? awardRow.xp, 0)),
+            newTotalXP: deltaRow.newTotalXP == null ? null : Math.max(0, finiteInt(deltaRow.newTotalXP, 0)),
+            newLevel: deltaRow.newLevel == null ? null : Math.max(1, finiteInt(deltaRow.newLevel, 1)),
+            tier: typeof deltaRow.tier === "string" ? String(deltaRow.tier) : null
+          }
+        : null,
+      leaguePassCelebration: directCelebration ?? fromPending,
+      pendingCelebrations,
       pollAfterMs: status === "processing" ? 500 : 0,
       awards,
       rewards

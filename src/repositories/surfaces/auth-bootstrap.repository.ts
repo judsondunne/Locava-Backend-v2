@@ -65,9 +65,9 @@ export class AuthBootstrapRepository {
         if (error instanceof Error && error.message === "auth_bootstrap_user_not_found") {
           recordFallback("auth_bootstrap_user_doc_missing");
           return {
-            handle: `user_${viewerId.slice(0, 8)}`,
+            handle: "",
             badge: "standard",
-            onboardingComplete: false
+            onboardingComplete: null
           };
         } else {
           recordFallback("auth_bootstrap_viewer_firestore_fallback");
@@ -84,7 +84,7 @@ export class AuthBootstrapRepository {
     }
 
     return {
-      handle: viewerId === "anonymous" ? "guest" : `user_${viewerId.slice(0, 8)}`,
+      handle: viewerId === "anonymous" ? "guest" : "",
       badge: viewerId === "anonymous" ? "none" : "standard",
       onboardingComplete: viewerId === "anonymous" ? true : null
     };

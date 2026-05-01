@@ -77,6 +77,7 @@ function parseLeaguePassCelebration(value: unknown): AchievementLeaguePassCelebr
     previousXp: typeof row.previousXp === "number" && Number.isFinite(row.previousXp) ? Math.max(0, Math.trunc(row.previousXp)) : undefined,
     newXp: typeof row.newXp === "number" && Number.isFinite(row.newXp) ? Math.max(0, Math.trunc(row.newXp)) : undefined,
     source: typeof row.source === "string" ? row.source : null,
+    sourcePostId: typeof row.sourcePostId === "string" ? row.sourcePostId : null,
     createdAtMs: typeof row.createdAtMs === "number" && Number.isFinite(row.createdAtMs) ? Math.max(0, Math.trunc(row.createdAtMs)) : undefined,
     consumedAtMs:
       typeof row.consumedAtMs === "number" && Number.isFinite(row.consumedAtMs) ? Math.max(0, Math.trunc(row.consumedAtMs)) : null
@@ -328,6 +329,20 @@ export class PostingAchievementsService {
       const currentTier = firstNonEmptyString(asObject(stateData.xp).tier) ?? buildXpState(currentXP).tier;
 
       if (awardDoc.exists) {
+        const existingAwardXp = params.requestAward === true ? Math.max(0, finiteInteger((awardDoc.data() as FirestoreMap | undefined)?.xp, POST_CREATE_XP)) : 0;
+        console.info("[xp_award_result]", {
+          event: "xp_award_result",
+          viewerId: params.viewerId,
+          userId: params.userId,
+          postId: params.postId,
+          source: "post_create",
+          xpBefore: currentXP,
+          xpAfter: currentXP,
+          xpDelta: existingAwardXp,
+          awardCreated: false,
+          alreadyAwarded: true,
+          reasonSkipped: "idempotent_existing_award"
+        });
         return {
           idempotent: true,
           delta:
@@ -336,7 +351,7 @@ export class PostingAchievementsService {
               currentXP,
               currentLevel,
               tier: currentTier,
-              xpGained: params.requestAward === true ? Math.max(0, finiteInteger((awardDoc.data() as FirestoreMap | undefined)?.xp, POST_CREATE_XP)) : 0
+              xpGained: existingAwardXp
             })
         };
       }
@@ -460,6 +475,19 @@ export class PostingAchievementsService {
     if (transactional.idempotent) {
       return transactional.delta;
     }
+    console.info("[xp_award_result]", {
+      event: "xp_award_result",
+      viewerId: params.viewerId,
+      userId: params.userId,
+      postId: params.postId,
+      source: "post_create",
+      xpBefore: Math.max(0, transactional.delta.newTotalXP - transactional.delta.xpGained),
+      xpAfter: transactional.delta.newTotalXP,
+      xpDelta: transactional.delta.xpGained,
+      awardCreated: true,
+      alreadyAwarded: false,
+      reasonSkipped: null
+    });
     achievementsRepository.seedPendingDelta(params.userId, {
       xpGained: transactional.delta.xpGained,
       newTotalXP: transactional.delta.newTotalXP,
@@ -470,6 +498,7 @@ export class PostingAchievementsService {
     await achievementsRepository.invalidateViewerProjectionCaches(params.userId, { includeLeaderboards: true });
     const leaguePassCelebration = await achievementCelebrationsService.createLeaguePassCelebration({
       userId: params.userId,
+      postId: params.postId,
       xpDelta: transactional.delta.xpGained,
       previousXp: Math.max(0, transactional.delta.newTotalXP - transactional.delta.xpGained),
       newXp: transactional.delta.newTotalXP,

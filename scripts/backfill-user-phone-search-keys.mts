@@ -5,6 +5,7 @@ import { derivePhoneSearchFieldsFromDoc } from "../src/lib/phone-search-fields.j
 
 type ParsedArgs = {
   write: boolean;
+  dryRun: boolean;
   limit: number | null;
   pageSize: number;
   progressEvery: number;
@@ -35,6 +36,7 @@ const PHONE_FIELDS = [
 function parseArgs(argv: string[]): ParsedArgs {
   const parsed: ParsedArgs = {
     write: false,
+    dryRun: true,
     limit: null,
     pageSize: 300,
     progressEvery: 250,
@@ -42,6 +44,12 @@ function parseArgs(argv: string[]): ParsedArgs {
   for (const raw of argv) {
     if (raw === "--write") {
       parsed.write = true;
+      parsed.dryRun = false;
+      continue;
+    }
+    if (raw === "--dry-run") {
+      parsed.dryRun = true;
+      parsed.write = false;
       continue;
     }
     if (raw.startsWith("--limit=")) {
@@ -63,7 +71,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       continue;
     }
     if (raw === "--help" || raw === "-h") {
-      console.log("Usage: npx tsx scripts/backfill-user-phone-search-keys.mts [--write] [--limit=N] [--page-size=N] [--progress-every=N]");
+      console.log("Usage: npx tsx scripts/backfill-user-phone-search-keys.mts [--dry-run] [--write] [--limit=N] [--page-size=N] [--progress-every=N]");
       process.exit(0);
     }
     throw new Error(`unknown argument: ${raw}`);
@@ -140,7 +148,7 @@ async function main(): Promise<void> {
         });
       }
 
-      if (args.write) {
+      if (args.write && !args.dryRun) {
         batch.set(doc.ref, patch, { merge: true });
         pendingWrites += 1;
       }
@@ -148,7 +156,7 @@ async function main(): Promise<void> {
       cursor = doc;
     }
 
-    if (args.write && pendingWrites > 0) {
+    if (args.write && !args.dryRun && pendingWrites > 0) {
       await batch.commit();
     }
     if (args.progressEvery > 0 && summary.scanned % args.progressEvery === 0) {
@@ -159,7 +167,15 @@ async function main(): Promise<void> {
     if (snap.size < Math.min(args.pageSize, remaining)) break;
   }
 
-  console.log(JSON.stringify({ dryRun: !args.write, ...summary }, null, 2));
+  console.log(JSON.stringify({ dryRun: args.dryRun, ...summary }, null, 2));
+  console.log(
+    [
+      "Suggested run order:",
+      "npm run backfill:user-phone-search-keys -- --dry-run --limit=25",
+      "npm run backfill:user-phone-search-keys -- --write --limit=500",
+      "npm run backfill:user-phone-search-keys -- --write",
+    ].join("\n"),
+  );
 }
 
 main().catch((error) => {

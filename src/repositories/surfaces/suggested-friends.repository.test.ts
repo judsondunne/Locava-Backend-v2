@@ -114,7 +114,7 @@ describe("suggested friends branch candidate extraction", () => {
 });
 
 describe("contacts sync parity matching", () => {
-  it("matches mixed phone formats, dedupes users, excludes viewer, and keeps email matching", async () => {
+  it("matches legacy `number` users even when canonical fields are missing", async () => {
     const docs = new Map<string, Record<string, unknown>>([
       [
         "viewer-1",
@@ -126,9 +126,9 @@ describe("contacts sync parity matching", () => {
           addressBookPhoneNumbers: [],
         },
       ],
-      ["seed-format", { handle: "format", name: "Format User", phoneNumber: "(650) 704-6433", phoneLast10: "6507046433", phoneSearchKeys: ["6507046433", "(650) 704-6433"] }],
-      ["seed-e164", { handle: "e164", name: "E164 User", phoneNumber: "+16102338257", phoneLast10: "6102338257", phoneSearchKeys: ["6102338257", "+16102338257"] }],
-      ["seed-plain", { handle: "plain", name: "Plain User", phoneNumber: "6102338257", phoneLast10: "6102338257", phoneSearchKeys: ["6102338257"] }],
+      ["u1", { handle: "u1", name: "User One", number: "(650) 704-6433", phoneLast10: null, phoneSearchKeys: null }],
+      ["u2", { handle: "u2", name: "User Two", number: "+16102338257", phoneLast10: null, phoneSearchKeys: null }],
+      ["u3", { handle: "u3", name: "User Three", number: "6107161794", phoneLast10: null, phoneSearchKeys: null }],
       ["seed-email", { handle: "mail", name: "Email User", email: "friend@example.com" }],
     ]);
 
@@ -195,16 +195,18 @@ describe("contacts sync parity matching", () => {
     const result = await repository.syncContacts({
       viewerId: "viewer-1",
       contacts: [
-        { phoneNumbers: ["6507046433", "(610) 233-8257"], emails: [] },
-        { phoneNumbers: ["+16102338257", "610.233.8257"], emails: ["Friend@Example.com"] },
+        { phoneNumbers: ["6507046433", "6102338257"], emails: [] },
+        { phoneNumbers: ["(610) 716-1794"], emails: ["Friend@Example.com"] },
       ],
     });
 
-    expect(result.matchedUsers.map((u) => u.userId)).toEqual(["seed-e164", "seed-email", "seed-format", "seed-plain"]);
+    expect(result.matchedUsers.map((u) => u.userId)).toEqual(["seed-email", "u1", "u2", "u3"]);
     expect(result.matchedCount).toBe(4);
     expect(result.matchedUsers.some((u) => u.userId === "viewer-1")).toBe(false);
     expect(new Set(result.matchedUsers.map((u) => u.userId)).size).toBe(result.matchedUsers.length);
-    expect(result.diagnostics.matchedByPhoneLast10Count).toBeGreaterThanOrEqual(3);
+    expect(result.diagnostics.matchedByLegacyNumberCount).toBeGreaterThanOrEqual(3);
+    expect(result.diagnostics.lazyPhoneRepairsQueued).toBeGreaterThanOrEqual(3);
+    expect(result.diagnostics.lazyPhoneRepairsSucceeded).toBeGreaterThanOrEqual(3);
     expect(result.diagnostics.matchedByEmailCount).toBeGreaterThanOrEqual(1);
     expect(writes.some((write) => write.id === "viewer-1")).toBe(true);
   });
