@@ -142,6 +142,28 @@ export class SearchHomeV1Service {
       .catch(() => ({ mixes: [] as Awaited<ReturnType<SearchMixesServiceV2["bootstrap"]>>["mixes"] }));
     const mixPool = await this.mixPoolRepo.listFromPool().catch(() => ({ posts: [] as Array<Record<string, unknown>> }));
     const activityMixes = await this.buildActivityMixes(mixBootstrap.mixes, mixPool.posts as Array<Record<string, unknown>>);
+    try {
+      console.info("[search.bootstrap.section_summary]", {
+        viewerId,
+        section: "suggested_friends",
+        returnedCount: suggestedUsers.length,
+        fallbackReason: suggestions.users.length === 0 ? "empty_or_fallback" : null,
+      });
+      for (const mix of activityMixes) {
+        const mediaVideoCount = mix.posts.filter((post) => post.mediaType === "video").length;
+        console.info("[search.bootstrap.section_summary]", {
+          viewerId,
+          section: "mix_preview",
+          mixKey: mix.activityKey,
+          returnedCount: mix.posts.length,
+          mediaVideoCount,
+          playableVideoCount: mediaVideoCount,
+          fallbackReason: mix.posts.length === 0 ? "empty_or_warming" : null,
+        });
+      }
+    } catch {
+      // logging should never fail bootstrap
+    }
 
     return {
       version: 1,

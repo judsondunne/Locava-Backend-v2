@@ -237,6 +237,23 @@ export const AchievementWeeklyCaptureDeltaSchema = z.object({
   imageUrl: z.string().optional()
 });
 
+export const AchievementLeaguePassCelebrationSchema = z.object({
+  shouldShow: z.boolean(),
+  leaderboardKey: z.string().min(1),
+  previousRank: z.number().int().positive().nullable(),
+  newRank: z.number().int().positive().nullable(),
+  peoplePassed: z.number().int().nonnegative(),
+  previousLeague: z.string().nullable().optional(),
+  newLeague: z.string().nullable().optional(),
+  celebrationId: z.string().min(1),
+  xpDelta: z.number().int().nonnegative().optional(),
+  previousXp: z.number().int().nonnegative().optional(),
+  newXp: z.number().int().nonnegative().optional(),
+  source: z.string().nullable().optional(),
+  createdAtMs: z.number().int().nonnegative().optional(),
+  consumedAtMs: z.number().int().nonnegative().nullable().optional()
+});
+
 export const AchievementDeltaSchema = z.object({
   xpGained: z.number().int().nonnegative(),
   newTotalXP: z.number().int().nonnegative(),
@@ -259,6 +276,7 @@ export const AchievementDeltaSchema = z.object({
       })
     )
     .optional(),
+  leaguePassCelebration: AchievementLeaguePassCelebrationSchema.nullable().optional(),
   postSuccessMessage: z.string().nullable().optional(),
   deltaError: z.string().nullable().optional()
 });
@@ -346,6 +364,7 @@ export type AchievementHeroSummary = z.infer<typeof AchievementHeroSummarySchema
 export type AchievementSnapshot = z.infer<typeof AchievementSnapshotSchema>;
 export type AchievementPendingDelta = z.infer<typeof AchievementPendingDeltaSchema>;
 export type AchievementDelta = z.infer<typeof AchievementDeltaSchema>;
+export type AchievementLeaguePassCelebration = z.infer<typeof AchievementLeaguePassCelebrationSchema>;
 export type LegendKind = z.infer<typeof LegendKindSchema>;
 export type LegendFamily = z.infer<typeof LegendFamilySchema>;
 export type LegendDimension = z.infer<typeof LegendDimensionSchema>;

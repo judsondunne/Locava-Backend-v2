@@ -1,10 +1,12 @@
 import { FieldValue } from "firebase-admin/firestore";
 import {
   type AchievementDelta,
+  type AchievementLeaguePassCelebration,
   type AchievementSnapshot
 } from "../../contracts/entities/achievement-entities.contract.js";
 import { achievementsRepository, computeWeeklyExplorationFromPostRows } from "../../repositories/surfaces/achievements.repository.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { achievementCelebrationsService } from "../surfaces/achievement-celebrations.service.js";
 import {
   asArray,
   asObject,
@@ -51,8 +53,33 @@ function buildMinimalDelta(params: {
     newlyUnlockedBadges: [],
     uiEvents: params.xpGained > 0 ? ["XP_TOAST"] : [],
     competitiveBadgeUnlocks: [],
+    leaguePassCelebration: null,
     postSuccessMessage: null,
     ...(params.deltaError ? { deltaError: params.deltaError } : {})
+  };
+}
+
+function parseLeaguePassCelebration(value: unknown): AchievementLeaguePassCelebration | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Partial<AchievementLeaguePassCelebration>;
+  const celebrationId = typeof row.celebrationId === "string" ? row.celebrationId.trim() : "";
+  if (!celebrationId) return null;
+  return {
+    shouldShow: row.shouldShow === true,
+    leaderboardKey: typeof row.leaderboardKey === "string" && row.leaderboardKey.trim() ? row.leaderboardKey.trim() : "xp_global",
+    previousRank: typeof row.previousRank === "number" && Number.isFinite(row.previousRank) ? Math.max(1, Math.trunc(row.previousRank)) : null,
+    newRank: typeof row.newRank === "number" && Number.isFinite(row.newRank) ? Math.max(1, Math.trunc(row.newRank)) : null,
+    peoplePassed: typeof row.peoplePassed === "number" && Number.isFinite(row.peoplePassed) ? Math.max(0, Math.trunc(row.peoplePassed)) : 0,
+    previousLeague: typeof row.previousLeague === "string" ? row.previousLeague : null,
+    newLeague: typeof row.newLeague === "string" ? row.newLeague : null,
+    celebrationId,
+    xpDelta: typeof row.xpDelta === "number" && Number.isFinite(row.xpDelta) ? Math.max(0, Math.trunc(row.xpDelta)) : undefined,
+    previousXp: typeof row.previousXp === "number" && Number.isFinite(row.previousXp) ? Math.max(0, Math.trunc(row.previousXp)) : undefined,
+    newXp: typeof row.newXp === "number" && Number.isFinite(row.newXp) ? Math.max(0, Math.trunc(row.newXp)) : undefined,
+    source: typeof row.source === "string" ? row.source : null,
+    createdAtMs: typeof row.createdAtMs === "number" && Number.isFinite(row.createdAtMs) ? Math.max(0, Math.trunc(row.createdAtMs)) : undefined,
+    consumedAtMs:
+      typeof row.consumedAtMs === "number" && Number.isFinite(row.consumedAtMs) ? Math.max(0, Math.trunc(row.consumedAtMs)) : null
   };
 }
 
@@ -73,6 +100,7 @@ function toAwardedDelta(value: unknown): AchievementDelta | null {
     newlyUnlockedBadges: Array.isArray(row.newlyUnlockedBadges) ? row.newlyUnlockedBadges.map((entry) => String(entry)) : [],
     uiEvents: Array.isArray(row.uiEvents) ? row.uiEvents : [],
     competitiveBadgeUnlocks: Array.isArray(row.competitiveBadgeUnlocks) ? row.competitiveBadgeUnlocks : [],
+    leaguePassCelebration: parseLeaguePassCelebration(row.leaguePassCelebration),
     postSuccessMessage: typeof row.postSuccessMessage === "string" ? row.postSuccessMessage : null,
     deltaError: typeof row.deltaError === "string" ? row.deltaError : undefined
   };
@@ -280,6 +308,7 @@ export class PostingAchievementsService {
     const achievementsRef = db.collection("users").doc(params.userId).collection("achievements").doc("state");
     const progressRef = db.collection("users").doc(params.userId).collection("progress");
     const today = getDateString(new Date());
+    const celebrationId = `league_pass_post_${params.postId}`;
 
     const transactional = await db.runTransaction(async (tx) => {
       const progressDocRefs = [
@@ -333,6 +362,7 @@ export class PostingAchievementsService {
         {
           type: "post_create",
           xp: POST_CREATE_XP,
+          celebrationId,
           activities: normalizedActivities,
           location: {
             lat: params.lat ?? null,
@@ -438,6 +468,20 @@ export class PostingAchievementsService {
       deltaError: transactional.delta.deltaError ?? null
     });
     await achievementsRepository.invalidateViewerProjectionCaches(params.userId, { includeLeaderboards: true });
+    const leaguePassCelebration = await achievementCelebrationsService.createLeaguePassCelebration({
+      userId: params.userId,
+      xpDelta: transactional.delta.xpGained,
+      previousXp: Math.max(0, transactional.delta.newTotalXP - transactional.delta.xpGained),
+      newXp: transactional.delta.newTotalXP,
+      source: "post_create",
+      requestedCelebrationId: celebrationId
+    });
+    if (leaguePassCelebration) {
+      transactional.delta = {
+        ...transactional.delta,
+        leaguePassCelebration
+      };
+    }
     this.schedulePostCreatedEnrichment({
       userId: params.userId,
       postId: params.postId,

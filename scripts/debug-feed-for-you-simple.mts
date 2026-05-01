@@ -1,12 +1,30 @@
 import { FieldPath } from "firebase-admin/firestore";
 import { createApp } from "../src/app/createApp.js";
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { FOR_YOU_SIMPLE_SURFACE } from "../src/repositories/surfaces/feed-for-you-simple.repository.js";
 
 async function wipePostsCollection(): Promise<void> {
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable");
   while (true) {
     const snap = await db.collection("posts").orderBy(FieldPath.documentId(), "asc").limit(200).get();
+    if (snap.empty) break;
+    const batch = db.batch();
+    for (const doc of snap.docs) batch.delete(doc.ref);
+    await batch.commit();
+  }
+}
+
+async function wipeViewerSeen(viewerId: string): Promise<void> {
+  const db = getFirestoreSourceClient();
+  if (!db) throw new Error("firestore_unavailable");
+  while (true) {
+    const snap = await db
+      .collection("feedSeen")
+      .where("viewerId", "==", viewerId)
+      .where("surface", "==", FOR_YOU_SIMPLE_SURFACE)
+      .limit(200)
+      .get();
     if (snap.empty) break;
     const batch = db.batch();
     for (const doc of snap.docs) batch.delete(doc.ref);
@@ -62,6 +80,7 @@ async function seedPosts(seedKey: string, count: number): Promise<string[]> {
         updatedAtMs: baseMs - slot * 1_000 + 100,
         lastUpdated: baseMs - slot * 1_000 + 100,
         randomKey: (slot + 0.5) / 100,
+        reel: slot <= 8,
         privacy: "public",
         visibility: "public",
         status: "active",
@@ -106,15 +125,25 @@ async function hit(app: ReturnType<typeof createApp>, url: string) {
   };
 }
 
+async function toReelTagged(ids: string[]): Promise<string[]> {
+  const db = getFirestoreSourceClient();
+  if (!db) throw new Error("firestore_unavailable");
+  const snaps = await db.getAll(...ids.map((id) => db.collection("posts").doc(id)));
+  const flags = new Map(snaps.map((snap) => [snap.id, (snap.data() as { reel?: unknown } | undefined)?.reel === true]));
+  return ids.map((id) => `${id}(reel=${flags.get(id) === true ? "true" : "false"})`);
+}
+
 async function main(): Promise<void> {
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable");
   const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+  await app.ready();
   const seedKey = `simple-harness-${Date.now()}`;
-  const viewerId = `${seedKey}-viewer`;
+  const viewerId = "simple-harness-viewer";
 
   await wipePostsCollection();
   const seededIds = await seedPosts(seedKey, 12);
+  await wipeViewerSeen(viewerId);
 
   const first = await hit(app, `/v2/feed/for-you/simple?viewerId=${viewerId}&limit=5`);
   if (first.response.statusCode !== 200) {
@@ -124,7 +153,17 @@ async function main(): Promise<void> {
     data: {
       items: Array<{ postId: string }>;
       nextCursor: string | null;
-      debug: { dbReads?: number; elapsedMs?: number };
+      debug: {
+        dbReads?: number;
+        elapsedMs?: number;
+        durableSeenReadCount?: number;
+        candidateReadCount?: number;
+        seenWriteSucceeded?: boolean;
+        reelReturnedCount?: number;
+        fallbackReturnedCount?: number;
+        reelCandidateReadCount?: number;
+        fallbackCandidateReadCount?: number;
+      };
     };
   };
 
@@ -139,35 +178,107 @@ async function main(): Promise<void> {
     data: {
       items: Array<{ postId: string }>;
       nextCursor: string | null;
-      debug: { dbReads?: number; elapsedMs?: number };
+      debug: {
+        dbReads?: number;
+        elapsedMs?: number;
+        durableSeenReadCount?: number;
+        candidateReadCount?: number;
+        seenWriteSucceeded?: boolean;
+        reelReturnedCount?: number;
+        fallbackReturnedCount?: number;
+        reelCandidateReadCount?: number;
+        fallbackCandidateReadCount?: number;
+      };
+    };
+  };
+
+  const third = await hit(app, `/v2/feed/for-you/simple?viewerId=${viewerId}&limit=5`);
+  if (third.response.statusCode !== 200) {
+    throw new Error(`third_request_failed:${third.response.statusCode}`);
+  }
+  const thirdBody = third.response.json() as {
+    data: {
+      items: Array<{ postId: string }>;
+      nextCursor: string | null;
+      debug: {
+        dbReads?: number;
+        elapsedMs?: number;
+        durableSeenReadCount?: number;
+        candidateReadCount?: number;
+        seenWriteSucceeded?: boolean;
+        reelReturnedCount?: number;
+        fallbackReturnedCount?: number;
+        reelCandidateReadCount?: number;
+        fallbackCandidateReadCount?: number;
+      };
     };
   };
 
   const firstIds = firstBody.data.items.map((item) => item.postId);
   const secondIds = secondBody.data.items.map((item) => item.postId);
-  const duplicates = secondIds.filter((postId) => firstIds.includes(postId));
-  const verifySnaps = await db.getAll(...[...new Set([...firstIds, ...secondIds])].map((postId) => db.collection("posts").doc(postId)));
+  const thirdIds = thirdBody.data.items.map((item) => item.postId);
+  const firstTagged = await toReelTagged(firstIds);
+  const secondTagged = await toReelTagged(secondIds);
+  const thirdTagged = await toReelTagged(thirdIds);
+  const pageDupes = secondIds.filter((postId) => firstIds.includes(postId));
+  const newSessionDupes = thirdIds.filter((postId) => firstIds.includes(postId));
+  const verifySnaps = await db.getAll(
+    ...[...new Set([...firstIds, ...secondIds, ...thirdIds])].map((postId) => db.collection("posts").doc(postId))
+  );
   const allVerifiedReal = verifySnaps.every((snap) => snap.exists);
-  const allFromHarnessSeed = [...firstIds, ...secondIds].every((postId) => seededIds.includes(postId));
+  const allFromHarnessSeed = [...firstIds, ...secondIds, ...thirdIds].every((postId) => seededIds.includes(postId));
   const pass =
     firstIds.length > 0 &&
     secondIds.length > 0 &&
-    duplicates.length === 0 &&
+    thirdIds.length > 0 &&
+    pageDupes.length === 0 &&
+    newSessionDupes.length === 0 &&
     Boolean(firstBody.data.nextCursor) &&
     allVerifiedReal &&
-    allFromHarnessSeed;
+    allFromHarnessSeed &&
+    firstBody.data.debug.reelReturnedCount === firstBody.data.items.length;
 
-  console.log(`first page IDs: ${firstIds.join(", ")}`);
-  console.log(`second page IDs: ${secondIds.join(", ")}`);
-  console.log(`duplicate count: ${duplicates.length}`);
+  console.log(`first page IDs: ${firstTagged.join(", ")}`);
+  console.log(`second page IDs: ${secondTagged.join(", ")}`);
+  console.log(`new session page IDs: ${thirdTagged.join(", ")}`);
+  console.log(`duplicate count page1/page2: ${pageDupes.length}`);
+  console.log(`duplicate count page1/newSession: ${newSessionDupes.length}`);
   console.log(`first page elapsed ms: ${first.elapsedMs}`);
   console.log(`second page elapsed ms: ${second.elapsedMs}`);
+  console.log(`new session elapsed ms: ${third.elapsedMs}`);
+  console.log(`first page route elapsed ms: ${firstBody.data.debug.elapsedMs ?? "n/a"}`);
+  console.log(`second page route elapsed ms: ${secondBody.data.debug.elapsedMs ?? "n/a"}`);
+  console.log(`new session route elapsed ms: ${thirdBody.data.debug.elapsedMs ?? "n/a"}`);
   console.log(`first page payload bytes: ${first.bytes}`);
   console.log(`second page payload bytes: ${second.bytes}`);
+  console.log(`new session payload bytes: ${third.bytes}`);
   console.log(`first page nextCursor present: ${Boolean(firstBody.data.nextCursor)}`);
   console.log(`second page nextCursor present: ${Boolean(secondBody.data.nextCursor)}`);
+  console.log(`new session nextCursor present: ${Boolean(thirdBody.data.nextCursor)}`);
+  console.log(`durableSeenReadCount first page: ${firstBody.data.debug.durableSeenReadCount ?? "n/a"}`);
+  console.log(`durableSeenReadCount second page: ${secondBody.data.debug.durableSeenReadCount ?? "n/a"}`);
+  console.log(`durableSeenReadCount new session: ${thirdBody.data.debug.durableSeenReadCount ?? "n/a"}`);
+  console.log(`candidateReadCount first page: ${firstBody.data.debug.candidateReadCount ?? "n/a"}`);
+  console.log(`candidateReadCount second page: ${secondBody.data.debug.candidateReadCount ?? "n/a"}`);
+  console.log(`candidateReadCount new session: ${thirdBody.data.debug.candidateReadCount ?? "n/a"}`);
+  console.log(`reelReturnedCount first page: ${firstBody.data.debug.reelReturnedCount ?? "n/a"}`);
+  console.log(`fallbackReturnedCount first page: ${firstBody.data.debug.fallbackReturnedCount ?? "n/a"}`);
+  console.log(`reelCandidateReadCount first page: ${firstBody.data.debug.reelCandidateReadCount ?? "n/a"}`);
+  console.log(`fallbackCandidateReadCount first page: ${firstBody.data.debug.fallbackCandidateReadCount ?? "n/a"}`);
+  console.log(`reelReturnedCount second page: ${secondBody.data.debug.reelReturnedCount ?? "n/a"}`);
+  console.log(`fallbackReturnedCount second page: ${secondBody.data.debug.fallbackReturnedCount ?? "n/a"}`);
+  console.log(`reelCandidateReadCount second page: ${secondBody.data.debug.reelCandidateReadCount ?? "n/a"}`);
+  console.log(`fallbackCandidateReadCount second page: ${secondBody.data.debug.fallbackCandidateReadCount ?? "n/a"}`);
+  console.log(`reelReturnedCount new session: ${thirdBody.data.debug.reelReturnedCount ?? "n/a"}`);
+  console.log(`fallbackReturnedCount new session: ${thirdBody.data.debug.fallbackReturnedCount ?? "n/a"}`);
+  console.log(`reelCandidateReadCount new session: ${thirdBody.data.debug.reelCandidateReadCount ?? "n/a"}`);
+  console.log(`fallbackCandidateReadCount new session: ${thirdBody.data.debug.fallbackCandidateReadCount ?? "n/a"}`);
+  console.log(`seenWriteSucceeded first page: ${firstBody.data.debug.seenWriteSucceeded ?? "n/a"}`);
+  console.log(`seenWriteSucceeded second page: ${secondBody.data.debug.seenWriteSucceeded ?? "n/a"}`);
+  console.log(`seenWriteSucceeded new session: ${thirdBody.data.debug.seenWriteSucceeded ?? "n/a"}`);
   console.log(`verified real firestore docs: ${allVerifiedReal}`);
   console.log(`all from harness seed: ${allFromHarnessSeed}`);
+  console.log("fake fallback data used: false");
   console.log(pass ? "PASS" : "FAIL");
 
   if (!pass) process.exit(1);

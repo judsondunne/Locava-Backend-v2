@@ -4,6 +4,12 @@ import { globalCache } from "../../cache/global-cache.js";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { mutationStateRepository } from "../mutations/mutation-state.repository.js";
+import { loadEnv } from "../../config/env.js";
+import {
+  derivePhoneLast10,
+  digitsOnly,
+  normalizePhoneForSearch,
+} from "../../lib/phone-search-fields.js";
 
 export type UserSuggestionSummary = {
   userId: string;
@@ -40,27 +46,32 @@ export type SuggestedFriendsOptions = {
 
 export type ContactSyncDiagnostics = {
   totalContactsReceived: number;
-  rawPhoneNumbers: string[];
-  rawEmails: string[];
-  normalizedPhoneCandidates: string[];
-  /** One canonical string per contact phone written to `addressBookPhoneNumbers` (not query variants). */
-  canonicalAddressBookPhonesWritten: string[];
-  normalizedEmails: string[];
-  phoneQueryChunks: Array<{
-    chunk: string[];
-    matchedCount: number;
-    matchedUserIds: string[];
-    matchedPhoneNumbers: string[];
+  uniqueRawPhones: number;
+  uniquePhoneLast10Candidates: number;
+  uniqueEmails: number;
+  phoneLast10QueryChunksCount: number;
+  phoneSearchKeysQueryChunksCount: number;
+  emailQueryChunksCount: number;
+  matchedByPhoneLast10Count: number;
+  matchedByPhoneSearchKeysCount: number;
+  matchedByEmailCount: number;
+  finalMatchedUserIds: string[];
+  unmatchedContactPhonesSample: string[];
+  matchedUsers: Array<{
+    userId: string;
+    displayName: string | null;
+    storedPhoneFields: {
+      phoneNumber: string | null;
+      phone: string | null;
+      phone_number: string | null;
+      number: string | null;
+      phoneLast10: string | null;
+      phoneE164: string | null;
+      phoneDigits: string | null;
+    };
+    matchedKey: string;
   }>;
-  emailQueryChunks: Array<{
-    chunk: string[];
-    matchedCount: number;
-    matchedUserIds: string[];
-    matchedEmails: string[];
-  }>;
-  phoneMatchedUserIds: string[];
-  emailMatchedUserIds: string[];
-  uniqueMatchedUserIds: string[];
+  redactedForProduction: boolean;
 };
 
 type ViewerGraph = {
@@ -73,113 +84,24 @@ type ViewerGraph = {
 };
 
 const DEFAULT_LIMIT = 20;
-const MAX_CONTACT_SYNC_PHONE_CHUNKS = 12; // 24 queries max (phoneNumber + number)
+const MAX_CONTACT_SYNC_PHONE_CHUNKS = 12;
 const MAX_CONTACT_SYNC_EMAIL_CHUNKS = 8; // 8 queries max
 
 const CONTACT_REASON_LABEL = "In your contacts";
 
-/** Loose NANP national number check (NXX-NXX-XXXX, N = 2–9). */
-function isPlausibleNanpNational10(ten: string): boolean {
-  return /^[2-9]\d{2}[2-9]\d{6}$/.test(ten);
-}
-
-/**
- * Derive a 10-digit NANP national number from digit-only input when reasonable.
- * Handles: 10-digit national, 11-digit 1+NXX…, longer strings starting with 1 (paste/junk).
- */
-function extractNanpNational10Digits(digits: string): string | null {
-  if (digits.length === 10) return digits;
-  if (digits.length === 11 && digits.startsWith("1")) return digits.slice(1);
-  if (digits.length >= 12 && digits.length <= 15 && digits.startsWith("1")) {
-    const head11 = digits.slice(0, 11);
-    const fromHead = head11.slice(1);
-    if (isPlausibleNanpNational10(fromHead)) return fromHead;
-    const tail11 = digits.slice(-11);
-    if (tail11.startsWith("1")) {
-      const fromTail = tail11.slice(1);
-      if (isPlausibleNanpNational10(fromTail)) return fromTail;
-    }
-  }
-  return null;
-}
-
-/**
- * Phone normalization for matching contacts against stored `users.phoneNumber`.
- *
- * Firestore `phoneNumber` equality is exact: user docs may store `+16507046433`, `16507046433`,
- * or `6507046433`. Contacts / `addressBookPhoneNumbers` often store 10-digit only — we must
- * query every stored shape. For NANP we emit national, `1`+national, and `+1`+national; we avoid
- * using bare `+digits` for plausible NANP (that produces wrong strings like `+6507046433`).
- */
-function normalizePhoneCandidates(raw: string): string[] {
-  let digits = raw.replace(/[^0-9]/g, "");
-  if (!digits) return [];
-
-  if (digits.length > 10 && digits.startsWith("00")) {
-    digits = digits.replace(/^00+/, "");
-  }
-
-  const out = new Set<string>();
-  const push = (value: string) => {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    out.add(trimmed);
-  };
-
-  push(digits);
-
-  const national10 = extractNanpNational10Digits(digits);
-  if (national10 && isPlausibleNanpNational10(national10)) {
-    push(national10);
-    push(`1${national10}`);
-    push(`+1${national10}`);
-    const full11 = `1${national10}`;
-    push(full11);
-    push(`+${full11}`);
-    // Legacy monolith often stores NANP in `users.number` as display text, not E.164.
-    push(`(${national10.slice(0, 3)}) ${national10.slice(3, 6)}-${national10.slice(6)}`);
-    push(`${national10.slice(0, 3)}-${national10.slice(3, 6)}-${national10.slice(6)}`);
-    push(`${national10.slice(0, 3)}.${national10.slice(3, 6)}.${national10.slice(6)}`);
-    return [...out];
-  }
-
-  // Non-NANP or unknown shape: still match international / odd stored literals.
-  push(`+${digits}`);
-  if (digits.length === 11 && digits.startsWith("1")) {
-    push(digits.slice(1));
-    push(`+1${digits.slice(1)}`);
-  }
-  return [...out];
-}
-
-/** Legacy user docs (monolith) use `number`; Backendv2 uses `phoneNumber`. */
-function pickStoredPhoneFromUserDoc(data: Record<string, unknown>): string {
-  const phoneNumber = typeof data.phoneNumber === "string" ? data.phoneNumber.trim() : "";
-  if (phoneNumber.length > 0) return phoneNumber;
-  const number = typeof data.number === "string" ? data.number.trim() : "";
-  return number;
-}
-
-/**
- * Single value to persist on `users.addressBookPhoneNumbers` per logical phone.
- * Query-time variants are derived in memory via {@link normalizePhoneCandidates}; do not persist those.
- */
-function canonicalizePhoneForAddressBookStorage(raw: string): string | null {
-  let digits = raw.replace(/[^0-9]/g, "");
-  if (!digits) return null;
-  if (digits.length > 10 && digits.startsWith("00")) {
-    digits = digits.replace(/^00+/, "");
-  }
-  const national10 = extractNanpNational10Digits(digits);
-  if (national10 && isPlausibleNanpNational10(national10)) {
-    return national10;
-  }
-  return digits;
-}
-
 function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
+
+function redactPhone(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const digits = digitsOnly(value);
+  if (!digits) return null;
+  return `***${digits.slice(-4)}`;
+}
+
+const runtimeEnv = loadEnv();
+const allowVerboseContactSyncDiagnostics = runtimeEnv.NODE_ENV !== "production" && runtimeEnv.ENABLE_DEV_DIAGNOSTICS;
 
 function pickProfilePic(data: Record<string, unknown>): string | null {
   const raw = data.profilePic ?? data.profilePicPath ?? data.profilePicLarge ?? data.profilePicSmall ?? data.photoURL;
@@ -274,9 +196,8 @@ export class SuggestedFriendsRepository {
           const set = new Set<string>();
           for (const value of data.addressBookPhoneNumbers) {
             if (typeof value !== "string") continue;
-            for (const candidate of normalizePhoneCandidates(value)) {
-              set.add(candidate);
-            }
+            const normalized = normalizePhoneForSearch(value);
+            normalized.queryKeys.forEach((candidate) => set.add(candidate));
           }
           return [...set];
         })()
@@ -291,26 +212,25 @@ export class SuggestedFriendsRepository {
     contacts: Array<{ phoneNumbers?: string[]; emails?: string[] }>;
   }): Promise<{ matchedUsers: UserSuggestionSummary[]; matchedCount: number; syncedAt: number; diagnostics: ContactSyncDiagnostics }> {
     const viewerGraph = await this.loadViewerGraph(input.viewerId);
-    const phoneSet = new Set<string>();
+    const phoneLast10Set = new Set<string>();
+    const phoneSearchKeysSet = new Set<string>();
     const addressBookPhonesCanonical = new Set<string>();
     const emailSet = new Set<string>();
-    const rawPhoneNumbers: string[] = [];
-    const rawEmails: string[] = [];
+    const rawPhoneSet = new Set<string>();
     for (const contact of input.contacts) {
       for (const phone of contact.phoneNumbers ?? []) {
-        if (typeof phone === "string" && phone.trim().length > 0) {
-          rawPhoneNumbers.push(phone.trim());
-        }
-        const canonicalStored = canonicalizePhoneForAddressBookStorage(phone);
-        if (canonicalStored) addressBookPhonesCanonical.add(canonicalStored);
-        for (const candidate of normalizePhoneCandidates(phone)) {
-          phoneSet.add(candidate);
+        const normalized = normalizePhoneForSearch(phone);
+        if (!normalized.raw) continue;
+        rawPhoneSet.add(normalized.raw);
+        normalized.queryKeys.forEach((key) => phoneSearchKeysSet.add(key));
+        if (normalized.phoneLast10) {
+          phoneLast10Set.add(normalized.phoneLast10);
+          addressBookPhonesCanonical.add(normalized.phoneLast10);
+        } else if (normalized.digits) {
+          addressBookPhonesCanonical.add(normalized.digits);
         }
       }
       for (const email of contact.emails ?? []) {
-        if (typeof email === "string" && email.trim().length > 0) {
-          rawEmails.push(email.trim());
-        }
         const normalized = normalizeEmail(email);
         if (normalized.includes("@")) emailSet.add(normalized);
       }
@@ -324,33 +244,56 @@ export class SuggestedFriendsRepository {
         syncedAt: now,
         diagnostics: {
           totalContactsReceived: input.contacts.length,
-          rawPhoneNumbers,
-          rawEmails,
-          normalizedPhoneCandidates: [...phoneSet].sort(),
-          canonicalAddressBookPhonesWritten: [...addressBookPhonesCanonical].sort(),
-          normalizedEmails: [...emailSet].sort(),
-          phoneQueryChunks: [],
-          emailQueryChunks: [],
-          phoneMatchedUserIds: [],
-          emailMatchedUserIds: [],
-          uniqueMatchedUserIds: []
+          uniqueRawPhones: rawPhoneSet.size,
+          uniquePhoneLast10Candidates: phoneLast10Set.size,
+          uniqueEmails: emailSet.size,
+          phoneLast10QueryChunksCount: 0,
+          phoneSearchKeysQueryChunksCount: 0,
+          emailQueryChunksCount: 0,
+          matchedByPhoneLast10Count: 0,
+          matchedByPhoneSearchKeysCount: 0,
+          matchedByEmailCount: 0,
+          finalMatchedUserIds: [],
+          unmatchedContactPhonesSample: [],
+          matchedUsers: [],
+          redactedForProduction: true,
         }
       };
     }
 
     const matchesByUser = new Map<string, UserSuggestionSummary>();
-    const phoneQueryChunks: ContactSyncDiagnostics["phoneQueryChunks"] = [];
-    const emailQueryChunks: ContactSyncDiagnostics["emailQueryChunks"] = [];
-    const phoneMatchedUserIds = new Set<string>();
+    const matchedByPhoneLast10 = new Set<string>();
+    const matchedByPhoneSearchKeys = new Set<string>();
     const emailMatchedUserIds = new Set<string>();
-    const phoneList = [...phoneSet];
+    const phoneLast10List = [...phoneLast10Set];
+    const phoneSearchKeysList = [...phoneSearchKeysSet];
     const emailList = [...emailSet];
-    const phoneSelectFields = ["handle", "name", "displayName", "profilePic", "followers", "phoneNumber", "number"] as const;
+    const phoneSelectFields = [
+      "handle",
+      "name",
+      "displayName",
+      "profilePic",
+      "followers",
+      "phoneNumber",
+      "phone",
+      "phone_number",
+      "number",
+      "phoneLast10",
+      "phoneE164",
+      "phoneDigits",
+      "phoneSearchKeys",
+      "email",
+    ] as const;
 
-    const phoneChunks: string[][] = [];
-    for (let i = 0; i < phoneList.length; i += 10) {
-      const chunk = phoneList.slice(i, i + 10);
-      if (chunk.length > 0) phoneChunks.push(chunk);
+    const phoneLast10Chunks: string[][] = [];
+    for (let i = 0; i < phoneLast10List.length; i += 10) {
+      const chunk = phoneLast10List.slice(i, i + 10);
+      if (chunk.length > 0) phoneLast10Chunks.push(chunk);
+    }
+    const phoneSearchKeysChunks: string[][] = [];
+    for (let i = 0; i < phoneSearchKeysList.length; i += 10) {
+      const chunk = phoneSearchKeysList.slice(i, i + 10);
+      if (chunk.length > 0) phoneSearchKeysChunks.push(chunk);
     }
     const emailChunks: string[][] = [];
     for (let i = 0; i < emailList.length; i += 10) {
@@ -358,109 +301,129 @@ export class SuggestedFriendsRepository {
       if (chunk.length > 0) emailChunks.push(chunk);
     }
 
-    const runPhoneChunk = async (
+    const matchedDetails = new Map<
+      string,
+      {
+        matchedKey: string;
+        displayName: string | null;
+        storedPhoneFields: ContactSyncDiagnostics["matchedUsers"][number]["storedPhoneFields"];
+      }
+    >();
+    const matchedPhonesFromUsers = new Set<string>();
+
+    const ingestMatchedDoc = (
+      doc: { id: string; data: () => Record<string, unknown> },
+      matchedKey: string,
+      source: "phoneLast10" | "phoneSearchKeys" | "email"
+    ): void => {
+      if (doc.id === input.viewerId) return;
+      const docData = doc.data() as Record<string, unknown>;
+      const summary = {
+        ...toSummary(
+          doc.id,
+          docData,
+          "contacts",
+          viewerGraph.following.has(doc.id) || mutationStateRepository.isFollowing(input.viewerId, doc.id),
+          1200
+        ),
+        reasonLabel: CONTACT_REASON_LABEL,
+      };
+      matchesByUser.set(doc.id, summary);
+      const displayName =
+        summary.name ??
+        (typeof docData.displayName === "string" ? docData.displayName.trim() || null : null);
+      const storedPhoneFields = {
+        phoneNumber: typeof docData.phoneNumber === "string" ? docData.phoneNumber : null,
+        phone: typeof docData.phone === "string" ? docData.phone : null,
+        phone_number: typeof docData.phone_number === "string" ? docData.phone_number : null,
+        number: typeof docData.number === "string" ? docData.number : null,
+        phoneLast10: typeof docData.phoneLast10 === "string" ? docData.phoneLast10 : null,
+        phoneE164: typeof docData.phoneE164 === "string" ? docData.phoneE164 : null,
+        phoneDigits: typeof docData.phoneDigits === "string" ? docData.phoneDigits : null,
+      };
+      matchedDetails.set(doc.id, { matchedKey, displayName, storedPhoneFields });
+
+      if (source === "phoneLast10") matchedByPhoneLast10.add(doc.id);
+      if (source === "phoneSearchKeys") matchedByPhoneSearchKeys.add(doc.id);
+      if (source === "email") emailMatchedUserIds.add(doc.id);
+
+      for (const raw of Object.values(storedPhoneFields)) {
+        const digits = typeof raw === "string" ? digitsOnly(raw) : "";
+        const matchable = derivePhoneLast10(digits) ?? digits;
+        if (matchable) matchedPhonesFromUsers.add(matchable);
+      }
+    };
+
+    const runPhoneLast10Chunk = async (
       chunk: string[]
-    ): Promise<{
-      chunk: string[];
-      matchedCount: number;
-      matchedUserIds: string[];
-      matchedPhoneNumbers: string[];
-    }> => {
-      const [qPhoneNumber, qNumber] = await Promise.all([
-        this.db!.collection("users").where("phoneNumber", "in", chunk).select(...phoneSelectFields).get(),
-        this.db!.collection("users").where("number", "in", chunk).select(...phoneSelectFields).get()
-      ]);
-      incrementDbOps("queries", 2);
-      incrementDbOps("reads", qPhoneNumber.size + qNumber.size);
-      const matchedUserIdsForChunk: string[] = [];
-      const matchedPhoneNumbersForChunk: string[] = [];
-      const seenUserIds = new Set<string>();
-      const ingestContactDoc = (doc: (typeof qPhoneNumber.docs)[number]) => {
-        if (doc.id === input.viewerId) return;
-        if (seenUserIds.has(doc.id)) return;
-        seenUserIds.add(doc.id);
-        const docData = doc.data() as Record<string, unknown>;
-        const docPhone = pickStoredPhoneFromUserDoc(docData);
-        if (docPhone.length > 0) matchedPhoneNumbersForChunk.push(docPhone);
-        matchedUserIdsForChunk.push(doc.id);
-        phoneMatchedUserIds.add(doc.id);
-        const summary = {
-          ...toSummary(
-            doc.id,
-            docData,
-            "contacts",
-            viewerGraph.following.has(doc.id) || mutationStateRepository.isFollowing(input.viewerId, doc.id),
-            1200
-          ),
-          reasonLabel: CONTACT_REASON_LABEL
-        };
-        matchesByUser.set(doc.id, summary);
-      };
-      qPhoneNumber.docs.forEach(ingestContactDoc);
-      qNumber.docs.forEach(ingestContactDoc);
-      return {
-        chunk,
-        matchedCount: matchedUserIdsForChunk.length,
-        matchedUserIds: matchedUserIdsForChunk,
-        matchedPhoneNumbers: [...new Set(matchedPhoneNumbersForChunk)].sort()
-      };
+    ): Promise<void> => {
+      const q = await this.db!.collection("users").where("phoneLast10", "in", chunk).select(...phoneSelectFields).get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", q.size);
+      q.docs.forEach((doc) => ingestMatchedDoc(doc, `phoneLast10:${chunk.join(",")}`, "phoneLast10"));
+    };
+
+    const runPhoneSearchKeysChunk = async (chunk: string[]): Promise<void> => {
+      const q = await this.db!.collection("users").where("phoneSearchKeys", "array-contains-any", chunk).select(...phoneSelectFields).get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", q.size);
+      q.docs.forEach((doc) => ingestMatchedDoc(doc, `phoneSearchKeys:${chunk.join(",")}`, "phoneSearchKeys"));
     };
 
     const runEmailChunk = async (
       chunk: string[]
-    ): Promise<{
-      chunk: string[];
-      matchedCount: number;
-      matchedUserIds: string[];
-      matchedEmails: string[];
-    }> => {
+    ): Promise<void> => {
       const q = await this.db!
         .collection("users")
         .where("email", "in", chunk)
-        .select("handle", "name", "displayName", "profilePic", "followers", "email")
+        .select(...phoneSelectFields)
         .get();
       incrementDbOps("queries", 1);
       incrementDbOps("reads", q.size);
-      const matchedUserIdsForChunk: string[] = [];
-      const matchedEmailsForChunk: string[] = [];
       q.docs.forEach((doc) => {
         if (doc.id === input.viewerId) return;
-        const docData = doc.data() as Record<string, unknown>;
-        const docEmail = typeof docData.email === "string" ? docData.email.trim().toLowerCase() : "";
-        if (docEmail.length > 0) matchedEmailsForChunk.push(docEmail);
-        matchedUserIdsForChunk.push(doc.id);
-        emailMatchedUserIds.add(doc.id);
-        const summary = {
-          ...toSummary(
-            doc.id,
-            docData,
-            "contacts",
-            viewerGraph.following.has(doc.id) || mutationStateRepository.isFollowing(input.viewerId, doc.id),
-            1200
-          ),
-          reasonLabel: CONTACT_REASON_LABEL
-        };
-        matchesByUser.set(doc.id, summary);
+        ingestMatchedDoc(doc, `email:${chunk.join(",")}`, "email");
       });
-      return {
-        chunk,
-        matchedCount: matchedUserIdsForChunk.length,
-        matchedUserIds: matchedUserIdsForChunk,
-        matchedEmails: [...new Set(matchedEmailsForChunk)].sort()
-      };
     };
 
-    const boundedPhoneChunks = phoneChunks.slice(0, MAX_CONTACT_SYNC_PHONE_CHUNKS);
+    const boundedPhoneLast10Chunks = phoneLast10Chunks.slice(0, MAX_CONTACT_SYNC_PHONE_CHUNKS);
+    const boundedPhoneSearchKeysChunks = phoneSearchKeysChunks.slice(0, MAX_CONTACT_SYNC_PHONE_CHUNKS);
     const boundedEmailChunks = emailChunks.slice(0, MAX_CONTACT_SYNC_EMAIL_CHUNKS);
     // Keep contact sync bounded so it never overloads launch-critical routes.
-    const [phoneRows, emailRows] = await Promise.all([
-      Promise.all(boundedPhoneChunks.map((c) => runPhoneChunk(c))),
+    await Promise.all([
+      Promise.all(boundedPhoneLast10Chunks.map((c) => runPhoneLast10Chunk(c))),
+      Promise.all(boundedPhoneSearchKeysChunks.map((c) => runPhoneSearchKeysChunk(c))),
       Promise.all(boundedEmailChunks.map((c) => runEmailChunk(c)))
     ]);
-    phoneRows.forEach((row) => phoneQueryChunks.push(row));
-    emailRows.forEach((row) => emailQueryChunks.push(row));
 
     const matchedUsers = [...matchesByUser.values()].sort((a, b) => a.userId.localeCompare(b.userId));
+    const unmatchedContactPhonesSample = [...rawPhoneSet]
+      .map((raw) => normalizePhoneForSearch(raw))
+      .filter((row) => {
+        if (!row.digits) return false;
+        const key = row.phoneLast10 ?? row.digits;
+        return !matchedPhonesFromUsers.has(key);
+      })
+      .slice(0, 20)
+      .map((row) => row.raw);
+
+    const diagnosticsMatchedUsers = [...matchedDetails.entries()].map(([userId, detail]) => ({
+      userId,
+      displayName: detail.displayName,
+      storedPhoneFields: allowVerboseContactSyncDiagnostics
+        ? detail.storedPhoneFields
+        : {
+            phoneNumber: redactPhone(detail.storedPhoneFields.phoneNumber),
+            phone: redactPhone(detail.storedPhoneFields.phone),
+            phone_number: redactPhone(detail.storedPhoneFields.phone_number),
+            number: redactPhone(detail.storedPhoneFields.number),
+            phoneLast10: redactPhone(detail.storedPhoneFields.phoneLast10),
+            phoneE164: redactPhone(detail.storedPhoneFields.phoneE164),
+            phoneDigits: redactPhone(detail.storedPhoneFields.phoneDigits),
+          },
+      matchedKey: detail.matchedKey,
+    }));
+
     await this.db.collection("users").doc(input.viewerId).set(
       {
         addressBookSyncedAt: now,
@@ -485,16 +448,21 @@ export class SuggestedFriendsRepository {
       syncedAt: now,
       diagnostics: {
         totalContactsReceived: input.contacts.length,
-        rawPhoneNumbers,
-        rawEmails,
-        normalizedPhoneCandidates: phoneList.sort(),
-        canonicalAddressBookPhonesWritten: [...addressBookPhonesCanonical].sort(),
-        normalizedEmails: emailList.sort(),
-        phoneQueryChunks,
-        emailQueryChunks,
-        phoneMatchedUserIds: [...phoneMatchedUserIds].sort(),
-        emailMatchedUserIds: [...emailMatchedUserIds].sort(),
-        uniqueMatchedUserIds
+        uniqueRawPhones: rawPhoneSet.size,
+        uniquePhoneLast10Candidates: phoneLast10List.length,
+        uniqueEmails: emailList.length,
+        phoneLast10QueryChunksCount: boundedPhoneLast10Chunks.length,
+        phoneSearchKeysQueryChunksCount: boundedPhoneSearchKeysChunks.length,
+        emailQueryChunksCount: boundedEmailChunks.length,
+        matchedByPhoneLast10Count: matchedByPhoneLast10.size,
+        matchedByPhoneSearchKeysCount: matchedByPhoneSearchKeys.size,
+        matchedByEmailCount: emailMatchedUserIds.size,
+        finalMatchedUserIds: uniqueMatchedUserIds,
+        unmatchedContactPhonesSample: allowVerboseContactSyncDiagnostics
+          ? unmatchedContactPhonesSample
+          : unmatchedContactPhonesSample.map((value) => redactPhone(value) ?? value),
+        matchedUsers: diagnosticsMatchedUsers,
+        redactedForProduction: !allowVerboseContactSyncDiagnostics,
       }
     };
   }

@@ -207,4 +207,62 @@ describe("mixes service", () => {
     });
     expect(out.posts.some((p: any) => p.postId === "px")).toBe(false);
   });
+
+  it("emits normalized media readiness for ready and processing video mix cards", async () => {
+    const mediaRepo = {
+      async listFromPool() {
+        return {
+          posts: [
+            {
+              postId: "ready-video",
+              time: 7000,
+              userId: "u-ready",
+              userHandle: "ready",
+              mediaType: "video",
+              mediaStatus: "ready",
+              assetsReady: true,
+              playbackReady: true,
+              playbackUrl: "https://cdn/ready_720_hevc.mp4",
+              fallbackVideoUrl: "https://cdn/ready_original.mp4",
+              thumbUrl: "https://cdn/ready_poster.jpg",
+              assets: [{ type: "video", variants: { main720Avc: "https://cdn/ready_720_hevc.mp4" } }],
+              activities: ["hiking"],
+            },
+            {
+              postId: "processing-video",
+              time: 6000,
+              userId: "u-processing",
+              userHandle: "processing",
+              mediaType: "video",
+              mediaStatus: "processing",
+              assetsReady: false,
+              playbackReady: false,
+              fallbackVideoUrl: "https://cdn/processing_original.mp4",
+              thumbUrl: "https://cdn/processing_poster.jpg",
+              assets: [{ type: "video", variants: {} }],
+              activities: ["hiking"],
+            },
+          ] as any[],
+          readCount: 2,
+          source: "test_pool",
+        };
+      },
+    };
+    const mediaService = new MixesService(mediaRepo as any);
+    const out = await mediaService.page({
+      mixKey: "hiking",
+      filter: { activity: "hiking" },
+      limit: 6,
+      cursor: null,
+      viewerId: null,
+    });
+    const ready = out.posts.find((p: any) => p.postId === "ready-video");
+    const processing = out.posts.find((p: any) => p.postId === "processing-video");
+    expect(ready.playbackReady).toBe(true);
+    expect(Boolean(ready.playbackUrl || ready.fallbackVideoUrl)).toBe(true);
+    expect(processing.mediaStatus).toBe("processing");
+    expect(processing.playbackReady).toBe(false);
+    expect(processing.playbackUrl ?? null).toBeNull();
+    expect(typeof processing.fallbackVideoUrl).toBe("string");
+  });
 });

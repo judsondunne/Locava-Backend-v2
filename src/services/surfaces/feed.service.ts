@@ -2,9 +2,10 @@ import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { entityCacheKeys, getOrSetEntityCache } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
-import { recordEntityCacheHit, recordEntityConstructed } from "../../observability/request-context.js";
+import { recordEntityCacheHit, recordEntityCacheMiss, recordEntityConstructed } from "../../observability/request-context.js";
 import type { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import type { FeedBootstrapCandidateRecord } from "../../repositories/surfaces/feed.repository.js";
+import type { FeedDetailRecord } from "../../repositories/surfaces/feed.repository.js";
 import type { FeedQueryContext } from "../../repositories/surfaces/feed.repository.js";
 
 export class FeedService {
@@ -222,6 +223,33 @@ export class FeedService {
           })
       )
     );
+  }
+
+  async loadPostDetailCachedProjection(
+    postId: string,
+  ): Promise<
+    | {
+        source: "post_detail_cache";
+        detail: FeedDetailRecord;
+      }
+    | {
+        source: "post_card_cache";
+        card: FeedBootstrapCandidateRecord;
+      }
+    | null
+  > {
+    const cachedDetail = await globalCache.get<FeedDetailRecord>(entityCacheKeys.postDetail(postId));
+    if (cachedDetail) {
+      recordEntityCacheHit();
+      return { source: "post_detail_cache", detail: cachedDetail };
+    }
+    const cachedCard = await globalCache.get<FeedBootstrapCandidateRecord>(entityCacheKeys.postCard(postId));
+    if (cachedCard) {
+      recordEntityCacheHit();
+      return { source: "post_card_cache", card: cachedCard };
+    }
+    recordEntityCacheMiss();
+    return null;
   }
 
   async loadCommentsPreview(postId: string, slowMs: number) {

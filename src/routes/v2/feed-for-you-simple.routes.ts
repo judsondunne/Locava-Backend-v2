@@ -14,7 +14,7 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
     const viewer = buildViewerContext(request);
     const query = FeedForYouSimpleQuerySchema.parse(request.query);
     setRouteName(feedForYouSimpleContract.routeName);
-    const viewerId = query.viewerId?.trim() || viewer.viewerId;
+    const viewerId = query.viewerId?.trim() || viewer.viewerId || null;
 
     try {
       const startedAt = Date.now();
@@ -39,6 +39,16 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         },
         "feed for-you simple summary"
       );
+      if (payload.debug.seenWriteAttempted && !payload.debug.seenWriteSucceeded) {
+        request.log.warn(
+          {
+            event: "feed_for_you_simple_seen_write_failed",
+            viewerId,
+            returnedCount: payload.items.length
+          },
+          "feed for-you simple seen ledger write failed"
+        );
+      }
       return success({
         ...payload,
         debug: {

@@ -742,6 +742,7 @@ export class ChatsRepository {
     idempotent: boolean;
     recipientUserIds: string[];
     groupName: string | null;
+    groupPhotoUrl: string | null;
   }> {
     if (shouldAllowSeededFallback(input.viewerId)) {
       recordFallback("chats_seeded_send_message");
@@ -755,7 +756,15 @@ export class ChatsRepository {
         const existingId = this.clientMessageIndex.get(key);
         if (existingId) {
           const existing = (this.seededMessagesByConversation.get(input.conversationId) ?? []).find((m) => m.messageId === existingId);
-          if (existing) return { message: existing, idempotent: true, recipientUserIds: row.participantIds.filter((id) => id !== input.viewerId), groupName: row.isGroup ? row.title ?? null : null };
+          if (existing) {
+            return {
+              message: existing,
+              idempotent: true,
+              recipientUserIds: row.participantIds.filter((id) => id !== input.viewerId),
+              groupName: row.isGroup ? row.title ?? null : null,
+              groupPhotoUrl: row.isGroup ? row.displayPhotoUrl ?? null : null,
+            };
+          }
         }
       }
       const now = Date.now();
@@ -795,6 +804,7 @@ export class ChatsRepository {
         idempotent: false,
         recipientUserIds: row.participantIds.filter((id) => id !== input.viewerId),
         groupName: row.isGroup ? row.title ?? null : null,
+        groupPhotoUrl: row.isGroup ? row.displayPhotoUrl ?? null : null,
       };
     }
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
@@ -841,6 +851,12 @@ export class ChatsRepository {
             groupName:
               participants.length > 2 || typeof conversationData.groupName === "string"
                 ? (typeof conversationData.groupName === "string" ? conversationData.groupName : "Group chat")
+                : null,
+            groupPhotoUrl:
+              participants.length > 2 || typeof conversationData.groupName === "string"
+                ? (typeof conversationData.displayPhotoURL === "string" && conversationData.displayPhotoURL.trim().length > 0
+                    ? conversationData.displayPhotoURL.trim()
+                    : null)
                 : null,
           };
         }
@@ -928,6 +944,12 @@ export class ChatsRepository {
       groupName:
         participants.length > 2 || typeof conversationData.groupName === "string"
           ? (typeof conversationData.groupName === "string" ? conversationData.groupName : "Group chat")
+          : null,
+      groupPhotoUrl:
+        participants.length > 2 || typeof conversationData.groupName === "string"
+          ? (typeof conversationData.displayPhotoURL === "string" && conversationData.displayPhotoURL.trim().length > 0
+              ? conversationData.displayPhotoURL.trim()
+              : null)
           : null,
       message: {
         messageId: messageRef.id,

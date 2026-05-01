@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { PostsDetailOrchestrator } from "./posts-detail.orchestrator.js";
+import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 
 function buildService(overrides: Partial<Record<string, unknown>> = {}) {
   const base = {
@@ -24,6 +25,7 @@ function buildService(overrides: Partial<Record<string, unknown>> = {}) {
       assets: [{ id: "a1", type: "video" as const, poster: "https://cdn/p.jpg", thumbnail: "https://cdn/p.jpg", variants: {} }]
     })),
     loadCommentsPreview: vi.fn(async () => null),
+    loadPostDetailCachedProjection: vi.fn(async () => null),
     ...overrides
   };
   return base as any;
@@ -278,5 +280,156 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(out.found.map((row) => row.postId)).toEqual(["p1", "p3"]);
     expect(out.missing).toEqual(["p2"]);
     expect(service.loadPostDetail).not.toHaveBeenCalled();
+  });
+
+  it("detail DTO exposes processing media readiness without pretending a fresh video is ready", async () => {
+    const service = buildService({
+      loadPostDetail: vi.fn(async (postId: string) => ({
+        postId,
+        userId: "creator-1",
+        caption: "fresh video",
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        mediaType: "video" as const,
+        thumbUrl: "https://cdn/poster.jpg",
+        assetsReady: false,
+        videoProcessingStatus: "processing",
+        instantPlaybackReady: false,
+        carouselFitWidth: true,
+        letterboxGradients: [{ top: "#111111", bottom: "#222222" }],
+        fallbackVideoUrl: "https://cdn/original.mp4",
+        assets: [
+          {
+            id: "video_1",
+            type: "video" as const,
+            original: "https://cdn/original.mp4",
+            poster: "https://cdn/poster.jpg",
+            thumbnail: "https://cdn/poster.jpg",
+            variants: {
+              poster: "https://cdn/poster.jpg",
+            },
+          },
+        ],
+      })),
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.run({
+      viewerId: "viewer-1",
+      postId: "post-fresh-video",
+    });
+    expect(out.firstRender.post.mediaReadiness).toMatchObject({
+      mediaStatus: "processing",
+      assetsReady: false,
+      playbackReady: false,
+      playbackUrlPresent: false,
+      posterReady: true,
+      fallbackVideoUrl: "https://cdn/original.mp4",
+      resizeMode: "contain",
+    });
+    expect(out.firstRender.post.playbackReady).toBe(false);
+    expect(out.firstRender.post.playbackUrlPresent).toBe(false);
+    expect(out.firstRender.post.playbackUrl).toBeUndefined();
+  });
+
+  it("returns degraded 200 fallback detail when source-of-truth fails but card cache exists", async () => {
+    const service = buildService({
+      loadPostDetail: vi.fn(async () => {
+        throw new SourceOfTruthRequiredError("feed_detail_firestore");
+      }),
+      loadPostDetailCachedProjection: vi.fn(async () => ({
+        source: "post_card_cache",
+        card: {
+          postId: "post-cached-1",
+          rankToken: "rank-cached",
+          author: { userId: "u1", handle: "u1", name: "User 1", pic: null },
+          captionPreview: "cached caption",
+          media: { type: "video", posterUrl: "https://cdn/poster.jpg", aspectRatio: 9 / 16, startupHint: "poster_then_preview" },
+          assets: [
+            {
+              id: "asset-1",
+              type: "video",
+              previewUrl: "https://cdn/preview.mp4",
+              posterUrl: "https://cdn/poster.jpg",
+              originalUrl: "https://cdn/original.mp4",
+              mp4Url: "https://cdn/main720.mp4",
+              streamUrl: null,
+              blurhash: null,
+              width: null,
+              height: null,
+              aspectRatio: null,
+              orientation: null,
+            },
+          ],
+          social: { likeCount: 0, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+        },
+      })),
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.run({
+      viewerId: "viewer-1",
+      postId: "post-cached-1",
+    });
+    expect(out.degraded).toBe(true);
+    expect(out.fallbacks).toContain("fallback_cached_projection");
+    expect(out.firstRender.post.mediaType).toBe("video");
+    expect(
+      Boolean(out.firstRender.post.playbackUrl) || Boolean(out.firstRender.post.fallbackVideoUrl),
+    ).toBe(true);
+  });
+
+  it("batch playback returns partial_cached status on source-of-truth timeout with cache projection", async () => {
+    const service = buildService({
+      loadPostCardSummaryBatchLightweight: vi.fn(async () => []),
+      loadPostDetail: vi.fn(async () => {
+        throw new SourceOfTruthRequiredError("feed_detail_firestore");
+      }),
+      loadPostDetailCachedProjection: vi.fn(async (postId: string) => ({
+        source: "post_card_cache",
+        card: {
+          postId,
+          rankToken: "rank-cached",
+          author: { userId: "u1", handle: "u1", name: "User 1", pic: null },
+          captionPreview: "cached caption",
+          media: { type: "video", posterUrl: "https://cdn/poster.jpg", aspectRatio: 9 / 16, startupHint: "poster_then_preview" },
+          assets: [
+            {
+              id: "asset-1",
+              type: "video",
+              previewUrl: null,
+              posterUrl: "https://cdn/poster.jpg",
+              originalUrl: "https://cdn/original.mp4",
+              mp4Url: "https://cdn/main720.mp4",
+              streamUrl: null,
+              blurhash: null,
+              width: null,
+              height: null,
+              aspectRatio: null,
+              orientation: null,
+            },
+          ],
+          social: { likeCount: 0, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+        },
+      })),
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["post-cached-1"],
+      reason: "prefetch",
+      hydrationMode: "open",
+    });
+    expect(out.found).toHaveLength(1);
+    expect(out.itemStatuses?.[0]).toMatchObject({
+      postId: "post-cached-1",
+      status: "partial_cached",
+    });
+    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
+    expect(Boolean(post.playbackUrl) || Boolean(post.fallbackVideoUrl)).toBe(true);
   });
 });

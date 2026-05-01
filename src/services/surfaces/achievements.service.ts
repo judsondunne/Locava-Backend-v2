@@ -3,6 +3,7 @@ import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import type {
   AchievementClaimRewardPayload,
   AchievementHeroSummary,
+  AchievementLeaguePassCelebration,
   AchievementLeaderboardScope,
   AchievementLeagueDefinition,
   AchievementPendingDelta,
@@ -20,6 +21,7 @@ import type {
   LeaderboardReadModel
 } from "../../repositories/surfaces/achievements.repository.js";
 import type { AchievementsClaimablesResponse } from "../../contracts/surfaces/achievements-claimables.contract.js";
+import { achievementCelebrationsService } from "./achievement-celebrations.service.js";
 
 export class AchievementsService {
   constructor(private readonly repository: AchievementsRepository) {}
@@ -110,6 +112,22 @@ export class AchievementsService {
   async consumePendingDelta(viewerId: string): Promise<AchievementPendingDelta | null> {
     return dedupeInFlight(`achievements:pending-delta:${viewerId}`, () =>
       withConcurrencyLimit("achievements-pendingdelta-repo", 8, () => this.repository.takePendingDelta(viewerId))
+    );
+  }
+
+  async loadPendingCelebrations(viewerId: string): Promise<AchievementLeaguePassCelebration[]> {
+    return dedupeInFlight(`achievements:pending-celebrations:${viewerId}`, () =>
+      withConcurrencyLimit("achievements-pending-celebrations", 8, () =>
+        achievementCelebrationsService.getPendingCelebrations(viewerId)
+      )
+    );
+  }
+
+  async consumeCelebration(viewerId: string, celebrationId: string): Promise<AchievementLeaguePassCelebration | null> {
+    return dedupeInFlight(`achievements:consume-celebration:${viewerId}:${celebrationId}`, () =>
+      withConcurrencyLimit("achievements-consume-celebration", 8, () =>
+        achievementCelebrationsService.consumeCelebration(viewerId, celebrationId)
+      )
     );
   }
 

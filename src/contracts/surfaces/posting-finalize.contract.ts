@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { AchievementDeltaSchema, LegendRewardEnvelopeSchema } from "../entities/achievement-entities.contract.js";
+import { PostMediaReadinessSchema } from "../entities/post-entities.contract.js";
 
 /** Fastify `bodyLimit` for POST /v2/posting/finalize — must exceed worst-case JSON for base64 fields below. */
 const DISPLAY_PHOTO_B64_MAX = 6_000_000;
@@ -57,6 +58,25 @@ export const PostingFinalizeResponseSchema = z.object({
   achievementDelta: AchievementDeltaSchema.optional(),
   legendRewards: LegendRewardEnvelopeSchema.optional(),
   canonicalCreated: z.boolean(),
+  mediaReadiness: PostMediaReadinessSchema.optional(),
+  mediaStatus: z.enum(["processing", "ready", "failed"]).optional(),
+  assetsReady: z.boolean().optional(),
+  videoProcessingStatus: z.string().optional(),
+  posterReady: z.boolean().optional(),
+  posterPresent: z.boolean().optional(),
+  posterUrl: z.string().url().optional(),
+  playbackReady: z.boolean().optional(),
+  playbackUrlPresent: z.boolean().optional(),
+  playbackUrl: z.string().url().optional(),
+  fallbackVideoUrl: z.string().url().optional(),
+  instantPlaybackReady: z.boolean().optional(),
+  hasVideo: z.boolean().optional(),
+  aspectRatio: z.number().nullable().optional(),
+  width: z.number().nullable().optional(),
+  height: z.number().nullable().optional(),
+  resizeMode: z.enum(["cover", "contain"]).optional(),
+  gradientTop: z.string().nullable().optional(),
+  gradientBottom: z.string().nullable().optional(),
   idempotency: z.object({
     replayed: z.boolean()
   }),

@@ -94,6 +94,7 @@ import { registerV2AchievementsHeroRoutes } from "../routes/v2/achievements-hero
 import { registerV2AchievementsBootstrapRoutes } from "../routes/v2/achievements-bootstrap.routes.js";
 import { registerV2AchievementsSnapshotRoutes } from "../routes/v2/achievements-snapshot.routes.js";
 import { registerV2AchievementsPendingDeltaRoutes } from "../routes/v2/achievements-pending-delta.routes.js";
+import { registerV2AchievementsPendingCelebrationsRoutes } from "../routes/v2/achievements-pending-celebrations.routes.js";
 import { registerV2AchievementsStatusRoutes } from "../routes/v2/achievements-status.routes.js";
 import { registerV2AchievementsBadgesRoutes } from "../routes/v2/achievements-badges.routes.js";
 import { registerV2AchievementsClaimablesRoutes } from "../routes/v2/achievements-claimables.routes.js";
@@ -103,6 +104,7 @@ import { registerV2AchievementsLeaderboardRoutes } from "../routes/v2/achievemen
 import { registerV2AchievementsLeaderboardViewerRankRoutes } from "../routes/v2/achievements-leaderboard-viewer-rank.routes.js";
 import { registerV2AchievementsLeaderboardAckRoutes } from "../routes/v2/achievements-leaderboard-ack.routes.js";
 import { registerV2AchievementsClaimRoutes } from "../routes/v2/achievements-claim.routes.js";
+import { registerV2AchievementsConsumeCelebrationRoutes } from "../routes/v2/achievements-consume-celebration.routes.js";
 import { registerV2AchievementsClaimWeeklyCaptureRoutes } from "../routes/v2/achievements-claim-weekly-capture.routes.js";
 import { registerV2AchievementsClaimBadgeRoutes } from "../routes/v2/achievements-claim-badge.routes.js";
 import { registerV2AchievementsClaimChallengeRoutes } from "../routes/v2/achievements-claim-challenge.routes.js";
@@ -522,6 +524,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2AchievementsBootstrapRoutes);
   app.register(registerV2AchievementsSnapshotRoutes);
   app.register(registerV2AchievementsPendingDeltaRoutes);
+  app.register(registerV2AchievementsPendingCelebrationsRoutes);
   app.register(registerV2AchievementsStatusRoutes);
   app.register(registerV2AchievementsBadgesRoutes);
   app.register(registerV2AchievementsClaimablesRoutes);
@@ -531,6 +534,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2AchievementsLeaderboardViewerRankRoutes);
   app.register(registerV2AchievementsLeaderboardAckRoutes);
   app.register(registerV2AchievementsClaimRoutes);
+  app.register(registerV2AchievementsConsumeCelebrationRoutes);
   app.register(registerV2AchievementsClaimWeeklyCaptureRoutes);
   app.register(registerV2AchievementsClaimBadgeRoutes);
   app.register(registerV2AchievementsClaimChallengeRoutes);

@@ -167,6 +167,37 @@ export const PostDetailAssetSchema = z.object({
   variants: z.record(z.unknown()).optional()
 }).passthrough();
 
+export const PostMediaReadinessSchema = z.object({
+  mediaStatus: z.enum(["processing", "ready", "failed"]),
+  assetsReady: z.boolean(),
+  videoProcessingStatus: z.string().optional(),
+  posterReady: z.boolean(),
+  posterPresent: z.boolean(),
+  posterUrl: z.string().url().optional(),
+  playbackReady: z.boolean(),
+  playbackUrlPresent: z.boolean(),
+  playbackUrl: z.string().url().optional(),
+  fallbackVideoUrl: z.string().url().optional(),
+  instantPlaybackReady: z.boolean(),
+  hasVideo: z.boolean(),
+  aspectRatio: z.number().nullable().optional(),
+  width: z.number().nullable().optional(),
+  height: z.number().nullable().optional(),
+  resizeMode: z.enum(["cover", "contain"]),
+  gradientTop: z.string().nullable().optional(),
+  gradientBottom: z.string().nullable().optional(),
+  letterboxGradients: z
+    .array(
+      z.object({
+        top: z.string(),
+        bottom: z.string()
+      })
+    )
+    .optional(),
+  updatedAtMs: z.number().int().nonnegative().nullable().optional(),
+  mediaUpdatedAtMs: z.number().int().nonnegative().nullable().optional()
+});
+
 export const PostDetailSchema = z.object({
   postId: z.string(),
   userId: z.string(),
@@ -203,6 +234,17 @@ export const PostDetailSchema = z.object({
       lng: z.number().nullable().optional()
     })
     .optional(),
+  mediaReadiness: PostMediaReadinessSchema.optional(),
+  mediaStatus: z.enum(["processing", "ready", "failed"]).optional(),
+  videoProcessingStatus: z.string().optional(),
+  posterReady: z.boolean().optional(),
+  posterPresent: z.boolean().optional(),
+  posterUrl: z.string().url().optional(),
+  playbackReady: z.boolean().optional(),
+  playbackUrlPresent: z.boolean().optional(),
+  playbackUrl: z.string().url().optional(),
+  fallbackVideoUrl: z.string().url().optional(),
+  instantPlaybackReady: z.boolean().optional(),
   assetLocations: z
     .array(
       z.object({

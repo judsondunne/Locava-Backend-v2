@@ -80,4 +80,74 @@ describe("legacy notification push publisher", () => {
       }),
     });
   });
+
+  it("adds rich attachment fields for post-related notifications", () => {
+    const payload = buildLegacyExpoPushPayload(
+      {
+        senderUserId: "actor-4",
+        type: "post",
+        message: "just posted!",
+        postId: "post-2",
+        metadata: {
+          thumbnailUrl: "https://cdn.example.com/post-thumb.jpg",
+        },
+      },
+      {
+        senderName: "Actor Four",
+      },
+    );
+
+    expect(payload).toMatchObject({
+      title: "Actor Four",
+      body: "just posted!",
+      mutableContent: true,
+      richContent: { image: "https://cdn.example.com/post-thumb.jpg" },
+      data: expect.objectContaining({
+        imageUrl: "https://cdn.example.com/post-thumb.jpg",
+      }),
+    });
+    expect((payload.data as Record<string, unknown>)._richContent).toBe(
+      JSON.stringify({ image: "https://cdn.example.com/post-thumb.jpg" }),
+    );
+  });
+
+  it("adds rich attachment fields for people-based notifications", () => {
+    const payload = buildLegacyExpoPushPayload(
+      {
+        senderUserId: "actor-5",
+        type: "follow",
+        message: "followed you.",
+        targetUserId: "viewer-1",
+        metadata: {
+          imageUrl: "https://cdn.example.com/profile.jpg",
+        },
+      },
+      {
+        senderName: "Actor Five",
+      },
+    );
+
+    expect(payload).toMatchObject({
+      mutableContent: true,
+      richContent: { image: "https://cdn.example.com/profile.jpg" },
+      data: expect.objectContaining({
+        imageUrl: "https://cdn.example.com/profile.jpg",
+      }),
+    });
+  });
+
+  it("does not add rich attachment fields for notifications without image context", () => {
+    const payload = buildLegacyExpoPushPayload(
+      {
+        senderUserId: "actor-6",
+        type: "system",
+        message: "System message",
+      },
+      null,
+    );
+
+    expect(payload).not.toHaveProperty("mutableContent");
+    expect(payload).not.toHaveProperty("richContent");
+    expect((payload.data as Record<string, unknown>).imageUrl).toBeUndefined();
+  });
 });

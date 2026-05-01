@@ -65,6 +65,29 @@ export class PostingFinalizeOrchestrator {
         displayCards: []
       },
       canonicalCreated: result.canonicalCreated,
+      ...(result.mediaReadiness
+        ? {
+            mediaReadiness: result.mediaReadiness,
+            mediaStatus: result.mediaReadiness.mediaStatus,
+            assetsReady: result.mediaReadiness.assetsReady,
+            videoProcessingStatus: result.mediaReadiness.videoProcessingStatus,
+            posterReady: result.mediaReadiness.posterReady,
+            posterPresent: result.mediaReadiness.posterPresent,
+            posterUrl: result.mediaReadiness.posterUrl,
+            playbackReady: result.mediaReadiness.playbackReady,
+            playbackUrlPresent: result.mediaReadiness.playbackUrlPresent,
+            playbackUrl: result.mediaReadiness.playbackUrl,
+            fallbackVideoUrl: result.mediaReadiness.fallbackVideoUrl,
+            instantPlaybackReady: result.mediaReadiness.instantPlaybackReady,
+            hasVideo: result.mediaReadiness.hasVideo,
+            aspectRatio: result.mediaReadiness.aspectRatio,
+            width: result.mediaReadiness.width,
+            height: result.mediaReadiness.height,
+            resizeMode: result.mediaReadiness.resizeMode,
+            gradientTop: result.mediaReadiness.gradientTop,
+            gradientBottom: result.mediaReadiness.gradientBottom,
+          }
+        : {}),
       idempotency: {
         replayed: result.idempotent
       },

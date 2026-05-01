@@ -112,3 +112,100 @@ describe("suggested friends branch candidate extraction", () => {
     expect(result.sourceBreakdown.all_users).toBe(3);
   });
 });
+
+describe("contacts sync parity matching", () => {
+  it("matches mixed phone formats, dedupes users, excludes viewer, and keeps email matching", async () => {
+    const docs = new Map<string, Record<string, unknown>>([
+      [
+        "viewer-1",
+        {
+          following: [],
+          blockedUsers: [],
+          addressBookUsers: [],
+          addressBookUserSummaries: [],
+          addressBookPhoneNumbers: [],
+        },
+      ],
+      ["seed-format", { handle: "format", name: "Format User", phoneNumber: "(650) 704-6433", phoneLast10: "6507046433", phoneSearchKeys: ["6507046433", "(650) 704-6433"] }],
+      ["seed-e164", { handle: "e164", name: "E164 User", phoneNumber: "+16102338257", phoneLast10: "6102338257", phoneSearchKeys: ["6102338257", "+16102338257"] }],
+      ["seed-plain", { handle: "plain", name: "Plain User", phoneNumber: "6102338257", phoneLast10: "6102338257", phoneSearchKeys: ["6102338257"] }],
+      ["seed-email", { handle: "mail", name: "Email User", email: "friend@example.com" }],
+    ]);
+
+    const writes: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    const queryByWhere = (field: string, op: string, values: string[]) => {
+      const rows = [...docs.entries()]
+        .filter(([id]) => id !== "viewer-1")
+        .filter(([, data]) => {
+          if (op === "in") {
+            const fieldValue = data[field];
+            return typeof fieldValue === "string" && values.includes(fieldValue);
+          }
+          if (op === "array-contains-any") {
+            const fieldValue = data[field];
+            if (!Array.isArray(fieldValue)) return false;
+            return fieldValue.some((value) => typeof value === "string" && values.includes(value));
+          }
+          return false;
+        })
+        .map(([id, data]) => ({ id, exists: true, data: () => data }));
+      return {
+        size: rows.length,
+        docs: rows,
+      };
+    };
+
+    const db = {
+      collection(name: string) {
+        if (name !== "users") throw new Error(`unexpected collection ${name}`);
+        return {
+          doc(id: string) {
+            return {
+              id,
+              async get() {
+                const data = docs.get(id);
+                return {
+                  id,
+                  exists: Boolean(data),
+                  data: () => data ?? {},
+                };
+              },
+              async set(patch: Record<string, unknown>) {
+                writes.push({ id, patch });
+                const prev = docs.get(id) ?? {};
+                docs.set(id, { ...prev, ...patch });
+              },
+            };
+          },
+          where(field: string, op: string, values: string[]) {
+            return {
+              select() {
+                return this;
+              },
+              async get() {
+                return queryByWhere(field, op, values);
+              },
+            };
+          },
+        };
+      },
+    };
+
+    const repository = new SuggestedFriendsRepository(db as any);
+    const result = await repository.syncContacts({
+      viewerId: "viewer-1",
+      contacts: [
+        { phoneNumbers: ["6507046433", "(610) 233-8257"], emails: [] },
+        { phoneNumbers: ["+16102338257", "610.233.8257"], emails: ["Friend@Example.com"] },
+      ],
+    });
+
+    expect(result.matchedUsers.map((u) => u.userId)).toEqual(["seed-e164", "seed-email", "seed-format", "seed-plain"]);
+    expect(result.matchedCount).toBe(4);
+    expect(result.matchedUsers.some((u) => u.userId === "viewer-1")).toBe(false);
+    expect(new Set(result.matchedUsers.map((u) => u.userId)).size).toBe(result.matchedUsers.length);
+    expect(result.diagnostics.matchedByPhoneLast10Count).toBeGreaterThanOrEqual(3);
+    expect(result.diagnostics.matchedByEmailCount).toBeGreaterThanOrEqual(1);
+    expect(writes.some((write) => write.id === "viewer-1")).toBe(true);
+  });
+});

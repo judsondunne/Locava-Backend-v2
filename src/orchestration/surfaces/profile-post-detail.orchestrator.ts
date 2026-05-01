@@ -1,6 +1,7 @@
 import { globalCache } from "../../cache/global-cache.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { ProfilePostDetailResponse } from "../../contracts/surfaces/profile-post-detail.contract.js";
+import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
 import {
   recordCacheHit,
   recordCacheMiss,
@@ -55,6 +56,7 @@ export class ProfilePostDetailOrchestrator {
         recordFallback("comments_preview_failed");
       }
     }
+    const mediaReadiness = buildPostMediaReadiness(detail as Record<string, unknown>);
 
     const response: ProfilePostDetailResponse = {
       routeName: "profile.postdetail.get",
@@ -77,6 +79,17 @@ export class ProfilePostDetailOrchestrator {
           mediaType: detail.mediaType,
           thumbUrl: detail.thumbUrl,
           assetsReady: (detail as { assetsReady?: boolean }).assetsReady,
+          mediaReadiness,
+          mediaStatus: mediaReadiness.mediaStatus,
+          videoProcessingStatus: mediaReadiness.videoProcessingStatus,
+          posterReady: mediaReadiness.posterReady,
+          posterPresent: mediaReadiness.posterPresent,
+          posterUrl: mediaReadiness.posterUrl,
+          playbackReady: mediaReadiness.playbackReady,
+          playbackUrlPresent: mediaReadiness.playbackUrlPresent,
+          playbackUrl: mediaReadiness.playbackUrl,
+          fallbackVideoUrl: mediaReadiness.fallbackVideoUrl,
+          instantPlaybackReady: mediaReadiness.instantPlaybackReady,
           playbackLab: (detail as { playbackLab?: Record<string, unknown> }).playbackLab,
           assetLocations: (detail as { assetLocations?: Array<Record<string, unknown>> }).assetLocations,
           assets: detail.assets
@@ -97,6 +110,11 @@ export class ProfilePostDetailOrchestrator {
       degraded: fallbacks.length > 0,
       fallbacks
     };
+    console.info("[post.detail.media_readiness]", {
+      surface: "profile.postdetail",
+      postId,
+      ...mediaReadiness
+    });
 
     if (enableDetailCache) {
       await globalCache.set(cacheKey, response, 10_000);

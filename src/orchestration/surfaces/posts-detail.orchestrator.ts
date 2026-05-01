@@ -1,6 +1,7 @@
 import { PostsDetailResponseSchema } from "../../contracts/surfaces/posts-detail.contract.js";
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { toFeedCardDTO, toPlaybackPostShellDTO } from "../../dto/compact-surface-dto.js";
+import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import type { FeedBootstrapCandidateRecord, FeedDetailRecord } from "../../repositories/surfaces/feed.repository.js";
@@ -10,6 +11,19 @@ type PostsDetailResponse = z.infer<typeof PostsDetailResponseSchema>;
 type SafeCardSummary = FeedBootstrapCandidateRecord & { rankToken: string };
 type DeferredCommentPreview = NonNullable<PostsDetailResponse["deferred"]["commentsPreview"]>;
 type DeferredCommentPreviewItem = DeferredCommentPreview[number];
+type BatchItemStatus = "ready" | "partial_cached" | "processing" | "missing";
+
+function postMediaSummaryForLog(post: Record<string, unknown>) {
+  const mediaReadiness = buildPostMediaReadiness(post);
+  return {
+    hasVideo: mediaReadiness.hasVideo,
+    mediaStatus: mediaReadiness.mediaStatus,
+    playbackReady: mediaReadiness.playbackReady,
+    playbackUrlPresent: mediaReadiness.playbackUrlPresent,
+    fallbackVideoUrlPresent: Boolean(mediaReadiness.fallbackVideoUrl),
+    posterPresent: mediaReadiness.posterPresent,
+  };
+}
 
 function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFeedCardDTO> {
   return toFeedCardDTO({
@@ -71,10 +85,121 @@ function normalizeCommentsPreview(value: unknown): DeferredCommentPreview {
 export class PostsDetailOrchestrator {
   constructor(private readonly service: FeedService) {}
 
+  private logEvent(event: string, payload: Record<string, unknown>): void {
+    try {
+      console.info(`[${event}]`, payload);
+    } catch {
+      // best effort logging only
+    }
+  }
+
+  private buildFallbackDetailFromCard(input: {
+    postId: string;
+    card: SafeCardSummary;
+    fallbackSource: string;
+    sourceOfTruthFailed: boolean;
+  }): PostsDetailResponse {
+    const playbackShell = toPlaybackPostShellDTO({
+      userId: input.card.author.userId,
+      card: toCompactPlaybackCard(input.card),
+    }) as Record<string, unknown>;
+    const mediaReadiness = buildPostMediaReadiness(playbackShell);
+    const post = {
+      ...playbackShell,
+      mediaReadiness,
+      mediaStatus: mediaReadiness.mediaStatus,
+      posterReady: mediaReadiness.posterReady,
+      posterPresent: mediaReadiness.posterPresent,
+      posterUrl: mediaReadiness.posterUrl,
+      playbackReady: mediaReadiness.playbackReady,
+      playbackUrlPresent: mediaReadiness.playbackUrlPresent,
+      playbackUrl: mediaReadiness.playbackUrl,
+      fallbackVideoUrl: mediaReadiness.fallbackVideoUrl,
+      instantPlaybackReady: mediaReadiness.instantPlaybackReady,
+      hasVideo: mediaReadiness.hasVideo,
+      aspectRatio: mediaReadiness.aspectRatio ?? null,
+      width: mediaReadiness.width ?? null,
+      height: mediaReadiness.height ?? null,
+      resizeMode: mediaReadiness.resizeMode,
+      letterboxGradients: mediaReadiness.letterboxGradients ?? undefined,
+      diagnostics: {
+        source: "fallback_cached_projection",
+        fallbackSource: input.fallbackSource,
+        sourceOfTruthFailed: input.sourceOfTruthFailed,
+      },
+    };
+    return {
+      routeName: "posts.detail.get",
+      firstRender: {
+        post: post as unknown as PostsDetailResponse["firstRender"]["post"],
+        author: input.card.author,
+        social: input.card.social,
+        viewer: input.card.viewer,
+      },
+      deferred: { commentsPreview: null },
+      degraded: true,
+      fallbacks: ["fallback_cached_projection", input.fallbackSource],
+      debugHydrationSource: "cache",
+      debugReads: 0,
+      debugPostIds: [input.postId],
+      debugMissingIds: [],
+      debugDurationMs: 0,
+    };
+  }
+
   async run(input: { viewerId: string; postId: string }): Promise<PostsDetailResponse> {
     const startedAt = Date.now();
     const { viewerId, postId } = input;
-    const post = await this.service.loadPostDetail(postId, viewerId);
+    let post: FeedDetailRecord;
+    let usedFallbackProjection = false;
+    let fallbackSource = "";
+    try {
+      this.logEvent("post.detail.source_attempt", {
+        postId,
+        source: "source_of_truth_detail",
+      });
+      post = await this.service.loadPostDetail(postId, viewerId);
+    } catch (error) {
+      if (error instanceof SourceOfTruthRequiredError) {
+        this.logEvent("post.detail.source_failure", {
+          postId,
+          source: "source_of_truth_detail",
+          error: error.message,
+          statusCode: 503,
+        });
+        const cachedProjection = await this.service.loadPostDetailCachedProjection(postId);
+        if (cachedProjection?.source === "post_detail_cache") {
+          post = cachedProjection.detail;
+          usedFallbackProjection = true;
+          fallbackSource = cachedProjection.source;
+        } else if (cachedProjection?.source === "post_card_cache") {
+          const safeCard = this.ensureSafeCardSummary(cachedProjection.card, postId);
+          const fallbackDetail = this.buildFallbackDetailFromCard({
+            postId,
+            card: safeCard,
+            fallbackSource: cachedProjection.source,
+            sourceOfTruthFailed: true,
+          });
+          this.logEvent("post.detail.fallback_selected", {
+            postId,
+            source: cachedProjection.source,
+            statusCode: 200,
+            ...postMediaSummaryForLog(fallbackDetail.firstRender.post as Record<string, unknown>),
+          });
+          this.logEvent("post.detail.media_resolution_summary", {
+            postId,
+            source: "fallback_cached_projection",
+            ...postMediaSummaryForLog(fallbackDetail.firstRender.post as Record<string, unknown>),
+            statusCode: 200,
+          });
+          return fallbackDetail;
+        } else {
+          throw error;
+        }
+      } else {
+        throw error;
+      }
+    }
     const cardSummary = this.ensureSafeCardSummary(
       post.cardSummary ?? (await this.service.loadPostCardSummary(viewerId, postId)),
       postId,
@@ -87,6 +212,19 @@ export class PostsDetailOrchestrator {
       Array.isArray(post.commentsPreview)
         ? normalizeCommentsPreview(post.commentsPreview)
         : await this.service.loadCommentsPreview(postId, 0).catch(() => null);
+    const mediaReadiness = buildPostMediaReadiness(post as Record<string, unknown>);
+    console.info("[post.detail.media_readiness]", {
+      surface: "posts.detail",
+      postId,
+      ...mediaReadiness
+    });
+    this.logEvent("post.detail.media_resolution_summary", {
+      postId,
+      source: usedFallbackProjection ? "fallback_cached_projection" : "source_of_truth_detail",
+      fallbackSource: usedFallbackProjection ? fallbackSource : undefined,
+      ...postMediaSummaryForLog(post as Record<string, unknown>),
+      statusCode: 200,
+    });
     return {
       routeName: "posts.detail.get",
       firstRender: {
@@ -122,9 +260,32 @@ export class PostsDetailOrchestrator {
           mediaType: post.mediaType,
           thumbUrl: post.thumbUrl,
           assetsReady: (post as { assetsReady?: boolean }).assetsReady,
+          mediaReadiness,
+          mediaStatus: mediaReadiness.mediaStatus,
+          videoProcessingStatus: mediaReadiness.videoProcessingStatus,
+          posterReady: mediaReadiness.posterReady,
+          posterPresent: mediaReadiness.posterPresent,
+          posterUrl: mediaReadiness.posterUrl,
+          playbackReady: mediaReadiness.playbackReady,
+          playbackUrlPresent: mediaReadiness.playbackUrlPresent,
+          playbackUrl: mediaReadiness.playbackUrl,
+          fallbackVideoUrl: mediaReadiness.fallbackVideoUrl,
+          instantPlaybackReady: mediaReadiness.instantPlaybackReady,
           playbackLab: (post as { playbackLab?: Record<string, unknown> }).playbackLab,
           assetLocations: (post as { assetLocations?: Array<Record<string, unknown>> }).assetLocations,
+          hasVideo: mediaReadiness.hasVideo,
+          aspectRatio: mediaReadiness.aspectRatio ?? null,
+          width: mediaReadiness.width ?? null,
+          height: mediaReadiness.height ?? null,
+          resizeMode: mediaReadiness.resizeMode,
           assets: post.assets,
+          diagnostics: usedFallbackProjection
+            ? {
+                source: "fallback_cached_projection",
+                fallbackSource,
+                sourceOfTruthFailed: true,
+              }
+            : undefined,
           cardSummary: {
             ...cardSummary,
             rankToken: `rank-${viewerId.slice(0, 6)}-post-detail-${postId}`,
@@ -153,7 +314,7 @@ export class PostsDetailOrchestrator {
       },
       deferred: { commentsPreview },
       degraded: false,
-      fallbacks: [],
+      fallbacks: usedFallbackProjection ? ["fallback_cached_projection", fallbackSource] : [],
       debugHydrationSource: "mixed",
       debugReads: 0,
       debugPostIds: [postId],
@@ -182,6 +343,7 @@ export class PostsDetailOrchestrator {
     debugPostIds: string[];
     debugMissingIds: string[];
     debugDurationMs: number;
+    itemStatuses?: Array<{ postId: string; status: BatchItemStatus; selectedSource: string }>;
   }> {
     const startedAt = Date.now();
     const ordered = input.postIds.map((id) => id.trim()).filter(Boolean);
@@ -200,6 +362,7 @@ export class PostsDetailOrchestrator {
     }
     const found: Array<{ postId: string; detail: PostsDetailResponse }> = [];
     const missing: string[] = [];
+    const itemStatuses: Array<{ postId: string; status: BatchItemStatus; selectedSource: string }> = [];
     const skipped: string[] = [];
     let entityConstructionCount = 0;
     for (const postId of unique) {
@@ -209,20 +372,107 @@ export class PostsDetailOrchestrator {
           () => this.runHydrated({ viewerId: input.viewerId, postId, hydrationMode: input.hydrationMode })
         );
         found.push({ postId, detail });
+        const mediaReadiness = buildPostMediaReadiness(detail.firstRender.post as Record<string, unknown>);
+        itemStatuses.push({
+          postId,
+          status: mediaReadiness.mediaStatus === "ready" ? "ready" : "processing",
+          selectedSource: detail.degraded ? "partial_cached" : "source_of_truth",
+        });
         entityConstructionCount += this.estimateEntityConstructionCount(detail);
       } catch (error) {
         if (error instanceof Error && error.message === "feed_post_not_found") {
           missing.push(postId);
+          itemStatuses.push({ postId, status: "missing", selectedSource: "not_found" });
           continue;
         }
         if (error instanceof SourceOfTruthRequiredError) {
+          const cachedProjection = await this.service.loadPostDetailCachedProjection(postId);
+          if (cachedProjection?.source === "post_detail_cache") {
+            const mediaReadiness = buildPostMediaReadiness(cachedProjection.detail as Record<string, unknown>);
+            const safeCard = this.ensureSafeCardSummary(
+              cachedProjection.detail.cardSummary ??
+                (await this.service.loadPostCardSummary(input.viewerId, postId).catch(() => undefined as never)),
+              postId,
+              cachedProjection.detail
+            );
+            const partialDetail: PostsDetailResponse = {
+              routeName: "posts.detail.get",
+              firstRender: {
+                post: {
+                  ...cachedProjection.detail,
+                  mediaReadiness,
+                  mediaStatus: mediaReadiness.mediaStatus,
+                  posterReady: mediaReadiness.posterReady,
+                  posterPresent: mediaReadiness.posterPresent,
+                  posterUrl: mediaReadiness.posterUrl,
+                  playbackReady: mediaReadiness.playbackReady,
+                  playbackUrlPresent: mediaReadiness.playbackUrlPresent,
+                  playbackUrl: mediaReadiness.playbackUrl,
+                  fallbackVideoUrl: mediaReadiness.fallbackVideoUrl,
+                  hasVideo: mediaReadiness.hasVideo,
+                  aspectRatio: mediaReadiness.aspectRatio ?? null,
+                  width: mediaReadiness.width ?? null,
+                  height: mediaReadiness.height ?? null,
+                  resizeMode: mediaReadiness.resizeMode,
+                } as PostsDetailResponse["firstRender"]["post"],
+                author: safeCard.author,
+                social: safeCard.social,
+                viewer: safeCard.viewer,
+              },
+              deferred: { commentsPreview: null },
+              degraded: true,
+              fallbacks: ["fallback_cached_projection", cachedProjection.source],
+              debugHydrationSource: "cache",
+              debugReads: 0,
+              debugPostIds: [postId],
+              debugMissingIds: [],
+              debugDurationMs: 0,
+            };
+            found.push({ postId, detail: partialDetail });
+            itemStatuses.push({ postId, status: "partial_cached", selectedSource: cachedProjection.source });
+            continue;
+          }
+          if (cachedProjection?.source === "post_card_cache") {
+            const safeCard = this.ensureSafeCardSummary(cachedProjection.card, postId);
+            const partial = this.buildFallbackDetailFromCard({
+              postId,
+              card: safeCard,
+              fallbackSource: cachedProjection.source,
+              sourceOfTruthFailed: true,
+            });
+            found.push({ postId, detail: partial });
+            itemStatuses.push({ postId, status: "partial_cached", selectedSource: cachedProjection.source });
+            continue;
+          }
           missing.push(postId);
+          itemStatuses.push({ postId, status: "missing", selectedSource: "source_of_truth_unavailable" });
           continue;
         }
         skipped.push(postId);
+        itemStatuses.push({ postId, status: "missing", selectedSource: "unexpected_error" });
       }
     }
     const payloadBytes = Buffer.byteLength(JSON.stringify(found), "utf8");
+    this.logEvent("posts.batch.media_resolution_summary", {
+      hydrationMode: input.hydrationMode,
+      statuses: itemStatuses,
+      mediaSummary: found.map((row) => {
+        const summary = postMediaSummaryForLog(row.detail.firstRender.post as Record<string, unknown>);
+        return {
+          postId: row.postId,
+          status:
+            summary.mediaStatus === "ready"
+              ? "ready"
+              : row.detail.degraded
+                ? "partial_cached"
+                : "processing",
+          selectedSource: row.detail.degraded ? "partial_cached" : "source_of_truth",
+          playbackUrlPresent: summary.playbackUrlPresent,
+          fallbackVideoUrlPresent: summary.fallbackVideoUrlPresent,
+          posterPresent: summary.posterPresent,
+        };
+      }),
+    });
     return {
       routeName: "posts.detail.batch",
       reason: input.reason,
@@ -237,7 +487,8 @@ export class PostsDetailOrchestrator {
       debugPayloadBytes: payloadBytes,
       debugPostIds: unique,
       debugMissingIds: [...missing, ...skipped],
-      debugDurationMs: Date.now() - startedAt
+      debugDurationMs: Date.now() - startedAt,
+      itemStatuses
     };
   }
 
@@ -265,6 +516,7 @@ export class PostsDetailOrchestrator {
     debugPostIds: string[];
     debugMissingIds: string[];
     debugDurationMs: number;
+    itemStatuses?: Array<{ postId: string; status: BatchItemStatus; selectedSource: string }>;
   }> {
     const MAX_BATCH = input.hydrationMode === "playback" ? 5 : 15;
     const cappedIds = unique.slice(0, MAX_BATCH);
@@ -294,12 +546,29 @@ export class PostsDetailOrchestrator {
           userId: card.author.userId,
           card: toCompactPlaybackCard(card),
         });
+        const mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>);
         return {
           postId: card.postId,
           detail: {
             routeName: "posts.detail.get" as const,
             firstRender: {
-              post: playbackShell,
+              post: {
+                ...playbackShell,
+                mediaReadiness,
+                mediaStatus: mediaReadiness.mediaStatus,
+                posterReady: mediaReadiness.posterReady,
+                posterPresent: mediaReadiness.posterPresent,
+                posterUrl: mediaReadiness.posterUrl,
+                playbackReady: mediaReadiness.playbackReady,
+                playbackUrlPresent: mediaReadiness.playbackUrlPresent,
+                playbackUrl: mediaReadiness.playbackUrl,
+                fallbackVideoUrl: mediaReadiness.fallbackVideoUrl,
+                hasVideo: mediaReadiness.hasVideo,
+                aspectRatio: mediaReadiness.aspectRatio ?? null,
+                width: mediaReadiness.width ?? null,
+                height: mediaReadiness.height ?? null,
+                resizeMode: mediaReadiness.resizeMode,
+              } as PostsDetailResponse["firstRender"]["post"],
               author: card.author,
               social: card.social,
               viewer: card.viewer
@@ -316,7 +585,30 @@ export class PostsDetailOrchestrator {
         };
       });
     const missing = cappedIds.filter((id) => !byId.has(id)).concat(missingFromCap);
+    const itemStatuses = cappedIds.map((postId) => {
+      const has = byId.has(postId);
+      return {
+        postId,
+        status: has ? ("partial_cached" as BatchItemStatus) : ("missing" as BatchItemStatus),
+        selectedSource: has ? "post_card_cache" : "missing",
+      };
+    });
     const payloadBytes = Buffer.byteLength(JSON.stringify(found), "utf8");
+    this.logEvent("posts.batch.media_resolution_summary", {
+      hydrationMode: input.hydrationMode,
+      statuses: itemStatuses,
+      mediaSummary: found.map((row) => {
+        const summary = postMediaSummaryForLog(row.detail.firstRender.post as Record<string, unknown>);
+        return {
+          postId: row.postId,
+          status: summary.mediaStatus === "ready" ? "ready" : "partial_cached",
+          selectedSource: "post_card_cache",
+          playbackUrlPresent: summary.playbackUrlPresent,
+          fallbackVideoUrlPresent: summary.fallbackVideoUrlPresent,
+          posterPresent: summary.posterPresent,
+        };
+      }),
+    });
     return {
       routeName: "posts.detail.batch",
       reason: input.reason,
@@ -331,7 +623,8 @@ export class PostsDetailOrchestrator {
       debugPayloadBytes: payloadBytes,
       debugPostIds: unique,
       debugMissingIds: missing,
-      debugDurationMs: Date.now() - startedAt
+      debugDurationMs: Date.now() - startedAt,
+      itemStatuses
     };
   }
 

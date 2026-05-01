@@ -61,7 +61,14 @@ export const PostsDetailResponseSchema = z.object({
   debugReads: z.number().int().nonnegative().optional(),
   debugPostIds: z.array(z.string()).optional(),
   debugMissingIds: z.array(z.string()).optional(),
-  debugDurationMs: z.number().int().nonnegative().optional()
+  debugDurationMs: z.number().int().nonnegative().optional(),
+  diagnostics: z
+    .object({
+      source: z.string().optional(),
+      fallbackSource: z.string().optional(),
+      sourceOfTruthFailed: z.boolean().optional(),
+    })
+    .optional()
 });
 
 export const PostsDetailsBatchBodySchema = z.object({
@@ -89,7 +96,16 @@ export const PostsDetailsBatchResponseSchema = z.object({
   debugPayloadBytes: z.number().int().nonnegative().optional(),
   debugPostIds: z.array(z.string()).optional(),
   debugMissingIds: z.array(z.string()).optional(),
-  debugDurationMs: z.number().int().nonnegative().optional()
+  debugDurationMs: z.number().int().nonnegative().optional(),
+  itemStatuses: z
+    .array(
+      z.object({
+        postId: z.string(),
+        status: z.enum(["ready", "partial_cached", "processing", "missing"]),
+        selectedSource: z.string(),
+      })
+    )
+    .optional()
 });
 
 export const postsDetailContract = defineContract({

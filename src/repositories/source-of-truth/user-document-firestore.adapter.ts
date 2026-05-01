@@ -1,4 +1,5 @@
 import { mergeSearchFieldsIntoUserWritePayload } from "../../lib/user-search-fields.js";
+import { mergePhoneSearchFieldsIntoUserWritePayload } from "../../lib/phone-search-fields.js";
 
 /**
  * Firestore `users/{userId}` write helpers.
@@ -20,5 +21,5 @@ export function mergeUserDocumentWritePayload(fields: Record<string, unknown>): 
   } else {
     delete next.profilePic;
   }
-  return mergeSearchFieldsIntoUserWritePayload(next);
+  return mergePhoneSearchFieldsIntoUserWritePayload(mergeSearchFieldsIntoUserWritePayload(next));
 }

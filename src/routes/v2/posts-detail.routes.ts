@@ -12,6 +12,7 @@ import { setOrchestrationMetadata, setRouteName } from "../../observability/requ
 import { PostsDetailOrchestrator } from "../../orchestration/surfaces/posts-detail.orchestrator.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
+import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 
 export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise<void> {
   const repository = new FeedRepository();
@@ -34,6 +35,11 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
     } catch (error) {
       if (error instanceof Error && error.message === "feed_post_not_found") {
         return reply.status(404).send(failure("post_not_found", "Post was not found"));
+      }
+      if (error instanceof SourceOfTruthRequiredError) {
+        return reply
+          .status(503)
+          .send(failure("source_of_truth_required", `source_of_truth_required:${error.sourceLabel}`));
       }
       throw error;
     }
@@ -59,12 +65,21 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
       requestGroup: body.reason,
       priority: inferredPriority
     });
-    const payload = await orchestrator.runBatch({
-      viewerId: viewer.viewerId,
-      postIds: body.postIds,
-      reason: body.reason,
-      hydrationMode: body.hydrationMode
-    });
-    return success(payload);
+    try {
+      const payload = await orchestrator.runBatch({
+        viewerId: viewer.viewerId,
+        postIds: body.postIds,
+        reason: body.reason,
+        hydrationMode: body.hydrationMode
+      });
+      return success(payload);
+    } catch (error) {
+      if (error instanceof SourceOfTruthRequiredError) {
+        return reply
+          .status(503)
+          .send(failure("source_of_truth_required", `source_of_truth_required:${error.sourceLabel}`));
+      }
+      throw error;
+    }
   });
 }

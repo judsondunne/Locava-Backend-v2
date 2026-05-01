@@ -38,6 +38,26 @@ export type PushDeliveryDebugStatus = {
 
 const DEFAULT_EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const pushDebugByNotificationId = new Map<string, PushDeliveryDebugStatus>();
+const POST_RELATED_PUSH_TYPES = new Set([
+  "post",
+  "post_discovery",
+  "like",
+  "comment",
+  "mention",
+  "push_image_test",
+]);
+const PEOPLE_RELATED_PUSH_TYPES = new Set([
+  "follow",
+  "contact_joined",
+  "chat",
+  "invite",
+  "collection_shared",
+  "group_invite",
+  "group_joined",
+  "group_faceoff",
+  "place_follow",
+  "audio_like",
+]);
 
 function asTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -60,6 +80,48 @@ function stringifyExpoDataValues(data: Record<string, unknown>): Record<string, 
     out[key] = JSON.stringify(value);
   }
   return out;
+}
+
+function isPostRelatedPush(notificationData: LegacyNotificationData): boolean {
+  const type = asTrimmedString(notificationData.type)?.toLowerCase() ?? "";
+  if (POST_RELATED_PUSH_TYPES.has(type)) return true;
+  return asTrimmedString(notificationData.postId) != null;
+}
+
+function isPeopleRelatedPush(notificationData: LegacyNotificationData): boolean {
+  const type = asTrimmedString(notificationData.type)?.toLowerCase() ?? "";
+  return PEOPLE_RELATED_PUSH_TYPES.has(type);
+}
+
+function resolveRichImageUrl(
+  notificationData: LegacyNotificationData,
+  senderData: LegacyNotificationSender | null
+): string | null {
+  const metadata = notificationData.metadata ?? {};
+  const pushData = (notificationData.pushData ?? {}) as Record<string, unknown>;
+  const candidates: unknown[] = [
+    metadata.groupPhotoUrl,
+    metadata.groupImageUrl,
+    metadata.displayPhotoURL,
+    metadata.senderProfilePic,
+    senderData?.senderProfilePic,
+    metadata.postThumbUrl,
+    metadata.imageUrl,
+    metadata.photoUrl,
+    metadata.thumbUrl,
+    metadata.thumbnailUrl,
+    metadata.displayPhotoLink,
+    metadata.postImageUrl,
+    metadata.postPhotoUrl,
+    pushData.imageUrl,
+    pushData.thumbUrl,
+    pushData.thumbnailUrl,
+  ];
+  for (const candidate of candidates) {
+    const value = asTrimmedString(candidate);
+    if (value && /^https?:\/\//i.test(value)) return value;
+  }
+  return null;
 }
 
 function buildLegacyRoute(notificationData: LegacyNotificationData): string {
@@ -197,8 +259,8 @@ export function buildLegacyExpoPushPayload(
     data: stringifyExpoDataValues(data),
   };
 
-  const imageUrl = asTrimmedString(metadata.postThumbUrl);
-  if (imageUrl && /^https?:\/\//i.test(imageUrl)) {
+  const imageUrl = resolveRichImageUrl(notificationData, senderData);
+  if (imageUrl && (isPostRelatedPush(notificationData) || isPeopleRelatedPush(notificationData))) {
     payload.richContent = { image: imageUrl };
     payload.mutableContent = true;
     const stringData = payload.data as Record<string, string>;

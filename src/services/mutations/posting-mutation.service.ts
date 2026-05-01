@@ -5,6 +5,7 @@ import { globalCache } from "../../cache/global-cache.js";
 import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { withMutationLock } from "../../lib/mutation-lock.js";
+import { buildPostMediaReadiness, type PostMediaReadiness } from "../../lib/posts/media-readiness.js";
 import { createHash } from "node:crypto";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
@@ -138,6 +139,7 @@ export class PostingMutationService {
     idempotent: boolean;
     canonicalCreated: boolean;
     achievementDelta?: AchievementDelta;
+    mediaReadiness?: PostMediaReadiness;
   }> {
     return dedupeInFlight(`posting:finalize:${input.viewerId}:${input.idempotencyKey}`, async () => {
       const debugTimings = process.env.POSTING_FINALIZE_DEBUG_TIMINGS === "1";
@@ -163,10 +165,12 @@ export class PostingMutationService {
           postId: result.operation.postId,
           userId: (input.userId?.trim() || input.viewerId).trim()
         });
+        const mediaReadiness = await this.loadCanonicalPostMediaReadiness(result.operation.postId);
         return {
           ...result,
           canonicalCreated: true,
-          achievementDelta: await this.resolveFinalizeAchievementDelta(input, result.operation.postId)
+          achievementDelta: await this.resolveFinalizeAchievementDelta(input, result.operation.postId),
+          ...(mediaReadiness ? { mediaReadiness } : {})
         };
       }
 
@@ -209,12 +213,14 @@ export class PostingMutationService {
           postId,
           userId: (input.userId?.trim() || input.viewerId).trim()
         });
+        const mediaReadiness = await this.loadCanonicalPostMediaReadiness(postId);
         return {
           session: result.session,
           operation: completed,
           idempotent: result.idempotent,
           canonicalCreated: true,
-          achievementDelta: await this.resolveFinalizeAchievementDelta(input, postId)
+          achievementDelta: await this.resolveFinalizeAchievementDelta(input, postId),
+          ...(mediaReadiness ? { mediaReadiness } : {})
         };
       } catch (error) {
         await postingMutationRepository.markOperationFailed({
@@ -224,6 +230,19 @@ export class PostingMutationService {
         throw error;
       }
     });
+  }
+
+  private async loadCanonicalPostMediaReadiness(postId: string): Promise<PostMediaReadiness | undefined> {
+    const db = getFirestoreSourceClient();
+    if (!db) return undefined;
+    const snap = await db.collection("posts").doc(postId).get();
+    if (!snap.exists) return undefined;
+    const readiness = buildPostMediaReadiness((snap.data() ?? {}) as Record<string, unknown>);
+    console.info("[posting.finalize.media_readiness]", {
+      postId,
+      ...readiness
+    });
+    return readiness;
   }
 
   private scheduleLegendsCommit(input: { stageId?: string; postId: string; userId: string }): void {
@@ -1022,10 +1041,23 @@ export class PostingMutationService {
           });
           if (taskResult.ok) {
             videoTaskEnqueued = true;
+            const readiness = buildPostMediaReadiness({
+              assets: postDoc.assets,
+              assetsReady: false,
+              videoProcessingStatus: "processing",
+              instantPlaybackReady: false
+            });
             await postRef.update({
+              mediaStatus: "processing",
               videoProcessingStatus: "processing",
               instantPlaybackReady: false,
               assetsReady: false,
+              playbackReady: false,
+              playbackUrlPresent: false,
+              ...(readiness.fallbackVideoUrl ? { fallbackVideoUrl: readiness.fallbackVideoUrl } : {}),
+              posterReady: readiness.posterReady,
+              posterPresent: readiness.posterPresent,
+              ...(readiness.posterUrl ? { posterUrl: readiness.posterUrl } : {}),
               videoProcessingProgress: {
                 totalVideos: videoAssets.length,
                 processedVideos: 0
@@ -1034,11 +1066,29 @@ export class PostingMutationService {
             this.scheduleInstantPlaybackReadyMonitor(postId);
           } else {
             videoTaskReason = taskResult.reason;
+            const readiness = buildPostMediaReadiness({
+              assets: postDoc.assets,
+              assetsReady: false,
+              videoProcessingStatus: "failed",
+              instantPlaybackReady: false
+            });
             await postRef.update({
+              mediaStatus: "failed",
               videoProcessingStatus: "failed",
               instantPlaybackReady: false,
               assetsReady: false,
+              playbackReady: false,
+              playbackUrlPresent: false,
+              ...(readiness.fallbackVideoUrl ? { fallbackVideoUrl: readiness.fallbackVideoUrl } : {}),
+              posterReady: readiness.posterReady,
+              posterPresent: readiness.posterPresent,
+              ...(readiness.posterUrl ? { posterUrl: readiness.posterUrl } : {}),
               videoProcessingFailureReason: taskResult.reason
+            });
+            console.warn("[video.processing.failed]", {
+              postId,
+              reason: taskResult.reason,
+              phase: "enqueue"
             });
             console.warn("[posting.finalize] video_processing_task_not_enqueued", {
               postId,
@@ -1138,11 +1188,31 @@ export class PostingMutationService {
         }
       }
     }
+    const readiness = buildPostMediaReadiness({
+      ...post,
+      assetsReady: true,
+      instantPlaybackReady: true,
+      videoProcessingStatus: "completed"
+    });
     await db.collection("posts").doc(postId).update({
+      mediaStatus: "ready",
       instantPlaybackReady: true,
       assetsReady: true,
+      playbackReady: true,
+      playbackUrlPresent: readiness.playbackUrlPresent,
+      ...(readiness.playbackUrl ? { playbackUrl: readiness.playbackUrl } : {}),
+      ...(readiness.fallbackVideoUrl ? { fallbackVideoUrl: readiness.fallbackVideoUrl } : {}),
+      posterReady: readiness.posterReady,
+      posterPresent: readiness.posterPresent,
+      ...(readiness.posterUrl ? { posterUrl: readiness.posterUrl } : {}),
       videoProcessingStatus: "completed",
       videoProcessingProgress: FieldValue.delete()
+    });
+    console.info("[video.processing.completed]", {
+      postId,
+      assetsReady: true,
+      instantPlaybackReady: true,
+      videoProcessingStatus: "completed"
     });
     return true;
   }

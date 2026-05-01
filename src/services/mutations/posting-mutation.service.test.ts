@@ -389,14 +389,37 @@ describe("PostingMutationService finalize parity", () => {
       retryCount: 0,
       completionInvalidatedAtMs: null,
     }));
-    firestoreGetMock.mockResolvedValue({
-      exists: true,
-      data: () => ({
-        handle: "native",
-        name: "Native User",
-        profilePic: "https://cdn.example.com/u.jpg",
-      }),
-    });
+    firestoreGetMock
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({
+          handle: "native",
+          name: "Native User",
+          profilePic: "https://cdn.example.com/u.jpg",
+        }),
+      })
+      .mockResolvedValueOnce({
+        exists: true,
+        data: () => ({
+          assetsReady: false,
+          videoProcessingStatus: "processing",
+          instantPlaybackReady: false,
+          carouselFitWidth: true,
+          letterboxGradients: [{ top: "#1f2937", bottom: "#111827" }],
+          assets: [
+            {
+              id: "video_native_0",
+              type: "video",
+              original: "https://cdn.example.com/native.mp4",
+              poster: "https://cdn.example.com/native_poster.jpg",
+              thumbnail: "https://cdn.example.com/native_poster.jpg",
+              variants: {
+                poster: "https://cdn.example.com/native_poster.jpg",
+              },
+            },
+          ],
+        }),
+      });
 
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -439,5 +462,14 @@ describe("PostingMutationService finalize parity", () => {
         videoProcessingProgress: { totalVideos: 1, processedVideos: 0 }
       })
     );
+    expect(result.mediaReadiness).toMatchObject({
+      mediaStatus: "processing",
+      assetsReady: false,
+      playbackReady: false,
+      posterReady: true,
+      playbackUrlPresent: false,
+      fallbackVideoUrl: "https://cdn.example.com/native.mp4",
+      resizeMode: "contain",
+    });
   });
 });

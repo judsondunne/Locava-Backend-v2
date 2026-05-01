@@ -84,7 +84,11 @@ export class ChatsSendMessageOrchestrator {
           targetId: input.conversationId,
           recipientUserId,
           message: result.groupName ? `From ${result.groupName}: ${notificationMessage}` : notificationMessage,
-          metadata: result.groupName ? { groupName: result.groupName, isGroupChat: true } : {},
+          metadata: {
+            ...(result.groupName ? { groupName: result.groupName, isGroupChat: true } : {}),
+            ...(result.groupPhotoUrl ? { groupPhotoUrl: result.groupPhotoUrl } : {}),
+            ...(result.message.sender.pic ? { senderProfilePic: result.message.sender.pic } : {}),
+          },
         });
       }
     }

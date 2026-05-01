@@ -51,6 +51,48 @@ export const ProfilePostDetailResponseSchema = z.object({
       mediaType: z.enum(["image", "video"]),
       thumbUrl: z.string().url(),
       assetsReady: z.boolean().optional(),
+      mediaReadiness: z
+        .object({
+          mediaStatus: z.enum(["processing", "ready", "failed"]),
+          assetsReady: z.boolean(),
+          videoProcessingStatus: z.string().optional(),
+          posterReady: z.boolean(),
+          posterPresent: z.boolean(),
+          posterUrl: z.string().url().optional(),
+          playbackReady: z.boolean(),
+          playbackUrlPresent: z.boolean(),
+          playbackUrl: z.string().url().optional(),
+          fallbackVideoUrl: z.string().url().optional(),
+          instantPlaybackReady: z.boolean(),
+          hasVideo: z.boolean(),
+          aspectRatio: z.number().nullable().optional(),
+          width: z.number().nullable().optional(),
+          height: z.number().nullable().optional(),
+          resizeMode: z.enum(["cover", "contain"]),
+          gradientTop: z.string().nullable().optional(),
+          gradientBottom: z.string().nullable().optional(),
+          letterboxGradients: z
+            .array(
+              z.object({
+                top: z.string(),
+                bottom: z.string()
+              })
+            )
+            .optional(),
+          updatedAtMs: z.number().int().nonnegative().nullable().optional(),
+          mediaUpdatedAtMs: z.number().int().nonnegative().nullable().optional()
+        })
+        .optional(),
+      mediaStatus: z.enum(["processing", "ready", "failed"]).optional(),
+      videoProcessingStatus: z.string().optional(),
+      posterReady: z.boolean().optional(),
+      posterPresent: z.boolean().optional(),
+      posterUrl: z.string().url().optional(),
+      playbackReady: z.boolean().optional(),
+      playbackUrlPresent: z.boolean().optional(),
+      playbackUrl: z.string().url().optional(),
+      fallbackVideoUrl: z.string().url().optional(),
+      instantPlaybackReady: z.boolean().optional(),
       playbackLab: z.record(z.unknown()).optional(),
       assetLocations: z.array(z.record(z.unknown())).optional(),
       assets: z.array(AssetSchema)

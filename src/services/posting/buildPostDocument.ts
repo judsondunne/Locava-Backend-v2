@@ -55,6 +55,11 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
     input.assembled.mediaType === "video"
       ? String(first?.poster ?? input.assembled.primaryDisplayUrl)
       : String(first?.original ?? input.assembled.primaryDisplayUrl);
+  const firstVideo = input.assembled.assets.find(
+    (asset) => String((asset as { type?: string }).type ?? "").toLowerCase() === "video",
+  ) as { original?: string; poster?: string } | undefined;
+  const fallbackVideoUrl = String(firstVideo?.original ?? "").trim() || undefined;
+  const posterUrl = String(firstVideo?.poster ?? first?.poster ?? input.assembled.primaryDisplayUrl).trim() || undefined;
 
   const base: Record<string, unknown> = {
     postId: input.postId,
@@ -83,6 +88,7 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
     },
     assets: input.assembled.assets,
     assetsReady: !input.assembled.hasVideo,
+    mediaStatus: input.assembled.hasVideo ? "processing" : "ready",
     sessionId: input.sessionId,
     stagedSessionId: input.stagedSessionId,
     tags: input.tags,
@@ -120,6 +126,12 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
   };
 
   if (input.assembled.hasVideo) {
+    base.posterReady = Boolean(posterUrl);
+    base.posterPresent = Boolean(posterUrl);
+    if (posterUrl) base.posterUrl = posterUrl;
+    base.playbackReady = false;
+    base.playbackUrlPresent = false;
+    if (fallbackVideoUrl) base.fallbackVideoUrl = fallbackVideoUrl;
     base.videoProcessingStatus = "pending";
     base.instantPlaybackReady = false;
     base.videoProcessingProgress = {
@@ -143,6 +155,11 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
       }
     };
   } else {
+    base.posterReady = true;
+    base.posterPresent = true;
+    base.posterUrl = photoLink;
+    base.playbackReady = false;
+    base.playbackUrlPresent = false;
     base.imageProcessingStatus = "pending";
   }
 

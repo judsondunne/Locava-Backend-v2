@@ -61,6 +61,19 @@ type CompactCardSeed = {
   } | null;
   createdAtMs: number;
   updatedAtMs: number;
+  mediaStatus?: "processing" | "ready" | "failed";
+  assetsReady?: boolean;
+  posterReady?: boolean;
+  playbackReady?: boolean;
+  playbackUrlPresent?: boolean;
+  playbackUrl?: string | null;
+  fallbackVideoUrl?: string | null;
+  posterUrl?: string | null;
+  hasVideo?: boolean;
+  aspectRatio?: number | null;
+  width?: number | null;
+  height?: number | null;
+  resizeMode?: string | null;
 };
 
 export type FeedCardDTO = {
@@ -122,6 +135,19 @@ export type FeedCardDTO = {
   };
   createdAtMs: number;
   updatedAtMs: number;
+  mediaStatus?: "processing" | "ready" | "failed";
+  assetsReady?: boolean;
+  posterReady?: boolean;
+  playbackReady?: boolean;
+  playbackUrlPresent?: boolean;
+  playbackUrl?: string | null;
+  fallbackVideoUrl?: string | null;
+  posterUrl?: string | null;
+  hasVideo?: boolean;
+  aspectRatio?: number | null;
+  width?: number | null;
+  height?: number | null;
+  resizeMode?: string | null;
 };
 
 export type SearchMixPreviewDTO = FeedCardDTO & {
@@ -345,6 +371,19 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     },
     createdAtMs: seed.createdAtMs,
     updatedAtMs: seed.updatedAtMs,
+    ...(seed.mediaStatus ? { mediaStatus: seed.mediaStatus } : {}),
+    ...(typeof seed.assetsReady === "boolean" ? { assetsReady: seed.assetsReady } : {}),
+    ...(typeof seed.posterReady === "boolean" ? { posterReady: seed.posterReady } : {}),
+    ...(typeof seed.playbackReady === "boolean" ? { playbackReady: seed.playbackReady } : {}),
+    ...(typeof seed.playbackUrlPresent === "boolean" ? { playbackUrlPresent: seed.playbackUrlPresent } : {}),
+    ...(typeof seed.playbackUrl === "string" ? { playbackUrl: seed.playbackUrl } : {}),
+    ...(typeof seed.fallbackVideoUrl === "string" ? { fallbackVideoUrl: seed.fallbackVideoUrl } : {}),
+    ...(typeof seed.posterUrl === "string" ? { posterUrl: seed.posterUrl } : {}),
+    ...(typeof seed.hasVideo === "boolean" ? { hasVideo: seed.hasVideo } : {}),
+    ...(cleanNumber(seed.aspectRatio) != null ? { aspectRatio: cleanNumber(seed.aspectRatio) } : {}),
+    ...(cleanNumber(seed.width) != null ? { width: cleanNumber(seed.width) } : {}),
+    ...(cleanNumber(seed.height) != null ? { height: cleanNumber(seed.height) } : {}),
+    ...(cleanString(seed.resizeMode) != null ? { resizeMode: cleanString(seed.resizeMode) } : {}),
   };
 }
 

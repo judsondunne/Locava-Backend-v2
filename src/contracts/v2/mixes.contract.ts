@@ -41,9 +41,45 @@ const MixPostCardSchema = z.object({
   activities: z.array(z.string()),
   locationSummary: z.string().nullable(),
   media: z.object({
+    type: z.enum(["image", "video"]).optional(),
     posterUrl: z.string(),
-    previewUrl: z.string().nullable(),
+    previewUrl: z.string().nullable().optional(),
+    aspectRatio: z.number().positive().nullable().optional(),
+    startupHint: z.enum(["poster_only", "poster_then_preview"]).optional(),
   }),
+  assets: z
+    .array(
+      z.object({
+        id: z.string(),
+        type: z.enum(["image", "video"]),
+        previewUrl: z.string().nullable().optional(),
+        posterUrl: z.string().nullable().optional(),
+        originalUrl: z.string().nullable().optional(),
+        streamUrl: z.string().nullable().optional(),
+        mp4Url: z.string().nullable().optional(),
+        width: z.number().nullable().optional(),
+        height: z.number().nullable().optional(),
+        aspectRatio: z.number().nullable().optional(),
+      }),
+    )
+    .optional(),
+  mediaStatus: z.enum(["processing", "ready", "failed"]).optional(),
+  assetsReady: z.boolean().optional(),
+  posterReady: z.boolean().optional(),
+  playbackReady: z.boolean().optional(),
+  playbackUrlPresent: z.boolean().optional(),
+  playbackUrl: z.string().nullable().optional(),
+  fallbackVideoUrl: z.string().nullable().optional(),
+  posterUrl: z.string().nullable().optional(),
+  hasVideo: z.boolean().optional(),
+  aspectRatio: z.number().nullable().optional(),
+  width: z.number().nullable().optional(),
+  height: z.number().nullable().optional(),
+  resizeMode: z.string().nullable().optional(),
+  letterboxGradients: z
+    .array(z.object({ top: z.string(), bottom: z.string() }))
+    .nullable()
+    .optional(),
   geo: z
     .object({
       lat: z.number().nullable(),

@@ -144,6 +144,13 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
   const assets = Array.isArray(row.assets) ? (row.assets as Array<Record<string, unknown>>) : [];
   const first = assets[0] ?? {};
   const variants = (first.variants ?? {}) as Record<string, unknown>;
+  const mediaReadiness = ((row as any).mediaReadiness ?? {}) as Record<string, unknown>;
+  const isVideoAsset =
+    String((first as any).type ?? (first as any).mediaType ?? "").toLowerCase() === "video";
+  const isVideoRow =
+    String((row as any).mediaType ?? "").toLowerCase() === "video" ||
+    Boolean((row as any).hasVideo) ||
+    isVideoAsset;
   const poster =
     normalizeText((row as any).thumbUrl) ??
     normalizeText((row as any).displayPhotoLink) ??
@@ -159,6 +166,38 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
   const title = normalizeText((row as any).title ?? (row as any).caption ?? (row as any).content);
   const activities = postActivityTokens(row);
   const coords = postLatLng(row);
+  const playbackUrl =
+    normalizeText((row as any).playbackUrl) ??
+    normalizeText(mediaReadiness.playbackUrl) ??
+    normalizeText(variants.main720Avc) ??
+    normalizeText(variants.main720) ??
+    normalizeText((first as any).original) ??
+    normalizeText((first as any).url);
+  const fallbackVideoUrl =
+    normalizeText((row as any).fallbackVideoUrl) ??
+    normalizeText(mediaReadiness.fallbackVideoUrl);
+  const playbackReady =
+    typeof (row as any).playbackReady === "boolean"
+      ? (row as any).playbackReady
+      : typeof mediaReadiness.playbackReady === "boolean"
+        ? Boolean(mediaReadiness.playbackReady)
+        : Boolean(playbackUrl);
+  const assetsReady =
+    typeof (row as any).assetsReady === "boolean"
+      ? (row as any).assetsReady
+      : typeof mediaReadiness.assetsReady === "boolean"
+        ? Boolean(mediaReadiness.assetsReady)
+        : assets.length > 0;
+  const mediaStatus =
+    normalizeText((row as any).mediaStatus) ??
+    normalizeText(mediaReadiness.mediaStatus) ??
+    (playbackReady ? "ready" : "processing");
+  const aspectRatio =
+    typeof (row as any).aspectRatio === "number" && Number.isFinite((row as any).aspectRatio)
+      ? (row as any).aspectRatio
+      : typeof (first as any).aspectRatio === "number" && Number.isFinite((first as any).aspectRatio)
+        ? (first as any).aspectRatio
+        : 1;
   return toSearchMixPreviewDTO({
     postId,
     rankToken: `mix-${mixKey}-${index + 1}`,
@@ -173,21 +212,26 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
     activities,
     locationSummary: postLocationSummary(row),
     address: postLocationSummary(row),
-    media: { type: String((row as any).mediaType ?? "").toLowerCase() === "video" ? "video" : "image", posterUrl: poster, aspectRatio: 1, startupHint: String((row as any).mediaType ?? "").toLowerCase() === "video" ? "poster_then_preview" : "poster_only" },
+    media: {
+      type: isVideoRow ? "video" : "image",
+      posterUrl: poster,
+      aspectRatio,
+      startupHint: isVideoRow ? "poster_then_preview" : "poster_only",
+    },
     geo: { lat: coords?.lat ?? null, long: coords?.lng ?? null },
     assets: [
       {
         id: `${postId}-asset-1`,
-        type: String((first as any).type ?? "").toLowerCase() === "video" ? "video" : "image",
+        type: isVideoAsset || isVideoRow ? "video" : "image",
         previewUrl: preview,
         posterUrl: poster || null,
-        originalUrl: preview ?? (poster || null),
+        originalUrl: playbackUrl ?? preview ?? (poster || null),
         streamUrl: normalizeText(variants.hls),
-        mp4Url: normalizeText(variants.main720Avc) ?? normalizeText(variants.main720) ?? normalizeText((first as any).original) ?? normalizeText((first as any).url),
+        mp4Url: playbackUrl,
         blurhash: null,
-        width: null,
-        height: null,
-        aspectRatio: null,
+        width: typeof (row as any).width === "number" ? (row as any).width : null,
+        height: typeof (row as any).height === "number" ? (row as any).height : null,
+        aspectRatio: aspectRatio || null,
         orientation: null,
       },
     ],
@@ -195,7 +239,23 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
     updatedAtMs: Math.max(0, parsePostTimeMs(row)),
     social: { likeCount: 0, commentCount: 0 },
     viewer: { liked: false, saved: false },
-    firstAssetUrl: preview ?? (poster || null),
+    firstAssetUrl: playbackUrl ?? preview ?? (poster || null),
+    mediaStatus: mediaStatus === "failed" ? "failed" : mediaStatus === "ready" ? "ready" : "processing",
+    assetsReady,
+    posterReady: Boolean(poster),
+    playbackReady,
+    playbackUrlPresent: Boolean(playbackUrl),
+    playbackUrl: playbackUrl ?? null,
+    fallbackVideoUrl: fallbackVideoUrl ?? null,
+    posterUrl: poster || null,
+    hasVideo: isVideoRow,
+    aspectRatio,
+    width: typeof (row as any).width === "number" ? (row as any).width : null,
+    height: typeof (row as any).height === "number" ? (row as any).height : null,
+    resizeMode: normalizeText((row as any).resizeMode) ?? (isVideoRow ? "cover" : "contain"),
+    letterboxGradients: Array.isArray((row as any).letterboxGradients)
+      ? ((row as any).letterboxGradients as Array<{ top: string; bottom: string }>)
+      : null,
   });
 }
 

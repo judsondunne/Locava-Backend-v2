@@ -1,13 +1,15 @@
-import { FieldPath } from "firebase-admin/firestore";
+import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 
 export type SimpleFeedSortMode = "randomKey" | "docId";
+export const FOR_YOU_SIMPLE_SURFACE = "for_you_simple" as const;
 
 export type SimpleFeedCandidate = {
   postId: string;
   sortValue: number | string;
+  reel: boolean;
   authorId: string;
   createdAtMs: number;
   updatedAtMs: number;
@@ -117,23 +119,29 @@ export class FeedForYouSimpleRepository {
     anchor: number | string;
     wrapped: boolean;
     lastValue: number | string | null;
+    lastPostId?: string | null;
     limit: number;
-  }): Promise<{ items: SimpleFeedCandidate[]; rawCount: number; segmentExhausted: boolean }> {
+    reelOnly?: boolean;
+  }): Promise<{ items: SimpleFeedCandidate[]; rawCount: number; segmentExhausted: boolean; readCount: number }> {
     if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
     const boundedLimit = Math.max(1, Math.min(input.limit, 40));
     let query = this.db.collection("posts").select(...SIMPLE_FEED_SELECT_FIELDS);
+    if (input.reelOnly) {
+      query = query.where("reel", "==", true);
+    }
 
     if (input.mode === "randomKey") {
       const anchor = typeof input.anchor === "number" ? input.anchor : Number(input.anchor);
       if (!Number.isFinite(anchor)) throw new Error("invalid_simple_feed_anchor");
-      query = query.orderBy("randomKey", "asc");
+      query = query.orderBy("randomKey", "asc").orderBy(FieldPath.documentId(), "asc");
       if (input.wrapped) {
         query = query.where("randomKey", "<", anchor);
       } else {
         query = query.where("randomKey", ">=", anchor);
       }
       if (typeof input.lastValue === "number" && Number.isFinite(input.lastValue)) {
-        query = query.startAfter(input.lastValue);
+        const lastPostId = typeof input.lastPostId === "string" ? input.lastPostId.trim() : "";
+        query = lastPostId ? query.startAfter(input.lastValue, lastPostId) : query.startAfter(input.lastValue);
       }
     } else {
       const anchor = typeof input.anchor === "string" ? input.anchor : String(input.anchor ?? "");
@@ -160,8 +168,67 @@ export class FeedForYouSimpleRepository {
         .map((doc) => mapDoc(input.mode, doc.id, doc.data() as Record<string, unknown>))
         .filter((row): row is SimpleFeedCandidate => row !== null),
       rawCount: snap.docs.length,
-      segmentExhausted: snap.docs.length < boundedLimit
+      segmentExhausted: snap.docs.length < boundedLimit,
+      readCount: snap.docs.length
     };
+  }
+
+  async listRecentSeenPostIdsForViewer(input: {
+    viewerId: string;
+    surface: string;
+    limit: number;
+  }): Promise<{ postIds: Set<string>; readCount: number }> {
+    if (!this.db) return { postIds: new Set(), readCount: 0 };
+    const viewerId = input.viewerId.trim();
+    const surface = input.surface.trim();
+    if (!viewerId || !surface) return { postIds: new Set(), readCount: 0 };
+    const boundedLimit = Math.max(1, Math.min(500, Math.floor(input.limit)));
+    incrementDbOps("queries", 1);
+    const snap = await this.db
+      .collection("feedSeen")
+      .where("viewerId", "==", viewerId)
+      .where("surface", "==", surface)
+      .orderBy("lastServedAt", "desc")
+      .limit(boundedLimit)
+      .get();
+    incrementDbOps("reads", snap.docs.length);
+    const postIds = new Set<string>();
+    for (const doc of snap.docs) {
+      const data = doc.data() as Record<string, unknown>;
+      const postId = pickString(data.postId);
+      if (postId) postIds.add(postId);
+    }
+    return { postIds, readCount: snap.docs.length };
+  }
+
+  async markPostsServedForViewer(input: {
+    viewerId: string;
+    postIds: string[];
+    surface: string;
+  }): Promise<void> {
+    if (!this.db) return;
+    const viewerId = input.viewerId.trim();
+    const surface = input.surface.trim();
+    if (!viewerId || !surface) return;
+    const uniquePostIds = [...new Set(input.postIds.map((value) => value.trim()).filter(Boolean))].slice(0, 5);
+    if (uniquePostIds.length === 0) return;
+    const batch = this.db.batch();
+    for (const postId of uniquePostIds) {
+      batch.set(
+        this.db.collection("feedSeen").doc(`${viewerId}_${postId}`),
+        {
+          viewerId,
+          postId,
+          surface,
+          firstServedAt: FieldValue.serverTimestamp(),
+          lastServedAt: FieldValue.serverTimestamp(),
+          servedCount: FieldValue.increment(1)
+        },
+        { merge: true }
+      );
+    }
+    await batch.commit();
+    incrementDbOps("writes", uniquePostIds.length);
   }
 
   private async hasRandomKeySupport(): Promise<boolean> {
@@ -201,6 +268,7 @@ function mapDoc(mode: SimpleFeedSortMode, postId: string, data: Record<string, u
   return {
     postId,
     sortValue,
+    reel: data.reel === true,
     authorId,
     createdAtMs: readMaybeMillis(data.createdAtMs) ?? readMaybeMillis(data.createdAt) ?? readMaybeMillis(data.time) ?? Date.now(),
     updatedAtMs:
