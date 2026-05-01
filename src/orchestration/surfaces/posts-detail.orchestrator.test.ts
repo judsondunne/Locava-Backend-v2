@@ -208,11 +208,32 @@ describe("posts detail orchestrator missing author hardening", () => {
     });
     expect(loadPostDetail).not.toHaveBeenCalled();
     const detail = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
-    expect(detail.address).toBeUndefined();
+    expect(detail.address).toBeNull();
     expect(detail.playbackLab).toBeUndefined();
     expect(Array.isArray(detail.assets)).toBe(true);
     expect((detail.assets as Array<Record<string, unknown>>)[0]?.poster).toBe("https://cdn/p.jpg");
     expect(out.debugPayloadCategory).toBe("small");
     expect((detail.cardSummary as Record<string, unknown> | undefined)?.postId).toBe("post-1");
+  });
+
+  it("playback batch dedupes, caps to five posts, and stays under payload budget", async () => {
+    const service = buildService();
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["p1", "p2", "p3", "p3", "p4", "p5", "p6", "p7"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+    });
+
+    expect(out.found).toHaveLength(5);
+    expect(out.missing).toEqual(["p6", "p7"]);
+    expect(out.debugPayloadBytes).toBeLessThan(35_000);
+    expect(
+      out.found.every((row) => {
+        const post = row.detail.firstRender.post as Record<string, unknown>;
+        return post.comments === undefined && post.commentsPreview === undefined && post.playbackLab === undefined;
+      }),
+    ).toBe(true);
   });
 });

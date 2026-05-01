@@ -50,6 +50,22 @@ describe("v2 collections update route", () => {
     expect(reopened.json().data.item.privacy).toBe("friends");
   });
 
+  it("rejects local file cover URIs on update", async () => {
+    const collectionId = await createCollectionId();
+    if (!collectionId) return;
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/v2/collections/${encodeURIComponent(collectionId)}`,
+      headers,
+      payload: {
+        coverUri: "file:///var/mobile/Containers/Data/Application/tmp/local-cover.jpg"
+      }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("validation_error");
+    expect(res.json().error.details?.fieldErrors?.coverUri?.[0]).toContain("https://");
+  });
+
   it("publishes diagnostics row with update route policy", async () => {
     const collectionId = await createCollectionId();
     if (!collectionId) return;

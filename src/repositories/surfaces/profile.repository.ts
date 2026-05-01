@@ -4,6 +4,14 @@ import { mutationStateRepository } from "../mutations/mutation-state.repository.
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 import {
+  ProfileAchievementsFirestoreAdapter,
+  type FirestoreProfileAchievementPreviewItem,
+} from "../source-of-truth/profile-achievements-firestore.adapter.js";
+import {
+  ProfileCollectionsFirestoreAdapter,
+  type FirestoreProfileCollectionPreviewItem,
+} from "../source-of-truth/profile-collections-firestore.adapter.js";
+import {
   ProfileFirestoreAdapter,
   parseProfileGridCursor
 } from "../source-of-truth/profile-firestore.adapter.js";
@@ -15,7 +23,12 @@ export type ProfileHeaderRecord = {
   handle: string;
   name: string;
   profilePic: string | null;
+  profilePicSmallPath?: string | null;
+  profilePicLargePath?: string | null;
+  profilePicSource?: string | null;
   bio?: string;
+  updatedAtMs?: number | null;
+  profileVersion?: string | null;
   counts: {
     posts: number;
     followers: number;
@@ -43,6 +56,22 @@ export type ProfileGridPreviewItemRecord = {
 export type ProfileGridPreviewRecord = {
   items: ProfileGridPreviewItemRecord[];
   nextCursor: string | null;
+};
+
+export type ProfileCollectionPreviewRecord = FirestoreProfileCollectionPreviewItem;
+
+export type ProfileCollectionsPage = {
+  items: ProfileCollectionPreviewRecord[];
+  nextCursor: string | null;
+  emptyReason: string | null;
+};
+
+export type ProfileAchievementPreviewRecord = FirestoreProfileAchievementPreviewItem;
+
+export type ProfileAchievementsPage = {
+  items: ProfileAchievementPreviewRecord[];
+  nextCursor: string | null;
+  emptyReason: string | null;
 };
 
 export type ProfileGridPageInput = {
@@ -79,7 +108,11 @@ export type ProfileLikedPostsPage = {
 };
 
 export class ProfileRepository {
-  constructor(private readonly firestoreAdapter: ProfileFirestoreAdapter = new ProfileFirestoreAdapter()) {}
+  constructor(
+    private readonly firestoreAdapter: ProfileFirestoreAdapter = new ProfileFirestoreAdapter(),
+    private readonly collectionsAdapter: ProfileCollectionsFirestoreAdapter = new ProfileCollectionsFirestoreAdapter(),
+    private readonly achievementsAdapter: ProfileAchievementsFirestoreAdapter = new ProfileAchievementsFirestoreAdapter()
+  ) {}
 
   /** @deprecated Use parseProfileGridCursor; numeric offset cursors are legacy-only. */
   parseGridCursor(cursor: string | null): number {
@@ -221,18 +254,48 @@ export class ProfileRepository {
     return { items: firestore.items, totalCount: firestore.totalCount, nextCursor: firestore.nextCursor };
   }
 
-  async getProfileBadgeSummary(userId: string, slowMs = 0): Promise<{ badge: string; score: number }> {
-    incrementDbOps("queries", 1);
-    incrementDbOps("reads", 1);
+  async getProfileCollections(input: {
+    viewerId: string;
+    userId: string;
+    cursor: string | null;
+    limit: number;
+  }): Promise<ProfileCollectionsPage> {
+    if (!this.collectionsAdapter.isEnabled()) {
+      throw new SourceOfTruthRequiredError("profile_collections_firestore_unavailable");
+    }
+    const firestore = await this.collectionsAdapter.listCollections(input);
+    incrementDbOps("queries", firestore.queryCount);
+    incrementDbOps("reads", firestore.readCount);
+    return {
+      items: firestore.items,
+      nextCursor: firestore.nextCursor,
+      emptyReason: firestore.emptyReason,
+    };
+  }
 
+  async getProfileAchievements(input: {
+    userId: string;
+    cursor: string | null;
+    limit: number;
+  }): Promise<ProfileAchievementsPage> {
+    if (!this.achievementsAdapter.isEnabled()) {
+      throw new SourceOfTruthRequiredError("profile_achievements_firestore_unavailable");
+    }
+    const firestore = await this.achievementsAdapter.listAchievements(input);
+    incrementDbOps("queries", firestore.queryCount);
+    incrementDbOps("reads", firestore.readCount);
+    return {
+      items: firestore.items,
+      nextCursor: firestore.nextCursor,
+      emptyReason: firestore.emptyReason,
+    };
+  }
+
+  async getProfileBadgeSummary(_userId: string, slowMs = 0): Promise<null> {
     if (slowMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, slowMs));
     }
-
-    return {
-      badge: "rising",
-      score: 62
-    };
+    return null;
   }
 
   async getMyLikedPosts(input: {

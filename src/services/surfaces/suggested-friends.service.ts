@@ -32,8 +32,9 @@ export class SuggestedFriendsService {
   ): Promise<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag?: string }> {
     const limit = Math.max(1, Math.min(options.limit ?? 20, 50));
     const surface = options.surface ?? "generic";
-    const cacheKey = buildSuggestedFriendsCacheKey(viewerId, surface, limit);
-    if (!options.bypassCache) {
+    const hasDynamicFilters = Boolean(options.excludeUserIds?.length) || options.sortBy === "postCount";
+    const cacheKey = `${buildSuggestedFriendsCacheKey(viewerId, surface, limit)}:${options.sortBy ?? "default"}:${hasDynamicFilters ? "dynamic" : "static"}`;
+    if (!options.bypassCache && !hasDynamicFilters) {
       const cached = await globalCache.get<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag: string }>(
         cacheKey
       );
@@ -44,10 +45,10 @@ export class SuggestedFriendsService {
     }
     recordCacheMiss();
     const computed = await dedupeInFlight(
-      `social:suggested:${viewerId}:${surface}:${limit}:${options.excludeAlreadyFollowing !== false ? 1 : 0}:${options.excludeBlocked !== false ? 1 : 0}`,
+      `social:suggested:${viewerId}:${surface}:${limit}:${options.excludeAlreadyFollowing !== false ? 1 : 0}:${options.excludeBlocked !== false ? 1 : 0}:${options.sortBy ?? "default"}:${(options.excludeUserIds ?? []).slice(0, 8).join(",")}`,
       () => this.repository.getSuggestionsForUser(viewerId, { ...options, limit, surface })
     );
-    if (!options.bypassCache) {
+    if (!options.bypassCache && !hasDynamicFilters) {
       await globalCache.set(cacheKey, computed, TTL_MS);
     }
     return computed;

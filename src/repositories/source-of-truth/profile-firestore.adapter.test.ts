@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ProfileFirestoreAdapter } from "./profile-firestore.adapter.js";
+import { ProfileFirestoreAdapter, resolveProfilePicture } from "./profile-firestore.adapter.js";
 
 function makeUserDoc(data: Record<string, unknown>) {
   return {
@@ -94,6 +94,17 @@ function makeDb(opts: {
 }
 
 describe("profile firestore adapter follow counts", () => {
+  it("selects the first non-empty profile picture field deterministically", () => {
+    const resolved = resolveProfilePicture({
+      profilePicLargePath: "",
+      profilePic: "https://cdn.example.com/profile.jpg",
+      profilePicSmallPath: "https://cdn.example.com/profile-small.jpg",
+      photoURL: "https://cdn.example.com/photo-url.jpg",
+    });
+    expect(resolved.url).toBe("https://cdn.example.com/profile.jpg");
+    expect(resolved.source).toBe("profilePic");
+  });
+
   it("prefers canonical post counts immediately over stale embedded totals", async () => {
     const db = makeDb({
       userData: {

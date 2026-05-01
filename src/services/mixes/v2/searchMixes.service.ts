@@ -1,4 +1,5 @@
 import { MixesRepository } from "../../../repositories/mixes.repository.js";
+import { MixesRepository as MixPoolRepository } from "../../../repositories/mixes/mixes.repository.js";
 import { MixPostsRepository } from "../../../repositories/mixPosts.repository.js";
 import { NearbyMixRepository } from "../../../repositories/nearbyMix.repository.js";
 import { SearchRepository } from "../../../repositories/surfaces/search.repository.js";
@@ -6,6 +7,16 @@ import { getBestPostCover } from "../mixCover.service.js";
 import { decodeMixCursorV2, encodeMixCursorV2, hashIdsDeterministic, type MixCursorV2 } from "./mixCursor.js";
 
 type MixType = "general" | "daily" | "nearby" | "friends";
+type ViewerMixHints = {
+  activityProfile: string[];
+  followingIds: string[];
+  followingCount: number;
+  loadedAtMs: number;
+};
+type ViewerMixHintsCacheEntry = {
+  value: ViewerMixHints | null;
+  inFlight: Promise<ViewerMixHints> | null;
+};
 
 export type MixCard = {
   mixId: string;
@@ -137,10 +148,32 @@ function activityAliases(activity: string): string[] {
 }
 
 export class SearchMixesServiceV2 {
-  private readonly mixesRepo = new MixesRepository();
-  private readonly postsRepo = new MixPostsRepository();
-  private readonly nearbyRepo = new NearbyMixRepository();
-  private readonly searchRepo = new SearchRepository();
+  private readonly mixesRepo: Pick<MixesRepository, "loadViewerActivityProfile" | "loadViewerFollowingUserIds">;
+  private readonly mixPoolRepo: Pick<MixPoolRepository, "listFromPool">;
+  private readonly postsRepo: MixPostsRepository;
+  private readonly nearbyRepo: NearbyMixRepository;
+  private readonly searchRepo: SearchRepository;
+  private readonly viewerHintsWaitMs: number;
+  private readonly viewerHintsTtlMs: number;
+  private readonly viewerHintsCache = new Map<string, ViewerMixHintsCacheEntry>();
+
+  constructor(input?: {
+    mixesRepo?: Pick<MixesRepository, "loadViewerActivityProfile" | "loadViewerFollowingUserIds">;
+    mixPoolRepo?: Pick<MixPoolRepository, "listFromPool">;
+    postsRepo?: MixPostsRepository;
+    nearbyRepo?: NearbyMixRepository;
+    searchRepo?: SearchRepository;
+    viewerHintsWaitMs?: number;
+    viewerHintsTtlMs?: number;
+  }) {
+    this.mixesRepo = input?.mixesRepo ?? new MixesRepository();
+    this.mixPoolRepo = input?.mixPoolRepo ?? new MixPoolRepository();
+    this.postsRepo = input?.postsRepo ?? new MixPostsRepository();
+    this.nearbyRepo = input?.nearbyRepo ?? new NearbyMixRepository();
+    this.searchRepo = input?.searchRepo ?? new SearchRepository();
+    this.viewerHintsWaitMs = Math.max(0, Math.min(250, input?.viewerHintsWaitMs ?? 30));
+    this.viewerHintsTtlMs = Math.max(10_000, Math.min(30 * 60_000, input?.viewerHintsTtlMs ?? 5 * 60_000));
+  }
 
   async bootstrap(input: {
     viewerId: string;
@@ -149,20 +182,27 @@ export class SearchMixesServiceV2 {
     includeDebug: boolean;
   }): Promise<{ mixes: MixCard[]; debug?: Record<string, unknown> }> {
     const limitGeneral = clamp(input.limitGeneral, 1, 12);
-    const viewerFollowingIds = await this.safeLoadFollowingIds(input.viewerId, 2);
-    const followingCount = viewerFollowingIds.length;
-    const activityProfile = await this.safeLoadActivityProfile(input.viewerId);
+    const mixPool = await this.mixPoolRepo.listFromPool();
+    const viewerHints = await this.loadViewerHintsWithinBudget(input.viewerId, mixPool.posts.length > 0 ? this.viewerHintsWaitMs : 0);
+    const followingCount = viewerHints?.followingCount ?? 0;
+    const activityProfile = viewerHints?.activityProfile ?? [];
+    const followingIds = viewerHints?.followingIds ?? [];
 
     const debug: Record<string, unknown> = input.includeDebug
       ? {
           followingCount,
           activityProfile: activityProfile.slice(0, 6),
+          personalizationDeferred: viewerHints == null,
+          poolState: mixPool.poolState,
+          poolSource: mixPool.source,
+          servedEmptyWarming: mixPool.servedEmptyWarming,
+          servedStale: mixPool.servedStale,
         }
       : {};
 
     // Bootstrap should be FAST. Avoid N activity queries; derive both activity counts and cover previews
     // from a single bounded recent pool.
-    const recentPool = await this.postsRepo.loadRecentPool(520);
+    const recentPool = mixPool.posts.slice(0, 240);
     const activityCounts = new Map<string, number>();
     const bestByActivity = new Map<string, { coverPostId: string; coverUrl: string }>();
     const previewsByActivity = new Map<string, string[]>();
@@ -203,14 +243,13 @@ export class SearchMixesServiceV2 {
     for (const activity of candidates) {
       if (generalCards.length >= limitGeneral) break;
       const best = bestByActivity.get(activity) ?? null;
-      if (!best?.coverUrl || !best.coverPostId) continue;
       generalCards.push({
         mixId: `activity:${activity}`,
         mixType: "general",
         title: `${activity.charAt(0).toUpperCase()}${activity.slice(1)}`,
         subtitle: `Top ${activity} posts`,
-        coverPostId: best.coverPostId,
-        coverMedia: best.coverUrl,
+        coverPostId: best?.coverPostId ?? null,
+        coverMedia: best?.coverUrl ?? null,
         previewPostIds: (previewsByActivity.get(activity) ?? []).slice(0, 4),
         availableCount: undefined,
         hiddenReason: null,
@@ -231,21 +270,19 @@ export class SearchMixesServiceV2 {
     if (generalCards.length < limitGeneral) {
       const first = recentPool[0] ?? null;
       const cover = first ? getBestPostCover(first) : { coverImageUrl: null, coverPostId: null };
-      const ids = recentPool.slice(0, 3).map((p) => postId(p)).filter(Boolean);
-      if (cover.coverImageUrl && cover.coverPostId) {
-        generalCards.push({
-          mixId: "general:recent",
-          mixType: "general",
-          title: "Recent",
-          subtitle: "Fresh posts across Locava",
-          coverPostId: cover.coverPostId,
-          coverMedia: cover.coverImageUrl,
-          previewPostIds: ids,
-          hiddenReason: null,
-          definition: { kind: "activity", activity: "__recent__" },
-          ...(input.includeDebug ? { debugMix: { source: "bootstrap_recent_pool_fallback_v1" } } : {}),
-        });
-      }
+      const ids = recentPool.slice(0, 3).map((p: Record<string, unknown>) => postId(p)).filter(Boolean);
+      generalCards.push({
+        mixId: "general:recent",
+        mixType: "general",
+        title: "Recent",
+        subtitle: "Fresh posts across Locava",
+        coverPostId: cover.coverPostId,
+        coverMedia: cover.coverImageUrl,
+        previewPostIds: ids,
+        hiddenReason: null,
+        definition: { kind: "activity", activity: "__recent__" },
+        ...(input.includeDebug ? { debugMix: { source: "bootstrap_recent_pool_fallback_v1" } } : {}),
+      });
     }
 
     // Daily
@@ -265,8 +302,9 @@ export class SearchMixesServiceV2 {
 
     // Friends
     const friends = await this.buildFriendsCard({
-      viewerId: input.viewerId,
+      followingIds,
       followingCount,
+      recentPool,
       includeDebug: input.includeDebug,
     });
 
@@ -711,7 +749,76 @@ export class SearchMixesServiceV2 {
     }
   }
 
-  private async buildFriendsCard(input: { viewerId: string; followingCount: number; includeDebug: boolean }): Promise<MixCard | null> {
+  private async loadViewerHintsWithinBudget(viewerId: string, waitMs: number): Promise<ViewerMixHints | null> {
+    const now = Date.now();
+    const cached = this.viewerHintsCache.get(viewerId);
+    if (cached?.value && now - cached.value.loadedAtMs < this.viewerHintsTtlMs) {
+      return cached.value;
+    }
+
+    const inFlight = this.ensureViewerHintsRefresh(viewerId);
+    if (waitMs <= 0) return cached?.value ?? null;
+
+    try {
+      return await Promise.race([
+        inFlight,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), waitMs)),
+      ]);
+    } catch {
+      return cached?.value ?? null;
+    }
+  }
+
+  private ensureViewerHintsRefresh(viewerId: string): Promise<ViewerMixHints> {
+    const existing = this.viewerHintsCache.get(viewerId);
+    if (existing?.inFlight) return existing.inFlight;
+
+    const promise = (async () => {
+      const [activityProfile, followingIds] = await Promise.all([
+        this.safeLoadActivityProfile(viewerId),
+        this.safeLoadFollowingIds(viewerId, 40),
+      ]);
+      const next: ViewerMixHints = {
+        activityProfile,
+        followingIds,
+        followingCount: followingIds.length,
+        loadedAtMs: Date.now(),
+      };
+      this.viewerHintsCache.set(viewerId, { value: next, inFlight: null });
+      return next;
+    })()
+      .catch(() => {
+        const fallback = this.viewerHintsCache.get(viewerId)?.value;
+        if (fallback) return fallback;
+        const empty: ViewerMixHints = {
+          activityProfile: [],
+          followingIds: [],
+          followingCount: 0,
+          loadedAtMs: Date.now(),
+        };
+        this.viewerHintsCache.set(viewerId, { value: empty, inFlight: null });
+        return empty;
+      })
+      .finally(() => {
+        const latest = this.viewerHintsCache.get(viewerId);
+        if (latest?.inFlight === promise) {
+          this.viewerHintsCache.set(viewerId, { value: latest.value ?? null, inFlight: null });
+        }
+      });
+
+    this.viewerHintsCache.set(viewerId, {
+      value: existing?.value ?? null,
+      inFlight: promise,
+    });
+    return promise;
+  }
+
+  private async buildFriendsCard(input: {
+    followingIds: string[];
+    followingCount: number;
+    recentPool: Record<string, unknown>[];
+    includeDebug: boolean;
+  }): Promise<MixCard | null> {
     const requiresFollowing = true;
     if (input.followingCount <= 0) {
       return {
@@ -728,18 +835,15 @@ export class SearchMixesServiceV2 {
         ...(input.includeDebug ? { debugMix: { followingCount: input.followingCount } } : {}),
       };
     }
-    // Production-grade: cover art must come from a real matching post.
-    // Bound reads: use first N following IDs and fetch a single merged page.
-    const followingIds = await this.safeLoadFollowingIds(input.viewerId, 120);
-    const chunks = chunk(followingIds.slice(0, 50), 10);
-    const cursors = chunks.map(() => ({ lastTime: null, lastId: null, exhausted: false }));
-    const merged = chunks.length
-      ? await this.postsRepo.pageByAuthorIdsMerged({ authorIdChunks: chunks, limit: 3, perChunkCursor: cursors })
-      : { items: [], hasMore: false, nextPerChunkCursor: [], debug: { chunksQueried: 0, candidateCount: 0 } };
-    const first = merged.items[0] ?? null;
+    const followingSet = new Set(input.followingIds);
+    const matchingRows = followingSet.size
+      ? input.recentPool.filter((row) => followingSet.has(String((row as any)?.userId ?? "").trim()))
+      : [];
+    const first = matchingRows[0] ?? null;
     const cover = getBestPostCover(first);
-    const previewPostIds = merged.items.map((p) => postId(p)).filter(Boolean).slice(0, 3);
-    const hiddenReason = cover.coverImageUrl ? null : "no_following_posts";
+    const previewPostIds = matchingRows.map((p) => postId(p)).filter(Boolean).slice(0, 3);
+    const hiddenReason =
+      input.followingIds.length === 0 ? "loading_following_graph" : cover.coverImageUrl ? null : "no_following_posts";
     return {
       mixId: "friends:from_people_you_follow",
       mixType: "friends",
@@ -755,8 +859,9 @@ export class SearchMixesServiceV2 {
         ? {
             debugMix: {
               followingCount: input.followingCount,
-              coverHydration: cover.coverImageUrl ? "following_posts_merge" : "none",
-              ...merged.debug,
+              source: input.followingIds.length > 0 ? "friends_recent_pool" : "friends_hints_pending",
+              coverHydration: cover.coverImageUrl ? "friends_recent_pool" : "none",
+              candidateCount: matchingRows.length,
             },
           }
         : {}),

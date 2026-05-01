@@ -18,7 +18,8 @@ describe("v2 collections create route", () => {
         description: "Places to try",
         privacy: "private",
         collaborators: ["friend-1"],
-        items: ["internal-viewer-feed-post-1"]
+        items: ["internal-viewer-feed-post-1"],
+        coverUri: "https://cdn.locava.test/collections/weekend-spots.jpg"
       }
     });
     if (res.statusCode === 503) {
@@ -32,7 +33,33 @@ describe("v2 collections create route", () => {
     expect(body.data.collection.id).toBe(body.data.collectionId);
     expect(body.data.collection.name).toBe("Weekend Spots");
     expect(body.data.collection.privacy).toBe("private");
-    expect(body.data.collection.collaborators).toContain("internal-viewer");
+    expect(body.data.collection.ownerId).toBe("internal-viewer");
+    expect(body.data.collection.userId).toBe("internal-viewer");
+    expect(body.data.collection.collaborators).toEqual(["friend-1"]);
+    expect(body.data.collection.displayPhotoUrl).toBe("https://cdn.locava.test/collections/weekend-spots.jpg");
+    expect(body.data.collection.coverUri).toBe("https://cdn.locava.test/collections/weekend-spots.jpg");
+    expect(body.data.collection.itemsCount).toBe(1);
+    expect(body.data.collection.mediaCount).toBe(1);
+  });
+
+  it("rejects local file cover URIs before persistence", async () => {
+    const headers = {
+      "x-viewer-id": "internal-viewer",
+      "x-viewer-roles": "internal"
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: "/v2/collections",
+      headers,
+      payload: {
+        name: "Bad Cover",
+        privacy: "private",
+        coverUri: "file:///var/mobile/Containers/Data/Application/tmp/local-cover.jpg"
+      }
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe("validation_error");
+    expect(res.json().error.details?.fieldErrors?.coverUri?.[0]).toContain("https://");
   });
 
   it("publishes diagnostics row with create route policy", async () => {

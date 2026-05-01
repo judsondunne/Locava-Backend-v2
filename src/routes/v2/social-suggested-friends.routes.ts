@@ -28,6 +28,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
       return reply.status(403).send(failure("v2_surface_disabled", "Social suggested friends v2 is not enabled for this viewer"));
     }
     const query = SocialSuggestedFriendsQuerySchema.parse(request.query);
+    const targetUserId = query.userId?.trim() || viewer.viewerId;
     const limit = query.limit ?? 20;
     let cursorOffset = 0;
     try {
@@ -36,24 +37,49 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
       return reply.status(400).send(failure("invalid_cursor", "Cursor is invalid"));
     }
     const surface = query.surface ?? "generic";
+    const excludeUserIds = String(query.excludeUserIds ?? "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean);
     const computeLimit =
       surface === "onboarding"
         ? limit
         : Math.min(20, Math.max(limit, cursorOffset + limit));
     setRouteName(socialSuggestedFriendsContract.routeName);
-    const data = await service.getSuggestionsForUser(viewer.viewerId, {
-      limit: computeLimit,
-      surface,
-      includeContacts: true,
-      includeMutuals: surface !== "onboarding",
-      includePopular: surface !== "onboarding",
-      includeNearby: false,
-      includeGroups: true,
-      includeReferral: true,
-      includeAllUsersFallback: true,
-      excludeAlreadyFollowing: true,
-      excludeBlocked: true
-    });
+    let data;
+    try {
+      data = await service.getSuggestionsForUser(targetUserId, {
+        limit: computeLimit,
+        surface,
+        includeContacts: true,
+        includeMutuals: surface !== "onboarding",
+        includePopular: surface !== "onboarding",
+        includeNearby: false,
+        includeGroups: true,
+        includeReferral: true,
+        includeAllUsersFallback: true,
+        excludeAlreadyFollowing: true,
+        excludeBlocked: true,
+        excludeUserIds,
+        sortBy: query.sortBy ?? "default",
+      });
+    } catch (error) {
+      request.log.error(
+        {
+          routeName: socialSuggestedFriendsContract.routeName,
+          viewerId: targetUserId,
+          surface,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "suggested friends fallback to empty payload"
+      );
+      data = {
+        users: [],
+        sourceBreakdown: {},
+        generatedAt: Date.now(),
+        etag: `suggested-empty:${targetUserId}:${surface}:${limit}`,
+      };
+    }
     const users = data.users.slice(cursorOffset, cursorOffset + limit);
     const nextOffset = cursorOffset + users.length;
     const hasMore = nextOffset < data.users.length;
@@ -62,7 +88,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
     const excludedAlreadyFollowingCount = data.users.filter((u) => u.isFollowing).length;
     const payload = {
       routeName: socialSuggestedFriendsContract.routeName,
-      viewerId: viewer.viewerId,
+      viewerId: targetUserId,
       surface,
       users,
       page: {
@@ -77,7 +103,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
       etag: data.etag,
       diagnostics: {
         routeName: socialSuggestedFriendsContract.routeName,
-        viewerId: viewer.viewerId,
+        viewerId: targetUserId,
         surface,
         returnedCount: users.length,
         sourceBreakdown: data.sourceBreakdown,

@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MixesRepository } from "./mixes.repository.js";
 
@@ -69,9 +72,11 @@ function buildFakeDb(input: {
   };
 }
 
-function buildRepo(db: Record<string, unknown>): MixesRepository {
+function buildRepo(db: Record<string, unknown>, snapshotPath?: string): MixesRepository {
   const repo = new MixesRepository();
   (repo as any).dbClient = db;
+  (repo as any).snapshotPath =
+    snapshotPath ?? path.join(os.tmpdir(), `mixes-test-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
   return repo;
 }
 
@@ -87,6 +92,7 @@ describe("mixes repository production pool manager", () => {
       repo.listFromPool(),
     ]);
 
+    await new Promise((resolve) => setTimeout(resolve, 30));
     expect(fake.getCalls()).toBe(1);
     for (const res of responses) {
       expect(Array.isArray(res.posts)).toBe(true);
@@ -107,9 +113,36 @@ describe("mixes repository production pool manager", () => {
     const cold = await repo.listFromPool();
     expect(Array.isArray(cold.posts)).toBe(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 30));
     const failed = await repo.listFromPool();
     expect(Array.isArray(failed.posts)).toBe(true);
-    expect(failed.poolState === "failed" || failed.poolState === "warming").toBe(true);
+    expect(["failed", "warming"]).toContain(failed.poolState);
+  });
+
+  it("serves a persisted snapshot immediately while a slower refresh warms in background", async () => {
+    const tempDir = await mkdtemp(path.join(os.tmpdir(), "mixes-snapshot-"));
+    const snapshotPath = path.join(tempDir, "mixes-preview-snapshot.json");
+    const snapshotPosts = buildRows(3);
+    await writeFile(
+      snapshotPath,
+      JSON.stringify({ loadedAtMs: Date.now() - 120_000, posts: snapshotPosts }, null, 2),
+      "utf8",
+    );
+    process.env.MIXES_POOL_SNAPSHOT_PATH = snapshotPath;
+    const fake = buildFakeDb({ rows: buildRows(8), delayMs: 20 });
+    const repo = buildRepo(fake.db, snapshotPath);
+
+    const first = await repo.listFromPool();
+
+    expect(first.posts).toHaveLength(3);
+    expect(first.poolState).toBe("stale");
+    expect(first.servedStale).toBe(true);
+    expect(first.servedEmptyWarming).toBe(false);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    const warm = await repo.listFromPool();
+    expect(warm.poolState).toBe("warm");
+    expect(warm.posts.length).toBeGreaterThanOrEqual(8);
+    delete process.env.MIXES_POOL_SNAPSHOT_PATH;
   });
 });

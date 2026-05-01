@@ -14,6 +14,8 @@ import { notificationsRepository } from "../../repositories/surfaces/notificatio
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
 import { scheduleBackgroundWork } from "../../lib/background-work.js";
 
+type ViewerSummaryWire = Awaited<ReturnType<AuthBootstrapService["loadViewerSummary"]>>;
+
 export class AuthSessionOrchestrator {
   private readonly feedService = new FeedService(new FeedRepository());
   private readonly feedBootstrapOrchestrator = new FeedBootstrapOrchestrator(this.feedService);
@@ -41,7 +43,7 @@ export class AuthSessionOrchestrator {
     const base = await this.service.loadSession(viewer.viewerId);
     const fallbacks: string[] = [];
 
-    let viewerSummary: { handle: string; badge: string } | null = null;
+    let viewerSummary: ViewerSummaryWire | null = null;
     try {
       viewerSummary = await withTimeout(
         this.service.loadViewerSummary(viewer.viewerId, debugSlowDeferredMs),
@@ -71,6 +73,15 @@ export class AuthSessionOrchestrator {
           state: base.authenticated ? "active" : "anonymous",
           issuedAt: base.issuedAt,
           expiresAt: base.expiresAt
+        },
+        account: {
+          status:
+            !base.authenticated
+              ? null
+              : viewerSummary?.onboardingComplete === false
+                ? "existing_incomplete"
+                : "existing_complete",
+          onboardingComplete: viewerSummary?.onboardingComplete ?? (base.authenticated ? null : true)
         }
       },
       deferred: {

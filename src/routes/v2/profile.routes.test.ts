@@ -31,9 +31,15 @@ describe("v2 profile bootstrap route", () => {
     const body = res.json();
     expect(body.ok).toBe(true);
     expect(body.data.routeName).toBe("profile.bootstrap.get");
+    expect(body.data.summary.userId).toBe(HEAVY_USER_ID);
     expect(body.data.firstRender.counts.posts).toBeGreaterThanOrEqual(0);
     expect(body.data.firstRender.gridPreview.items.length).toBeLessThanOrEqual(12);
     expect(body.data.firstRender.gridPreview.nextCursor).not.toBeNull();
+    expect(Buffer.byteLength(res.body, "utf8")).toBeLessThan(55_000);
+    const serialized = JSON.stringify(body.data);
+    expect(serialized).not.toContain("\"likedPosts\"");
+    expect(serialized).not.toContain("\"addressBookPhoneNumbers\"");
+    expect(serialized).not.toContain("\"addressBookUsers\"");
   });
 
   it("collapses repeated identical bootstrap to warm near-zero db ops", async () => {
@@ -119,6 +125,42 @@ describe("v2 profile bootstrap route", () => {
     expect(profileEntry.dbOps.reads).toBeGreaterThan(0);
     expect(typeof profileEntry.cache.hits).toBe("number");
     expect(Array.isArray(profileEntry.fallbacks)).toBe(true);
+  });
+
+  it("serves staged profile slices for relationship, collections, and achievements", async () => {
+    const headers = {
+      "x-viewer-id": "viewer-slices",
+      "x-viewer-roles": "internal"
+    };
+
+    const relationship = await app.inject({
+      method: "GET",
+      url: `/v2/profiles/${HEAVY_USER_ID}/relationship`,
+      headers,
+    });
+    expect(relationship.statusCode).toBe(200);
+    expect(relationship.json().data.routeName).toBe("profile.relationship.get");
+    expect(typeof relationship.json().data.relationship.following).toBe("boolean");
+
+    const collections = await app.inject({
+      method: "GET",
+      url: `/v2/profiles/${HEAVY_USER_ID}/collections?limit=4`,
+      headers,
+    });
+    expect(collections.statusCode).toBe(200);
+    expect(collections.json().data.routeName).toBe("profile.collections.get");
+    expect(collections.json().data.page.limit).toBe(4);
+    expect(Array.isArray(collections.json().data.items)).toBe(true);
+
+    const achievements = await app.inject({
+      method: "GET",
+      url: `/v2/profiles/${HEAVY_USER_ID}/achievements?limit=6`,
+      headers,
+    });
+    expect(achievements.statusCode).toBe(200);
+    expect(achievements.json().data.routeName).toBe("profile.achievements.get");
+    expect(achievements.json().data.page.limit).toBe(6);
+    expect(Array.isArray(achievements.json().data.items)).toBe(true);
   });
 
   it("serves truthful fresh facts immediately after follow/unfollow", async () => {

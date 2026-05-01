@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { toFeedCardDTO, type FeedCardDTO } from "../../dto/compact-surface-dto.js";
 import type {
   FeedForYouMode,
   FeedForYouRepository,
@@ -8,8 +8,9 @@ import type {
 
 const ENGINE_VERSION = "queue-reels-regular-v2";
 const CURSOR_PREFIX = "fq:v2:";
-const RECENT_POOL_LIMIT = 240;
+const RECENT_POOL_LIMIT = 120;
 const RECENT_POOL_TTL_MS = 30_000;
+const FALLBACK_WINDOW_LIMIT = 8;
 
 type FeedCursorState = {
   page: number;
@@ -18,36 +19,17 @@ type FeedCursorState = {
   regularQueueIndex: number;
 };
 
-type ForYouPostCard = {
-  postId: string;
-  rankToken: string;
-  author: { userId: string; handle: string; name: string | null; pic: string | null };
-  activities: string[];
-  address: string | null;
-  carouselFitWidth?: boolean;
-  layoutLetterbox?: boolean;
-  letterboxGradientTop?: string | null;
-  letterboxGradientBottom?: string | null;
-  letterboxGradients?: Array<{ top: string; bottom: string }>;
-  geo: ForYouCandidate["geo"];
-  assets: ForYouCandidate["assets"];
-  comments: ForYouCandidate["comments"];
-  commentsPreview: ForYouCandidate["commentsPreview"];
-  title: string | null;
-  captionPreview: string | null;
-  firstAssetUrl: string | null;
-  media: { type: "image" | "video"; posterUrl: string; aspectRatio: number; startupHint: "poster_only" | "poster_then_preview" };
-  social: { likeCount: number; commentCount: number };
-  viewer: { liked: boolean; saved: boolean };
-  createdAtMs: number;
-  updatedAtMs: number;
-};
-
 type RecentPool = {
   items: ForYouCandidate[];
   loadedAtMs: number;
   lastReadCount: number;
   inFlight: Promise<void> | null;
+};
+
+type FallbackPool = {
+  items: ForYouCandidate[];
+  loadedAtMs: number;
+  lastReadCount: number;
 };
 
 export class FeedForYouService {
@@ -58,8 +40,14 @@ export class FeedForYouService {
     inFlight: null,
   };
 
+  private readonly fallbackPool: FallbackPool = {
+    items: [],
+    loadedAtMs: 0,
+    lastReadCount: 0,
+  };
+
   constructor(
-    private readonly repository: Pick<FeedForYouRepository, "fetchRecentWindow">
+    private readonly repository: Pick<FeedForYouRepository, "fetchRecentWindow" | "fetchFallbackWindow">
   ) {}
 
   async getForYouPage(input: {
@@ -70,7 +58,7 @@ export class FeedForYouService {
     requestId?: string;
   }): Promise<{
     requestId: string;
-    items: ForYouPostCard[];
+    items: FeedCardDTO[];
     nextCursor: string | null;
     exhausted: boolean;
     feedState: {
@@ -108,6 +96,7 @@ export class FeedForYouService {
       remainingReels: number;
       remainingRegular: number;
       postIdsReturned: string[];
+      poolState: "warm" | "stale" | "warming" | "cold_fallback";
     };
   }> {
     const startedAt = Date.now();
@@ -117,14 +106,10 @@ export class FeedForYouService {
     const cursor = decodeCursor(input.cursor);
     const regularQueueIndexBefore = clamp(cursor?.regularQueueIndex ?? 0, 0, Number.MAX_SAFE_INTEGER);
 
-    const { items: poolItems, queueRebuilt, readCount } = await this.loadRecentPool();
-    const ordered = deterministicShuffleCandidates(poolItems, buildQueueSeed(viewerId, this.recentPool.loadedAtMs));
+    const source = await this.loadCandidatesForRequest();
+    const ordered = deterministicShuffleCandidates(source.items, buildQueueSeed(viewerId, source.seedLoadedAtMs));
     const pageRows = ordered.slice(regularQueueIndexBefore, regularQueueIndexBefore + limit);
-    const regularQueueIndexAfter = clamp(
-      regularQueueIndexBefore + pageRows.length,
-      0,
-      ordered.length
-    );
+    const regularQueueIndexAfter = clamp(regularQueueIndexBefore + pageRows.length, 0, ordered.length);
     const items = pageRows.map((row, index) => toPostCard(row, index, requestId));
     const exhausted = regularQueueIndexAfter >= ordered.length;
     const remainingRegular = Math.max(0, ordered.length - regularQueueIndexAfter);
@@ -162,11 +147,11 @@ export class FeedForYouService {
         recycledRegularCount: 0,
         feedStateCreated: !cursor,
         reelQueueReadCount: 0,
-        regularQueueReadCount: readCount,
+        regularQueueReadCount: source.readCount,
         feedStateWriteOk: true,
         servedWriteCount: 0,
         servedWriteOk: true,
-        queueRebuilt,
+        queueRebuilt: source.queueRebuilt,
         emptyReason: items.length > 0 ? null : "no_eligible_posts",
         latencyMs: Date.now() - startedAt,
         reelQueueIndexBefore: 0,
@@ -178,49 +163,91 @@ export class FeedForYouService {
         remainingReels: 0,
         remainingRegular,
         postIdsReturned: items.map((item) => item.postId),
+        poolState: source.poolState,
       },
     };
   }
 
-  private async loadRecentPool(): Promise<{
+  private async loadCandidatesForRequest(): Promise<{
     items: ForYouCandidate[];
-    queueRebuilt: boolean;
     readCount: number;
+    queueRebuilt: boolean;
+    poolState: "warm" | "stale" | "warming" | "cold_fallback";
+    seedLoadedAtMs: number;
   }> {
     const now = Date.now();
-    if (this.recentPool.items.length > 0 && now - this.recentPool.loadedAtMs < RECENT_POOL_TTL_MS) {
-      return { items: this.recentPool.items, queueRebuilt: false, readCount: 0 };
+    const recentFresh = this.recentPool.items.length > 0 && now - this.recentPool.loadedAtMs < RECENT_POOL_TTL_MS;
+    if (recentFresh) {
+      return {
+        items: this.recentPool.items,
+        readCount: 0,
+        queueRebuilt: false,
+        poolState: "warm",
+        seedLoadedAtMs: this.recentPool.loadedAtMs,
+      };
     }
-    if (this.recentPool.inFlight) {
-      await this.recentPool.inFlight;
-      return { items: this.recentPool.items, queueRebuilt: false, readCount: 0 };
+
+    if (this.recentPool.items.length > 0) {
+      this.startWarmRefresh();
+      return {
+        items: this.recentPool.items,
+        readCount: 0,
+        queueRebuilt: false,
+        poolState: "stale",
+        seedLoadedAtMs: this.recentPool.loadedAtMs,
+      };
     }
+
+    this.startWarmRefresh();
+
+    if (this.fallbackPool.items.length > 0 && now - this.fallbackPool.loadedAtMs < RECENT_POOL_TTL_MS) {
+      return {
+        items: this.fallbackPool.items,
+        readCount: 0,
+        queueRebuilt: false,
+        poolState: "warming",
+        seedLoadedAtMs: this.fallbackPool.loadedAtMs,
+      };
+    }
+
+    const fallbackRows = await this.repository.fetchFallbackWindow(FALLBACK_WINDOW_LIMIT);
+    const items = dedupeCandidates(fallbackRows.filter((candidate) => isRenderableCandidate(candidate)));
+    this.fallbackPool.items = items;
+    this.fallbackPool.loadedAtMs = Date.now();
+    this.fallbackPool.lastReadCount = fallbackRows.length;
+    return {
+      items,
+      readCount: fallbackRows.length,
+      queueRebuilt: false,
+      poolState: "cold_fallback",
+      seedLoadedAtMs: this.fallbackPool.loadedAtMs,
+    };
+  }
+
+  private startWarmRefresh(): void {
+    if (this.recentPool.inFlight) return;
     this.recentPool.inFlight = (async () => {
       const recent = await this.repository.fetchRecentWindow(RECENT_POOL_LIMIT);
-      this.recentPool.items = dedupeCandidates(
-        recent.filter((candidate) => isRenderableCandidate(candidate))
-      );
+      this.recentPool.items = dedupeCandidates(recent.filter((candidate) => isRenderableCandidate(candidate)));
       this.recentPool.loadedAtMs = Date.now();
       this.recentPool.lastReadCount = recent.length;
-    })().finally(() => {
-      this.recentPool.inFlight = null;
-    });
-    await this.recentPool.inFlight;
-    return {
-      items: this.recentPool.items,
-      queueRebuilt: true,
-      readCount: this.recentPool.lastReadCount,
-    };
+      if (this.recentPool.items.length > 0) {
+        this.fallbackPool.items = this.recentPool.items.slice(0, Math.min(this.recentPool.items.length, FALLBACK_WINDOW_LIMIT));
+        this.fallbackPool.loadedAtMs = this.recentPool.loadedAtMs;
+        this.fallbackPool.lastReadCount = 0;
+      }
+    })()
+      .catch(() => {
+        // Best-effort warmup; callers already have a bounded fallback path.
+      })
+      .finally(() => {
+        this.recentPool.inFlight = null;
+      });
   }
 }
 
 function isRenderableCandidate(candidate: ForYouCandidate): boolean {
-  return Boolean(
-    candidate.postId &&
-      candidate.authorId &&
-      candidate.posterUrl &&
-      candidate.posterUrl.trim().length > 0
-  );
+  return Boolean(candidate.postId && candidate.authorId && candidate.posterUrl && candidate.posterUrl.trim().length > 0);
 }
 
 function dedupeCandidates(rows: ForYouCandidate[]): ForYouCandidate[] {
@@ -234,15 +261,15 @@ function dedupeCandidates(rows: ForYouCandidate[]): ForYouCandidate[] {
   return out;
 }
 
-function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string): ForYouPostCard {
-  const seed: ForYouPostCard = {
+function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string): FeedCardDTO {
+  return toFeedCardDTO({
     postId: candidate.postId,
     rankToken: `fy:${requestId.slice(0, 8)}:${idx + 1}`,
     author: {
       userId: candidate.authorId,
       handle: candidate.authorHandle,
       name: candidate.authorName,
-      pic: candidate.authorPic
+      pic: candidate.authorPic,
     },
     activities: candidate.activities,
     address: candidate.address,
@@ -253,41 +280,26 @@ function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string):
     letterboxGradients: candidate.letterboxGradients,
     geo: candidate.geo,
     assets: candidate.assets,
-    comments: candidate.comments,
-    commentsPreview: candidate.commentsPreview,
     title: candidate.title,
     captionPreview: candidate.captionPreview,
     firstAssetUrl: candidate.firstAssetUrl,
     media: {
       type: candidate.mediaType,
       posterUrl: candidate.posterUrl,
-      aspectRatio: 9 / 16,
-      startupHint: candidate.mediaType === "video" ? "poster_then_preview" : "poster_only"
+      aspectRatio: candidate.assets[0]?.aspectRatio ?? 9 / 16,
+      startupHint: candidate.mediaType === "video" ? "poster_then_preview" : "poster_only",
     },
     social: {
       likeCount: candidate.likeCount,
-      commentCount: candidate.commentCount
+      commentCount: candidate.commentCount,
     },
     viewer: {
       liked: false,
-      saved: false
+      saved: false,
     },
     createdAtMs: candidate.createdAtMs,
-    updatedAtMs: candidate.updatedAtMs
-  };
-  return buildPostEnvelope({
-    postId: candidate.postId,
-    seed,
-    sourcePost: candidate.sourcePost ?? candidate.rawPost ?? (candidate as unknown as Record<string, unknown>),
-    rawPost: candidate.rawPost ?? candidate.sourcePost ?? (candidate as unknown as Record<string, unknown>),
-    hydrationLevel: "card",
-    sourceRoute: "feed_for_you.service",
-    rankToken: seed.rankToken,
-    author: seed.author,
-    social: seed.social,
-    viewer: seed.viewer,
-    debugSource: "FeedForYouService.toPostCard",
-  }) as ForYouPostCard;
+    updatedAtMs: candidate.updatedAtMs,
+  });
 }
 
 function deterministicShuffleCandidates(rows: ForYouCandidate[], seed: string): ForYouCandidate[] {
@@ -334,7 +346,7 @@ function decodeCursor(cursor: string | null): FeedCursorState | null {
       page: Math.floor(page),
       mode: "regular",
       reelQueueIndex: 0,
-      regularQueueIndex: Math.floor(regularQueueIndex)
+      regularQueueIndex: Math.floor(regularQueueIndex),
     };
   } catch {
     return null;

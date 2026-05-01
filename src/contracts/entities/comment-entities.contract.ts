@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { GifAttachmentSchema } from "./chat-message-entities.contract.js";
 import { AuthorSummarySchema } from "./post-entities.contract.js";
 
 export const CommentViewerStateSchema = z.object({
@@ -11,6 +12,7 @@ export const CommentSummarySchema = z.object({
   postId: z.string(),
   author: AuthorSummarySchema,
   text: z.string(),
+  gif: GifAttachmentSchema.nullable().optional(),
   /** Parent commentId when this is a reply. Null/undefined for top-level comments. */
   replyingTo: z.string().nullable().optional(),
   createdAtMs: z.number().int().nonnegative(),

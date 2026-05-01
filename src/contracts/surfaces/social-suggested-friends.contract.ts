@@ -2,8 +2,11 @@ import { z } from "zod";
 import { defineContract } from "../conventions.js";
 
 export const SocialSuggestedFriendsQuerySchema = z.object({
+  userId: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(),
   cursor: z.string().min(1).optional(),
+  excludeUserIds: z.string().optional(),
+  sortBy: z.enum(["default", "postCount"]).optional(),
   surface: z
     .enum(["onboarding", "profile", "search", "home", "notifications", "generic"])
     .optional()

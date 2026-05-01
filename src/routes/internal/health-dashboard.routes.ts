@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { failure, success } from "../../lib/response.js";
 import { healthDashboardService } from "../../services/internal/health-dashboard.service.js";
+import { setRouteName } from "../../observability/request-context.js";
 
 type DashboardQuery = {
   token?: string;
@@ -34,18 +35,27 @@ function authorizeDashboardRequest(
     return { allowed: true, authWarning: null, resolvedToken: configuredToken };
   }
 
+  if (app.config.NODE_ENV !== "production") {
+    return {
+      allowed: true,
+      authWarning: "Local mode: dashboard is not token protected.",
+      resolvedToken: null
+    };
+  }
+
+  void reply
+    .status(503)
+    .send(failure("internal_dashboard_disabled", "INTERNAL_DASHBOARD_TOKEN must be configured in production."));
   return {
-    allowed: true,
-    authWarning:
-      app.config.NODE_ENV === "production"
-        ? "Public mode: dashboard is not token protected."
-        : "Local mode: dashboard is not token protected.",
+    allowed: false,
+    authWarning: null,
     resolvedToken: null
   };
 }
 
 export async function registerInternalHealthDashboardRoutes(app: FastifyInstance): Promise<void> {
   app.get("/internal/health-dashboard/data", async (request, reply) => {
+    setRouteName("internal.health_dashboard.data");
     const auth = authorizeDashboardRequest(app, request, reply);
     if (!auth.allowed) return reply;
 
@@ -57,6 +67,7 @@ export async function registerInternalHealthDashboardRoutes(app: FastifyInstance
   });
 
   app.get("/internal/health-dashboard", async (request, reply) => {
+    setRouteName("internal.health_dashboard.html");
     const auth = authorizeDashboardRequest(app, request, reply);
     if (!auth.allowed) return reply;
 

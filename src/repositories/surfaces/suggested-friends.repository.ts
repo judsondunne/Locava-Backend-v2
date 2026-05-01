@@ -22,6 +22,7 @@ export type UserSuggestionSummary = {
 
 export type SuggestedFriendsOptions = {
   limit?: number;
+  excludeUserIds?: string[];
   includeContacts?: boolean;
   includeMutuals?: boolean;
   includePopular?: boolean;
@@ -31,6 +32,7 @@ export type SuggestedFriendsOptions = {
   includeAllUsersFallback?: boolean;
   excludeAlreadyFollowing?: boolean;
   excludeBlocked?: boolean;
+  sortBy?: "default" | "postCount";
   surface?: "onboarding" | "profile" | "search" | "home" | "notifications" | "generic";
   /** Skip globalCache read/write (e.g. Search Home `bypassCache=1`). */
   bypassCache?: boolean;
@@ -509,6 +511,8 @@ export class SuggestedFriendsRepository {
     const includeAllUsersFallback = options.includeAllUsersFallback ?? true;
     const excludeFollowing = options.excludeAlreadyFollowing ?? true;
     const excludeBlocked = options.excludeBlocked ?? true;
+    const excludedIds = new Set((options.excludeUserIds ?? []).map((id) => id.trim()).filter(Boolean));
+    const sortBy = options.sortBy ?? "default";
     // Must load viewer graph from Firestore (cached) for correct filtering and referrals.
     const viewer = await this.loadViewerGraph(viewerId, { allowFirestore: true });
 
@@ -516,6 +520,7 @@ export class SuggestedFriendsRepository {
     const add = (items: UserSuggestionSummary[]) => {
       for (const user of items) {
         if (user.userId === viewerId) continue;
+        if (excludedIds.has(user.userId)) continue;
         if (excludeFollowing && (viewer.following.has(user.userId) || mutationStateRepository.isFollowing(viewerId, user.userId))) continue;
         if (excludeBlocked && viewer.blocked.has(user.userId)) continue;
         const existing = out.get(user.userId);
@@ -525,6 +530,7 @@ export class SuggestedFriendsRepository {
     const addHardFallback = (items: UserSuggestionSummary[]) => {
       for (const user of items) {
         if (user.userId === viewerId) continue;
+        if (excludedIds.has(user.userId)) continue;
         if (excludeBlocked && viewer.blocked.has(user.userId)) continue;
         const existing = out.get(user.userId);
         if (!existing || (user.score ?? 0) > (existing.score ?? 0)) out.set(user.userId, user);
@@ -673,19 +679,28 @@ export class SuggestedFriendsRepository {
 
     if (includeGroups && this.db && out.size < safeLimit) {
       // Shared communities/groups: suggest other members from groups the viewer is in.
-      const groupSnap = await this.db
-        .collection("product_groups")
-        .where("memberIds", "array-contains", viewerId)
-        .limit(10)
-        .get();
+      const membershipSnap = await this.db.collectionGroup("members").where("userId", "==", viewerId).limit(10).get();
       incrementDbOps("queries", 1);
-      incrementDbOps("reads", groupSnap.size);
+      incrementDbOps("reads", membershipSnap.size);
+      const groupIds = membershipSnap.docs
+        .map((doc) => doc.ref.parent.parent?.id ?? "")
+        .filter((id) => id.length > 0)
+        .slice(0, 10);
+      const groupSnap = groupIds.length > 0
+        ? await Promise.all(groupIds.map((groupId) => this.db!.collection("groups").doc(groupId).get()))
+        : [];
+      incrementDbOps("reads", groupSnap.length);
       const candidateIds: string[] = [];
       const labelsByUser = new Map<string, string>();
-      for (const g of groupSnap.docs) {
+      for (const g of groupSnap) {
+        if (!g.exists) continue;
         const gd = g.data() as Record<string, unknown>;
         const name = typeof gd.name === "string" ? gd.name.trim() : "a group";
-        const members = Array.isArray(gd.memberIds) ? gd.memberIds.filter((x): x is string => typeof x === "string") : [];
+        const membersSnap = await this.db.collection("groups").doc(g.id).collection("members").limit(100).get();
+        incrementDbOps("reads", membersSnap.size);
+        const members = membersSnap.docs
+          .map((doc) => String((doc.data() ?? {}).userId ?? doc.id).trim())
+          .filter((id) => id.length > 0);
         for (const uid of members) {
           if (!uid || uid === viewerId) continue;
           if (viewer.following.has(uid)) continue;
@@ -791,7 +806,13 @@ export class SuggestedFriendsRepository {
     }
 
     const users = [...out.values()]
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.userId.localeCompare(b.userId))
+      .sort((a, b) => {
+        if (sortBy === "postCount") {
+          const postDelta = (b.postCount ?? 0) - (a.postCount ?? 0);
+          if (postDelta !== 0) return postDelta;
+        }
+        return (b.score ?? 0) - (a.score ?? 0) || a.userId.localeCompare(b.userId);
+      })
       .slice(0, safeLimit);
     const sourceBreakdown: Record<string, number> = {};
     users.forEach((user) => {
@@ -805,7 +826,7 @@ export class SuggestedFriendsRepository {
   }
 }
 
-function extractCandidateUserIdsFromBranchData(
+export function extractCandidateUserIdsFromBranchData(
   branchData: unknown,
   options: { viewerId: string }
 ): string[] {

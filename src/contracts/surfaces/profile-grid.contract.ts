@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
-import { ProfileGridPreviewItemSchema } from "./profile-bootstrap.contract.js";
+import { ProfileEndpointDebugSchema, ProfileGridPreviewItemSchema } from "./profile-bootstrap.contract.js";
 
 export const ProfileGridParamsSchema = z.object({
   userId: z.string().min(6)
@@ -24,7 +24,8 @@ export const ProfileGridResponseSchema = z.object({
   }),
   items: z.array(ProfileGridPreviewItemSchema),
   degraded: z.boolean(),
-  fallbacks: z.array(z.string())
+  fallbacks: z.array(z.string()),
+  debug: ProfileEndpointDebugSchema.optional(),
 });
 
 export const profileGridContract = defineContract({

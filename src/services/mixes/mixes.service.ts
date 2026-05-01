@@ -1,25 +1,13 @@
 import { createHash } from "node:crypto";
 import { mixCache } from "../../cache/mixCache.js";
 import type { MixFilter } from "../../contracts/v2/mixes.contract.js";
-import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { toSearchMixPreviewDTO, type SearchMixPreviewDTO } from "../../dto/compact-surface-dto.js";
 import type { MixesRepository, MixSourcePost } from "../../repositories/mixes/mixes.repository.js";
 import { mixesRepository, parsePostTimeMs } from "../../repositories/mixes/mixes.repository.js";
 
 type CursorPayload = { v: 1; t: number; id: string };
 
-type MixPostCard = {
-  postId: string;
-  rankToken: string;
-  author: { userId: string; handle: string; name: string | null; pic: string | null };
-  title: string | null;
-  captionPreview: string | null;
-  activities: string[];
-  locationSummary: string | null;
-  media: { posterUrl: string; previewUrl: string | null };
-  geo?: { lat: number | null; lng: number | null };
-  createdAtMs: number;
-  updatedAtMs: number;
-};
+type MixPostCard = SearchMixPreviewDTO;
 
 function normalizeText(v: unknown): string | null {
   if (typeof v !== "string") return null;
@@ -171,7 +159,7 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
   const title = normalizeText((row as any).title ?? (row as any).caption ?? (row as any).content);
   const activities = postActivityTokens(row);
   const coords = postLatLng(row);
-  const seed = {
+  return toSearchMixPreviewDTO({
     postId,
     rankToken: `mix-${mixKey}-${index + 1}`,
     author: {
@@ -184,22 +172,31 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
     captionPreview: title,
     activities,
     locationSummary: postLocationSummary(row),
-    media: { posterUrl: poster, previewUrl: preview },
-    geo: { lat: coords?.lat ?? null, lng: coords?.lng ?? null },
+    address: postLocationSummary(row),
+    media: { type: String((row as any).mediaType ?? "").toLowerCase() === "video" ? "video" : "image", posterUrl: poster, aspectRatio: 1, startupHint: String((row as any).mediaType ?? "").toLowerCase() === "video" ? "poster_then_preview" : "poster_only" },
+    geo: { lat: coords?.lat ?? null, long: coords?.lng ?? null },
+    assets: [
+      {
+        id: `${postId}-asset-1`,
+        type: String((first as any).type ?? "").toLowerCase() === "video" ? "video" : "image",
+        previewUrl: preview,
+        posterUrl: poster || null,
+        originalUrl: preview ?? (poster || null),
+        streamUrl: normalizeText(variants.hls),
+        mp4Url: normalizeText(variants.main720Avc) ?? normalizeText(variants.main720) ?? normalizeText((first as any).original) ?? normalizeText((first as any).url),
+        blurhash: null,
+        width: null,
+        height: null,
+        aspectRatio: null,
+        orientation: null,
+      },
+    ],
     createdAtMs: Math.max(0, parsePostTimeMs(row)),
     updatedAtMs: Math.max(0, parsePostTimeMs(row)),
-  };
-  return buildPostEnvelope({
-    postId,
-    seed,
-    sourcePost: row,
-    rawPost: row,
-    hydrationLevel: "card",
-    sourceRoute: "mixes.service",
-    rankToken: seed.rankToken,
-    author: seed.author as unknown as Record<string, unknown>,
-    debugSource: "mapPostCard",
-  }) as MixPostCard;
+    social: { likeCount: 0, commentCount: 0 },
+    viewer: { liked: false, saved: false },
+    firstAssetUrl: preview ?? (poster || null),
+  });
 }
 
 function hashFilter(filter: MixFilter, viewerId: string | null): string {

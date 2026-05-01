@@ -62,6 +62,12 @@ export type HealthDashboardData = {
     runtime: ReturnType<typeof collectRuntimeHealth>;
     recentErrorCount: number;
     recentWarningCount: number;
+    observedBudgetedRoutes: number;
+    totalBudgetedRoutes: number;
+    degradedBudgetedRoutes: number;
+    criticalBudgetedRoutes: number;
+    observedNonDashboardRequests: number;
+    lastNonDashboardRequestAt: string | null;
   };
   routeHealth: RouteDashboardRow[];
   firestore: Awaited<ReturnType<typeof firestoreHealthService.getSnapshot>>;
@@ -110,6 +116,7 @@ export class HealthDashboardService {
   }): Promise<HealthDashboardData> {
     const refreshedAt = new Date().toISOString();
     const runtime = collectRuntimeHealth();
+    const recentRequests = requestMetricsCollector.getRecentRequests(100);
     const routeMetricsByName = new Map(
       requestMetricsCollector.getRouteMetrics().map((metric) => [metric.routeName, metric])
     );
@@ -121,10 +128,14 @@ export class HealthDashboardService {
     const errors = errorRingBuffer.getRecent(100);
     const config = getConfigHealthSnapshot(input.env);
     const surfaces = buildSurfaceCards(routeHealth);
+    const nonDashboardRequests = recentRequests.filter((row) => !isDashboardRoute(row.routeName, row.route));
+    const observedBudgetedRoutes = routeHealth.filter((row) => row.requestCount > 0).length;
+    const degradedBudgetedRoutes = routeHealth.filter((row) => row.status === "degraded").length;
+    const criticalBudgetedRoutes = routeHealth.filter((row) => row.status === "critical").length;
     const warnings = [
       ...(input.authWarning ? [input.authWarning] : []),
       ...config.warnings,
-      ...deriveDashboardWarnings(routeHealth, firestore)
+      ...deriveDashboardWarnings(routeHealth, firestore, nonDashboardRequests)
     ];
 
     return {
@@ -144,7 +155,13 @@ export class HealthDashboardService {
         nodeVersion: runtime.nodeVersion,
         runtime,
         recentErrorCount: errors.filter((entry) => entry.level === "error").length,
-        recentWarningCount: errors.filter((entry) => entry.level === "warn").length
+        recentWarningCount: errors.filter((entry) => entry.level === "warn").length,
+        observedBudgetedRoutes,
+        totalBudgetedRoutes: routeHealth.length,
+        degradedBudgetedRoutes,
+        criticalBudgetedRoutes,
+        observedNonDashboardRequests: nonDashboardRequests.length,
+        lastNonDashboardRequestAt: nonDashboardRequests[0]?.timestamp ?? null
       },
       routeHealth,
       firestore,
@@ -158,7 +175,7 @@ export class HealthDashboardService {
         mostBudgetViolations: topRoutes(routeHealth, (row) => row.budgetViolations),
         highestErrorRate: topRoutes(routeHealth, (row) => row.errorRate)
       },
-      recentRequests: requestMetricsCollector.getRecentRequests(100),
+      recentRequests,
       config,
       warnings
     };
@@ -166,6 +183,13 @@ export class HealthDashboardService {
 
   renderHtml(data: HealthDashboardData, input: { token: string | null }): string {
     const jsonHref = buildDashboardHref("/internal/health-dashboard/data", input.token);
+    const htmlHref = buildDashboardHref("/internal/health-dashboard", input.token);
+    const recentNonDashboardRequests = data.recentRequests.filter((row) => !isDashboardRoute(row.routeName, row.route));
+    const trafficSample = (recentNonDashboardRequests.length > 0 ? recentNonDashboardRequests : data.recentRequests).slice(0, 24);
+    const routeStatusCounts = countRoutesByStatus(data.routeHealth);
+    const liveChecks = buildLiveChecks(data);
+    const hottestLatencyRoute = data.expensiveRoutes.highestP95Latency[0] ?? null;
+    const highestErrorRoute = data.expensiveRoutes.highestErrorRate[0] ?? null;
     const routeRows = data.routeHealth
       .map(
         (row) => `
@@ -243,6 +267,9 @@ export class HealthDashboardService {
           </article>`
       )
       .join("");
+    const warningBanners = data.warnings
+      .map((warning) => `<div class="banner ${data.overall.status === "critical" ? "crit" : "warn"}">${escapeHtml(warning)}</div>`)
+      .join("");
 
     return `<!doctype html>
 <html lang="en">
@@ -252,21 +279,26 @@ export class HealthDashboardService {
     <title>Locava Backendv2 Health Dashboard</title>
     <style>
       :root {
-        --bg: #f4f6f8;
-        --surface: rgba(255, 255, 255, 0.92);
-        --surface-strong: #ffffff;
-        --line: #d9e0e8;
-        --text: #132033;
+        --bg-top: #edf6fb;
+        --bg-bottom: #f7fafc;
+        --surface: rgba(255, 255, 255, 0.62);
+        --surface-strong: rgba(255, 255, 255, 0.9);
+        --surface-deep: rgba(11, 26, 43, 0.8);
+        --line: rgba(144, 164, 174, 0.24);
+        --line-strong: rgba(144, 164, 174, 0.36);
+        --text: #0f1728;
         --muted: #5d6b7d;
-        --healthy: #16794b;
-        --healthy-bg: #dff6ea;
-        --degraded: #9a6700;
-        --degraded-bg: #fff1cc;
+        --healthy: #116a46;
+        --healthy-bg: rgba(21, 183, 113, 0.12);
+        --degraded: #996300;
+        --degraded-bg: rgba(245, 158, 11, 0.16);
         --critical: #b42318;
-        --critical-bg: #fde8e8;
+        --critical-bg: rgba(239, 68, 68, 0.12);
         --na: #475467;
-        --na-bg: #eaecf0;
-        --shadow: 0 12px 24px rgba(16, 24, 40, 0.08);
+        --na-bg: rgba(113, 128, 150, 0.14);
+        --accent: #2563eb;
+        --accent-soft: rgba(37, 99, 235, 0.12);
+        --shadow: 0 30px 80px rgba(15, 23, 42, 0.12);
       }
       * { box-sizing: border-box; }
       body {
@@ -274,37 +306,141 @@ export class HealthDashboardService {
         font-family: "SF Pro Display", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
         color: var(--text);
         background:
-          radial-gradient(circle at top left, rgba(64, 153, 255, 0.18), transparent 26%),
-          radial-gradient(circle at top right, rgba(16, 185, 129, 0.16), transparent 22%),
-          linear-gradient(180deg, #eef4f8 0%, #f6f8fb 100%);
+          radial-gradient(circle at 10% 10%, rgba(56, 189, 248, 0.22), transparent 20%),
+          radial-gradient(circle at 85% 12%, rgba(110, 231, 183, 0.2), transparent 18%),
+          radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.72), transparent 34%),
+          linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 58%, #f4f6fb 100%);
       }
       a { color: #155eef; text-decoration: none; }
-      .page { max-width: 1640px; margin: 0 auto; padding: 24px; }
-      .topbar {
-        position: sticky;
-        top: 0;
-        z-index: 10;
-        padding: 18px 20px;
-        margin-bottom: 20px;
-        background: rgba(255, 255, 255, 0.82);
-        backdrop-filter: blur(14px);
-        border-bottom: 1px solid rgba(217, 224, 232, 0.85);
-        box-shadow: 0 6px 20px rgba(16, 24, 40, 0.06);
+      .page-shell {
+        position: relative;
+        overflow: hidden;
       }
-      .topbar-grid {
-        display: grid;
-        grid-template-columns: 2fr repeat(5, minmax(0, 1fr));
-        gap: 12px;
-        align-items: start;
+      .ambient {
+        position: fixed;
+        inset: auto;
+        width: 340px;
+        height: 340px;
+        border-radius: 999px;
+        filter: blur(70px);
+        opacity: 0.5;
+        pointer-events: none;
       }
-      .summary-card, .panel, .surface-card, .mini-card {
+      .ambient.a {
+        top: -80px;
+        left: -70px;
+        background: rgba(56, 189, 248, 0.25);
+      }
+      .ambient.b {
+        top: 120px;
+        right: -90px;
+        background: rgba(52, 211, 153, 0.22);
+      }
+      .page {
+        position: relative;
+        max-width: 1660px;
+        margin: 0 auto;
+        padding: 28px 24px 40px;
+      }
+      .glass, .panel, .surface-card, .mini-card, .summary-card {
         background: var(--surface);
-        border: 1px solid rgba(217, 224, 232, 0.88);
-        border-radius: 18px;
+        backdrop-filter: blur(22px);
+        -webkit-backdrop-filter: blur(22px);
+        border: 1px solid rgba(255, 255, 255, 0.52);
         box-shadow: var(--shadow);
       }
-      .summary-card {
-        padding: 16px 18px;
+      .hero {
+        padding: 28px;
+        border-radius: 30px;
+        margin-bottom: 18px;
+      }
+      .hero-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.8fr) minmax(320px, 0.95fr);
+        gap: 18px;
+        align-items: stretch;
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: rgba(255, 255, 255, 0.45);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .hero h1 {
+        margin: 18px 0 10px;
+        font-size: clamp(34px, 4.5vw, 56px);
+        line-height: 0.96;
+        letter-spacing: -0.04em;
+      }
+      .hero-copy {
+        max-width: 760px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.65;
+      }
+      .hero-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin: 14px 0 0;
+      }
+      .hero-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border-radius: 999px;
+        padding: 10px 14px;
+        background: rgba(255, 255, 255, 0.45);
+        border: 1px solid rgba(255, 255, 255, 0.55);
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .hero-rail {
+        padding: 20px;
+        border-radius: 26px;
+        background: linear-gradient(180deg, rgba(10, 19, 34, 0.72), rgba(19, 35, 57, 0.9));
+        color: white;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 28px 60px rgba(15, 23, 42, 0.22);
+      }
+      .hero-rail h2 {
+        margin: 0 0 10px;
+        font-size: 20px;
+      }
+      .hero-rail .muted {
+        color: rgba(226, 232, 240, 0.78);
+      }
+      .hero-status-stack {
+        display: grid;
+        gap: 12px;
+        margin-top: 18px;
+      }
+      .status-line {
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        align-items: center;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+      }
+      .status-line strong {
+        font-size: 15px;
       }
       .summary-title {
         font-size: 12px;
@@ -314,16 +450,27 @@ export class HealthDashboardService {
         margin-bottom: 8px;
       }
       .summary-value {
-        font-size: 26px;
+        font-size: 30px;
         font-weight: 700;
+        letter-spacing: -0.03em;
       }
       .summary-sub {
         margin-top: 8px;
         color: var(--muted);
         font-size: 13px;
       }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .summary-card {
+        padding: 18px;
+        border-radius: 22px;
+      }
       .banner {
-        border-radius: 16px;
+        border-radius: 18px;
         padding: 14px 16px;
         margin-bottom: 14px;
         border: 1px solid transparent;
@@ -339,30 +486,39 @@ export class HealthDashboardService {
         color: var(--critical);
         border-color: rgba(180, 35, 24, 0.2);
       }
-      .controls {
-        display: flex;
-        gap: 12px;
-        align-items: center;
-        flex-wrap: wrap;
-        margin-top: 10px;
-        color: var(--muted);
-      }
       .button {
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        padding: 10px 14px;
+        padding: 11px 16px;
         border-radius: 999px;
-        background: #155eef;
+        background: linear-gradient(135deg, #2563eb, #1d4ed8);
         color: white;
         font-weight: 700;
+        box-shadow: 0 10px 24px rgba(37, 99, 235, 0.22);
+      }
+      .button.secondary {
+        color: var(--text);
+        background: rgba(255, 255, 255, 0.58);
+        border: 1px solid rgba(255, 255, 255, 0.65);
+        box-shadow: none;
       }
       .content {
         display: grid;
         grid-template-columns: 1fr;
-        gap: 20px;
+        gap: 18px;
       }
-      .panel { padding: 18px; overflow: hidden; }
+      .overview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) minmax(0, 0.95fr);
+        gap: 14px;
+        margin-bottom: 18px;
+      }
+      .panel {
+        padding: 20px;
+        overflow: hidden;
+        border-radius: 24px;
+      }
       .panel h2 {
         margin: 0 0 12px;
         font-size: 20px;
@@ -389,6 +545,7 @@ export class HealthDashboardService {
       }
       .mini-card {
         padding: 14px;
+        border-radius: 18px;
       }
       .mini-label {
         font-size: 12px;
@@ -401,13 +558,123 @@ export class HealthDashboardService {
         font-size: 22px;
         font-weight: 700;
         margin-bottom: 6px;
+        letter-spacing: -0.03em;
       }
       .mini-value.ok { color: var(--healthy); }
       .mini-value.bad { color: var(--critical); }
+      .check-list {
+        display: grid;
+        gap: 10px;
+      }
+      .check-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 12px;
+        align-items: start;
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.42);
+        border: 1px solid rgba(255, 255, 255, 0.55);
+      }
+      .check-dot {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+        margin-top: 4px;
+      }
+      .check-dot.healthy { background: var(--healthy); box-shadow: 0 0 0 6px rgba(17, 106, 70, 0.11); }
+      .check-dot.degraded { background: var(--degraded); box-shadow: 0 0 0 6px rgba(153, 99, 0, 0.12); }
+      .check-dot.critical { background: var(--critical); box-shadow: 0 0 0 6px rgba(180, 35, 24, 0.12); }
+      .check-dot.not_available { background: var(--na); box-shadow: 0 0 0 6px rgba(71, 84, 103, 0.1); }
+      .meter {
+        height: 14px;
+        display: flex;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.06);
+        margin: 12px 0 16px;
+      }
+      .meter span {
+        height: 100%;
+      }
+      .meter .healthy { background: linear-gradient(90deg, #22c55e, #16a34a); }
+      .meter .degraded { background: linear-gradient(90deg, #f59e0b, #d97706); }
+      .meter .critical { background: linear-gradient(90deg, #ef4444, #dc2626); }
+      .meter .not_available { background: linear-gradient(90deg, #cbd5e1, #94a3b8); }
+      .legend-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 13px;
+      }
+      .legend-swatch {
+        width: 11px;
+        height: 11px;
+        border-radius: 999px;
+      }
+      .pulse-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 16px;
+        align-items: end;
+      }
+      .bar-strip {
+        display: grid;
+        grid-template-columns: repeat(24, minmax(0, 1fr));
+        gap: 6px;
+        align-items: end;
+        min-height: 168px;
+        padding: 14px;
+        border-radius: 20px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.28));
+        border: 1px solid rgba(255, 255, 255, 0.55);
+      }
+      .bar-col {
+        display: flex;
+        flex-direction: column;
+        justify-content: end;
+        gap: 6px;
+        min-height: 140px;
+      }
+      .bar {
+        width: 100%;
+        min-height: 8px;
+        border-radius: 999px;
+        opacity: 0.98;
+      }
+      .bar.healthy { background: linear-gradient(180deg, rgba(34, 197, 94, 0.55), rgba(22, 163, 74, 0.95)); }
+      .bar.degraded { background: linear-gradient(180deg, rgba(245, 158, 11, 0.5), rgba(217, 119, 6, 0.95)); }
+      .bar.critical { background: linear-gradient(180deg, rgba(248, 113, 113, 0.55), rgba(220, 38, 38, 0.95)); }
+      .bar.not_available { background: linear-gradient(180deg, rgba(148, 163, 184, 0.5), rgba(100, 116, 139, 0.95)); }
+      .bar-label {
+        color: var(--muted);
+        font-size: 11px;
+        text-align: center;
+      }
+      .callout-stack {
+        display: grid;
+        gap: 10px;
+      }
+      .callout {
+        padding: 14px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.42);
+        border: 1px solid rgba(255, 255, 255, 0.55);
+      }
+      .callout strong {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 15px;
+      }
       .table-wrap {
         overflow: auto;
         border-radius: 14px;
-        border: 1px solid var(--line);
+        border: 1px solid var(--line-strong);
         background: var(--surface-strong);
       }
       table {
@@ -423,10 +690,7 @@ export class HealthDashboardService {
         font-size: 14px;
       }
       th {
-        position: sticky;
-        top: 0;
         background: #f8fafc;
-        z-index: 1;
         color: var(--muted);
         font-size: 12px;
         text-transform: uppercase;
@@ -477,7 +741,7 @@ export class HealthDashboardService {
         margin-top: 12px;
       }
       code {
-        background: #eef2ff;
+        background: rgba(37, 99, 235, 0.1);
         border-radius: 8px;
         padding: 3px 7px;
         font-size: 12px;
@@ -494,51 +758,168 @@ export class HealthDashboardService {
         padding-left: 18px;
       }
       @media (max-width: 1280px) {
-        .topbar-grid,
+        .hero-grid,
+        .summary-grid,
+        .overview-grid,
+        .pulse-grid,
         .metrics-grid,
         .config-grid,
         .surface-grid {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
+        .summary-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+        .overview-grid {
+          grid-template-columns: 1fr;
+        }
       }
       @media (max-width: 840px) {
         .page { padding: 14px; }
-        .topbar-grid,
+        .hero,
+        .summary-grid,
+        .hero-grid,
+        .overview-grid,
+        .pulse-grid,
         .metrics-grid,
         .config-grid,
         .surface-grid {
           grid-template-columns: 1fr;
         }
+        .legend-grid {
+          grid-template-columns: 1fr;
+        }
+        .bar-strip {
+          grid-template-columns: repeat(12, minmax(0, 1fr));
+        }
       }
     </style>
   </head>
   <body>
-    <div class="topbar">
+    <div class="page-shell">
+      <div class="ambient a"></div>
+      <div class="ambient b"></div>
       <div class="page">
-        ${data.warnings
-          .map((warning) => `<div class="banner ${data.overall.status === "critical" ? "crit" : "warn"}">${escapeHtml(warning)}</div>`)
-          .join("")}
-        <div class="topbar-grid">
-          <div class="summary-card">
-            <div class="summary-title">Overall Status</div>
-            <div class="summary-value">Locava Backendv2 ${statusBadge(data.overall.status)}</div>
-            <div class="summary-sub">${escapeHtml(
-              `${data.overall.environment} • version ${data.overall.serviceVersion}${data.overall.gitCommit ? ` • commit ${data.overall.gitCommit}` : ""}`
-            )}</div>
-            <div class="controls">
-              <span>Last refreshed at ${escapeHtml(formatTimestamp(data.refreshedAt))}</span>
-              <a class="button" href="${escapeHtml(jsonHref)}">Open JSON Data</a>
+        ${warningBanners}
+        <section class="hero glass">
+          <div class="hero-grid">
+            <div>
+              <div class="eyebrow">Operational Health Console</div>
+              <h1>Locava Backendv2</h1>
+              <div class="hero-copy">
+                One place to see if the backend is actually healthy: runtime pressure, live route behavior, Firestore reachability,
+                expensive endpoints, and whether the data is still warming up instead of pretending it knows more than it does.
+              </div>
+              <div class="hero-meta">
+                <span class="hero-pill">${escapeHtml(data.overall.environment)}</span>
+                <span class="hero-pill">Version ${escapeHtml(data.overall.serviceVersion)}</span>
+                <span class="hero-pill">${escapeHtml(data.overall.gitCommit ? `Commit ${data.overall.gitCommit}` : "Commit not available yet")}</span>
+                <span class="hero-pill">Last refreshed ${escapeHtml(formatTimestamp(data.refreshedAt))}</span>
+              </div>
+              <div class="hero-actions">
+                <a class="button" href="${escapeHtml(htmlHref)}">Run Checks Now</a>
+                <a class="button secondary" href="${escapeHtml(jsonHref)}">Open JSON Data</a>
+                <span class="hero-pill">Auto-refresh every 10 seconds</span>
+              </div>
             </div>
+            <aside class="hero-rail">
+              <div class="summary-title" style="color: rgba(226, 232, 240, 0.72);">Current Readiness</div>
+              <h2>${statusBadge(data.overall.status)} <span style="font-weight: 800; margin-left: 8px;">${escapeHtml(data.overall.status === "critical" ? "Critical" : data.overall.status === "degraded" ? "Degraded" : data.overall.status === "healthy" ? "Healthy" : "Warming up")}</span></h2>
+              <div class="muted">Checks rerun on refresh using live process state, route metrics, cache counters, and Firestore probe results.</div>
+              <div class="hero-status-stack">
+                <div class="status-line">
+                  <div>
+                    <strong>${escapeHtml(`${data.overall.observedBudgetedRoutes}/${data.overall.totalBudgetedRoutes}`)}</strong>
+                    <div class="muted">budgeted routes with real traffic observed</div>
+                  </div>
+                  ${statusBadge(data.overall.observedBudgetedRoutes > 0 ? "healthy" : "not_available")}
+                </div>
+                <div class="status-line">
+                  <div>
+                    <strong>${escapeHtml(data.firestore.connected ? "Firestore responding" : "Firestore failing")}</strong>
+                    <div class="muted">${escapeHtml(data.firestore.errorMessage ?? `probe latency ${data.firestore.latencyMs ?? "n/a"}ms`)}</div>
+                  </div>
+                  ${statusBadge(data.firestore.connected ? "healthy" : "critical")}
+                </div>
+                <div class="status-line">
+                  <div>
+                    <strong>${escapeHtml(`${data.overall.recentErrorCount} recent errors`)}</strong>
+                    <div class="muted">${escapeHtml(`${data.overall.recentWarningCount} warnings in in-memory feed`)}</div>
+                  </div>
+                  ${statusBadge(data.overall.recentErrorCount > 0 ? "degraded" : "healthy")}
+                </div>
+              </div>
+            </aside>
           </div>
+        </section>
+
+        <section class="summary-grid">
           ${summaryCard("Uptime", `${formatNumber(data.overall.uptimeSec)}s`, `PID ${data.overall.runtime.pid}`)}
+          ${summaryCard("Observed Routes", `${data.overall.observedBudgetedRoutes}/${data.overall.totalBudgetedRoutes}`, `${data.overall.degradedBudgetedRoutes} degraded • ${data.overall.criticalBudgetedRoutes} critical`)}
+          ${summaryCard("Recent Traffic", String(data.overall.observedNonDashboardRequests), data.overall.lastNonDashboardRequestAt ? `last app request ${formatTimestamp(data.overall.lastNonDashboardRequestAt)}` : "no non-dashboard traffic observed yet")}
           ${summaryCard("RSS Memory", formatBytes(data.overall.runtime.memory.rssBytes), `Heap used ${formatBytes(data.overall.runtime.memory.heapUsedBytes)}`)}
-          ${summaryCard("CPU", `${formatNumber(data.overall.runtime.cpu.userMs + data.overall.runtime.cpu.systemMs)}ms`, `user ${formatNumber(data.overall.runtime.cpu.userMs)} • system ${formatNumber(data.overall.runtime.cpu.systemMs)}`)}
-          ${summaryCard("Recent Errors", String(data.overall.recentErrorCount), `${data.overall.recentWarningCount} warnings in memory feed`)}
+          ${summaryCard("CPU Time", `${formatNumber(data.overall.runtime.cpu.userMs + data.overall.runtime.cpu.systemMs)}ms`, `user ${formatNumber(data.overall.runtime.cpu.userMs)} • system ${formatNumber(data.overall.runtime.cpu.systemMs)}`)}
           ${summaryCard("Firestore", data.firestore.connected ? "Connected" : "Failed", data.firestore.errorMessage ?? "probe ok")}
-        </div>
-      </div>
-    </div>
-    <div class="page">
+        </section>
+
+        <section class="overview-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Live Checks</h2>
+              <span class="muted">Fast sanity checks rerun with each refresh.</span>
+            </div>
+            <div class="check-list">${liveChecks}</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Traffic & Latency Pulse</h2>
+              <span class="muted">${escapeHtml(trafficSample.length > 0 ? `Latest ${trafficSample.length} requests` : "Waiting for request traffic")}</span>
+            </div>
+            <div class="pulse-grid">
+              ${buildRequestPulseChart(trafficSample)}
+              <div class="callout-stack">
+                <div class="callout">
+                  <strong>${escapeHtml(formatNumber(recentNonDashboardRequests.length))}</strong>
+                  <div class="muted">non-dashboard requests seen in the rolling request buffer</div>
+                </div>
+                <div class="callout">
+                  <strong>${escapeHtml(hottestLatencyRoute ? `${hottestLatencyRoute.routeName} @ ${hottestLatencyRoute.p95LatencyMs ?? "n/a"}ms` : "No hot route yet")}</strong>
+                  <div class="muted">highest recorded p95 latency right now</div>
+                </div>
+                <div class="callout">
+                  <strong>${escapeHtml(highestErrorRoute ? `${highestErrorRoute.routeName} @ ${formatPercent(highestErrorRoute.errorRate)}` : "No elevated error route yet")}</strong>
+                  <div class="muted">highest current route error rate in observed traffic</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Coverage & Risk</h2>
+              <span class="muted">Budgeted route coverage from this process only.</span>
+            </div>
+            ${buildRouteCoverageMeter(routeStatusCounts, data.routeHealth.length)}
+            <div class="legend-grid">
+              ${coverageLegendItem("Healthy", routeStatusCounts.healthy, "healthy")}
+              ${coverageLegendItem("Degraded", routeStatusCounts.degraded, "degraded")}
+              ${coverageLegendItem("Critical", routeStatusCounts.critical, "critical")}
+              ${coverageLegendItem("Warming Up", routeStatusCounts.not_available, "not_available")}
+            </div>
+            <div class="callout-stack" style="margin-top: 14px;">
+              <div class="callout">
+                <strong>${escapeHtml(`${Math.round((data.overall.observedBudgetedRoutes / Math.max(1, data.overall.totalBudgetedRoutes)) * 100)}% route coverage`)}</strong>
+                <div class="muted">routes with at least one live request since this process started</div>
+              </div>
+              <div class="callout">
+                <strong>${escapeHtml(data.cache.store?.provider ?? "no cache provider reported")}</strong>
+                <div class="muted">${escapeHtml(data.cache.store?.size == null ? "cache size not available yet" : `cache size ${data.cache.store.size}`)}</div>
+              </div>
+            </div>
+          </section>
+        </section>
+
       <div class="content">
         <section class="panel">
           <div class="panel-head">
@@ -550,6 +931,8 @@ export class HealthDashboardService {
             ${miniMetric("Node", data.overall.nodeVersion)}
             ${miniMetric("Timestamp", formatTimestamp(data.overall.timestamp))}
             ${miniMetric("Git Commit", data.overall.gitCommit ?? "not available yet")}
+            ${miniMetric("Observed Budgeted Routes", `${data.overall.observedBudgetedRoutes}/${data.overall.totalBudgetedRoutes}`)}
+            ${miniMetric("Recent Non-Dashboard Requests", String(data.overall.observedNonDashboardRequests))}
             ${miniMetric("Heap Total", formatBytes(data.overall.runtime.memory.heapTotalBytes))}
             ${miniMetric("Heap Used", formatBytes(data.overall.runtime.memory.heapUsedBytes))}
             ${miniMetric("External Memory", formatBytes(data.overall.runtime.memory.externalBytes))}
@@ -712,6 +1095,7 @@ export class HealthDashboardService {
           </div>
         </section>
       </div>
+      </div>
     </div>
     <script>
       window.setTimeout(() => window.location.reload(), 10000);
@@ -828,7 +1212,8 @@ function deriveOverallStatus(
 
 function deriveDashboardWarnings(
   routeHealth: RouteDashboardRow[],
-  firestore: Awaited<ReturnType<typeof firestoreHealthService.getSnapshot>>
+  firestore: Awaited<ReturnType<typeof firestoreHealthService.getSnapshot>>,
+  nonDashboardRequests: ReturnType<typeof requestMetricsCollector.getRecentRequests>
 ): string[] {
   const warnings: string[] = [];
   const criticalRoutes = routeHealth.filter((route) => route.status === "critical").slice(0, 3);
@@ -837,6 +1222,9 @@ function deriveDashboardWarnings(
   }
   if (!firestore.connected && firestore.configured) {
     warnings.push(`Firestore probe failed: ${firestore.errorMessage ?? "unknown error"}.`);
+  }
+  if (nonDashboardRequests.length === 0) {
+    warnings.push("No non-dashboard backend traffic has been observed yet, so most route health rows are still warming up.");
   }
   return warnings;
 }
@@ -861,6 +1249,11 @@ function severityWeight(status: HealthStatus): number {
   if (status === "degraded") return 3;
   if (status === "not_available") return 2;
   return 1;
+}
+
+function isDashboardRoute(routeName: string | undefined, routePath: string): boolean {
+  if (routeName?.startsWith("internal.health_dashboard.")) return true;
+  return routePath.startsWith("/internal/health-dashboard");
 }
 
 function resolveGitCommit(): string | null {
@@ -907,6 +1300,141 @@ function miniMetric(label: string, value: string): string {
     <div class="mini-card">
       <div class="mini-label">${escapeHtml(label)}</div>
       <div class="mini-value">${escapeHtml(value)}</div>
+    </div>`;
+}
+
+function countRoutesByStatus(routeHealth: RouteDashboardRow[]): Record<HealthStatus, number> {
+  return routeHealth.reduce<Record<HealthStatus, number>>(
+    (counts, row) => {
+      counts[row.status] += 1;
+      return counts;
+    },
+    {
+      healthy: 0,
+      degraded: 0,
+      critical: 0,
+      not_available: 0
+    }
+  );
+}
+
+function buildLiveChecks(data: HealthDashboardData): string {
+  const routeCoverage = data.overall.totalBudgetedRoutes === 0 ? 0 : data.overall.observedBudgetedRoutes / data.overall.totalBudgetedRoutes;
+  const checks: Array<{ label: string; detail: string; status: HealthStatus }> = [
+    {
+      label: "Dashboard access control",
+      detail: data.auth.tokenProtected
+        ? "INTERNAL_DASHBOARD_TOKEN is set and the dashboard requires it."
+        : data.auth.localMode
+          ? "Local mode is open because no token is configured."
+          : "Production token is missing.",
+      status: data.auth.tokenProtected ? "healthy" : data.auth.localMode ? "degraded" : "critical"
+    },
+    {
+      label: "Firestore probe",
+      detail: data.firestore.connected
+        ? `Read probe succeeded in ${data.firestore.latencyMs ?? "n/a"}ms.`
+        : data.firestore.errorMessage ?? "Firestore probe failed.",
+      status: data.firestore.connected ? "healthy" : data.firestore.configured ? "critical" : "degraded"
+    },
+    {
+      label: "Runtime request capture",
+      detail:
+        data.recentRequests.length > 0
+          ? `${data.recentRequests.length} recent requests are available in memory.`
+          : "No recent requests captured yet.",
+      status: data.recentRequests.length > 0 ? "healthy" : "not_available"
+    },
+    {
+      label: "Route coverage warmup",
+      detail: `${data.overall.observedBudgetedRoutes}/${data.overall.totalBudgetedRoutes} budgeted routes have seen traffic in this process.`,
+      status: routeCoverage >= 0.5 ? "healthy" : routeCoverage > 0 ? "degraded" : "not_available"
+    },
+    {
+      label: "Recent error feed",
+      detail:
+        data.overall.recentErrorCount > 0
+          ? `${data.overall.recentErrorCount} recent errors are buffered for inspection.`
+          : "No recent errors captured in memory.",
+      status: data.overall.recentErrorCount > 0 ? "degraded" : "healthy"
+    },
+    {
+      label: "Deployment config sanity",
+      detail:
+        data.config.warnings.length > 0
+          ? data.config.warnings[0] ?? "Config warnings were detected."
+          : "Critical config checks passed without warnings.",
+      status: data.config.warnings.length > 0 ? "degraded" : "healthy"
+    }
+  ];
+
+  return checks
+    .map(
+      (check) => `
+        <div class="check-row">
+          <span class="check-dot ${check.status}"></span>
+          <div>
+            <div class="strong">${escapeHtml(check.label)}</div>
+            <div class="muted">${escapeHtml(check.detail)}</div>
+          </div>
+          ${statusBadge(check.status)}
+        </div>`
+    )
+    .join("");
+}
+
+function buildRequestPulseChart(
+  requests: ReturnType<typeof requestMetricsCollector.getRecentRequests>
+): string {
+  if (requests.length === 0) {
+    return `
+      <div class="bar-strip">
+        <div class="muted" style="grid-column: 1 / -1; align-self: center; text-align: center;">
+          No request traffic has been captured yet.
+        </div>
+      </div>`;
+  }
+
+  const sample = [...requests].reverse();
+  const maxLatency = Math.max(...sample.map((row) => row.latencyMs), 1);
+  const bars = sample
+    .map((row) => {
+      const height = Math.max(8, Math.round((row.latencyMs / maxLatency) * 100));
+      const status =
+        row.statusCode >= 500 ? "critical" : row.statusCode >= 400 ? "degraded" : isDashboardRoute(row.routeName, row.route) ? "not_available" : "healthy";
+      const shortLabel = row.method.slice(0, 3).toUpperCase();
+      const title = `${formatTimestamp(row.timestamp)} • ${row.method} ${row.route} • ${row.latencyMs}ms • ${row.statusCode}`;
+      return `
+        <div class="bar-col" title="${escapeHtml(title)}">
+          <div class="bar ${status}" style="height:${height}%"></div>
+          <span class="bar-label">${escapeHtml(shortLabel)}</span>
+        </div>`;
+    })
+    .join("");
+
+  return `<div class="bar-strip">${bars}</div>`;
+}
+
+function buildRouteCoverageMeter(
+  counts: Record<HealthStatus, number>,
+  total: number
+): string {
+  const safeTotal = Math.max(1, total);
+  const segment = (status: HealthStatus) => `width:${(counts[status] / safeTotal) * 100}%`;
+  return `
+    <div class="meter" title="${escapeHtml(`${counts.healthy} healthy, ${counts.degraded} degraded, ${counts.critical} critical, ${counts.not_available} warming up`)}}">
+      <span class="healthy" style="${segment("healthy")}"></span>
+      <span class="degraded" style="${segment("degraded")}"></span>
+      <span class="critical" style="${segment("critical")}"></span>
+      <span class="not_available" style="${segment("not_available")}"></span>
+    </div>`;
+}
+
+function coverageLegendItem(label: string, count: number, tone: HealthStatus): string {
+  return `
+    <div class="legend-item">
+      <span class="legend-swatch ${tone}" style="background:${tone === "healthy" ? "#16a34a" : tone === "degraded" ? "#f59e0b" : tone === "critical" ? "#dc2626" : "#94a3b8"}"></span>
+      <span>${escapeHtml(label)} <strong>${escapeHtml(String(count))}</strong></span>
     </div>`;
 }
 

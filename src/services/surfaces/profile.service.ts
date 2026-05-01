@@ -25,6 +25,20 @@ export class ProfileService {
     return dedupeInFlight(`profile-badge:${userId}:${slowMs}`, () => this.repository.getProfileBadgeSummary(userId, slowMs));
   }
 
+  async loadCollections(input: { viewerId: string; userId: string; cursor: string | null; limit: number }) {
+    return dedupeInFlight(
+      `profile-collections:${input.viewerId}:${input.userId}:${input.cursor ?? "start"}:${input.limit}`,
+      () => withConcurrencyLimit("profile-collections-repo", 3, () => this.repository.getProfileCollections(input))
+    );
+  }
+
+  async loadAchievements(input: { userId: string; cursor: string | null; limit: number }) {
+    return dedupeInFlight(
+      `profile-achievements:${input.userId}:${input.cursor ?? "start"}:${input.limit}`,
+      () => withConcurrencyLimit("profile-achievements-repo", 3, () => this.repository.getProfileAchievements(input))
+    );
+  }
+
   async loadGridPage(userId: string, cursor: string | null, limit: number) {
     return dedupeInFlight(`profile-grid-page:${userId}:${cursor ?? "start"}:${limit}`, () =>
       withConcurrencyLimit("profile-grid-page-repo", 4, () =>

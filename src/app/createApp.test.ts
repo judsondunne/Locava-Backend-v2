@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "./createApp.js";
 import { requestMetricsCollector } from "../observability/request-metrics.collector.js";
 import { errorRingBuffer } from "../observability/error-ring-buffer.js";
 
 describe("backend foundation routes", () => {
-  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", INTERNAL_DASHBOARD_TOKEN: undefined });
 
   it("returns health", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -48,6 +48,61 @@ describe("backend foundation routes", () => {
     });
     expect(userPut.statusCode).toBe(200);
     expect((userPut.json() as { success?: boolean }).success).toBe(true);
+  });
+
+  it("relays public expo push sends with permissive CORS", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("https://exp.host/--/api/v2/push/send");
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toMatchObject({
+        accept: "application/json",
+        "accept-encoding": "gzip, deflate",
+        "content-type": "application/json"
+      });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        to: "ExponentPushToken[test-token]",
+        sound: "default",
+        title: "Locava",
+        body: "Hello from Backendv2",
+        data: { source: "vitest" }
+      });
+      return new Response(
+        JSON.stringify({
+          data: [{ status: "ok", id: "ticket-123" }]
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/public/expo-push",
+        payload: {
+          to: "ExponentPushToken[test-token]",
+          body: "Hello from Backendv2",
+          data: { source: "vitest" }
+        }
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.headers["access-control-allow-origin"]).toBe("*");
+      expect(res.json().ok).toBe(true);
+      expect(res.json().data.expo.data[0].status).toBe("ok");
+
+      const preflight = await app.inject({
+        method: "OPTIONS",
+        url: "/api/public/expo-push"
+      });
+      expect(preflight.statusCode).toBe(204);
+      expect(preflight.headers["access-control-allow-origin"]).toBe("*");
+      expect(preflight.headers["access-control-allow-methods"]).toContain("POST");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("location autocomplete returns upstream_unavailable when monolith proxy is explicitly unset", async () => {

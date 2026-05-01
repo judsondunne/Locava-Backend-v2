@@ -14,6 +14,17 @@ export class CommentsCreateOrchestrator {
     viewerId: string;
     postId: string;
     text: string;
+    gif: {
+      provider: "giphy";
+      gifId: string;
+      title?: string;
+      previewUrl: string;
+      fixedHeightUrl?: string;
+      mp4Url?: string;
+      width?: number;
+      height?: number;
+      originalUrl?: string;
+    } | null;
     replyingTo: string | null;
     clientMutationKey: string | null;
   }) {
@@ -57,7 +68,7 @@ export class CommentsCreateOrchestrator {
         targetId: input.postId,
         commentId: result.comment.commentId,
         metadata: {
-          commentText: input.text,
+          commentText: input.text || (input.gif ? "Sent a GIF" : ""),
         }
       });
     }

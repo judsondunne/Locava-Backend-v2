@@ -56,7 +56,7 @@ class FirestoreHealthService {
 
     const startedAt = Date.now();
     try {
-      await db.doc("__health__/probe").get();
+      await db.doc("ops/health-dashboard-firestore-probe").get();
       this.snapshot = {
         configured,
         adminInitialized,

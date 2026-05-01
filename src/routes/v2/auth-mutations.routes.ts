@@ -31,7 +31,10 @@ import { setRouteName } from "../../observability/request-context.js";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { getFirebaseAuthClient } from "../../repositories/source-of-truth/firebase-auth.client.js";
-import { AuthMutationsService } from "../../services/mutations/auth-mutations.service.js";
+import {
+  AuthMutationsService,
+  type OauthAccountStatus
+} from "../../services/mutations/auth-mutations.service.js";
 
 const CheckHandleQuery = z.object({
   handle: z.string().trim().min(1).max(40)
@@ -40,8 +43,39 @@ const CheckExistsQuery = z.object({
   email: z.string().trim().email()
 });
 
-function makeOauthUid(provider: "google" | "apple", providerId: string): string {
-  return `${provider}_${providerId}`;
+function toNativeDestinationRoute(accountStatus: OauthAccountStatus): "app" | "onboarding_existing" | "onboarding_new" {
+  switch (accountStatus) {
+    case "existing_complete":
+      return "app";
+    case "existing_incomplete":
+      return "onboarding_existing";
+    case "new_account_required":
+      return "onboarding_new";
+  }
+}
+
+function logOauthDecision(
+  log: FastifyInstance["log"],
+  input: {
+    routeName: string;
+    authProvider: "google" | "apple";
+    providerUid?: string | null;
+    email?: string | null;
+    matchedExistingLocavaUser: boolean;
+    accountStatus: OauthAccountStatus;
+    userDocumentCreated: boolean;
+  }
+): void {
+  log.info({
+    routeName: input.routeName,
+    authProvider: input.authProvider,
+    providerUidPresent: Boolean(input.providerUid && input.providerUid.trim().length > 0),
+    emailPresent: Boolean(input.email && input.email.trim().length > 0),
+    matchedExistingLocavaUser: input.matchedExistingLocavaUser,
+    accountStatus: input.accountStatus,
+    userDocumentCreated: input.userDocumentCreated,
+    nativeDestinationRoute: toNativeDestinationRoute(input.accountStatus)
+  }, "oauth_account_resolution");
 }
 
 async function signInWithPassword(email: string, password: string): Promise<{ uid: string; email: string; displayName?: string }> {
@@ -149,7 +183,7 @@ async function signInWithIdp(params: {
   provider: "google.com" | "apple.com";
   accessToken?: string;
   idToken?: string;
-}): Promise<{ uid: string; providerId: string; email: string; displayName?: string; isNewUser: boolean | null }> {
+}): Promise<{ uid: string; providerId: string; email: string | null; displayName?: string; isNewUser: boolean | null }> {
   const apiKey = process.env.FIREBASE_WEB_API_KEY;
   if (!apiKey) throw new Error("firebase_web_api_key_missing");
   const postBodyBits: string[] = [`providerId=${params.provider}`];
@@ -190,8 +224,8 @@ async function signInWithIdp(params: {
   if (!providerId) throw new Error("provider_id_missing");
   const uid = String(json.localId ?? "").trim();
   if (!uid) throw new Error("firebase_uid_missing");
-  const email = String(json.email ?? raw.email ?? "").trim();
-  if (!email) throw new Error("provider_email_missing");
+  const rawEmail = String(json.email ?? raw.email ?? "").trim();
+  const email = rawEmail.length > 0 ? rawEmail.toLowerCase() : null;
   const fallbackDisplayName = String(raw.name ?? "").trim();
   return {
     uid,
@@ -206,6 +240,83 @@ async function createCustomToken(uid: string): Promise<string> {
   const auth = getFirebaseAuthClient();
   if (!auth) throw new Error("firebase_auth_unavailable");
   return auth.createCustomToken(uid);
+}
+
+async function buildOauthSuccessResponse(params: {
+  routeName: string;
+  authProvider: "google" | "apple";
+  providerId: string;
+  email: string | null;
+  displayName?: string;
+  resolvedUid: string;
+  accountStatus: OauthAccountStatus;
+  branchData?: Record<string, unknown> | null;
+  authMutationsService: AuthMutationsService;
+  log: FastifyInstance["log"];
+  matchedExistingLocavaUser: boolean;
+}): Promise<Record<string, unknown>> {
+  const nativeDestinationRoute = toNativeDestinationRoute(params.accountStatus);
+  const onboardingRequired = params.accountStatus !== "existing_complete";
+
+  logOauthDecision(params.log, {
+    routeName: params.routeName,
+    authProvider: params.authProvider,
+    providerUid: params.providerId,
+    email: params.email,
+    matchedExistingLocavaUser: params.matchedExistingLocavaUser,
+    accountStatus: params.accountStatus,
+    userDocumentCreated: false
+  });
+
+  if (
+    params.matchedExistingLocavaUser &&
+    params.branchData &&
+    typeof params.branchData === "object" &&
+    Object.keys(params.branchData).length > 0
+  ) {
+    await params.authMutationsService.mergeProfileBranch({
+      viewerId: params.resolvedUid,
+      branchData: params.branchData
+    }).catch(() => undefined);
+  }
+
+  if (params.accountStatus === "new_account_required") {
+    return success({
+      routeName: params.routeName,
+      success: true,
+      isNewUser: true,
+      accountStatus: params.accountStatus,
+      onboardingRequired,
+      nativeDestinationRoute,
+      user: {
+        uid: params.resolvedUid,
+        ...(params.email ? { email: params.email } : {}),
+        displayName: params.displayName
+      },
+      oauthInfo: {
+        provider: params.authProvider,
+        providerId: params.providerId,
+        ...(params.email ? { email: params.email } : {}),
+        displayName: params.displayName
+      }
+    });
+  }
+
+  const token = await createCustomToken(params.resolvedUid);
+  return success({
+    routeName: params.routeName,
+    success: true,
+    isNewUser: false,
+    accountStatus: params.accountStatus,
+    onboardingRequired,
+    nativeDestinationRoute,
+    user: {
+      uid: params.resolvedUid,
+      ...(params.email ? { email: params.email } : {}),
+      displayName: params.displayName
+    },
+    token
+  });
 }
 
 export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promise<void> {
@@ -261,6 +372,9 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
       if (!hasUserDoc) {
         return success({ routeName: authLoginContract.routeName, success: false, error: "profile_not_initialized" });
       }
+      if (body.branchData && typeof body.branchData === "object" && Object.keys(body.branchData).length > 0) {
+        await authMutationsService.mergeProfileBranch({ viewerId: signIn.uid, branchData: body.branchData }).catch(() => undefined);
+      }
       const token = await createCustomToken(signIn.uid);
       return success({
         routeName: authLoginContract.routeName,
@@ -305,48 +419,25 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     setRouteName(authSigninGoogleContract.routeName);
     try {
       const idp = await signInWithIdp({ provider: "google.com", accessToken: body.accessToken });
-      const firebaseUid = idp.uid;
-      const legacyOauthUid = makeOauthUid("google", idp.providerId);
-      const hasFirebaseUserDoc = await authMutationsService.userDocExists(firebaseUid);
-      const hasLegacyOauthUserDoc = hasFirebaseUserDoc ? false : await authMutationsService.userDocExists(legacyOauthUid);
-      const resolvedUid = hasFirebaseUserDoc ? firebaseUid : hasLegacyOauthUserDoc ? legacyOauthUid : firebaseUid;
-      const hasUserDoc = hasFirebaseUserDoc || hasLegacyOauthUserDoc;
-      const existingIdentityByEmail =
-        body.authIntent === "sign_in" ? await checkUserExistsByEmail(idp.email).then((x) => x.exists).catch(() => false) : false;
-      // Sign-in intent must never route users into onboarding from this endpoint.
-      // Old backend behavior: pressing Google sign-in means "authenticate now".
-      if (body.authIntent === "sign_in") {
-        const token = await createCustomToken(resolvedUid);
-        return success({
-          routeName: authSigninGoogleContract.routeName,
-          success: true,
-          isNewUser: false,
-          user: { uid: resolvedUid, email: idp.email, displayName: idp.displayName },
-          token
-        });
-      }
-      const treatAsExistingUser = hasUserDoc || idp.isNewUser === false || existingIdentityByEmail;
-      if (!treatAsExistingUser) {
-        return success({
-          routeName: authSigninGoogleContract.routeName,
-          success: true,
-          isNewUser: true,
-          user: { uid: resolvedUid, email: idp.email, displayName: idp.displayName },
-          oauthInfo: {
-            provider: "google",
-            providerId: idp.providerId,
-            email: idp.email,
-            displayName: idp.displayName
-          }
-        });
-      }
-      const token = await createCustomToken(resolvedUid);
-      return success({
+      const resolution = await authMutationsService.resolveOauthAccount({
+        provider: "google",
+        providerId: idp.providerId,
+        firebaseUid: idp.uid,
+        email: idp.email,
+        idpIsNewUser: idp.isNewUser
+      });
+      return buildOauthSuccessResponse({
         routeName: authSigninGoogleContract.routeName,
-        success: true,
-        isNewUser: false,
-        user: { uid: resolvedUid, email: idp.email, displayName: idp.displayName },
-        token
+        authProvider: "google",
+        providerId: idp.providerId,
+        email: idp.email,
+        displayName: idp.displayName,
+        resolvedUid: resolution.resolvedUid,
+        accountStatus: resolution.accountStatus,
+        branchData: body.branchData,
+        authMutationsService,
+        log: request.log,
+        matchedExistingLocavaUser: resolution.matchedUser != null
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "google_sign_in_failed";
@@ -363,47 +454,25 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     setRouteName(authSigninAppleContract.routeName);
     try {
       const idp = await signInWithIdp({ provider: "apple.com", idToken: body.identityToken });
-      const firebaseUid = idp.uid;
-      const legacyOauthUid = makeOauthUid("apple", idp.providerId);
-      const hasFirebaseUserDoc = await authMutationsService.userDocExists(firebaseUid);
-      const hasLegacyOauthUserDoc = hasFirebaseUserDoc ? false : await authMutationsService.userDocExists(legacyOauthUid);
-      const resolvedUid = hasFirebaseUserDoc ? firebaseUid : hasLegacyOauthUserDoc ? legacyOauthUid : firebaseUid;
-      const hasUserDoc = hasFirebaseUserDoc || hasLegacyOauthUserDoc;
-      const existingIdentityByEmail =
-        body.authIntent === "sign_in" ? await checkUserExistsByEmail(idp.email).then((x) => x.exists).catch(() => false) : false;
-      // Mirror Google behavior for Apple sign-in intent.
-      if (body.authIntent === "sign_in") {
-        const token = await createCustomToken(resolvedUid);
-        return success({
-          routeName: authSigninAppleContract.routeName,
-          success: true,
-          isNewUser: false,
-          user: { uid: resolvedUid, email: idp.email, displayName: idp.displayName },
-          token
-        });
-      }
-      const treatAsExistingUser = hasUserDoc || idp.isNewUser === false || existingIdentityByEmail;
-      if (!treatAsExistingUser) {
-        return success({
-          routeName: authSigninAppleContract.routeName,
-          success: true,
-          isNewUser: true,
-          user: { uid: resolvedUid, email: idp.email, displayName: idp.displayName },
-          oauthInfo: {
-            provider: "apple",
-            providerId: idp.providerId,
-            email: idp.email,
-            displayName: idp.displayName
-          }
-        });
-      }
-      const token = await createCustomToken(resolvedUid);
-      return success({
+      const resolution = await authMutationsService.resolveOauthAccount({
+        provider: "apple",
+        providerId: idp.providerId,
+        firebaseUid: idp.uid,
+        email: idp.email ?? body.email ?? null,
+        idpIsNewUser: idp.isNewUser
+      });
+      return buildOauthSuccessResponse({
         routeName: authSigninAppleContract.routeName,
-        success: true,
-        isNewUser: false,
-        user: { uid: resolvedUid, email: idp.email, displayName: idp.displayName },
-        token
+        authProvider: "apple",
+        providerId: idp.providerId,
+        email: idp.email ?? body.email ?? null,
+        displayName: idp.displayName,
+        resolvedUid: resolution.resolvedUid,
+        accountStatus: resolution.accountStatus,
+        branchData: body.branchData,
+        authMutationsService,
+        log: request.log,
+        matchedExistingLocavaUser: resolution.matchedUser != null
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "apple_sign_in_failed";
@@ -418,8 +487,26 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     }
     const body = AuthProfileCreateBodySchema.parse(request.body);
     setRouteName(authProfileCreateContract.routeName);
-    const created = await authMutationsService.createProfile(body);
-    const token = body.oauthInfo ? await createCustomToken(body.userId) : undefined;
+    const resolvedCreateProfile = await authMutationsService.resolveCreateProfileUser({
+      requestedUserId: body.userId,
+      oauthInfo: body.oauthInfo ?? null
+    });
+    if (body.oauthInfo) {
+      logOauthDecision(request.log, {
+        routeName: authProfileCreateContract.routeName,
+        authProvider: body.oauthInfo.provider,
+        providerUid: body.oauthInfo.providerId,
+        email: body.email ?? body.oauthInfo.email ?? null,
+        matchedExistingLocavaUser: resolvedCreateProfile.matchedUser != null,
+        accountStatus: resolvedCreateProfile.accountStatus,
+        userDocumentCreated: resolvedCreateProfile.matchedUser == null
+      });
+    }
+    const created = await authMutationsService.createProfile({
+      ...body,
+      userId: resolvedCreateProfile.resolvedUid
+    });
+    const token = body.oauthInfo ? await createCustomToken(resolvedCreateProfile.resolvedUid) : undefined;
     return success({
       routeName: authProfileCreateContract.routeName,
       ...created,

@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+import { FieldValue } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { mergeUserDocumentWritePayload } from "../../repositories/source-of-truth/user-document-firestore.adapter.js";
 import { getFirebaseAuthClient } from "../../repositories/source-of-truth/firebase-auth.client.js";
+import { AuthBranchAttributionService } from "./auth-branch-attribution.service.js";
 
 type AuthRuntimeState = {
   profilesByUid: Record<string, { handle: string; name: string; updatedAtMs: number; branchData?: Record<string, unknown> | null }>;
@@ -150,9 +152,29 @@ export function normalizeHandle(raw: string): string {
   return raw.replace(/^@+/, "").trim().toLowerCase();
 }
 
+export type OauthAccountStatus =
+  | "existing_complete"
+  | "existing_incomplete"
+  | "new_account_required";
+
+export type OauthExistingMatchSource =
+  | "firebase_uid_user_doc"
+  | "legacy_provider_uid_user_doc"
+  | "email_user_doc"
+  | "firebase_auth_email_user_doc"
+  | "firebase_auth_email_only"
+  | "provider_auth_only";
+
+type UserDocSummary = {
+  uid: string;
+  email: string | null;
+  onboardingComplete: boolean;
+};
+
 export class AuthMutationsService {
   private readonly db = getFirestoreSourceClient();
   private readonly auth = getFirebaseAuthClient();
+  private readonly branchAttributionService = new AuthBranchAttributionService();
 
   async isHandleAvailable(rawHandle: string): Promise<{ available: boolean; normalizedHandle: string }> {
     const normalizedHandle = normalizeHandle(rawHandle);
@@ -200,6 +222,236 @@ export class AuthMutationsService {
     }
   }
 
+  private makeOauthUid(provider: "google" | "apple", providerId: string): string {
+    return `${provider}_${providerId}`;
+  }
+
+  private normalizeEmail(raw: string | null | undefined): string | null {
+    if (typeof raw !== "string") return null;
+    const normalized = raw.trim().toLowerCase();
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private toUserDocSummary(uid: string, data: Record<string, unknown> | undefined): UserDocSummary {
+    const email = this.normalizeEmail(typeof data?.email === "string" ? data.email : null);
+    const onboardingComplete = !(data?.profileComplete === false || data?.onboardingComplete === false);
+    return {
+      uid,
+      email,
+      onboardingComplete
+    };
+  }
+
+  async getUserDocSummary(uid: string): Promise<UserDocSummary | null> {
+    const normalizedUid = uid.trim();
+    if (!normalizedUid || !this.db) return null;
+    try {
+      const doc = await this.db.collection("users").doc(normalizedUid).get();
+      if (!doc.exists) return null;
+      return this.toUserDocSummary(normalizedUid, (doc.data() as Record<string, unknown> | undefined) ?? undefined);
+    } catch {
+      return null;
+    }
+  }
+
+  async getUserDocSummaryByEmail(email: string | null | undefined): Promise<UserDocSummary | null> {
+    const normalizedEmail = this.normalizeEmail(email);
+    if (!normalizedEmail || !this.db) return null;
+    try {
+      const snap = await this.db.collection("users").where("email", "==", normalizedEmail).limit(1).get();
+      if (snap.empty) return null;
+      const doc = snap.docs[0];
+      if (!doc) return null;
+      return this.toUserDocSummary(doc.id, (doc.data() as Record<string, unknown> | undefined) ?? undefined);
+    } catch {
+      return null;
+    }
+  }
+
+  async resolveOauthAccount(input: {
+    provider: "google" | "apple";
+    providerId: string;
+    firebaseUid: string;
+    email?: string | null;
+    idpIsNewUser?: boolean | null;
+  }): Promise<{
+    resolvedUid: string;
+    accountStatus: OauthAccountStatus;
+    onboardingComplete: boolean | null;
+    matchedUser: UserDocSummary | null;
+    matchedBy: OauthExistingMatchSource | null;
+    providerUidPresent: boolean;
+    emailPresent: boolean;
+  }> {
+    const providerUidPresent = input.providerId.trim().length > 0;
+    const email = this.normalizeEmail(input.email);
+    const emailPresent = Boolean(email);
+    const legacyOauthUid = this.makeOauthUid(input.provider, input.providerId);
+
+    const exactDoc = await this.getUserDocSummary(input.firebaseUid);
+    if (exactDoc) {
+      return {
+        resolvedUid: exactDoc.uid,
+        accountStatus: exactDoc.onboardingComplete ? "existing_complete" : "existing_incomplete",
+        onboardingComplete: exactDoc.onboardingComplete,
+        matchedUser: exactDoc,
+        matchedBy: "firebase_uid_user_doc",
+        providerUidPresent,
+        emailPresent
+      };
+    }
+
+    if (legacyOauthUid !== input.firebaseUid) {
+      const legacyDoc = await this.getUserDocSummary(legacyOauthUid);
+      if (legacyDoc) {
+        return {
+          resolvedUid: legacyDoc.uid,
+          accountStatus: legacyDoc.onboardingComplete ? "existing_complete" : "existing_incomplete",
+          onboardingComplete: legacyDoc.onboardingComplete,
+          matchedUser: legacyDoc,
+          matchedBy: "legacy_provider_uid_user_doc",
+          providerUidPresent,
+          emailPresent
+        };
+      }
+    }
+
+    if (email) {
+      const emailDoc = await this.getUserDocSummaryByEmail(email);
+      if (emailDoc) {
+        return {
+          resolvedUid: emailDoc.uid,
+          accountStatus: emailDoc.onboardingComplete ? "existing_complete" : "existing_incomplete",
+          onboardingComplete: emailDoc.onboardingComplete,
+          matchedUser: emailDoc,
+          matchedBy: "email_user_doc",
+          providerUidPresent,
+          emailPresent
+        };
+      }
+    }
+
+    if (email && this.auth) {
+      try {
+        const authUser = await this.auth.getUserByEmail(email);
+        const authDoc = await this.getUserDocSummary(authUser.uid);
+        if (authDoc) {
+          return {
+            resolvedUid: authDoc.uid,
+            accountStatus: authDoc.onboardingComplete ? "existing_complete" : "existing_incomplete",
+            onboardingComplete: authDoc.onboardingComplete,
+            matchedUser: authDoc,
+            matchedBy: "firebase_auth_email_user_doc",
+            providerUidPresent,
+            emailPresent
+          };
+        }
+
+        if (authUser.uid !== input.firebaseUid || input.idpIsNewUser === false) {
+          return {
+            resolvedUid: authUser.uid,
+            accountStatus: "existing_incomplete",
+            onboardingComplete: false,
+            matchedUser: null,
+            matchedBy: "firebase_auth_email_only",
+            providerUidPresent,
+            emailPresent
+          };
+        }
+      } catch (error) {
+        if (!isFirebaseAuthUserMissing(error)) {
+          throw error;
+        }
+      }
+    }
+
+    if (input.idpIsNewUser === false) {
+      return {
+        resolvedUid: input.firebaseUid,
+        accountStatus: "existing_incomplete",
+        onboardingComplete: false,
+        matchedUser: null,
+        matchedBy: "provider_auth_only",
+        providerUidPresent,
+        emailPresent
+      };
+    }
+
+    return {
+      resolvedUid: legacyOauthUid,
+      accountStatus: "new_account_required",
+      onboardingComplete: false,
+      matchedUser: null,
+      matchedBy: null,
+      providerUidPresent,
+      emailPresent
+    };
+  }
+
+  async resolveCreateProfileUser(input: {
+    requestedUserId: string;
+    oauthInfo?: {
+      provider: "google" | "apple";
+      providerId: string;
+      email?: string;
+      displayName?: string;
+    } | null;
+  }): Promise<{
+    resolvedUid: string;
+    accountStatus: OauthAccountStatus;
+    matchedBy: OauthExistingMatchSource | null;
+    matchedUser: UserDocSummary | null;
+  }> {
+    const requestedUserId = input.requestedUserId.trim();
+    if (!requestedUserId || !input.oauthInfo) {
+      return {
+        resolvedUid: requestedUserId,
+        accountStatus: "new_account_required",
+        matchedBy: null,
+        matchedUser: null
+      };
+    }
+
+    const resolution = await this.resolveOauthAccount({
+      provider: input.oauthInfo.provider,
+      providerId: input.oauthInfo.providerId,
+      firebaseUid: requestedUserId,
+      email: input.oauthInfo.email ?? null,
+      idpIsNewUser: null
+    });
+
+    if (resolution.accountStatus === "new_account_required") {
+      if (this.auth) {
+        try {
+          await this.auth.getUser(requestedUserId);
+          return {
+            resolvedUid: requestedUserId,
+            accountStatus: "existing_incomplete",
+            matchedBy: "provider_auth_only",
+            matchedUser: null
+          };
+        } catch (error) {
+          if (!isFirebaseAuthUserMissing(error)) {
+            throw error;
+          }
+        }
+      }
+      return {
+        resolvedUid: requestedUserId,
+        accountStatus: "new_account_required",
+        matchedBy: null,
+        matchedUser: null
+      };
+    }
+
+    return {
+      resolvedUid: resolution.resolvedUid,
+      accountStatus: resolution.accountStatus,
+      matchedBy: resolution.matchedBy,
+      matchedUser: resolution.matchedUser
+    };
+  }
+
   async createProfile(input: {
     userId: string;
     email?: string;
@@ -213,10 +465,13 @@ export class AuthMutationsService {
     handle?: string;
     relationshipRef?: string;
     branchData?: Record<string, unknown> | null;
+    expoPushToken?: string;
+    pushToken?: string;
+    pushTokenPlatform?: string;
     oauthInfo?: {
       provider: "google" | "apple";
       providerId: string;
-      email: string;
+      email?: string;
       displayName?: string;
     };
   }): Promise<{ success: true; handle: string; storage: "firestore" | "local_state_fallback" }> {
@@ -228,6 +483,19 @@ export class AuthMutationsService {
         : typeof input.oauthInfo?.email === "string" && input.oauthInfo.email.trim().length > 0
           ? input.oauthInfo.email.trim()
           : "";
+    const expoPushToken =
+      typeof input.expoPushToken === "string" && input.expoPushToken.trim().length > 0
+        ? input.expoPushToken.trim()
+        : "";
+    const pushToken =
+      typeof input.pushToken === "string" && input.pushToken.trim().length > 0
+        ? input.pushToken.trim()
+        : expoPushToken;
+    const pushTokenPlatform =
+      typeof input.pushTokenPlatform === "string" && input.pushTokenPlatform.trim().length > 0
+        ? input.pushTokenPlatform.trim()
+        : "";
+    const attributionFields = this.branchAttributionService.buildCreateProfileFields(input.branchData ?? null);
     const payload = mergeUserDocumentWritePayload({
       ...(rawEmail.length > 0 ? { email: rawEmail.toLowerCase() } : {}),
       uid: input.userId,
@@ -261,15 +529,27 @@ export class AuthMutationsService {
       postCountVerifiedAtMs: nowMs,
       settings: {},
       branchData: input.branchData ?? null,
+      ...(expoPushToken ? { expoPushToken } : {}),
+      ...(pushToken ? { pushToken } : {}),
+      ...(pushTokenPlatform ? { pushTokenPlatform } : {}),
+      ...(pushToken ? { pushTokenUpdatedAt: nowMs } : {}),
       oauthInfo: input.oauthInfo ?? null,
       updatedAt: nowMs,
       createdAt: nowMs
     });
+    Object.assign(payload, attributionFields);
 
     let storage: "firestore" | "local_state_fallback" = "local_state_fallback";
     if (this.db) {
       try {
-        await this.db.collection("users").doc(input.userId).set(payload, { merge: true });
+        await this.db.collection("users").doc(input.userId).set(
+          {
+            ...payload,
+            ...(expoPushToken ? { expoPushTokens: FieldValue.arrayUnion(expoPushToken) } : {}),
+            ...(pushToken ? { pushTokens: FieldValue.arrayUnion(pushToken) } : {}),
+          },
+          { merge: true }
+        );
         storage = "firestore";
       } catch {
         setAuthRuntimeProfile(input.userId, {
@@ -297,17 +577,14 @@ export class AuthMutationsService {
     viewerId: string;
     branchData: Record<string, unknown>;
   }): Promise<{ success: true; storage: "firestore" | "local_state_fallback" }> {
-    if (!this.db) {
+    const result = await this.branchAttributionService.mergeBranchDataIntoExistingUser(
+      input.viewerId,
+      input.branchData,
+    );
+    if (result.storage === "local_state_fallback") {
       setAuthRuntimeBranch(input.viewerId, input.branchData);
-      return { success: true, storage: "local_state_fallback" };
     }
-    try {
-      await this.db.collection("users").doc(input.viewerId).set({ branchData: input.branchData, updatedAt: Date.now() }, { merge: true });
-      return { success: true, storage: "firestore" };
-    } catch {
-      setAuthRuntimeBranch(input.viewerId, input.branchData);
-      return { success: true, storage: "local_state_fallback" };
-    }
+    return { success: true, storage: result.storage };
   }
 
   async signOutViewer(viewerId: string): Promise<{ clearedPushToken: boolean }> {

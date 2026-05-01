@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
@@ -20,7 +22,9 @@ type MixPool = {
 
 const DEFAULT_REFRESH_MS = 60_000;
 const DEFAULT_MAX_STALE_MS = 10 * 60_000;
-const DEFAULT_MAX_DOCS = 12_000;
+const DEFAULT_MAX_DOCS = 600;
+const DEFAULT_COLD_START_DOCS = 120;
+const DEFAULT_SNAPSHOT_PATH = path.join(process.cwd(), "state", "mixes-preview-snapshot.json");
 
 function toIntEnv(name: string, fallback: number, min: number, max: number): number {
   const raw = process.env[name];
@@ -68,8 +72,9 @@ export class MixesRepository {
   private dbClient: ReturnType<typeof getFirestoreSourceClient> | null | undefined;
   private readonly refreshMs = toIntEnv("MIXES_POOL_REFRESH_MS", DEFAULT_REFRESH_MS, 15_000, 300_000);
   private readonly maxStaleMs = toIntEnv("MIXES_POOL_MAX_STALE_MS", DEFAULT_MAX_STALE_MS, 30_000, 3_600_000);
-  private readonly maxDocs = toIntEnv("MIXES_POOL_MAX_DOCS", DEFAULT_MAX_DOCS, 500, 30_000);
-  private readonly coldStartDocs = toIntEnv("MIXES_POOL_COLD_START_DOCS", 1200, 200, 10_000);
+  private readonly maxDocs = toIntEnv("MIXES_POOL_MAX_DOCS", DEFAULT_MAX_DOCS, 200, 30_000);
+  private readonly coldStartDocs = toIntEnv("MIXES_POOL_COLD_START_DOCS", DEFAULT_COLD_START_DOCS, 60, 10_000);
+  private readonly snapshotPath = process.env.MIXES_POOL_SNAPSHOT_PATH ?? DEFAULT_SNAPSHOT_PATH;
   private readonly pool: MixPool = {
     posts: [],
     loadedAtMs: 0,
@@ -83,6 +88,7 @@ export class MixesRepository {
   };
   private refreshTimer: NodeJS.Timeout | null = null;
   private log: FastifyBaseLogger | undefined;
+  private snapshotLoadPromise: Promise<void> | null = null;
 
   startBackgroundRefresh(log?: FastifyBaseLogger): void {
     if (this.refreshTimer) return;
@@ -113,6 +119,7 @@ export class MixesRepository {
     servedEmptyWarming: boolean;
   }> {
     const now = Date.now();
+    await this.loadSnapshotIfNeeded();
     const builtAt = this.pool.loadedAtMs > 0 ? new Date(this.pool.loadedAtMs).toISOString() : null;
     const ageMs = this.pool.loadedAtMs > 0 ? Math.max(0, now - this.pool.loadedAtMs) : Number.POSITIVE_INFINITY;
     const hasPosts = this.pool.posts.length > 0;
@@ -241,6 +248,7 @@ export class MixesRepository {
       this.pool.lastBuildReadCount = totalReads;
       this.pool.lastRefreshErrorMessage = null;
       this.pool.state = "warm";
+      await this.persistSnapshot().catch(() => undefined);
       logger?.info(
         {
           event: "pool_refresh_completed",
@@ -277,6 +285,43 @@ export class MixesRepository {
     if (this.dbClient !== undefined) return this.dbClient;
     this.dbClient = getFirestoreSourceClient();
     return this.dbClient;
+  }
+
+  private async loadSnapshotIfNeeded(): Promise<void> {
+    if (this.pool.posts.length > 0 || this.snapshotLoadPromise) return this.snapshotLoadPromise ?? Promise.resolve();
+    this.snapshotLoadPromise = (async () => {
+      try {
+        const raw = await readFile(this.snapshotPath, "utf8");
+        const parsed = JSON.parse(raw) as { posts?: MixSourcePost[]; loadedAtMs?: number } | null;
+        const posts = Array.isArray(parsed?.posts) ? parsed!.posts.filter((row) => row && typeof row === "object") : [];
+        if (posts.length === 0) return;
+        this.pool.posts = sortDeterministicNewestFirst(posts.filter(isPublicVisiblePost));
+        this.pool.loadedAtMs = typeof parsed?.loadedAtMs === "number" ? parsed.loadedAtMs : Date.now();
+        this.pool.state = "stale";
+      } catch {
+        // No persisted snapshot yet.
+      }
+    })().finally(() => {
+      this.snapshotLoadPromise = null;
+    });
+    return this.snapshotLoadPromise;
+  }
+
+  private async persistSnapshot(): Promise<void> {
+    if (this.pool.posts.length === 0) return;
+    await mkdir(path.dirname(this.snapshotPath), { recursive: true });
+    await writeFile(
+      this.snapshotPath,
+      JSON.stringify(
+        {
+          loadedAtMs: this.pool.loadedAtMs,
+          posts: this.pool.posts.slice(0, Math.min(this.pool.posts.length, this.coldStartDocs)),
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
   }
 }
 

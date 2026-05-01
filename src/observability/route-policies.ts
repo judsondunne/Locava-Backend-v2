@@ -60,12 +60,23 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "profile.bootstrap.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 150, p95Ms: 340 },
-      dbOps: { maxReadsCold: 16, maxQueriesCold: 4, expectedReadsWarm: 4, expectedQueriesWarm: 2 },
-      payload: { maxBytes: 55_000, targetBytes: 28_000 }
+      latency: { p50Ms: 150, p95Ms: 400 },
+      dbOps: { maxReadsCold: 40, maxQueriesCold: 8, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 40_000, targetBytes: 18_000 }
     },
     cacheExpectation: "required",
-    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
+  "profile.relationship.get": {
+    routeName: "profile.relationship.get",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 80, p95Ms: 180 },
+      dbOps: { maxReadsCold: 4, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 8_000, targetBytes: 2_500 }
+    },
+    cacheExpectation: "required",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 2 }
   },
   "profile.followers.get": {
     routeName: "profile.followers.get",
@@ -93,12 +104,34 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "profile.grid.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 90, p95Ms: 200 },
-      dbOps: { maxReadsCold: 24, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
-      payload: { maxBytes: 70_000, targetBytes: 35_000 }
+      latency: { p50Ms: 90, p95Ms: 220 },
+      dbOps: { maxReadsCold: 24, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 22_000, targetBytes: 12_000 }
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 2 }
+  },
+  "profile.collections.get": {
+    routeName: "profile.collections.get",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 110, p95Ms: 260 },
+      dbOps: { maxReadsCold: 30, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 18_000, targetBytes: 9_000 }
+    },
+    cacheExpectation: "required",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
+  },
+  "profile.achievements.get": {
+    routeName: "profile.achievements.get",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 110, p95Ms: 260 },
+      dbOps: { maxReadsCold: 30, maxQueriesCold: 4, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 20_000, targetBytes: 10_000 }
+    },
+    cacheExpectation: "required",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
   },
   "profile.liked_posts.get": {
     routeName: "profile.liked_posts.get",

@@ -1,5 +1,6 @@
 import { PostsDetailResponseSchema } from "../../contracts/surfaces/posts-detail.contract.js";
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
+import { toFeedCardDTO, toPlaybackPostShellDTO } from "../../dto/compact-surface-dto.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import type { FeedBootstrapCandidateRecord, FeedDetailRecord } from "../../repositories/surfaces/feed.repository.js";
@@ -9,6 +10,36 @@ type PostsDetailResponse = z.infer<typeof PostsDetailResponseSchema>;
 type SafeCardSummary = FeedBootstrapCandidateRecord & { rankToken: string };
 type DeferredCommentPreview = NonNullable<PostsDetailResponse["deferred"]["commentsPreview"]>;
 type DeferredCommentPreviewItem = DeferredCommentPreview[number];
+
+function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFeedCardDTO> {
+  return toFeedCardDTO({
+    postId: summary.postId,
+    rankToken: summary.rankToken,
+    author: {
+      userId: summary.author.userId,
+      handle: summary.author.handle,
+      name: summary.author.name,
+      pic: summary.author.pic,
+    },
+    title: summary.title ?? null,
+    captionPreview: summary.captionPreview ?? null,
+    activities: summary.activities ?? [],
+    address: summary.address ?? null,
+    geo: summary.geo ?? null,
+    assets: summary.assets ?? [],
+    media: summary.media,
+    social: summary.social,
+    viewer: summary.viewer,
+    createdAtMs: summary.createdAtMs,
+    updatedAtMs: summary.updatedAtMs,
+    firstAssetUrl: summary.firstAssetUrl ?? null,
+    carouselFitWidth: summary.carouselFitWidth,
+    layoutLetterbox: summary.layoutLetterbox,
+    letterboxGradientTop: summary.letterboxGradientTop ?? null,
+    letterboxGradientBottom: summary.letterboxGradientBottom ?? null,
+    letterboxGradients: summary.letterboxGradients ?? null,
+  });
+}
 
 function normalizeCommentsPreview(value: unknown): DeferredCommentPreview {
   if (!Array.isArray(value)) return [];
@@ -240,10 +271,13 @@ export class PostsDetailOrchestrator {
     const missingFromCap = unique.slice(MAX_BATCH);
     const serviceWithBatch = this.service as FeedService & {
       loadPostCardSummaryBatch?: (viewerId: string, postIds: string[]) => Promise<FeedBootstrapCandidateRecord[]>;
+      loadPostCardSummaryBatchLightweight?: (viewerId: string, postIds: string[]) => Promise<FeedBootstrapCandidateRecord[]>;
     };
     const cards =
-      typeof serviceWithBatch.loadPostCardSummaryBatch === "function"
-        ? await serviceWithBatch.loadPostCardSummaryBatch(input.viewerId, cappedIds)
+      typeof serviceWithBatch.loadPostCardSummaryBatchLightweight === "function"
+        ? await serviceWithBatch.loadPostCardSummaryBatchLightweight(input.viewerId, cappedIds)
+        : typeof serviceWithBatch.loadPostCardSummaryBatch === "function"
+          ? await serviceWithBatch.loadPostCardSummaryBatch(input.viewerId, cappedIds)
         : (
             await Promise.all(
               cappedIds.map((postId) =>
@@ -255,35 +289,32 @@ export class PostsDetailOrchestrator {
     const found = cappedIds
       .map((postId) => byId.get(postId))
       .filter((card): card is NonNullable<typeof card> => card !== undefined)
-      .map((card) => ({
-        postId: card.postId,
-        detail: {
-          routeName: "posts.detail.get" as const,
-          firstRender: {
-            post: {
-              postId: card.postId,
-              userId: card.author.userId,
-              caption: card.captionPreview,
-              createdAtMs: card.createdAtMs,
-              mediaType: card.media.type,
-              thumbUrl: card.media.posterUrl,
-              assets: input.hydrationMode === "playback" ? [{ id: `${card.postId}-asset`, type: card.media.type, poster: card.media.posterUrl, thumbnail: card.media.posterUrl }] : [],
-              cardSummary: card
+      .map((card) => {
+        const playbackShell = toPlaybackPostShellDTO({
+          userId: card.author.userId,
+          card: toCompactPlaybackCard(card),
+        });
+        return {
+          postId: card.postId,
+          detail: {
+            routeName: "posts.detail.get" as const,
+            firstRender: {
+              post: playbackShell,
+              author: card.author,
+              social: card.social,
+              viewer: card.viewer
             },
-            author: card.author,
-            social: card.social,
-            viewer: card.viewer
-          },
-          deferred: { commentsPreview: null },
-          degraded: false,
-          fallbacks: [],
-          debugHydrationSource: "cache" as const,
-          debugReads: 0,
-          debugPostIds: [card.postId],
-          debugMissingIds: [],
-          debugDurationMs: 0
-        }
-      }));
+            deferred: { commentsPreview: null },
+            degraded: false,
+            fallbacks: [],
+            debugHydrationSource: "cache" as const,
+            debugReads: 0,
+            debugPostIds: [card.postId],
+            debugMissingIds: [],
+            debugDurationMs: 0
+          }
+        };
+      });
     const missing = cappedIds.filter((id) => !byId.has(id)).concat(missingFromCap);
     const payloadBytes = Buffer.byteLength(JSON.stringify(found), "utf8");
     return {

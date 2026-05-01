@@ -6,6 +6,7 @@ export type AuthBootstrapUserFields = {
   handle: string;
   badge: string;
   unreadCount: number;
+  onboardingComplete: boolean;
 };
 
 type AuthBootstrapViewerSummary = {
@@ -54,7 +55,9 @@ export class AuthBootstrapFirestoreAdapter {
     "notificationUnreadCount",
     "notifUnread",
     "notificationsReadAllAtMs",
-    "notificationsMarkedReadThroughMs"
+    "notificationsMarkedReadThroughMs",
+    "profileComplete",
+    "onboardingComplete"
   ] as const;
   private static userFieldsCache = new Map<string, { expiresAtMs: number; data: AuthBootstrapUserFields }>();
   private static viewerSummaryCache = new Map<string, { expiresAtMs: number; data: AuthBootstrapViewerSummary }>();
@@ -92,7 +95,7 @@ export class AuthBootstrapFirestoreAdapter {
     if (!this.db) throw new Error("firestore_source_unavailable");
     if (viewerId === "anonymous") {
       return {
-        data: { handle: "guest", badge: "none", unreadCount: 0 },
+        data: { handle: "guest", badge: "none", unreadCount: 0, onboardingComplete: true },
         queryCount: 0,
         readCount: 0
       };
@@ -131,16 +134,20 @@ export class AuthBootstrapFirestoreAdapter {
       notifUnread?: number;
       notificationsReadAllAtMs?: number;
       notificationsMarkedReadThroughMs?: number;
+      profileComplete?: boolean;
+      onboardingComplete?: boolean;
     };
 
     const handle = String(data.handle ?? "").replace(/^@+/, "").trim();
     const badge = pickString(data.badge ?? data.profileBadge ?? data.viewerBadge, "standard");
     const unreadCount = pickUnread(data);
+    const onboardingComplete = !(data.profileComplete === false || data.onboardingComplete === false);
 
     const payload: AuthBootstrapUserFields = {
       handle: handle || `user_${viewerId.slice(0, 8)}`,
       badge,
-      unreadCount
+      unreadCount,
+      onboardingComplete
     };
     const viewerSummary: AuthBootstrapViewerSummary = {
       handle: handle || `user_${viewerId.slice(0, 8)}`,

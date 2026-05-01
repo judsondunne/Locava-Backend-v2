@@ -17,13 +17,18 @@ export const AuthSessionResponseSchema = z.object({
       state: z.enum(["active", "anonymous"]),
       issuedAt: z.string(),
       expiresAt: z.string()
+    }),
+    account: z.object({
+      status: z.enum(["existing_complete", "existing_incomplete", "new_account_required"]).nullable(),
+      onboardingComplete: z.boolean().nullable()
     })
   }),
   deferred: z.object({
     viewerSummary: z
       .object({
         handle: z.string(),
-        badge: z.string()
+        badge: z.string(),
+        onboardingComplete: z.boolean().nullable().optional()
       })
       .nullable()
   }),

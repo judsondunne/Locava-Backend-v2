@@ -14,6 +14,8 @@ type CommentRecord = CommentSummary & {
   deletedAtMs: number | null;
 };
 
+type GifAttachment = NonNullable<CommentSummary["gif"]>;
+
 type CommentStorageMode = "embedded" | "subcollection";
 
 export class CommentRepositoryError extends Error {
@@ -47,6 +49,7 @@ export class CommentsRepository {
     const commentId = String(wire.id ?? wire.commentId ?? "").trim();
     const authorId = String(wire.userId ?? "").trim();
     const likedBy = Array.isArray(wire.likedBy) ? wire.likedBy.filter((id): id is string => typeof id === "string") : [];
+    const gifWire = wire.gif && typeof wire.gif === "object" ? (wire.gif as Record<string, unknown>) : null;
     const safeCreatedAtMs =
       readMaybeMillis(wire.createdAtMs) ??
       readMaybeMillis(wire.createdAt) ??
@@ -62,6 +65,38 @@ export class CommentsRepository {
         pic: String(wire.userPic ?? "").trim() || null
       },
       text: String(wire.content ?? wire.text ?? "").trim(),
+      gif:
+        gifWire &&
+        typeof gifWire.provider === "string" &&
+        gifWire.provider === "giphy" &&
+        typeof gifWire.gifId === "string" &&
+        gifWire.gifId.trim() &&
+        typeof gifWire.previewUrl === "string" &&
+        gifWire.previewUrl.trim()
+          ? {
+              provider: "giphy",
+              gifId: gifWire.gifId.trim(),
+              title: typeof gifWire.title === "string" && gifWire.title.trim() ? gifWire.title.trim() : undefined,
+              previewUrl: gifWire.previewUrl.trim(),
+              fixedHeightUrl:
+                typeof gifWire.fixedHeightUrl === "string" && gifWire.fixedHeightUrl.trim()
+                  ? gifWire.fixedHeightUrl.trim()
+                  : undefined,
+              mp4Url: typeof gifWire.mp4Url === "string" && gifWire.mp4Url.trim() ? gifWire.mp4Url.trim() : undefined,
+              width:
+                typeof gifWire.width === "number" && Number.isFinite(gifWire.width) && gifWire.width > 0
+                  ? Math.floor(gifWire.width)
+                  : undefined,
+              height:
+                typeof gifWire.height === "number" && Number.isFinite(gifWire.height) && gifWire.height > 0
+                  ? Math.floor(gifWire.height)
+                  : undefined,
+              originalUrl:
+                typeof gifWire.originalUrl === "string" && gifWire.originalUrl.trim()
+                  ? gifWire.originalUrl.trim()
+                  : undefined
+            }
+          : null,
       replyingTo: typeof wire.replyingTo === "string" ? wire.replyingTo : null,
       createdAtMs: safeCreatedAtMs,
       likeCount: likedBy.length,
@@ -381,13 +416,15 @@ export class CommentsRepository {
     viewerId: string;
     postId: string;
     text: string;
+    gif: GifAttachment | null;
     replyingTo: string | null;
     clientMutationKey: string | null;
     nowMs?: number;
   }): Promise<{ comment: CommentRecord; idempotent: boolean }> {
     const nowMs = input.nowMs ?? Date.now();
     const normalizedText = input.text.trim().replace(/\s+/g, " ");
-    const idempotencyKey = input.clientMutationKey ?? `${input.viewerId}:${input.postId}:${normalizedText.toLowerCase()}`;
+    const bodySignature = [normalizedText.toLowerCase(), input.gif ? `gif:${input.gif.gifId}` : ""].filter(Boolean).join("|");
+    const idempotencyKey = input.clientMutationKey ?? `${input.viewerId}:${input.postId}:${bodySignature}`;
     const mapKey = `${input.viewerId}:${input.postId}:${idempotencyKey}`;
 
     const existingRef = this.createIdempotencyByViewerKey.get(mapKey);
@@ -406,6 +443,7 @@ export class CommentsRepository {
       postId: input.postId,
       author,
       text: normalizedText,
+      gif: input.gif ?? null,
       replyingTo: input.replyingTo ?? null,
       createdAtMs: nowMs,
       likeCount: 0,
@@ -427,6 +465,7 @@ export class CommentsRepository {
         userId: comment.author.userId,
         userHandle: comment.author.handle,
         likedBy: [] as string[],
+        ...(comment.gif ? { gif: comment.gif } : {}),
         replyingTo: comment.replyingTo,
         createdAtMs: nowMs,
         postId: input.postId

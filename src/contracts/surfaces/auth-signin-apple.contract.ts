@@ -13,14 +13,23 @@ export const AuthSigninAppleBodySchema = z.object({
 const AuthAppleOauthInfoSchema = z.object({
   provider: z.literal("apple"),
   providerId: z.string().min(1),
-  email: z.string().trim().email(),
+  email: z.string().trim().email().optional(),
   displayName: z.string().optional()
 });
+
+const AccountStatusSchema = z.enum([
+  "existing_complete",
+  "existing_incomplete",
+  "new_account_required"
+]);
 
 export const AuthSigninAppleResponseSchema = z.object({
   routeName: z.literal("auth.signin_apple.post"),
   success: z.boolean(),
   isNewUser: z.boolean().optional(),
+  accountStatus: AccountStatusSchema.optional(),
+  onboardingRequired: z.boolean().optional(),
+  nativeDestinationRoute: z.enum(["app", "onboarding_existing", "onboarding_new"]).optional(),
   user: z
     .object({
       uid: z.string(),

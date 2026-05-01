@@ -1,7 +1,11 @@
 import { CompatUserFullRepository } from "../../repositories/compat/user-full.repository.js";
+import { GroupsRepository } from "../../repositories/surfaces/groups.repository.js";
 
 export class CompatUserFullService {
-  constructor(private readonly repo = new CompatUserFullRepository()) {}
+  constructor(
+    private readonly repo = new CompatUserFullRepository(),
+    private readonly groupsRepository = new GroupsRepository(),
+  ) {}
 
   async buildUserData(input: {
     viewerId: string;
@@ -12,6 +16,7 @@ export class CompatUserFullService {
     const profile = (firstRender.profile as Record<string, unknown> | undefined) ?? {};
     const relationship = (firstRender.relationship as Record<string, unknown> | undefined) ?? {};
     const social = await this.repo.loadUserSocialEdges(input.targetUserId);
+    const groupMemberships = await this.groupsRepository.listMembershipsForProfile(input.targetUserId).catch(() => []);
 
     return {
       name: String(profile.name ?? ""),
@@ -24,9 +29,8 @@ export class CompatUserFullService {
       followingCount: social.followingCount,
       lastLoginAt: social.lastLoginAt,
       relationshipUserRef: input.targetUserId,
-      primaryGroup: null,
-      groupMemberships: [],
+      primaryGroup: social.primaryGroup,
+      groupMemberships,
     };
   }
 }
-

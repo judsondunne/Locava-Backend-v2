@@ -14,6 +14,7 @@ export type SessionRecord = {
 export type ViewerSummary = {
   handle: string;
   badge: string;
+  onboardingComplete: boolean | null;
 };
 
 export type BootstrapSeed = {
@@ -51,7 +52,11 @@ export class AuthBootstrapRepository {
         if (slowMs > 0) {
           await delay(slowMs);
         }
-        return { handle: firestore.data.handle, badge: firestore.data.badge };
+        return {
+          handle: firestore.data.handle,
+          badge: firestore.data.badge,
+          onboardingComplete: firestore.data.onboardingComplete
+        };
       } catch (error) {
         if (error instanceof Error && error.message.includes("_timeout")) {
           recordTimeout("auth_bootstrap_viewer_firestore");
@@ -59,6 +64,11 @@ export class AuthBootstrapRepository {
         }
         if (error instanceof Error && error.message === "auth_bootstrap_user_not_found") {
           recordFallback("auth_bootstrap_user_doc_missing");
+          return {
+            handle: `user_${viewerId.slice(0, 8)}`,
+            badge: "standard",
+            onboardingComplete: false
+          };
         } else {
           recordFallback("auth_bootstrap_viewer_firestore_fallback");
           enforceSourceOfTruthStrictness("auth_bootstrap_viewer_firestore");
@@ -75,7 +85,8 @@ export class AuthBootstrapRepository {
 
     return {
       handle: viewerId === "anonymous" ? "guest" : `user_${viewerId.slice(0, 8)}`,
-      badge: viewerId === "anonymous" ? "none" : "standard"
+      badge: viewerId === "anonymous" ? "none" : "standard",
+      onboardingComplete: viewerId === "anonymous" ? true : null
     };
   }
 

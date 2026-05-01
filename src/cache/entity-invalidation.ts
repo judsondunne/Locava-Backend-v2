@@ -185,16 +185,21 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     await Promise.all(visibilityRouteCacheKeys.map((key) => globalCache.del(key)));
     const collectionsRouteKeys = await invalidateRouteCacheByTags([`route:collections.saved:${viewerId}`]);
     const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);
+    const ownerUserId = tryParseProfileUserIdFromPostId(postId) ?? viewerId;
+    const taggedProfileRouteKeys = await invalidateRouteCacheByTags([
+      `route:profile.bootstrap:${ownerUserId}`,
+      `route:profile.grid:${ownerUserId}`,
+    ]);
     const invalidatedKeys = [
       ...entityKeys,
       ...targetedRouteCacheKeys,
       ...visibilityRouteCacheKeys,
       ...collectionsRouteKeys,
-      ...mapBootstrapRouteKeys
+      ...mapBootstrapRouteKeys,
+      ...taggedProfileRouteKeys
     ];
     // Post delete affects the owner's profile counts + grid. In Locava v2, the deleter is expected
     // to be the owner, but we still defensively invalidate by parsed owner id when available.
-    const ownerUserId = tryParseProfileUserIdFromPostId(postId) ?? viewerId;
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
       ...[6, 12, 18].map((previewLimit) =>
@@ -213,7 +218,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         visibilityRouteCacheKeys.length +
         collectionsRouteKeys.length +
         mapBootstrapRouteKeys.length +
-        profileRouteKeys.length
+        profileRouteKeys.length +
+        taggedProfileRouteKeys.length
     });
     return {
       mutationType: input.mutationType,
@@ -229,6 +235,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         "profile.header",
         "profile.grid_preview",
         "profile.grid_page",
+        "route.profile_tagged",
         "route.map_bootstrap",
         "route.map_markers",
         ...(collectionsRouteKeys.length > 0 ? ["route.collections_saved"] : [])
@@ -256,9 +263,13 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     const visibilityRouteCacheKeys = derivePostingVisibilityRouteKeys(viewerId);
     await Promise.all(visibilityRouteCacheKeys.map((key) => globalCache.del(key)));
     const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);
+    const ownerUserId = tryParseProfileUserIdFromPostId(postId) ?? viewerId;
+    const taggedProfileRouteKeys = await invalidateRouteCacheByTags([
+      `route:profile.bootstrap:${ownerUserId}`,
+      `route:profile.grid:${ownerUserId}`,
+    ]);
     const invalidatedKeys = [...entityKeys, ...targetedRouteCacheKeys, ...visibilityRouteCacheKeys, ...mapBootstrapRouteKeys];
     // Posting completion creates a new post for the owner, changing profile counts + grid.
-    const ownerUserId = tryParseProfileUserIdFromPostId(postId) ?? viewerId;
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
       ...[6, 12, 18].map((previewLimit) =>
@@ -269,13 +280,19 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       )
     ];
     await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));
-    invalidatedKeys.push(...profileRouteKeys);
+    invalidatedKeys.push(...profileRouteKeys, ...taggedProfileRouteKeys);
     const searchHomeKey = searchHomeV1CacheKeys.homeFull(viewerId);
     await globalCache.del(searchHomeKey);
     invalidatedKeys.push(searchHomeKey);
     recordInvalidation(input.mutationType, {
       entityKeyCount: entityKeys.length,
-      routeKeyCount: targetedRouteCacheKeys.length + visibilityRouteCacheKeys.length + mapBootstrapRouteKeys.length + profileRouteKeys.length + 1
+      routeKeyCount:
+        targetedRouteCacheKeys.length +
+        visibilityRouteCacheKeys.length +
+        mapBootstrapRouteKeys.length +
+        profileRouteKeys.length +
+        taggedProfileRouteKeys.length +
+        1
     });
     return {
       mutationType: input.mutationType,
@@ -291,6 +308,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         "profile.header",
         "profile.grid_preview",
         "profile.grid_page",
+        "route.profile_tagged",
         "route.map_bootstrap",
         "route.map_markers",
         "search.home_bootstrap.v1"
@@ -422,6 +440,13 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
   const selfBootstrapKeys = [6, 12, 18].map((previewLimit) =>
     buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, viewerId, String(previewLimit)])
   );
+  const taggedProfileRouteKeys = await invalidateRouteCacheByTags([
+    `route:profile.bootstrap:${userId}`,
+    `route:profile.bootstrap:${viewerId}`,
+    `route:profile.grid:${userId}`,
+    `route:profile.relationship:${userId}`,
+    `route:profile.collections:${userId}`,
+  ]);
   await deleteEntityCacheKeys(baseKeys);
   const searchHomeKey = searchHomeV1CacheKeys.homeFull(viewerId);
   await Promise.all(
@@ -434,6 +459,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       ...relationshipKeys,
       ...bootstrapKeys,
       ...selfBootstrapKeys,
+      ...taggedProfileRouteKeys,
       searchHomeKey,
     ].map((key) => globalCache.del(key))
   );
@@ -451,6 +477,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     ...relationshipKeys,
     ...bootstrapKeys,
     ...selfBootstrapKeys,
+    ...taggedProfileRouteKeys,
     searchHomeKey,
   ];
   recordInvalidation(input.mutationType, {
@@ -461,10 +488,11 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       selfGridPreviewKeys.length +
       profileGridPageStartKeys.length +
       selfGridPageStartKeys.length +
-      relationshipKeys.length +
-      bootstrapKeys.length +
-      selfBootstrapKeys.length +
-      1
+        relationshipKeys.length +
+        bootstrapKeys.length +
+        selfBootstrapKeys.length +
+        taggedProfileRouteKeys.length +
+        1
   });
   return {
     mutationType: input.mutationType,
@@ -477,6 +505,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       "profile.grid_page",
       "profile.relationship",
       "route.profile_bootstrap",
+      "route.profile_tagged",
       "search.home_bootstrap.v1"
     ],
     invalidatedKeys

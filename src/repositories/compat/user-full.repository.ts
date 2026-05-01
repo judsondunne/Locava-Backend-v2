@@ -16,6 +16,7 @@ export class CompatUserFullRepository {
     followersCount: number;
     followingCount: number;
     lastLoginAt: number;
+    primaryGroup: Record<string, unknown> | null;
   }> {
     const db = this.requireDb();
     const snap = await db.collection("users").doc(userId).get();
@@ -36,7 +37,10 @@ export class CompatUserFullRepository {
       followersCount,
       followingCount,
       lastLoginAt,
+      primaryGroup:
+        data.primaryGroup && typeof data.primaryGroup === "object"
+          ? (data.primaryGroup as Record<string, unknown>)
+          : null,
     };
   }
 }
-

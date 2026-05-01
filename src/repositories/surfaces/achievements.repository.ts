@@ -1,5 +1,6 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { globalCache } from "../../cache/global-cache.js";
+import { invalidateRouteCacheByTags } from "../../cache/route-cache-index.js";
 import { buildCacheKey } from "../../cache/types.js";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { scheduleBackgroundWork } from "../../lib/background-work.js";
@@ -2947,6 +2948,10 @@ export class AchievementsRepository {
       });
     }
     await Promise.all([...new Set(keys)].map((key) => globalCache.del(key)));
+    await invalidateRouteCacheByTags([
+      `route:profile.achievements:${viewerId}`,
+      `route:profile.bootstrap:${viewerId}`,
+    ]).catch(() => []);
   }
 
   private async clearScreenOpenedCaches(viewerId: string): Promise<void> {

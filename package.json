@@ -41,6 +41,7 @@
     "debug:full-app:v2-audit": "tsx scripts/debug-full-app-v2-audit.mts",
     "debug:search:v2-parity": "tsx scripts/debug-search-v2-parity-long-run.mts",
     "debug:real-user:v2-semantics": "tsx scripts/debug-real-user-v2-semantics.mts",
+    "debug:profile": "tsx scripts/debug-profile.mts",
     "audit:native-actions": "tsx scripts/audit-native-action-coverage.mts",
     "audit:native-feature-parity": "tsx scripts/audit-native-feature-parity.mts",
     "audit:native-action-tests": "tsx scripts/audit-native-action-tests.mts",

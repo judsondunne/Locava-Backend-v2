@@ -704,9 +704,14 @@ export class FeedRepository {
     return mergeBundleIntoFeedCard(viewerId, shell, bundle);
   }
 
-  async getPostCardSummariesByPostIds(viewerId: string, postIds: string[]): Promise<FeedBootstrapCandidateRecord[]> {
+  async getPostCardSummariesByPostIds(
+    viewerId: string,
+    postIds: string[],
+    options?: { hydrateAuthors?: boolean }
+  ): Promise<FeedBootstrapCandidateRecord[]> {
     const uniqueIds = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
     if (uniqueIds.length === 0) return [];
+    const hydrateAuthors = options?.hydrateAuthors !== false;
     if (this.firestoreAdapter.isEnabled()) {
       try {
         const page = await this.firestoreAdapter.getCandidatesByPostIds(uniqueIds);
@@ -717,7 +722,7 @@ export class FeedRepository {
           .map((postId) => byId.get(postId))
           .filter((item): item is NonNullable<typeof item> => item !== undefined)
           .map((item) => buildFeedCardShell(viewerId, item));
-        return await this.hydrateCardAuthors(shells);
+        return hydrateAuthors ? await this.hydrateCardAuthors(shells) : shells;
       } catch (error) {
         if (error instanceof Error && error.message.includes("_timeout")) {
           recordTimeout("feed_card_batch_firestore");

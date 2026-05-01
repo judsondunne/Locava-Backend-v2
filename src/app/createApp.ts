@@ -75,6 +75,7 @@ import { registerV2ChatsManageRoutes } from "../routes/v2/chats-manage.routes.js
 import { registerV2ChatsMessageReactionRoutes } from "../routes/v2/chats-message-reaction.routes.js";
 import { registerV2UsersLastActiveRoutes } from "../routes/v2/users-last-active.routes.js";
 import { registerV2GroupsRoutes } from "../routes/v2/groups.routes.js";
+import { registerV2InvitesRoutes } from "../routes/v2/invites.routes.js";
 import { registerLegacyApiStubRoutes } from "../routes/compat/legacy-api-stubs.routes.js";
 import { registerLaunchCompatRoutes } from "../routes/compat/launch-compat.routes.js";
 import { registerLegacyMonolithProductProxyRoutes } from "../routes/compat/legacy-monolith-product-proxy.routes.js";
@@ -113,6 +114,7 @@ import { registerV2SocialContactsSyncRoutes } from "../routes/v2/social-contacts
 import { registerV2UsersSuggestedRoutes } from "../routes/v2/users-suggested.routes.js";
 import { registerLocalDebugRoutes } from "../routes/debug/local-debug.routes.js";
 import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-firestore-probe.routes.js";
+import { registerPublicExpoPushRoutes } from "../routes/public/expo-push.routes.js";
 import { SourceOfTruthRequiredError } from "../repositories/source-of-truth/strict-mode.js";
 import {
   getFirestoreAdminIdentity,
@@ -493,6 +495,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2ChatsManageRoutes);
   app.register(registerV2ChatsMessageReactionRoutes);
   app.register(registerV2GroupsRoutes);
+  app.register(registerV2InvitesRoutes);
   app.register(registerLaunchCompatRoutes);
   if (env.ENABLE_LEGACY_COMPAT_ROUTES) {
     app.register(async (instance) => {
@@ -540,6 +543,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerInternalOpsRoutes);
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerAdminRoutes);
+  app.register(registerPublicExpoPushRoutes);
   if (isLocalDevIdentityModeEnabled()) {
     app.register(registerLocalDebugRoutes);
     app.register(registerPublicFirestoreProbeRoutes);

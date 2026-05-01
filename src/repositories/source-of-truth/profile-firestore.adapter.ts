@@ -2,7 +2,7 @@ import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import { entityCacheKeys, getOrSetEntityCache } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
-import { mapPostDocToGridPreview, readOrderMillisFromSnapshot } from "./post-firestore-projection.js";
+import { mapPostDocToGridPreview, readMaybeMillis, readOrderMillisFromSnapshot } from "./post-firestore-projection.js";
 import type { UserDiscoveryRow } from "../../contracts/entities/user-discovery-entities.contract.js";
 
 export type FirestoreProfileHeader = {
@@ -10,7 +10,12 @@ export type FirestoreProfileHeader = {
   handle: string;
   name: string;
   profilePic: string | null;
+  profilePicSmallPath?: string | null;
+  profilePicLargePath?: string | null;
+  profilePicSource?: string | null;
   bio?: string;
+  updatedAtMs?: number | null;
+  profileVersion?: string | null;
   counts: {
     posts: number;
     followers: number;
@@ -47,6 +52,7 @@ type ProfileUserDoc = {
   name?: string;
   displayName?: string;
   profilePicPath?: string;
+  profilePicLargePath?: string;
   profilePicLarge?: string;
   profilePic?: string;
   profilePicture?: string;
@@ -56,6 +62,8 @@ type ProfileUserDoc = {
   photoURL?: string;
   avatarUrl?: string;
   bio?: string;
+  updatedAt?: unknown;
+  profileVersion?: unknown;
   postCount?: number;
   postsCount?: number;
   numPosts?: number;
@@ -65,8 +73,6 @@ type ProfileUserDoc = {
   followingCount?: number;
   postCountVerifiedAtMs?: number;
   postCountVerifiedValue?: number;
-  followers?: unknown[];
-  following?: unknown[];
   stats?: {
     posts?: unknown;
     totalPosts?: unknown;
@@ -85,14 +91,18 @@ export class ProfileFirestoreAdapter {
     "name",
     "displayName",
     "profilePicPath",
+    "profilePicLargePath",
     "profilePicLarge",
     "profilePic",
     "profilePicture",
+    "profilePicSmallPath",
     "profilePicSmall",
     "photo",
     "photoURL",
     "avatarUrl",
     "bio",
+    "updatedAt",
+    "profileVersion",
     "postCount",
     "postsCount",
     "numPosts",
@@ -102,8 +112,6 @@ export class ProfileFirestoreAdapter {
     "followerCount",
     "followersCount",
     "followingCount",
-    "followers",
-    "following",
     "stats"
   ] as const;
   private static readonly postCountVerificationInFlight = new Set<string>();
@@ -132,7 +140,7 @@ export class ProfileFirestoreAdapter {
         userId,
         handle: String(data.handle ?? "").replace(/^@+/, ""),
         displayName: String(data.name ?? data.displayName ?? "").trim() || null,
-        profilePic: pickPic(data),
+        profilePic: resolveProfilePicture(data).url,
         isFollowing: undefined
       });
     }
@@ -220,6 +228,14 @@ export class ProfileFirestoreAdapter {
 
   async getProfileHeader(userId: string): Promise<{ data: FirestoreProfileHeader; queryCount: number; readCount: number }> {
     if (!this.db) throw new Error("firestore_source_unavailable");
+    const cachedSummary = await globalCache.get<FirestoreProfileHeader>(entityCacheKeys.userSummary(userId));
+    if (cachedSummary !== undefined) {
+      return {
+        data: cachedSummary,
+        queryCount: 0,
+        readCount: 0,
+      };
+    }
     const cachedData = await globalCache.get<ProfileUserDoc>(entityCacheKeys.userFirestoreDoc(userId));
     let baseQueryCount = 0;
     let baseReadCount = 0;
@@ -265,19 +281,30 @@ export class ProfileFirestoreAdapter {
       this.getFollowCounts(userId, data),
       this.countPostsByUser(userId, embeddedPostCount, data.postCountVerifiedAtMs, verifiedPostCount ?? undefined)
     ]);
+    const picture = resolveProfilePicture(data);
+    const summary: FirestoreProfileHeader = {
+      userId,
+      handle: String(data.handle ?? "").replace(/^@+/, ""),
+      name: String(data.name ?? data.displayName ?? "").trim(),
+      profilePic: picture.url,
+      profilePicSmallPath: picture.profilePicSmallPath,
+      profilePicLargePath: picture.profilePicLargePath,
+      profilePicSource: picture.source,
+      bio: typeof data.bio === "string" ? data.bio : undefined,
+      updatedAtMs: readMaybeMillis(data.updatedAt),
+      profileVersion:
+        typeof data.profileVersion === "string" && data.profileVersion.trim().length > 0
+          ? data.profileVersion.trim()
+          : null,
+      counts: {
+        posts: postCount.count ?? embeddedPostCount,
+        followers: followCounts.followersCount,
+        following: followCounts.followingCount
+      }
+    };
+    void globalCache.set(entityCacheKeys.userSummary(userId), summary, 30_000).catch(() => undefined);
     return {
-      data: {
-        userId,
-        handle: String(data.handle ?? "").replace(/^@+/, ""),
-        name: String(data.name ?? data.displayName ?? "").trim(),
-        profilePic: pickPic(data),
-        bio: typeof data.bio === "string" ? data.bio : undefined,
-        counts: {
-          posts: postCount.count ?? embeddedPostCount,
-          followers: followCounts.followersCount,
-          following: followCounts.followingCount
-        }
-      },
+      data: summary,
       queryCount: baseQueryCount + followCounts.queryCount + postCount.queryCount,
       readCount: baseReadCount + followCounts.readCount + postCount.readCount
     };
@@ -641,8 +668,8 @@ export class ProfileFirestoreAdapter {
         "deleted",
         "isDeleted"
       )
-      // Over-fetch to allow server-side filtering of tombstoned posts while still returning a full page.
-      .limit(Math.min(80, safeLimit + 1 + 18));
+      // Small bounded over-fetch allows skipping tombstoned rows without exploding reads for heavy profiles.
+      .limit(Math.min(32, safeLimit + 1 + 4));
 
     if (cursor.mode === "stable_after") {
       const orderValue =
@@ -770,8 +797,55 @@ function encodeStableGridCursor(orderMs: number, postId: string, rawOrder: unkno
   return `pgrid:v1:${Buffer.from(payload, "utf8").toString("base64url")}`;
 }
 
+export function resolveProfilePicture(data: {
+  profilePicPath?: string;
+  profilePicLargePath?: string;
+  profilePicLarge?: string;
+  profilePic?: string;
+  profilePicture?: string;
+  profilePicSmallPath?: string;
+  profilePicSmall?: string;
+  photo?: string;
+  photoURL?: string;
+  avatarUrl?: string;
+}): { url: string | null; source: string | null; profilePicSmallPath: string | null; profilePicLargePath: string | null } {
+  const candidates: Array<[string, unknown]> = [
+    ["profilePicLargePath", data.profilePicLargePath],
+    ["profilePicLarge", data.profilePicLarge],
+    ["profilePic", data.profilePic],
+    ["profilePicture", data.profilePicture],
+    ["profilePicPath", data.profilePicPath],
+    ["profilePicSmallPath", data.profilePicSmallPath],
+    ["profilePicSmall", data.profilePicSmall],
+    ["photoURL", data.photoURL],
+    ["photo", data.photo],
+    ["avatarUrl", data.avatarUrl],
+  ];
+  let selectedUrl: string | null = null;
+  let selectedSource: string | null = null;
+  for (const [source, raw] of candidates) {
+    const trimmed = typeof raw === "string" ? raw.trim() : "";
+    if (!trimmed) continue;
+    selectedUrl = trimmed;
+    selectedSource = source;
+    break;
+  }
+  const small = typeof data.profilePicSmallPath === "string" && data.profilePicSmallPath.trim()
+    ? data.profilePicSmallPath.trim()
+    : null;
+  const largeRaw = data.profilePicLargePath ?? data.profilePicLarge;
+  const large = typeof largeRaw === "string" && largeRaw.trim() ? largeRaw.trim() : null;
+  return {
+    url: selectedUrl,
+    source: selectedSource,
+    profilePicSmallPath: small,
+    profilePicLargePath: large,
+  };
+}
+
 function pickPic(data: {
   profilePicPath?: string;
+  profilePicLargePath?: string;
   profilePicLarge?: string;
   profilePic?: string;
   profilePicture?: string;
@@ -781,19 +855,7 @@ function pickPic(data: {
   photoURL?: string;
   avatarUrl?: string;
 }): string | null {
-  const raw =
-    data.profilePicLarge ??
-    data.profilePic ??
-    data.profilePicture ??
-    data.profilePicPath ??
-    data.profilePicSmallPath ??
-    data.profilePicSmall ??
-    data.photo ??
-    data.photoURL ??
-    data.avatarUrl ??
-    null;
-  const trimmed = typeof raw === "string" ? raw.trim() : "";
-  return trimmed.length > 0 ? trimmed : null;
+  return resolveProfilePicture(data).url;
 }
 
 function pickCount(nested: number | undefined, flat: number | undefined): number {

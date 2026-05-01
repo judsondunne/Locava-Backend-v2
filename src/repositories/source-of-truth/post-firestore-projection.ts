@@ -1,5 +1,4 @@
 import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
-import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 
 /**
  * Maps legacy / normalized Backendv2 projection fields and real Locava post documents
@@ -51,7 +50,8 @@ export function readPostThumbUrl(data: Record<string, unknown>, postId: string):
     const u = a0.downloadURL ?? a0.url ?? a0.poster;
     if (typeof u === "string" && u.trim()) return u.trim();
   }
-  return `https://picsum.photos/seed/${encodeURIComponent(postId)}/500/888`;
+  void postId;
+  return "";
 }
 
 export function inferPostMediaType(data: Record<string, unknown>): "image" | "video" {
@@ -83,11 +83,31 @@ export function readAspectRatio(data: Record<string, unknown>): number | undefin
   return undefined;
 }
 
+function readPositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const items = value.map((entry) => readString(entry)).filter((entry): entry is string => Boolean(entry));
+  return items.length > 0 ? items : undefined;
+}
+
 export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
   postId: string;
   thumbUrl: string;
   mediaType: "image" | "video";
   aspectRatio?: number;
+  width?: number;
+  height?: number;
+  dominantColor?: string;
+  dominantGradient?: string[];
+  title?: string;
+  locationLabel?: string;
   updatedAtMs: number;
   processing?: boolean;
   processingFailed?: boolean;
@@ -95,26 +115,20 @@ export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
   const data = doc.data() as Record<string, unknown>;
   const proc = inferPostProcessing(data);
   const ar = readAspectRatio(data);
-  const seed = {
+  return {
     postId: doc.id,
     thumbUrl: readPostThumbUrl(data, doc.id),
     mediaType: inferPostMediaType(data),
     aspectRatio: typeof ar === "number" && ar > 0 ? ar : 9 / 16,
+    width: readPositiveNumber(data.width),
+    height: readPositiveNumber(data.height),
+    dominantColor: readString(data.dominantColor ?? data.primaryColor ?? data.thumbDominantColor),
+    dominantGradient: readStringArray(data.dominantGradient ?? data.thumbGradient),
+    title: readString(data.title ?? data.captionTitle ?? data.placeName),
+    locationLabel: readString(data.locationLabel ?? data.placeName ?? data.address),
     updatedAtMs: readPostDisplayMillis(data),
     processing: proc.processing,
-    processingFailed: proc.processingFailed
-  };
-  return {
-    ...seed,
-    ...(buildPostEnvelope({
-      postId: doc.id,
-      seed,
-      sourcePost: data,
-      rawPost: data,
-      hydrationLevel: "card",
-      sourceRoute: "profile.grid",
-      debugSource: "mapPostDocToGridPreview",
-    }) as Record<string, unknown>),
+    processingFailed: proc.processingFailed,
   };
 }
 

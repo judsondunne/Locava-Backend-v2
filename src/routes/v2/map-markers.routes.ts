@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { globalCache } from "../../cache/global-cache.js";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { loadEnv } from "../../config/env.js";
+import { toMapMarkerCompactDTO } from "../../dto/compact-surface-dto.js";
 import { failure, success } from "../../lib/response.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { setRouteName, recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
@@ -71,8 +72,9 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     const cacheKeyBase = ownerId
       ? `map:markers:v2:owner:${includeNonPublic ? "self" : "public"}:${ownerId}`
       : "map:markers:v2:all";
-    const cacheKey =
+    const cacheKeyRoot =
       ownerId || !hasExplicitLimit || limit >= maxDocs ? cacheKeyBase : `${cacheKeyBase}:${limit}`;
+    const cacheKey = `${cacheKeyRoot}:payload:${payloadMode}`;
     const ifNoneMatch = request.headers["if-none-match"];
     const cached = await globalCache.get<MapMarkersResponse>(cacheKey);
     if (cached) {
@@ -96,24 +98,25 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
         : await adapter.fetchAll({ maxDocs: limit });
 	      const markers =
 	        payloadMode === "compact"
-	          ? dataset.markers.map((marker) => ({
-              id: marker.id,
-              postId: marker.postId,
-              lat: marker.lat,
-              lng: marker.lng,
-              activity: marker.activity ?? null,
-              activities: Array.isArray(marker.activities) ? marker.activities : [],
-              createdAt: marker.createdAt ?? null,
-              updatedAt: marker.updatedAt ?? null,
-              visibility: marker.visibility ?? null,
-              ownerId: marker.ownerId ?? null,
-              thumbnailUrl: marker.thumbnailUrl ?? null,
-              thumbKey: marker.thumbKey ?? null,
-              followedUserPic: marker.followedUserPic ?? null,
-              hasPhoto: marker.hasPhoto,
-              hasVideo: marker.hasVideo,
-	              openPayload: ensureMarkerOpenPayload(marker as Record<string, unknown>),
-	            }))
+	          ? dataset.markers.map((marker) =>
+              toMapMarkerCompactDTO({
+                id: marker.id,
+                postId: marker.postId,
+                lat: marker.lat,
+                lng: marker.lng,
+                activity: marker.activity ?? null,
+                activities: Array.isArray(marker.activities) ? marker.activities : [],
+                createdAt: marker.createdAt ?? null,
+                updatedAt: marker.updatedAt ?? null,
+                visibility: marker.visibility ?? null,
+                ownerId: marker.ownerId ?? null,
+                thumbnailUrl: marker.thumbnailUrl ?? null,
+                thumbKey: marker.thumbKey ?? null,
+                followedUserPic: marker.followedUserPic ?? null,
+                hasPhoto: marker.hasPhoto,
+                hasVideo: marker.hasVideo,
+              })
+            )
 	          : dataset.markers.map((marker) => ({
 	              ...marker,
 	              openPayload: ensureMarkerOpenPayload(marker as Record<string, unknown>),

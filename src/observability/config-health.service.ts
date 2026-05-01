@@ -70,12 +70,15 @@ export function getConfigHealthSnapshot(env: AppEnv): ConfigHealthSnapshot {
       detail: env.INTERNAL_DASHBOARD_TOKEN
         ? "Dashboard token protection is enabled."
         : env.NODE_ENV === "production"
-          ? "Dashboard is public because INTERNAL_DASHBOARD_TOKEN is not set."
-          : "Dashboard access is open because INTERNAL_DASHBOARD_TOKEN is not set."
+          ? "Missing INTERNAL_DASHBOARD_TOKEN in production."
+          : "Local mode currently allows dashboard access without a token."
     }
   ];
 
   const warnings: string[] = [];
+  if (env.NODE_ENV === "production" && !env.INTERNAL_DASHBOARD_TOKEN) {
+    warnings.push("Production is missing INTERNAL_DASHBOARD_TOKEN.");
+  }
   if (env.NODE_ENV === "production" && env.ALLOW_PUBLIC_POSTING_TEST) {
     warnings.push("ALLOW_PUBLIC_POSTING_TEST is enabled in production.");
   }

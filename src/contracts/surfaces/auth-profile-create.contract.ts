@@ -15,11 +15,14 @@ export const AuthProfileCreateBodySchema = z.object({
   handle: z.string().trim().min(1).max(40).optional(),
   relationshipRef: z.string().optional(),
   branchData: z.record(z.unknown()).nullable().optional(),
+  expoPushToken: z.string().trim().min(1).optional(),
+  pushToken: z.string().trim().min(1).optional(),
+  pushTokenPlatform: z.string().trim().min(1).optional(),
   oauthInfo: z
     .object({
       provider: z.enum(["google", "apple"]),
       providerId: z.string().min(1),
-      email: z.string().trim().email(),
+      email: z.string().trim().email().optional(),
       displayName: z.string().optional()
     })
     .optional()

@@ -13,6 +13,13 @@ export const routeContracts: RouteContract[] = [
   { method: "GET", path: "/version", description: "Service version", tags: ["system"] },
   { method: "GET", path: "/diagnostics", description: "Diagnostics and recent metrics", tags: ["observability"], querySchema: { limit: "number (1-200)" } },
   { method: "GET", path: "/routes", description: "Route manifest", tags: ["observability"] },
+  {
+    method: "POST",
+    path: "/api/public/expo-push",
+    description: "Temporary public Expo push relay for QA/manual validation",
+    tags: ["public", "notifications"],
+    bodySchema: { to: "ExponentPushToken[...] required", title: "string optional", body: "string required", data: "object optional" }
+  },
   { method: "GET", path: "/internal/health-dashboard", description: "Internal HTML health dashboard", tags: ["internal", "observability"] },
   { method: "GET", path: "/internal/health-dashboard/data", description: "Internal JSON health dashboard data", tags: ["internal", "observability"] },
   { method: "GET", path: "/test/ping", description: "Basic ping", tags: ["test"] },
@@ -63,13 +70,28 @@ export const routeContracts: RouteContract[] = [
     path: "/v2/auth/profile",
     description: "V2 create/update onboarding profile",
     tags: ["v2", "auth"],
-    bodySchema: { userId: "string required", name: "string required", age: "number required", handle: "string optional" }
+    bodySchema: {
+      userId: "string required",
+      name: "string required",
+      age: "number required",
+      handle: "string optional",
+      expoPushToken: "ExponentPushToken[...] optional",
+      pushToken: "string optional",
+      pushTokenPlatform: "ios|android optional"
+    }
   },
   {
     method: "POST",
     path: "/v2/auth/profile/branch",
     description: "V2 merge branch/deferred deep-link payload",
     tags: ["v2", "auth"],
+    bodySchema: { branchData: "object required" }
+  },
+  {
+    method: "POST",
+    path: "/v2/invites/resolve",
+    description: "Resolve Branch invite payload into inviter/group metadata",
+    tags: ["v2", "invites"],
     bodySchema: { branchData: "object required" }
   },
   { method: "GET", path: "/v2/bootstrap", description: "V2 bootstrap surface", tags: ["v2", "bootstrap"], querySchema: { debugSlowDeferredMs: "number (0-2000) optional" } },
@@ -176,6 +198,52 @@ export const routeContracts: RouteContract[] = [
     tags: ["v2", "users", "chats"]
   },
   {
+    method: "GET",
+    path: "/v2/groups",
+    description: "V2 groups directory/list surface",
+    tags: ["v2", "groups"],
+    querySchema: { limit: "number (1-80) optional", q: "string (0-80) optional" }
+  },
+  {
+    method: "POST",
+    path: "/v2/groups",
+    description: "V2 create group mutation",
+    tags: ["v2", "groups", "mutation"],
+    bodySchema: { name: "string required", bio: "string optional", photoUrl: "url|null optional", college: "{enabled:boolean,eduEmailDomain:string}|null optional" }
+  },
+  { method: "GET", path: "/v2/groups/:groupId", description: "V2 group detail surface", tags: ["v2", "groups"] },
+  {
+    method: "PATCH",
+    path: "/v2/groups/:groupId",
+    description: "V2 update group mutation",
+    tags: ["v2", "groups", "mutation"],
+    bodySchema: { name: "string optional", bio: "string optional", photoUrl: "url|null optional", joinMode: "open|private optional", isPublic: "boolean optional", college: "{enabled:boolean,eduEmailDomain:string}|null optional" }
+  },
+  { method: "POST", path: "/v2/groups/:groupId/join", description: "V2 join group mutation", tags: ["v2", "groups", "mutation"] },
+  {
+    method: "POST",
+    path: "/v2/groups/:groupId/verify-college",
+    description: "V2 verify college email and join group",
+    tags: ["v2", "groups", "mutation"],
+    bodySchema: { email: "email required", method: "email_entry|google optional" }
+  },
+  {
+    method: "POST",
+    path: "/v2/groups/:groupId/members",
+    description: "V2 add group member mutation",
+    tags: ["v2", "groups", "mutation"],
+    bodySchema: { memberId: "string required" }
+  },
+  {
+    method: "POST",
+    path: "/v2/groups/:groupId/invitations",
+    description: "V2 create group invitations mutation",
+    tags: ["v2", "groups", "mutation"],
+    bodySchema: { memberIds: "string[] required" }
+  },
+  { method: "DELETE", path: "/v2/groups/:groupId/members/:memberId", description: "V2 remove group member mutation", tags: ["v2", "groups", "mutation"] },
+  { method: "GET", path: "/v2/groups/:groupId/share-link", description: "V2 ensure group Branch share link", tags: ["v2", "groups"] },
+  {
     method: "POST",
     path: "/v2/posting/upload-session",
     description: "V2 posting/upload session creation",
@@ -255,7 +323,11 @@ export const routeContracts: RouteContract[] = [
     path: "/v2/posts/:postId/comments",
     description: "V2 create top-level comment mutation",
     tags: ["v2", "comments", "mutation"],
-    bodySchema: { text: "string (1-400) required", clientMutationKey: "string (8-128) optional" }
+    bodySchema: {
+      text: "string (0-400) optional when gif present",
+      gif: "{provider:giphy,gifId,previewUrl,...} optional when text present",
+      clientMutationKey: "string (8-128) optional"
+    }
   },
   {
     method: "POST",

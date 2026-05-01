@@ -20,10 +20,14 @@ describe("v2 map markers route", () => {
     await globalCache.del("map:markers:v1");
     await globalCache.del("map:markers:v2");
     await globalCache.del("map:markers:v2:all");
+    await globalCache.del("map:markers:v2:all:payload:compact");
+    await globalCache.del("map:markers:v2:all:payload:full");
     await globalCache.del("map:markers:v2:240");
     await globalCache.del("map:markers:v2:60");
     await globalCache.del("map:markers:v2:owner:public:u1");
+    await globalCache.del("map:markers:v2:owner:public:u1:payload:compact");
     await globalCache.del("map:markers:v2:owner:self:u1");
+    await globalCache.del("map:markers:v2:owner:self:u1:payload:compact");
   });
 
   it("defaults to the full marker universe cache key when no limit is provided", async () => {
@@ -132,11 +136,9 @@ describe("v2 map markers route", () => {
     expect(data.markers[0].lat).toBe(40.7);
     expect(data.markers[0].activity).toBe("hike");
     expect(data.markers[0].activities).toEqual(["hike"]);
-    expect(data.markers[0].ownerId).toBe("u1");
+    expect(data.markers[0].ownerId).toBeUndefined();
     expect(data.markers[0].thumbnailUrl).toBe("https://cdn/p1.jpg");
-    expect(data.markers[0].openPayload?.postId).toBe("p1");
-    expect(Array.isArray(data.markers[0].openPayload?.assets)).toBe(true);
-    expect(data.markers[0].openPayload?.hydrationLevel).toBe("marker");
+    expect(data.markers[0].openPayload).toBeUndefined();
     expect(data.markers[0].description).toBeUndefined();
     expect(data.markers[0].comments).toBeUndefined();
     expect(data.diagnostics.payloadMode).toBe("compact");
@@ -180,6 +182,44 @@ describe("v2 map markers route", () => {
     expect(data.markers[0].thumbnailUrl).toBe("https://cdn/p1.jpg");
     expect(data.markers[0].openPayload?.postId).toBe("p1");
     expect(data.diagnostics.payloadMode).toBe("full");
+  });
+
+  it("keeps compact marker payloads under budget for large marker sets", async () => {
+    fetchAllMock.mockResolvedValue({
+      markers: Array.from({ length: 1602 }, (_, index) => ({
+        id: `p${index + 1}`,
+        postId: `p${index + 1}`,
+        lat: 40.7 + index * 0.0001,
+        lng: -74 + index * 0.0001,
+        activity: index % 2 === 0 ? "hike" : "waterfall",
+        activities: ["hike", "waterfall"],
+        title: `Marker ${index + 1}`,
+        createdAt: 1_700_000_000_000 + index,
+        visibility: "public",
+        ownerId: `u${(index % 40) + 1}`,
+        thumbnailUrl: `https://cdn/p${index + 1}.jpg`,
+        hasPhoto: true,
+        hasVideo: index % 5 === 0,
+      })),
+      count: 1602,
+      generatedAt: 123,
+      version: "map-markers-v2",
+      etag: "\"big\"",
+      queryCount: 1,
+      readCount: 0,
+      invalidCoordinateDrops: 0,
+    });
+    const { createApp } = await import("../../app/createApp.js");
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v2/map/markers?payloadMode=compact",
+      headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" }
+    });
+    expect(response.statusCode).toBe(200);
+    expect(Buffer.byteLength(response.body, "utf8")).toBeLessThan(500_000);
+    const data = response.json().data;
+    expect(data.markers[0].openPayload).toBeUndefined();
   });
 
   it("returns 304 when etag matches", async () => {

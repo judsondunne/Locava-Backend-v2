@@ -1,7 +1,7 @@
 import { createApp } from "../src/app/createApp.js";
 
 async function main(): Promise<void> {
-  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", INTERNAL_DASHBOARD_TOKEN: undefined });
   try {
     const html = await app.inject({ method: "GET", url: "/internal/health-dashboard" });
     if (html.statusCode !== 200 || !html.headers["content-type"]?.includes("text/html")) {

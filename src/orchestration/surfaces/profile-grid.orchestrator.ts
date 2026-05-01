@@ -1,7 +1,8 @@
 import { buildCacheKey } from "../../cache/types.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { registerRouteCacheKey } from "../../cache/route-cache-index.js";
 import type { ProfileGridResponse } from "../../contracts/surfaces/profile-grid.contract.js";
-import { recordCacheHit, recordCacheMiss, recordFallback } from "../../observability/request-context.js";
+import { getRequestContext, recordCacheHit, recordCacheMiss, recordFallback } from "../../observability/request-context.js";
 import type { ProfileService } from "../../services/surfaces/profile.service.js";
 
 export class ProfileGridOrchestrator {
@@ -41,10 +42,33 @@ export class ProfileGridOrchestrator {
       },
       items: page.items,
       degraded: fallbacks.length > 0,
-      fallbacks
+      fallbacks,
+      debug:
+        process.env.NODE_ENV === "production"
+          ? undefined
+          : {
+              timingsMs: {},
+              counts: {
+                grid: page.items.length,
+                collections: 0,
+                achievements: 0,
+              },
+              profilePicSource: null,
+              dbOps: getRequestContext()
+                ? {
+                    reads: getRequestContext()!.dbOps.reads,
+                    writes: getRequestContext()!.dbOps.writes,
+                    queries: getRequestContext()!.dbOps.queries,
+                  }
+                : undefined,
+            }
     };
 
     void globalCache.set(pageCacheKey, response, 10_000).catch(() => undefined);
+    void registerRouteCacheKey(pageCacheKey, [
+      `route:profile.grid:${userId}`,
+      `route:profile.grid:${userId}:${viewerId}`,
+    ]).catch(() => undefined);
     return response;
   }
 }

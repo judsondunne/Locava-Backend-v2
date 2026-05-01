@@ -1,6 +1,69 @@
 import { mixCache } from "../cache/mixCache.js";
 import { SearchMixesServiceV2 } from "../services/mixes/v2/searchMixes.service.js";
-import { buildPostEnvelope } from "../lib/posts/post-envelope.js";
+import { toSearchMixPreviewDTO } from "../dto/compact-surface-dto.js";
+
+function cleanString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function cleanNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function cleanStringArray(value: unknown, max = 4): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean)
+    .slice(0, max);
+}
+
+function toCompactSeedAsset(row: Record<string, unknown>) {
+  const firstAsset =
+    Array.isArray(row.assets) && row.assets[0] && typeof row.assets[0] === "object"
+      ? (row.assets[0] as Record<string, unknown>)
+      : null;
+  const mediaType: "image" | "video" =
+    String(row.mediaType ?? "").toLowerCase() === "video" ? "video" : "image";
+  const posterUrl =
+    cleanString(row.thumbUrl) ??
+    cleanString(row.displayPhotoLink) ??
+    cleanString(firstAsset?.posterUrl) ??
+    cleanString(firstAsset?.poster) ??
+    cleanString(firstAsset?.thumbnail) ??
+    "";
+  const previewUrl =
+    cleanString(firstAsset?.previewUrl) ??
+    cleanString(firstAsset?.thumbnail) ??
+    cleanString(firstAsset?.posterUrl) ??
+    cleanString(firstAsset?.poster) ??
+    cleanString(row.displayPhotoLink) ??
+    cleanString(row.thumbUrl);
+  const originalUrl =
+    cleanString(firstAsset?.originalUrl) ??
+    cleanString(firstAsset?.original) ??
+    cleanString(row.displayPhotoLink) ??
+    previewUrl;
+  const streamUrl =
+    cleanString(firstAsset?.streamUrl) ??
+    cleanString((firstAsset?.variants as Record<string, unknown> | undefined)?.hls);
+  const mp4Url =
+    cleanString(firstAsset?.mp4Url) ??
+    cleanString((firstAsset?.variants as Record<string, unknown> | undefined)?.main720Avc) ??
+    cleanString((firstAsset?.variants as Record<string, unknown> | undefined)?.main720) ??
+    cleanString(firstAsset?.original);
+  return {
+    type: mediaType,
+    posterUrl,
+    previewUrl,
+    originalUrl,
+    streamUrl,
+    mp4Url,
+    asset: firstAsset,
+  };
+}
 
 export class SearchMixesOrchestrator {
   private readonly v2 = new SearchMixesServiceV2();
@@ -15,6 +78,7 @@ export class SearchMixesOrchestrator {
     routeName: "search.mixes.bootstrap.get";
     mixes: Array<Record<string, unknown>>;
     scoringVersion: string;
+    debug?: Record<string, unknown>;
   }> {
     const scoringVersion = "mixes_v2";
     const cacheKey = `v2_search_mixes_bootstrap:${input.viewerId}:${input.lat ?? "_"}:${input.lng ?? "_"}:${input.limit}:${input.includeDebug ? "d" : "_"}`;
@@ -57,7 +121,12 @@ export class SearchMixesOrchestrator {
     }));
 
     mixCache.set(cacheKey, { mixes, scoringVersion }, 15_000);
-    return { routeName: "search.mixes.bootstrap.get", mixes, scoringVersion };
+    return {
+      routeName: "search.mixes.bootstrap.get",
+      mixes,
+      scoringVersion,
+      ...(input.includeDebug ? { debug: payload.debug ?? {} } : {}),
+    };
   }
 
   async feedPage(input: {
@@ -94,19 +163,60 @@ export class SearchMixesOrchestrator {
       mixId: input.mixId,
       mixType: payload.mixType,
       posts: payload.posts.map((row, index) =>
-        buildPostEnvelope({
+        (() => {
+          const compactAsset = toCompactSeedAsset(row as Record<string, unknown>);
+          return toSearchMixPreviewDTO({
           postId: String(row.postId ?? row.id ?? ""),
-          seed: {
-            ...row,
-            rankToken: `mix-${input.mixId}-${index + 1}`,
-          },
-          sourcePost: row,
-          rawPost: row,
-          hydrationLevel: "card",
-          sourceRoute: "search.mixes.feed",
           rankToken: `mix-${input.mixId}-${index + 1}`,
-          debugSource: "SearchMixesOrchestrator.feedPage",
-        }),
+          author: {
+            userId: String(row.userId ?? ""),
+            handle: String(row.userHandle ?? "").replace(/^@+/, "") || "unknown",
+            name: typeof row.userName === "string" ? row.userName : null,
+            pic: typeof row.userPic === "string" ? row.userPic : null,
+          },
+          title: typeof row.title === "string" ? row.title : typeof row.caption === "string" ? row.caption : null,
+          captionPreview: typeof row.caption === "string" ? row.caption : typeof row.title === "string" ? row.title : null,
+          activities: cleanStringArray(row.activities),
+          locationSummary: typeof row.address === "string" ? row.address : null,
+          address: typeof row.address === "string" ? row.address : null,
+          media: {
+            type: compactAsset.type,
+            posterUrl: compactAsset.posterUrl,
+            aspectRatio: cleanNumber(compactAsset.asset?.aspectRatio) ?? 1,
+            startupHint: compactAsset.type === "video" ? "poster_then_preview" : "poster_only",
+          },
+          geo: {
+            lat: typeof row.lat === "number" ? row.lat : null,
+            long: typeof row.lng === "number" ? row.lng : typeof row.long === "number" ? row.long : null,
+          },
+          assets: compactAsset.asset
+            ? [
+                {
+                  id: cleanString(compactAsset.asset.id) ?? `${String(row.postId ?? row.id ?? "")}-asset-1`,
+                  type: compactAsset.type,
+                  previewUrl: compactAsset.previewUrl,
+                  posterUrl: compactAsset.posterUrl || null,
+                  originalUrl: compactAsset.originalUrl,
+                  streamUrl: compactAsset.streamUrl,
+                  mp4Url: compactAsset.mp4Url,
+                  blurhash: cleanString(compactAsset.asset.blurhash),
+                  width: cleanNumber(compactAsset.asset.width),
+                  height: cleanNumber(compactAsset.asset.height),
+                  aspectRatio: cleanNumber(compactAsset.asset.aspectRatio),
+                  orientation: cleanString(compactAsset.asset.orientation),
+                },
+              ]
+            : [],
+          createdAtMs: typeof row.time === "number" ? row.time : Date.now(),
+          updatedAtMs: typeof row.updatedAtMs === "number" ? row.updatedAtMs : typeof row.time === "number" ? row.time : Date.now(),
+          social: {
+            likeCount: typeof row.likeCount === "number" ? row.likeCount : 0,
+            commentCount: typeof row.commentCount === "number" ? row.commentCount : 0,
+          },
+          viewer: { liked: false, saved: false },
+          firstAssetUrl: compactAsset.originalUrl ?? compactAsset.previewUrl ?? compactAsset.posterUrl ?? null,
+        });
+        })(),
       ),
       nextCursor: payload.nextCursor,
       hasMore: payload.hasMore,

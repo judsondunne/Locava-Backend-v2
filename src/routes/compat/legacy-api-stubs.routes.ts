@@ -951,6 +951,8 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       id: c.commentId,
       text: c.text,
       content: c.text,
+      gif: c.gif ?? null,
+      replyingTo: c.replyingTo ?? null,
       createdAtMs: c.createdAtMs,
       userId: author.userId,
       userName: author.name,
@@ -2601,12 +2603,41 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       const postId = encodeURIComponent(String(request.params.postId ?? ""));
       const raw = (request.body ?? {}) as Record<string, unknown>;
       const text = String(raw.text ?? raw.content ?? "").trim();
-      if (!text) {
-        return reply.status(400).send({ success: false, error: "text or content is required" });
+      const gif = raw.gif && typeof raw.gif === "object" ? (raw.gif as Record<string, unknown>) : null;
+      const normalizedGif =
+        gif &&
+        gif.provider === "giphy" &&
+        typeof gif.gifId === "string" &&
+        gif.gifId.trim() &&
+        typeof gif.previewUrl === "string" &&
+        gif.previewUrl.trim()
+          ? {
+              provider: "giphy" as const,
+              gifId: gif.gifId.trim(),
+              ...(typeof gif.title === "string" && gif.title.trim() ? { title: gif.title.trim() } : {}),
+              previewUrl: gif.previewUrl.trim(),
+              ...(typeof gif.fixedHeightUrl === "string" && gif.fixedHeightUrl.trim()
+                ? { fixedHeightUrl: gif.fixedHeightUrl.trim() }
+                : {}),
+              ...(typeof gif.mp4Url === "string" && gif.mp4Url.trim() ? { mp4Url: gif.mp4Url.trim() } : {}),
+              ...(typeof gif.width === "number" && Number.isFinite(gif.width) && gif.width > 0
+                ? { width: Math.floor(gif.width) }
+                : {}),
+              ...(typeof gif.height === "number" && Number.isFinite(gif.height) && gif.height > 0
+                ? { height: Math.floor(gif.height) }
+                : {}),
+              ...(typeof gif.originalUrl === "string" && gif.originalUrl.trim()
+                ? { originalUrl: gif.originalUrl.trim() }
+                : {})
+            }
+          : null;
+      if (!text && !normalizedGif) {
+        return reply.status(400).send({ success: false, error: "text, content, or gif is required" });
       }
       try {
         const v2 = await callV2PostOrThrow(`/v2/posts/${postId}/comments`, viewerId, "/api/v1/product/comments/:postId", {
-          text
+          text,
+          ...(normalizedGif ? { gif: normalizedGif } : {})
         });
         const comment = v2Data(v2).comment as Record<string, unknown> | undefined;
         return reply.send({ success: true, comment: comment ? mapV2CommentToLegacy(comment) : null });
@@ -2977,10 +3008,16 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
 
   app.get("/api/v1/product/groups", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
+    const q = typeof (request.query as { q?: unknown } | undefined)?.q === "string"
+      ? (request.query as { q?: string }).q!.trim()
+      : "";
     try {
-      const v2 = await callV2GetOrThrow(`/v2/groups?limit=30`, viewerId, "/api/v1/product/groups");
-      const items = (v2Data(v2).items as Array<Record<string, unknown>>) ?? [];
-      return reply.send({ success: true, groups: items });
+      const params = new URLSearchParams();
+      params.set("limit", "30");
+      if (q) params.set("q", q);
+      const v2 = await callV2GetOrThrow(`/v2/groups?${params.toString()}`, viewerId, "/api/v1/product/groups");
+      const groups = (v2Data(v2).groups as Array<Record<string, unknown>>) ?? [];
+      return reply.send({ success: true, groups });
     } catch (error) {
       return reply.status(503).send({
         success: false,
@@ -3003,8 +3040,12 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     if (v2.statusCode >= 400) {
       return reply.status(v2.statusCode).send({ success: false, error: compatErrorMessage(v2.payload) });
     }
-    const group = (v2Data(v2.payload).group as Record<string, unknown> | undefined) ?? {};
-    return reply.send({ success: true, group });
+    const payload = v2Data(v2.payload);
+    return reply.send({
+      success: true,
+      groupId: String(payload.groupId ?? ""),
+      chatId: typeof payload.chatId === "string" ? payload.chatId : null,
+    });
   });
   app.get<{ Params: { groupId: string } }>("/api/v1/product/groups/:groupId", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
@@ -3029,7 +3070,93 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     if (v2.statusCode >= 400) {
       return reply.status(v2.statusCode).send({ success: false, error: compatErrorMessage(v2.payload) });
     }
-    const group = (v2Data(v2.payload).group as Record<string, unknown> | undefined) ?? {};
-    return reply.send({ success: true, group });
+    const payload = v2Data(v2.payload);
+    return reply.send({
+      success: true,
+      group: (payload.group as Record<string, unknown> | undefined) ?? {},
+      chatId: typeof payload.chatId === "string" ? payload.chatId : null,
+      alreadyJoined: Boolean(payload.alreadyJoined),
+    });
+  });
+  app.patch<{ Params: { groupId: string }; Body: Record<string, unknown> }>("/api/v1/product/groups/:groupId", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const gid = encodeURIComponent(String(request.params.groupId ?? ""));
+    const raw = request.body ?? {};
+    const v2 = await callV2PatchWithStatus(`/v2/groups/${gid}`, viewerId, {
+      name: typeof raw.name === "string" ? raw.name : undefined,
+      bio: typeof raw.bio === "string" ? raw.bio : undefined,
+      photoUrl: typeof raw.photoUrl === "string" ? raw.photoUrl : null,
+      joinMode: raw.joinMode === "private" ? "private" : raw.joinMode === "open" ? "open" : undefined,
+      isPublic: typeof raw.isPublic === "boolean" ? raw.isPublic : undefined,
+      college: raw.college && typeof raw.college === "object" ? raw.college : undefined,
+    });
+    if (v2.statusCode >= 400) {
+      return reply.status(v2.statusCode).send({ success: false, error: compatErrorMessage(v2.payload) });
+    }
+    return reply.send({ success: true, groupId: String(v2Data(v2.payload).groupId ?? request.params.groupId) });
+  });
+  app.get<{ Params: { groupId: string } }>("/api/v1/product/groups/:groupId/share-link", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const gid = encodeURIComponent(String(request.params.groupId ?? ""));
+    const v2 = await callV2GetOrThrow(`/v2/groups/${gid}/share-link`, viewerId, "/api/v1/product/groups/:groupId/share-link");
+    return reply.send({ success: true, url: String(v2Data(v2).url ?? "") });
+  });
+  app.post<{ Params: { groupId: string }; Body: Record<string, unknown> }>("/api/v1/product/groups/:groupId/verify-college", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const gid = encodeURIComponent(String(request.params.groupId ?? ""));
+    const raw = request.body ?? {};
+    const v2 = await callV2PostWithStatus(`/v2/groups/${gid}/verify-college`, viewerId, {
+      email: typeof raw.email === "string" ? raw.email : "",
+      method: raw.method === "google" ? "google" : "email_entry",
+    });
+    if (v2.statusCode >= 400) {
+      return reply.status(v2.statusCode).send({ success: false, error: compatErrorMessage(v2.payload) });
+    }
+    const payload = v2Data(v2.payload);
+    return reply.send({
+      success: true,
+      group: (payload.group as Record<string, unknown> | undefined) ?? {},
+      chatId: typeof payload.chatId === "string" ? payload.chatId : null,
+      verifiedEmail: typeof payload.verifiedEmail === "string" ? payload.verifiedEmail : undefined,
+    });
+  });
+  app.post<{ Params: { groupId: string }; Body: Record<string, unknown> }>("/api/v1/product/groups/:groupId/members", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const gid = encodeURIComponent(String(request.params.groupId ?? ""));
+    const raw = request.body ?? {};
+    const v2 = await callV2PostWithStatus(`/v2/groups/${gid}/members`, viewerId, {
+      memberId: String(raw.memberId ?? "").trim(),
+    });
+    if (v2.statusCode >= 400) {
+      return reply.status(v2.statusCode).send({ success: false, error: compatErrorMessage(v2.payload) });
+    }
+    return reply.send({ success: true, groupId: String(v2Data(v2.payload).groupId ?? request.params.groupId) });
+  });
+  app.post<{ Params: { groupId: string }; Body: Record<string, unknown> }>("/api/v1/product/groups/:groupId/invitations", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const gid = encodeURIComponent(String(request.params.groupId ?? ""));
+    const raw = request.body ?? {};
+    const v2 = await callV2PostWithStatus(`/v2/groups/${gid}/invitations`, viewerId, {
+      memberIds: Array.isArray(raw.memberIds) ? raw.memberIds : [],
+    });
+    if (v2.statusCode >= 400) {
+      return reply.status(v2.statusCode).send({ success: false, error: compatErrorMessage(v2.payload) });
+    }
+    const payload = v2Data(v2.payload);
+    return reply.send({
+      success: true,
+      invitedUserIds: Array.isArray(payload.invitedUserIds) ? payload.invitedUserIds : [],
+      skippedUserIds: Array.isArray(payload.skippedUserIds) ? payload.skippedUserIds : [],
+    });
+  });
+  app.delete<{ Params: { groupId: string; memberId: string } }>("/api/v1/product/groups/:groupId/members/:memberId", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const gid = encodeURIComponent(String(request.params.groupId ?? ""));
+    const mid = encodeURIComponent(String(request.params.memberId ?? ""));
+    const v2 = await callV2DeleteWithStatus(`/v2/groups/${gid}/members/${mid}`, viewerId);
+    if (v2.statusCode >= 400) {
+      return reply.status(v2.statusCode).send({ success: false, error: compatErrorMessage(v2.payload) });
+    }
+    return reply.send({ success: true, groupId: String(v2Data(v2.payload).groupId ?? request.params.groupId) });
   });
 }

@@ -58,5 +58,22 @@ describe("v2 search mixes routes", () => {
     expect(body.data.mixId).toBe("activity:hiking");
     expect(Array.isArray(body.data.posts)).toBe(true);
   });
-});
 
+  it("keeps compact mix feed payloads small and free of heavy fields", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/search/mixes/activity:hiking/feed?limit=5&includeDebug=1",
+      headers,
+    });
+    expect([200, 503]).toContain(res.statusCode);
+    if (res.statusCode !== 200) return;
+    const body = res.json();
+    expect(Array.isArray(body.data.posts)).toBe(true);
+    expect(Buffer.byteLength(res.body, "utf8")).toBeLessThan(35_000);
+    const serialized = JSON.stringify(body.data.posts);
+    expect(serialized).not.toContain("\"rawPost\"");
+    expect(serialized).not.toContain("\"sourcePost\"");
+    expect(serialized).not.toContain("\"commentsPreview\"");
+    expect(serialized).not.toContain("\"followers\"");
+  });
+});

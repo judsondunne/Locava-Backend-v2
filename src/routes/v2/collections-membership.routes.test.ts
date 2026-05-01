@@ -32,6 +32,20 @@ describe("v2 collections membership routes", () => {
     });
     expect(add.statusCode).toBe(200);
     expect(add.json().data.added).toBe(true);
+    expect(add.json().data.collection.itemsCount).toBe(1);
+    expect(add.json().data.collection.mediaCount).toBe(1);
+    expect(add.json().data.collection.lastContentActivityByUserId).toBe("internal-viewer");
+
+    const duplicateAdd = await app.inject({
+      method: "POST",
+      url: `/v2/collections/${encodeURIComponent(collectionId)}/posts`,
+      headers,
+      payload: { postId }
+    });
+    expect(duplicateAdd.statusCode).toBe(200);
+    expect(duplicateAdd.json().data.added).toBe(false);
+    expect(duplicateAdd.json().data.collection.itemsCount).toBe(1);
+    expect(duplicateAdd.json().data.collection.items.filter((id: string) => id === postId)).toHaveLength(1);
 
     const afterAdd = await app.inject({
       method: "GET",
@@ -61,6 +75,8 @@ describe("v2 collections membership routes", () => {
     // Removing may be idempotent depending on underlying seeded-mode vs emulator-mode adapters,
     // but the observable contract is that the post is no longer present after the call.
     expect(typeof remove.json().data.removed).toBe("boolean");
+    expect(remove.json().data.collection.itemsCount).toBe(0);
+    expect(remove.json().data.collection.mediaCount).toBe(0);
 
     const afterRemove = await app.inject({
       method: "GET",

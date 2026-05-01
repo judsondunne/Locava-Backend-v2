@@ -63,10 +63,6 @@ export type ForYouCandidate = {
     aspectRatio: number | null;
     orientation: string | null;
   }>;
-  comments: Array<Record<string, unknown>>;
-  commentsPreview: Array<Record<string, unknown>>;
-  rawPost?: Record<string, unknown> | null;
-  sourcePost?: Record<string, unknown> | null;
   carouselFitWidth?: boolean;
   layoutLetterbox?: boolean;
   letterboxGradientTop?: string | null;
@@ -123,9 +119,6 @@ const FEED_SELECT_FIELDS = [
   "legacy",
   "likesCount",
   "likeCount",
-  "commentsCount",
-  "commentCount",
-  "comments",
   "deleted",
   "isDeleted",
   "archived",
@@ -212,6 +205,14 @@ export class FeedForYouRepository {
   async fetchRecentWindow(limit: number): Promise<ForYouCandidate[]> {
     return this.fetchWindow({
       limit,
+      reelOnly: false,
+      postIds: null
+    });
+  }
+
+  async fetchFallbackWindow(limit: number): Promise<ForYouCandidate[]> {
+    return this.fetchWindow({
+      limit: Math.max(1, Math.min(limit, 20)),
       reelOnly: false,
       postIds: null
     });
@@ -319,7 +320,6 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
   const authorId = String(data.userId ?? "").trim();
   if (!authorId) return null;
   const assets = normalizeAssets(data.assets);
-  const embeddedComments = normalizeEmbeddedComments(data.comments);
   const mediaType = String(data.mediaType ?? "").toLowerCase() === "video" ? "video" : inferFromAssets(assets);
   return {
     postId,
@@ -335,13 +335,13 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
     mediaType,
     posterUrl,
     firstAssetUrl: assets[0]?.originalUrl ?? assets[0]?.previewUrl ?? posterUrl,
-    title: pickString(data.title),
-    captionPreview: pickString(data.caption, data.text, data.description),
+    title: trimPreviewText(pickString(data.title), 80),
+    captionPreview: trimPreviewText(pickString(data.caption, data.text, data.description), 160),
     authorHandle: pickString(data.userHandle) ?? `user_${authorId.slice(0, 8)}`,
-    authorName: pickString(data.userName),
+    authorName: trimPreviewText(pickString(data.userName), 48),
     authorPic: pickString(data.userPic),
-    activities: Array.isArray(data.activities) ? data.activities.map((v) => String(v ?? "").trim()).filter(Boolean) : [],
-    address: pickString(data.address),
+    activities: Array.isArray(data.activities) ? data.activities.map((v) => String(v ?? "").trim()).filter(Boolean).slice(0, 4) : [],
+    address: trimPreviewText(pickString(data.address), 72),
     geo: {
       lat: num(data.lat, data.latitude),
       long: num(data.long, data.lng, data.longitude),
@@ -351,15 +351,11 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
       geohash: pickString((data.geoData as Record<string, unknown> | undefined)?.geohash)
     },
     assets,
-    comments: embeddedComments,
-    commentsPreview: embeddedComments,
-    rawPost: data,
-    sourcePost: data,
     carouselFitWidth: typeof data.carouselFitWidth === "boolean" ? data.carouselFitWidth : undefined,
     layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
     ...normalizeLetterboxHints(data),
     likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
-    commentCount: Math.max(0, Math.floor(num(data.commentsCount, data.commentCount) ?? embeddedComments.length))
+    commentCount: 0
   };
 }
 
@@ -453,7 +449,7 @@ function normalizeLetterboxHints(data: Record<string, unknown>): {
 function normalizeAssets(value: unknown): ForYouCandidate["assets"] {
   if (!Array.isArray(value)) return [];
   const out: ForYouCandidate["assets"] = [];
-  for (let i = 0; i < value.length; i += 1) {
+  for (let i = 0; i < value.length && out.length < 1; i += 1) {
     const raw = value[i] as Record<string, unknown> | null;
     if (!raw || typeof raw !== "object") continue;
     const variants = (raw.variants as Record<string, unknown> | undefined) ?? {};
@@ -479,49 +475,12 @@ function normalizeAssets(value: unknown): ForYouCandidate["assets"] {
   return out;
 }
 
-function normalizeEmbeddedComments(value: unknown): Array<Record<string, unknown>> {
-  if (!Array.isArray(value)) return [];
-  const out: Array<Record<string, unknown>> = [];
-  for (const entry of value) {
-    if (!entry || typeof entry !== "object") continue;
-    const c = entry as Record<string, unknown>;
-    const idRaw = c.id ?? c.commentId;
-    const id = typeof idRaw === "string" && idRaw.trim() ? idRaw.trim() : null;
-    if (!id) continue;
-    const text = getCommentText(c);
-    const userName = typeof c.userName === "string" ? c.userName : null;
-    const userHandle = typeof c.userHandle === "string" ? c.userHandle : null;
-    const userPic = typeof c.userPic === "string" ? c.userPic : null;
-    const userId = typeof c.userId === "string" ? c.userId : "";
-    const likedBy = Array.isArray(c.likedBy) ? c.likedBy.filter((v): v is string => typeof v === "string") : [];
-    const replies = Array.isArray(c.replies) ? c.replies : [];
-    out.push({
-      id,
-      commentId: id,
-      content: text,
-      text,
-      userId,
-      userName,
-      userHandle,
-      userPic,
-      time: c.time ?? null,
-      createdAt: c.createdAt ?? c.time ?? null,
-      createdAtMs: readMaybeMillis(c.createdAtMs) ?? readMaybeMillis(c.createdAt) ?? readMaybeMillis(c.time) ?? Date.now(),
-      likedBy,
-      replies
-    });
-  }
-  return out;
-}
-
-function getCommentText(comment: Record<string, unknown>): string {
-  const candidates = [comment.content, comment.text, comment.body, comment.comment, comment.message, comment.caption];
-  for (const value of candidates) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed.length > 0) return trimmed;
-  }
-  return "";
+function trimPreviewText(value: string | null, maxLength: number): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= maxLength) return trimmed;
+  return `${trimmed.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
 }
 
 function inferFromAssets(assets: ForYouCandidate["assets"]): "image" | "video" {

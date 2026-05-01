@@ -15,6 +15,12 @@ export const ProfileGridPreviewItemSchema = z.object({
   thumbUrl: z.string().url(),
   mediaType: z.enum(["image", "video"]),
   aspectRatio: z.number().positive().optional(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  dominantColor: z.string().optional(),
+  dominantGradient: z.array(z.string()).max(4).optional(),
+  title: z.string().optional(),
+  locationLabel: z.string().optional(),
   updatedAtMs: z.number().int().nonnegative(),
   processing: z.boolean().optional(),
   processingFailed: z.boolean().optional(),
@@ -40,8 +46,83 @@ export const ProfileGridPreviewItemSchema = z.object({
   mediaResolutionSource: z.string().optional(),
 }).passthrough();
 
+export const ProfileUserSummarySchema = z.object({
+  userId: z.string(),
+  handle: z.string(),
+  name: z.string(),
+  displayName: z.string(),
+  profilePic: z.string().url().nullable(),
+  profilePicSmallPath: z.string().url().nullable().optional(),
+  profilePicLargePath: z.string().url().nullable().optional(),
+  bio: z.string().nullable(),
+  followerCount: z.number().int().nonnegative(),
+  followingCount: z.number().int().nonnegative(),
+  postCount: z.number().int().nonnegative(),
+  isFollowingViewer: z.boolean(),
+  isViewer: z.boolean(),
+  profileVersion: z.string().nullable().optional(),
+  updatedAtMs: z.number().int().nonnegative().nullable().optional(),
+});
+
+export const ProfileCollectionPreviewItemSchema = z.object({
+  collectionId: z.string(),
+  ownerId: z.string(),
+  name: z.string(),
+  description: z.string().nullable().optional(),
+  privacy: z.enum(["friends", "public"]),
+  itemCount: z.number().int().nonnegative(),
+  coverUri: z.string().url().nullable(),
+  coverPostId: z.string().nullable().optional(),
+  coverMediaType: z.enum(["image", "video"]).nullable().optional(),
+  coverThumbnailUrl: z.string().url().nullable().optional(),
+  updatedAtMs: z.number().int().nonnegative(),
+});
+
+export const ProfileAchievementPreviewItemSchema = z.object({
+  achievementId: z.string(),
+  title: z.string(),
+  description: z.string().nullable().optional(),
+  iconUrl: z.string().url().nullable().optional(),
+  emoji: z.string().nullable().optional(),
+  badgeSource: z.enum(["static", "competitive"]),
+  badgeType: z.enum(["activity", "region"]).nullable().optional(),
+  earnedAtMs: z.number().int().nonnegative().nullable(),
+  progressCurrent: z.number().int().nonnegative(),
+  progressTarget: z.number().int().positive(),
+  visibility: z.literal("public"),
+});
+
+const ProfilePreviewPageSchema = z.object({
+  nextCursor: z.string().nullable(),
+});
+
+export const ProfileEndpointDebugSchema = z.object({
+  timingsMs: z.record(z.number().nonnegative()),
+  counts: z.object({
+    grid: z.number().int().nonnegative(),
+    collections: z.number().int().nonnegative(),
+    achievements: z.number().int().nonnegative(),
+  }),
+  profilePicSource: z.string().nullable(),
+  emptyReasons: z
+    .object({
+      collections: z.string().nullable(),
+      achievements: z.string().nullable(),
+    })
+    .optional(),
+  dbOps: z
+    .object({
+      reads: z.number().int().nonnegative(),
+      writes: z.number().int().nonnegative(),
+      queries: z.number().int().nonnegative(),
+    })
+    .optional(),
+});
+
 export const ProfileBootstrapResponseSchema = z.object({
   routeName: z.literal("profile.bootstrap.get"),
+  profileUserId: z.string(),
+  summary: ProfileUserSummarySchema,
   firstRender: z.object({
     profile: z.object({
       userId: z.string(),
@@ -85,7 +166,13 @@ export const ProfileBootstrapResponseSchema = z.object({
     gridPreview: z.object({
       items: z.array(ProfileGridPreviewItemSchema),
       nextCursor: z.string().nullable()
-    })
+    }),
+    collectionsPreview: ProfilePreviewPageSchema.extend({
+      items: z.array(ProfileCollectionPreviewItemSchema),
+    }),
+    achievementsPreview: ProfilePreviewPageSchema.extend({
+      items: z.array(ProfileAchievementPreviewItemSchema),
+    }),
   }),
   deferred: z.object({
     profileBadgeSummary: z
@@ -100,7 +187,8 @@ export const ProfileBootstrapResponseSchema = z.object({
     prefetchHints: z.array(z.string())
   }),
   degraded: z.boolean(),
-  fallbacks: z.array(z.string())
+  fallbacks: z.array(z.string()),
+  debug: ProfileEndpointDebugSchema.optional(),
 });
 
 export const profileBootstrapContract = defineContract({

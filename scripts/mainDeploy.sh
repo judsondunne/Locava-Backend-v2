@@ -172,6 +172,7 @@ const passthroughKeys = [
   "ENABLE_DEV_DIAGNOSTICS",
   "ALLOW_PUBLIC_POSTING_TEST",
   "INTERNAL_OPS_TOKEN",
+  "INTERNAL_DASHBOARD_TOKEN",
   "DEBUG_VIEWER_ID",
   "MAP_MARKERS_CACHE_TTL_MS",
   "MAP_MARKERS_MAX_DOCS",
@@ -270,6 +271,7 @@ const preferredOrder = [
   "ENABLE_DEV_DIAGNOSTICS",
   "ALLOW_PUBLIC_POSTING_TEST",
   "INTERNAL_OPS_TOKEN",
+  "INTERNAL_DASHBOARD_TOKEN",
   "DEBUG_VIEWER_ID",
   "MAP_MARKERS_CACHE_TTL_MS",
   "MAP_MARKERS_MAX_DOCS",
@@ -313,8 +315,49 @@ if ! "$GCLOUD_BIN" run deploy "$SERVICE_NAME" \
 fi
 
 SERVICE_URL="$("$GCLOUD_BIN" run services describe "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')"
+DASHBOARD_TOKEN="$(
+  node --input-type=module <<'EOF_NODE'
+import fs from "node:fs";
+import path from "node:path";
+
+const cwd = process.cwd();
+const envPaths = [
+  path.resolve(cwd, ".env"),
+  path.resolve(cwd, ".env.local"),
+  path.resolve(cwd, "..", "Locava Backend", ".env"),
+  path.resolve(cwd, "..", "Locava-Native", ".env")
+];
+
+for (const filePath of envPaths) {
+  if (!fs.existsSync(filePath)) continue;
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eqIndex = trimmed.indexOf("=");
+    if (eqIndex === -1) continue;
+    const key = trimmed.slice(0, eqIndex).trim();
+    let value = trimmed.slice(eqIndex + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key === "INTERNAL_DASHBOARD_TOKEN" && value) {
+      process.stdout.write(value);
+      process.exit(0);
+    }
+  }
+}
+EOF_NODE
+)"
 
 echo "✅ Deploy complete"
 echo "🌐 Service URL: $SERVICE_URL"
 echo "🧪 Test health:"
 echo "curl \"$SERVICE_URL/health\""
+if [ -n "$DASHBOARD_TOKEN" ]; then
+  echo "📊 Health dashboard:"
+  echo "$SERVICE_URL/internal/health-dashboard?token=$DASHBOARD_TOKEN"
+fi

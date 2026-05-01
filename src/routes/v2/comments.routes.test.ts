@@ -122,6 +122,43 @@ describe("v2 comments routes", () => {
     expect(replyRow?.replyingTo).toBe(parentId);
   });
 
+  it("creates and lists gif-only comments", async () => {
+    const gif = {
+      provider: "giphy",
+      gifId: `gif-${Date.now()}`,
+      title: "wave",
+      previewUrl: "https://media.example.com/wave.webp",
+      fixedHeightUrl: "https://media.example.com/wave-fixed.webp",
+      mp4Url: "https://media.example.com/wave.mp4",
+      width: 320,
+      height: 180,
+      originalUrl: "https://media.example.com/wave.gif"
+    };
+
+    const create = await app.inject({
+      method: "POST",
+      url: `/v2/posts/${encodeURIComponent(postId)}/comments`,
+      headers: viewerHeaders,
+      payload: { text: "", gif, clientMutationKey: `gif-${Date.now()}` }
+    });
+    expect(create.statusCode).toBe(200);
+    const createdComment = create.json().data.comment as { commentId: string; text: string; gif?: { gifId: string; previewUrl: string } };
+    expect(createdComment.text).toBe("");
+    expect(createdComment.gif?.gifId).toBe(gif.gifId);
+    expect(createdComment.gif?.previewUrl).toBe(gif.previewUrl);
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/v2/posts/${encodeURIComponent(postId)}/comments?limit=20`,
+      headers: viewerHeaders
+    });
+    expect(list.statusCode).toBe(200);
+    const items = list.json().data.items as Array<{ commentId: string; gif?: { gifId: string; previewUrl: string } }>;
+    const gifRow = items.find((item) => item.commentId === createdComment.commentId);
+    expect(gifRow?.gif?.gifId).toBe(gif.gifId);
+    expect(gifRow?.gif?.previewUrl).toBe(gif.previewUrl);
+  });
+
   it("deletes comment safely and repeated delete is idempotent", async () => {
     const create = await app.inject({
       method: "POST",

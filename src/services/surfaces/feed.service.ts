@@ -98,6 +98,40 @@ export class FeedService {
     );
   }
 
+  async loadPostCardSummaryBatchLightweight(viewerId: string, postIds: string[]) {
+    const ordered = postIds.map((id) => id.trim()).filter(Boolean);
+    const unique = [...new Set(ordered)];
+    return dedupeInFlight(`feed-post-card-summary-batch-light:${viewerId}:${unique.join(",")}`, () =>
+      withConcurrencyLimit("feed-post-card-summary-batch-light-repo", 4, async () => {
+        const cachedPairs = await Promise.all(
+          unique.map(async (postId) => ({
+            postId,
+            row: await globalCache.get<Awaited<ReturnType<FeedRepository["getPostCardSummary"]>>>(entityCacheKeys.postCard(postId))
+          }))
+        );
+        const cachedById = new Map<string, Awaited<ReturnType<FeedRepository["getPostCardSummary"]>>>();
+        const missing: string[] = [];
+        for (const { postId, row } of cachedPairs) {
+          if (row !== undefined) {
+            recordEntityCacheHit();
+            cachedById.set(postId, row);
+          } else {
+            missing.push(postId);
+          }
+        }
+        const loaded =
+          missing.length > 0 ? await this.repository.getPostCardSummariesByPostIds(viewerId, missing, { hydrateAuthors: false }) : [];
+        for (const item of loaded) {
+          void globalCache.set(entityCacheKeys.postCard(item.postId), item, 20_000).catch(() => undefined);
+          cachedById.set(item.postId, item);
+        }
+        return ordered
+          .map((postId) => cachedById.get(postId))
+          .filter((item): item is NonNullable<typeof item> => item !== undefined);
+      })
+    );
+  }
+
   async loadAuthorSummary(authorUserId: string, sourcePostId?: string) {
     return dedupeInFlight(`feed-author-summary:${authorUserId}:${sourcePostId ?? "_"}`, () =>
       getOrSetEntityCache(

@@ -41,6 +41,17 @@ export class CommentsService {
     viewerId: string;
     postId: string;
     text: string;
+    gif: {
+      provider: "giphy";
+      gifId: string;
+      title?: string;
+      previewUrl: string;
+      fixedHeightUrl?: string;
+      mp4Url?: string;
+      width?: number;
+      height?: number;
+      originalUrl?: string;
+    } | null;
     replyingTo: string | null;
     clientMutationKey: string | null;
   }) {
