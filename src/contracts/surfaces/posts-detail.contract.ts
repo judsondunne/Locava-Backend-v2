@@ -86,6 +86,7 @@ export const PostsDetailsBatchResponseSchema = z.object({
   debugReads: z.number().int().nonnegative().optional(),
   debugEntityConstructionCount: z.number().int().nonnegative().optional(),
   debugPayloadCategory: z.enum(["tiny", "small", "medium", "heavy"]).optional(),
+  debugPayloadBytes: z.number().int().nonnegative().optional(),
   debugPostIds: z.array(z.string()).optional(),
   debugMissingIds: z.array(z.string()).optional(),
   debugDurationMs: z.number().int().nonnegative().optional()

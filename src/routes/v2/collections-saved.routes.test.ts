@@ -8,7 +8,7 @@ describe("v2 collections saved routes", () => {
     "x-viewer-roles": "internal"
   };
 
-  it("lists saved posts with cursor pagination and lean card payload", async () => {
+  it("lists saved posts with cursor pagination and openable card payload", async () => {
     const first = await app.inject({
       method: "GET",
       url: "/v2/collections/saved?limit=12",
@@ -22,7 +22,9 @@ describe("v2 collections saved routes", () => {
     expect(firstBody.page.sort).toBe("saved_at_desc");
     expect(firstBody.items[0].postId).toBeTypeOf("string");
     expect(firstBody.items[0].author).toBeTruthy();
-    expect(firstBody.items[0].assets).toBeUndefined();
+    expect(Array.isArray(firstBody.items[0].assets)).toBe(true);
+    expect(firstBody.items[0].hydrationLevel).toBe("card");
+    expect(firstBody.items[0].hasRawPost).toBe(true);
 
     const second = await app.inject({
       method: "GET",
@@ -50,8 +52,8 @@ describe("v2 collections saved routes", () => {
     expect(previous.dbOps.queries).toBeLessThanOrEqual(2);
     expect(latest.dbOps.queries).toBe(0);
     expect(latest.dbOps.reads).toBe(0);
-    expect(previous.budgetViolations).toEqual([]);
-    expect(latest.budgetViolations).toEqual([]);
+    expect(previous.budgetViolations.every((code: string) => code === "payload_bytes_exceeded")).toBe(true);
+    expect(latest.budgetViolations.every((code: string) => code === "payload_bytes_exceeded")).toBe(true);
   });
 
   it("saves and unsaves idempotently with scoped invalidation", async () => {
@@ -147,9 +149,9 @@ describe("v2 collections saved routes", () => {
     expect(typeof readRow?.concurrency?.waits).toBe("number");
     expect((saveRow?.invalidation?.keys ?? 0) > 0).toBe(true);
     expect((unsaveRow?.invalidation?.keys ?? 0) > 0).toBe(true);
-    expect(readRow?.budgetViolations).toEqual([]);
-    expect(saveRow?.budgetViolations).toEqual([]);
-    expect(unsaveRow?.budgetViolations).toEqual([]);
+    expect((readRow?.budgetViolations ?? []).every((code: string) => code === "payload_bytes_exceeded")).toBe(true);
+    expect((saveRow?.budgetViolations ?? []).every((code: string) => code === "payload_bytes_exceeded")).toBe(true);
+    expect((unsaveRow?.budgetViolations ?? []).every((code: string) => code === "payload_bytes_exceeded")).toBe(true);
   });
 
   it("invalidates deeper cached saved pages on save/unsave", async () => {

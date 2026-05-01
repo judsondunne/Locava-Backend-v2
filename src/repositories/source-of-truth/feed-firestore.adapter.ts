@@ -52,6 +52,10 @@ export type FirestoreFeedCandidate = {
   likeCount: number;
   commentCount: number;
   likedByUserIds: string[];
+  rawPost?: Record<string, unknown> | null;
+  sourcePost?: Record<string, unknown> | null;
+  comments?: Array<Record<string, unknown>>;
+  commentsPreview?: Array<Record<string, unknown>>;
 };
 
 export type FirestoreFeedCandidatesPage = {
@@ -547,7 +551,11 @@ function mapDocToCandidate(doc: QueryDocumentSnapshot): FirestoreFeedCandidate {
       data.commentsCount ?? data.commentCount,
       topLevelEmbeddedCommentCount,
     ),
-    likedByUserIds: normalizeIdArray(data.likes)
+    likedByUserIds: normalizeIdArray(data.likes),
+    rawPost: data,
+    sourcePost: data,
+    comments: comments as Array<Record<string, unknown>>,
+    commentsPreview: comments.filter((entry) => isTopLevelEmbeddedComment(entry)) as Array<Record<string, unknown>>,
   };
 }
 

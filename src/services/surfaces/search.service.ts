@@ -1,5 +1,6 @@
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
 import type { SearchRepository } from "../../repositories/surfaces/search.repository.js";
 import { SearchDiscoveryService } from "./search-discovery.service.js";
@@ -50,6 +51,13 @@ export class SearchService {
       letterboxGradientTop?: string | null;
       letterboxGradientBottom?: string | null;
       letterboxGradients?: Array<{ top: string; bottom: string }> | null;
+      rawPost?: Record<string, unknown> | null;
+      sourcePost?: Record<string, unknown> | null;
+      assets?: unknown[];
+      comments?: unknown[];
+      commentsPreview?: unknown[];
+      address?: string | null;
+      geo?: Record<string, unknown>;
     },
     index: number,
     normalized: string,
@@ -63,7 +71,7 @@ export class SearchService {
     const mediaType: "image" | "video" = row.mediaType === "video" ? "video" : "image";
     const startupHint: "poster_only" | "poster_then_preview" =
       mediaType === "video" ? "poster_then_preview" : "poster_only";
-    return {
+    const seed = {
       postId,
       rankToken: `search-rank-${normalized.slice(0, 16)}-${index + 1}`,
       author: {
@@ -98,6 +106,19 @@ export class SearchService {
       createdAtMs: Math.max(0, Number(row.createdAtMs ?? row.updatedAtMs ?? Date.now())),
       updatedAtMs: Math.max(0, Number(row.updatedAtMs ?? Date.now()))
     };
+    return buildPostEnvelope({
+      postId,
+      seed,
+      sourcePost: row.sourcePost ?? row.rawPost ?? (row as Record<string, unknown>),
+      rawPost: row.rawPost ?? row.sourcePost ?? (row as Record<string, unknown>),
+      hydrationLevel: "card",
+      sourceRoute: "search.results",
+      rankToken: seed.rankToken,
+      author: seed.author,
+      social: seed.social,
+      viewer: seed.viewer,
+      debugSource: "SearchService.toPostCardSummary",
+    });
   }
 
   async loadResultsBundle(input: {

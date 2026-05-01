@@ -29,22 +29,30 @@ export async function registerV2MixesRoutes(app: FastifyInstance): Promise<void>
       return reply.status(403).send(failure("v2_surface_disabled", "Mixes v2 surface is not enabled for this viewer"));
     }
     setRouteName(mixesPreviewContract.routeName);
-    const params = MixPathParamsSchema.parse(request.params);
-    const query = MixPreviewQuerySchema.parse(request.query);
-    const payload = await orchestrator.preview({
-      mixKey: params.mixKey,
-      filter: {
-        activity: query.activity,
-        state: query.state,
-        place: query.place,
-        lat: query.lat,
-        lng: query.lng,
-        radiusKm: query.radiusKm,
-      },
-      limit: query.limit,
-      viewerId: query.viewerId ?? viewer.viewerId ?? null,
-    });
-    return success(payload);
+    try {
+      const params = MixPathParamsSchema.parse(request.params);
+      const query = MixPreviewQuerySchema.parse(request.query);
+      const payload = await orchestrator.preview({
+        mixKey: params.mixKey,
+        filter: {
+          activity: query.activity,
+          state: query.state,
+          place: query.place,
+          lat: query.lat,
+          lng: query.lng,
+          radiusKm: query.radiusKm,
+        },
+        limit: query.limit,
+        viewerId: query.viewerId ?? viewer.viewerId ?? null,
+      });
+      return success(payload);
+    } catch (error) {
+      request.log.error(
+        { event: "mixes_preview_failed", error: error instanceof Error ? error.message : String(error) },
+        "mixes preview failed"
+      );
+      return reply.status(503).send(failure("mixes_preview_failed", "Mix preview is temporarily unavailable"));
+    }
   });
 
   app.get(mixesPageContract.path, async (request, reply) => {
@@ -53,22 +61,30 @@ export async function registerV2MixesRoutes(app: FastifyInstance): Promise<void>
       return reply.status(403).send(failure("v2_surface_disabled", "Mixes v2 surface is not enabled for this viewer"));
     }
     setRouteName(mixesPageContract.routeName);
-    const params = MixPathParamsSchema.parse(request.params);
-    const query = MixPageQuerySchema.parse(request.query);
-    const payload = await orchestrator.page({
-      mixKey: params.mixKey,
-      filter: {
-        activity: query.activity,
-        state: query.state,
-        place: query.place,
-        lat: query.lat,
-        lng: query.lng,
-        radiusKm: query.radiusKm,
-      },
-      limit: query.limit,
-      cursor: query.cursor ?? null,
-      viewerId: query.viewerId ?? viewer.viewerId ?? null,
-    });
-    return success(payload);
+    try {
+      const params = MixPathParamsSchema.parse(request.params);
+      const query = MixPageQuerySchema.parse(request.query);
+      const payload = await orchestrator.page({
+        mixKey: params.mixKey,
+        filter: {
+          activity: query.activity,
+          state: query.state,
+          place: query.place,
+          lat: query.lat,
+          lng: query.lng,
+          radiusKm: query.radiusKm,
+        },
+        limit: query.limit,
+        cursor: query.cursor ?? null,
+        viewerId: query.viewerId ?? viewer.viewerId ?? null,
+      });
+      return success(payload);
+    } catch (error) {
+      request.log.error(
+        { event: "mixes_page_failed", error: error instanceof Error ? error.message : String(error) },
+        "mixes page failed"
+      );
+      return reply.status(503).send(failure("mixes_page_failed", "Mix page is temporarily unavailable"));
+    }
   });
 }

@@ -13,6 +13,8 @@ export const routeContracts: RouteContract[] = [
   { method: "GET", path: "/version", description: "Service version", tags: ["system"] },
   { method: "GET", path: "/diagnostics", description: "Diagnostics and recent metrics", tags: ["observability"], querySchema: { limit: "number (1-200)" } },
   { method: "GET", path: "/routes", description: "Route manifest", tags: ["observability"] },
+  { method: "GET", path: "/internal/health-dashboard", description: "Internal HTML health dashboard", tags: ["internal", "observability"] },
+  { method: "GET", path: "/internal/health-dashboard/data", description: "Internal JSON health dashboard data", tags: ["internal", "observability"] },
   { method: "GET", path: "/test/ping", description: "Basic ping", tags: ["test"] },
   { method: "POST", path: "/test/echo", description: "Echo payload", tags: ["test"], bodySchema: { message: "string", payload: "unknown optional" } },
   { method: "GET", path: "/test/error", description: "Forced error", tags: ["test"] },
@@ -296,6 +298,12 @@ export const routeContracts: RouteContract[] = [
   },
   {
     method: "GET",
+    path: "/v2/chats/:conversationId",
+    description: "V2 chat conversation detail surface",
+    tags: ["v2", "chats"]
+  },
+  {
+    method: "GET",
     path: "/v2/chats/:conversationId/messages",
     description: "V2 chat thread messages page surface",
     tags: ["v2", "chats"],
@@ -340,10 +348,22 @@ export const routeContracts: RouteContract[] = [
     description: "V2 create group chat",
     tags: ["v2", "chats", "mutation"],
     bodySchema: {
-      participants: "string[] (1-11) required",
+      participants: "string[] (2-11) required",
       groupName: "string (1-80) required",
       displayPhotoURL: "url optional"
     }
+  },
+  {
+    method: "POST",
+    path: "/v2/chats/group-avatar-upload",
+    description: "V2 upload temporary group avatar before chat creation",
+    tags: ["v2", "chats", "mutation", "upload"]
+  },
+  {
+    method: "POST",
+    path: "/v2/chats/:conversationId/group-photo",
+    description: "V2 upload and persist group chat photo",
+    tags: ["v2", "chats", "mutation", "upload"]
   },
   {
     method: "DELETE",
@@ -369,7 +389,11 @@ export const routeContracts: RouteContract[] = [
     path: "/v2/chats/:conversationId/update-group",
     description: "V2 update group chat name and/or photo",
     tags: ["v2", "chats", "mutation"],
-    bodySchema: { groupName: "string (1-80) optional", displayPhotoURL: "url|null optional" }
+    bodySchema: {
+      groupName: "string (1-80) optional",
+      displayPhotoURL: "url|null optional",
+      participants: "string[] (2-12) optional"
+    }
   },
   { method: "GET", path: "/v2/achievements/hero", description: "V2 achievements hero read surface", tags: ["v2", "achievements"] },
   {

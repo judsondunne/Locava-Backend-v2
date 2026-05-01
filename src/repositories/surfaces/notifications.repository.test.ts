@@ -82,7 +82,7 @@ describe("notifications repository", () => {
     vi.spyOn(globalCache, "get").mockImplementation(async (key: string) => {
       if (key === entityCacheKeys.notificationsUnreadCount("viewer-1")) return 3;
       if (key === "notification:viewer-1:notif-1:read-state") {
-        return { exists: true, read: false };
+        return { exists: true, read: false, badgeEligible: true };
       }
       return undefined;
     });
@@ -106,6 +106,36 @@ describe("notifications repository", () => {
     });
   });
 
+  it("does not count chat notifications toward the notification unread badge", async () => {
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(null);
+    vi.spyOn(globalCache, "get").mockResolvedValue(undefined);
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+
+    const repository = await makeRepository();
+    const before = await repository.listNotifications({
+      viewerId: "viewer-1",
+      cursor: null,
+      limit: 10
+    });
+
+    await repository.createFromMutation({
+      type: "chat",
+      actorId: "actor-chat",
+      targetId: "conversation-1",
+      recipientUserId: "viewer-1",
+      message: "hey there"
+    });
+
+    const after = await repository.listNotifications({
+      viewerId: "viewer-1",
+      cursor: null,
+      limit: 10
+    });
+
+    expect(after.items[0]?.type).toBe("chat");
+    expect(after.unreadCount).toBe(before.unreadCount);
+  });
+
   it("uses a single query on cold list when unread/read-all caches are already primed", async () => {
     const pageGet = vi.fn(async () => ({
       docs: [
@@ -118,8 +148,7 @@ describe("notifications repository", () => {
             senderProfilePic: "https://example.com/actor-2.jpg",
             message: "liked your post",
             timestamp: 1_000,
-            read: false,
-            postId: "post-2"
+            read: false
           })
         }
       ]
@@ -183,8 +212,7 @@ describe("notifications repository", () => {
             senderProfilePic: "https://example.com/actor-3.jpg",
             message: "commented on your post",
             timestamp: 3_000,
-            read: false,
-            postId: "post-3"
+            read: false
           })
         }
       ]
@@ -227,6 +255,87 @@ describe("notifications repository", () => {
       const ctx = getRequestContext();
       expect(ctx?.dbOps.queries).toBe(1);
       expect(ctx?.dbOps.reads).toBe(1);
+    });
+  });
+
+  it("hydrates placeholder sender ids from user docs on notifications list", async () => {
+    const notificationsGet = vi.fn(async () => ({
+      docs: [
+        {
+          id: "notif-4",
+          data: () => ({
+            type: "follow",
+            senderUserId: "actor-4",
+            senderName: "actor-4",
+            senderUsername: "user_actor-4",
+            senderProfilePic: "",
+            message: "started following you",
+            timestamp: 4_000,
+            read: false
+          })
+        }
+      ]
+    }));
+    const userLookupGet = vi.fn(async () => ({
+      docs: [
+        {
+          id: "actor-4",
+          data: () => ({
+            name: "Actor Four",
+            handle: "actorfour",
+            profilePic: "https://example.com/actor-4.jpg"
+          })
+        }
+      ]
+    }));
+    const db = {
+      collection: (name: string) => {
+        if (name !== "users") throw new Error(`unexpected_collection:${name}`);
+        const topLevel = {
+          where: () => ({
+            get: userLookupGet
+          }),
+          doc: (_viewerId: string) => ({
+            collection: (sub: string) => {
+              if (sub !== "notifications") throw new Error(`unexpected_subcollection:${sub}`);
+              const query = {
+                orderBy: () => query,
+                select: () => query,
+                limit: () => query,
+                startAfter: () => query,
+                get: notificationsGet
+              };
+              return query;
+            }
+          })
+        };
+        return topLevel;
+      }
+    };
+
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(db as never);
+    vi.spyOn(globalCache, "get").mockImplementation(async (key: string) => {
+      if (key === entityCacheKeys.notificationsUnreadCount("viewer-1")) return 1;
+      if (key === entityCacheKeys.notificationsReadAllAt("viewer-1")) return 0;
+      return undefined;
+    });
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+
+    const repository = await makeRepository();
+    const page = await repository.listNotifications({
+      viewerId: "viewer-1",
+      cursor: null,
+      limit: 10
+    });
+
+    expect(userLookupGet).toHaveBeenCalledTimes(1);
+    expect(page.items[0]).toMatchObject({
+      actorId: "actor-4",
+      actor: {
+        name: "Actor Four",
+        handle: "actorfour",
+        pic: "https://example.com/actor-4.jpg"
+      }
     });
   });
 

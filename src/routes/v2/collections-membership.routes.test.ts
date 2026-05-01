@@ -48,7 +48,8 @@ describe("v2 collections membership routes", () => {
     });
     expect(postsAfterAdd.statusCode).toBe(200);
     expect((postsAfterAdd.json().data.postIds ?? []) as string[]).toContain(postId);
-    expect(postsAfterAdd.json().data.items[0]?.assets).toBeUndefined();
+    expect(Array.isArray(postsAfterAdd.json().data.items[0]?.assets)).toBe(true);
+    expect(postsAfterAdd.json().data.items[0]?.hasRawPost).toBe(true);
     expect(Buffer.byteLength(postsAfterAdd.body, "utf8")).toBeLessThanOrEqual(42_000);
 
     const remove = await app.inject({

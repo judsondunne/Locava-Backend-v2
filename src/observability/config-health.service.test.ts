@@ -1,0 +1,69 @@
+import { describe, expect, it } from "vitest";
+import { getConfigHealthSnapshot } from "./config-health.service.js";
+import type { AppEnv } from "../config/env.js";
+
+function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
+  return {
+    NODE_ENV: "production",
+    PORT: 8080,
+    HOST: "::",
+    LOG_LEVEL: "silent",
+    SERVICE_NAME: "locava-backend-v2",
+    SERVICE_VERSION: "0.1.0",
+    GCP_PROJECT_ID: "project-id",
+    FIRESTORE_SOURCE_ENABLED: true,
+    FIRESTORE_TEST_MODE: undefined,
+    FIREBASE_PROJECT_ID: "firebase-project",
+    FIREBASE_CLIENT_EMAIL: undefined,
+    FIREBASE_PRIVATE_KEY: undefined,
+    FIREBASE_WEB_API_KEY: undefined,
+    DEBUG_VIEWER_ID: undefined,
+    ENABLE_LOCAL_DEV_IDENTITY: "0",
+    ENABLE_DEV_DIAGNOSTICS: true,
+    REQUEST_TIMEOUT_MS: 15000,
+    ANALYTICS_ENABLED: true,
+    ANALYTICS_DATASET: "analytics_prod",
+    ANALYTICS_EVENTS_TABLE: "client_events",
+    ANALYTICS_QUEUE_MAX_ITEMS: 5000,
+    ANALYTICS_PUBLISH_BATCH_SIZE: 50,
+    ANALYTICS_MAX_BATCH: 250,
+    ANALYTICS_RETRY_MAX_ATTEMPTS: 5,
+    ANALYTICS_RETRY_BASE_DELAY_MS: 1500,
+    ANALYTICS_RETRY_MAX_DELAY_MS: 30000,
+    ANALYTICS_DEBUG_RECENT_LIMIT: 200,
+    COHERENCE_MODE: "process_local",
+    REDIS_URL: undefined,
+    REDIS_KEY_PREFIX: "locava:v2:",
+    SOURCE_OF_TRUTH_STRICT: false,
+    ENABLE_PUBLIC_FIRESTORE_PROBE: false,
+    INTERNAL_OPS_TOKEN: undefined,
+    INTERNAL_DASHBOARD_TOKEN: "super-secret-dashboard-token",
+    MAP_MARKERS_CACHE_TTL_MS: 60000,
+    MAP_MARKERS_MAX_DOCS: 5000,
+    LEGACY_MONOLITH_PROXY_BASE_URL: undefined,
+    ALLOW_PUBLIC_POSTING_TEST: false,
+    LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN: undefined,
+    ENABLE_LEGACY_COMPAT_ROUTES: false,
+    VIDEO_PROCESSOR_FUNCTION_URL: undefined,
+    VIDEO_PROCESSING_CLOUD_TASKS_QUEUE: undefined,
+    VIDEO_PROCESSING_CLOUD_TASKS_LOCATION: undefined,
+    POSTING_VIDEO_SYNC_FASTSTART_ENABLED: false,
+    POSTING_VIDEO_SYNC_FASTSTART_MAX_SECONDS: 45,
+    POSTING_VIDEO_SYNC_FASTSTART_MAX_BYTES: 157286400,
+    POSTING_VIDEO_FASTSTART_REQUIRED: true,
+    POSTING_FINALIZE_SYNC_ACHIEVEMENTS: false,
+    ...overrides
+  };
+}
+
+describe("config health", () => {
+  it("does not leak secret values", () => {
+    process.env.WASABI_ACCESS_KEY_ID = "secret-access-key-id";
+    process.env.WASABI_SECRET_ACCESS_KEY = "secret-access-key";
+    const snapshot = getConfigHealthSnapshot(buildEnv());
+    const serialized = JSON.stringify(snapshot);
+    expect(serialized).not.toContain("super-secret-dashboard-token");
+    expect(serialized).not.toContain("secret-access-key-id");
+    expect(serialized).not.toContain("secret-access-key");
+  });
+});

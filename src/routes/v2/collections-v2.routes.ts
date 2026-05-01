@@ -20,6 +20,7 @@ import { mutationStateRepository } from "../../repositories/mutations/mutation-s
 import { collectionTelemetryRepository } from "../../repositories/surfaces/collection-telemetry.repository.js";
 import { wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
 import { getWasabiConfigOrNull, uploadPostSessionStagingFromBuffer } from "../../services/storage/wasabi-staging.service.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 
 const CreateBodySchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -100,7 +101,7 @@ function toDynamicPostCardSummary(
   const mediaType: "image" | "video" = row.mediaType === "video" ? "video" : "image";
   const startupHint: "poster_only" | "poster_then_preview" =
     mediaType === "video" ? "poster_then_preview" : "poster_only";
-  return {
+  const seed = {
     postId: row.postId,
     rankToken: `dyn-${rankSeed.slice(0, 16)}-${index + 1}`,
     author: {
@@ -130,6 +131,19 @@ function toDynamicPostCardSummary(
     createdAtMs: Math.max(0, Number(row.updatedAtMs ?? Date.now())),
     updatedAtMs: Math.max(0, Number(row.updatedAtMs ?? Date.now())),
   };
+  return buildPostEnvelope({
+    postId: row.postId,
+    seed,
+    sourcePost: row as unknown as Record<string, unknown>,
+    rawPost: row as unknown as Record<string, unknown>,
+    hydrationLevel: "card",
+    sourceRoute: "collections.dynamic",
+    rankToken: seed.rankToken,
+    author: seed.author,
+    social: seed.social,
+    viewer: seed.viewer,
+    debugSource: "toDynamicPostCardSummary",
+  });
 }
 
 function queueEntityInvalidation(invalidationType: string, keys: string[]): { invalidatedKeysCount: number; invalidationTypes: string[] } {
@@ -186,14 +200,14 @@ async function hydratePostCards(viewerId: string, postIds: string[]) {
       ...row,
       rankToken: `collection-rank-${row.postId}`,
       viewer: {
-        ...row.viewer,
+        ...((row.viewer && typeof row.viewer === "object") ? row.viewer : {}),
         saved: true
       }
     }));
 }
 
 function projectCollectionCard(row: FirestoreFeedCandidate, viewerId: string) {
-  return {
+  const seed = {
     postId: row.postId,
     rankToken: `collection-rank-${row.postId}`,
     author: {
@@ -224,26 +238,46 @@ function projectCollectionCard(row: FirestoreFeedCandidate, viewerId: string) {
     },
     updatedAtMs: row.updatedAtMs
   };
+  return buildPostEnvelope({
+    postId: row.postId,
+    seed,
+    sourcePost: row.sourcePost ?? row.rawPost ?? (row as unknown as Record<string, unknown>),
+    rawPost: row.rawPost ?? row.sourcePost ?? (row as unknown as Record<string, unknown>),
+    hydrationLevel: "card",
+    sourceRoute: "collections.feed_projection",
+    rankToken: seed.rankToken,
+    author: seed.author,
+    social: seed.social,
+    viewer: seed.viewer,
+    debugSource: "projectCollectionCard",
+  });
 }
 
 function projectCollectionFallbackCard(
   row: Awaited<ReturnType<FeedService["loadPostCardSummaryBatch"]>>[number]
 ) {
-  return {
+  return buildPostEnvelope({
     postId: row.postId,
+    seed: {
+      ...row,
+      rankToken: `collection-rank-${row.postId}`,
+    } as unknown as Record<string, unknown>,
+    sourcePost:
+      ((row as unknown as { sourcePost?: Record<string, unknown> | null }).sourcePost) ??
+      ((row as unknown as { rawPost?: Record<string, unknown> | null }).rawPost) ??
+      (row as unknown as Record<string, unknown>),
+    rawPost:
+      ((row as unknown as { rawPost?: Record<string, unknown> | null }).rawPost) ??
+      ((row as unknown as { sourcePost?: Record<string, unknown> | null }).sourcePost) ??
+      (row as unknown as Record<string, unknown>),
+    hydrationLevel: "card",
+    sourceRoute: "collections.fallback_projection",
     rankToken: `collection-rank-${row.postId}`,
-    author: row.author,
-    activities: row.activities,
-    address: row.address,
-    geo: row.geo,
-    title: row.title,
-    captionPreview: row.captionPreview,
-    firstAssetUrl: row.firstAssetUrl,
-    media: row.media,
-    social: row.social,
-    viewer: row.viewer,
-    updatedAtMs: row.updatedAtMs
-  };
+    author: row.author as unknown as Record<string, unknown>,
+    social: row.social as unknown as Record<string, unknown>,
+    viewer: row.viewer as unknown as Record<string, unknown>,
+    debugSource: "projectCollectionFallbackCard",
+  });
 }
 
 function toCollectionListItem(

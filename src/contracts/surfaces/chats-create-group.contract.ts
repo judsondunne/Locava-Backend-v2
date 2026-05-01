@@ -2,7 +2,7 @@ import { z } from "zod";
 import { defineContract } from "../conventions.js";
 
 export const ChatsCreateGroupBodySchema = z.object({
-  participants: z.array(z.string().min(1)).min(1).max(11),
+  participants: z.array(z.string().min(1)).min(2).max(11),
   groupName: z.string().trim().min(1).max(80),
   displayPhotoURL: z.string().url().optional().nullable()
 });

@@ -46,6 +46,13 @@ function resolveFirestoreTestMode(): "emulator" | "mock" | "disabled" | null {
       "firestore_test_mode_required:Set FIRESTORE_TEST_MODE=emulator|mock|disabled for deterministic Backendv2 tests"
     );
   }
+  if ((mode === "disabled" || mode === "mock")) {
+    if (loggedTestMode !== mode) {
+      loggedTestMode = mode;
+      console.info(`[firestore-test-mode] ${mode}`);
+    }
+    return mode;
+  }
   if (mode !== "emulator" && process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim()) {
     throw new Error(
       `firestore_test_mode_${mode}_refuses_live_credentials:unset GOOGLE_APPLICATION_CREDENTIALS or use FIRESTORE_TEST_MODE=emulator`

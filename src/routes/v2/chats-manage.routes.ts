@@ -42,13 +42,24 @@ export async function registerV2ChatsManageRoutes(app: FastifyInstance): Promise
         viewerId: viewer.viewerId,
         conversationId: params.conversationId,
         ...(typeof body.groupName === "string" ? { groupName: body.groupName } : {}),
-        ...(body.displayPhotoURL !== undefined ? { displayPhotoURL: body.displayPhotoURL } : {})
+        ...(body.displayPhotoURL !== undefined ? { displayPhotoURL: body.displayPhotoURL } : {}),
+        ...(Array.isArray(body.participants) ? { participants: body.participants } : {})
+      });
+      const invalidation = await invalidateEntitiesForMutation({
+        mutationType: "chat.updategroup",
+        viewerId: viewer.viewerId,
+        conversationId: params.conversationId
       });
       return success({
         routeName: "chats.updategroup.post" as const,
         conversationId: result.conversationId,
         groupName: result.groupName,
-        displayPhotoURL: result.displayPhotoURL
+        displayPhotoURL: result.displayPhotoURL,
+        participantIds: result.participantIds,
+        invalidation: {
+          invalidatedKeysCount: invalidation.invalidatedKeys.length,
+          invalidationTypes: invalidation.invalidationTypes
+        }
       });
     } catch (error) {
       if (error instanceof ChatsRepositoryError && error.code === "conversation_not_found") {
@@ -56,6 +67,9 @@ export async function registerV2ChatsManageRoutes(app: FastifyInstance): Promise
       }
       if (error instanceof ChatsRepositoryError && error.code === "not_group_chat") {
         return reply.status(400).send(failure("not_group_chat", error.message));
+      }
+      if (error instanceof ChatsRepositoryError && error.code === "invalid_participants") {
+        return reply.status(400).send(failure("invalid_participants", error.message));
       }
       throw error;
     }

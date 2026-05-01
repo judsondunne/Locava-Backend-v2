@@ -1,5 +1,6 @@
 import { mixCache } from "../cache/mixCache.js";
 import { SearchMixesServiceV2 } from "../services/mixes/v2/searchMixes.service.js";
+import { buildPostEnvelope } from "../lib/posts/post-envelope.js";
 
 export class SearchMixesOrchestrator {
   private readonly v2 = new SearchMixesServiceV2();
@@ -92,7 +93,21 @@ export class SearchMixesOrchestrator {
       routeName: "search.mixes.feed.post",
       mixId: input.mixId,
       mixType: payload.mixType,
-      posts: payload.posts,
+      posts: payload.posts.map((row, index) =>
+        buildPostEnvelope({
+          postId: String(row.postId ?? row.id ?? ""),
+          seed: {
+            ...row,
+            rankToken: `mix-${input.mixId}-${index + 1}`,
+          },
+          sourcePost: row,
+          rawPost: row,
+          hydrationLevel: "card",
+          sourceRoute: "search.mixes.feed",
+          rankToken: `mix-${input.mixId}-${index + 1}`,
+          debugSource: "SearchMixesOrchestrator.feedPage",
+        }),
+      ),
       nextCursor: payload.nextCursor,
       hasMore: payload.hasMore,
       scoringVersion,
@@ -100,4 +115,3 @@ export class SearchMixesOrchestrator {
     };
   }
 }
-

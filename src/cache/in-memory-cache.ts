@@ -32,4 +32,12 @@ export class InMemoryCacheStore implements CacheStore {
   async clear(): Promise<void> {
     this.map.clear();
   }
+
+  getRuntimeStats(): { provider: string; size: number | null; distributed: boolean } {
+    return {
+      provider: "in_memory",
+      size: this.map.size,
+      distributed: false
+    };
+  }
 }

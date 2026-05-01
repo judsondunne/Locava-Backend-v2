@@ -79,6 +79,30 @@ describe("v2 posting/upload first slice", () => {
     }
   });
 
+  it("serves songs for the posting song picker", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v2/posting/songs?page=1&limit=5&search=${encodeURIComponent("mock")}`,
+      headers: viewerHeaders
+    });
+    expect(res.statusCode).toBe(200);
+    const data = res.json().data as {
+      routeName: string;
+      audio: Array<Record<string, unknown>>;
+      total: number;
+      page: number;
+      limit: number;
+    };
+    expect(data.routeName).toBe("posting.songs.get");
+    expect(Array.isArray(data.audio)).toBe(true);
+    expect(data.audio.length).toBeGreaterThan(0);
+    expect(typeof data.audio[0]?.id).toBe("string");
+    expect(typeof data.audio[0]?.nameOfSong).toBe("string");
+    expect(typeof data.total).toBe("number");
+    expect(data.page).toBe(1);
+    expect(data.limit).toBe(5);
+  });
+
   it("creates upload session with idempotent replay on duplicate key", async () => {
     const unique = randomUUID().slice(0, 8);
     const payload = {

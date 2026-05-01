@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { RouteBudgetPolicy } from "./route-policies.js";
 import { getRoutePolicy } from "./route-policies.js";
+import { cacheMetricsCollector } from "./cache-metrics.collector.js";
 
 export type DbOperationCounts = {
   reads: number;
@@ -109,12 +110,14 @@ export function recordCacheHit(): void {
   const ctx = storage.getStore();
   if (!ctx) return;
   ctx.cache.hits += 1;
+  cacheMetricsCollector.recordRouteCacheHit();
 }
 
 export function recordCacheMiss(): void {
   const ctx = storage.getStore();
   if (!ctx) return;
   ctx.cache.misses += 1;
+  cacheMetricsCollector.recordRouteCacheMiss();
 }
 
 export function recordFallback(label: string): void {
@@ -175,12 +178,14 @@ export function recordEntityCacheHit(): void {
   const ctx = storage.getStore();
   if (!ctx) return;
   ctx.entityCache.hits += 1;
+  cacheMetricsCollector.recordEntityCacheHit();
 }
 
 export function recordEntityCacheMiss(): void {
   const ctx = storage.getStore();
   if (!ctx) return;
   ctx.entityCache.misses += 1;
+  cacheMetricsCollector.recordEntityCacheMiss();
 }
 
 export function recordEntityConstructed(entityType: string): void {
@@ -202,6 +207,12 @@ export function recordInvalidation(
   ctx.invalidation.routeKeys += routeKeyCount;
   ctx.invalidation.keys += entityKeyCount + routeKeyCount;
   ctx.invalidation.types[invalidationType] = (ctx.invalidation.types[invalidationType] ?? 0) + 1;
+  cacheMetricsCollector.recordInvalidation({
+    invalidationType,
+    keyCount: input.keyCount ?? entityKeyCount + routeKeyCount,
+    entityKeyCount,
+    routeKeyCount
+  });
 }
 
 export function recordIdempotencyHit(): void {

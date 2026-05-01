@@ -37,8 +37,9 @@ export const NotificationSummarySchema = z.object({
   createdAtMs: z.number().int().nonnegative(),
   readState: z.enum(["unread", "read"]),
   preview: NotificationPreviewSchema,
+  post: z.record(z.unknown()).optional(),
   /** Deep-link / destination fields (commentId, collectionId, etc.) for clients and legacy mappers. */
   metadata: z.record(z.string(), z.unknown()).optional()
-});
+}).passthrough();
 
 export type NotificationSummary = z.infer<typeof NotificationSummarySchema>;

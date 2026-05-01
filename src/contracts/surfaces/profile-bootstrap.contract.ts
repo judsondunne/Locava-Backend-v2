@@ -17,8 +17,28 @@ export const ProfileGridPreviewItemSchema = z.object({
   aspectRatio: z.number().positive().optional(),
   updatedAtMs: z.number().int().nonnegative(),
   processing: z.boolean().optional(),
-  processingFailed: z.boolean().optional()
-});
+  processingFailed: z.boolean().optional(),
+  id: z.string().optional(),
+  hydrationLevel: z.enum(["card", "detail", "marker"]).optional(),
+  sourceRoute: z.string().optional(),
+  rawPost: z.record(z.unknown()).nullable().optional(),
+  sourcePost: z.record(z.unknown()).nullable().optional(),
+  normalizedCard: z.record(z.unknown()).optional(),
+  normalizedMedia: z.record(z.unknown()).optional(),
+  normalizedAuthor: z.record(z.unknown()).optional(),
+  normalizedLocation: z.record(z.unknown()).optional(),
+  normalizedCounts: z.record(z.unknown()).optional(),
+  comments: z.array(z.record(z.unknown())).optional(),
+  commentsPreview: z.array(z.record(z.unknown())).optional(),
+  assets: z.array(z.record(z.unknown())).optional(),
+  author: z.record(z.unknown()).optional(),
+  user: z.record(z.unknown()).optional(),
+  hasPlayableVideo: z.boolean().optional(),
+  hasAssetsArray: z.boolean().optional(),
+  hasRawPost: z.boolean().optional(),
+  hasEmbeddedComments: z.boolean().optional(),
+  mediaResolutionSource: z.string().optional(),
+}).passthrough();
 
 export const ProfileBootstrapResponseSchema = z.object({
   routeName: z.literal("profile.bootstrap.get"),

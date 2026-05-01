@@ -1,5 +1,6 @@
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { readMaybeMillis } from "./post-firestore-projection.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 
 export type FirestoreFeedDetailBundle = {
   post: {
@@ -51,11 +52,13 @@ export type FirestoreFeedDetailBundle = {
       variantMetadata?: Record<string, unknown>;
       instantPlaybackReady?: boolean;
       playbackLab?: Record<string, unknown>;
-      generated?: Record<string, unknown>;
-      variants?: Record<string, unknown>;
-    }>;
-    comments?: Array<Record<string, unknown>>;
-    commentsPreview?: Array<Record<string, unknown>>;
+    generated?: Record<string, unknown>;
+    variants?: Record<string, unknown>;
+  }>;
+  comments?: Array<Record<string, unknown>>;
+  commentsPreview?: Array<Record<string, unknown>>;
+  rawPost?: Record<string, unknown> | null;
+  sourcePost?: Record<string, unknown> | null;
   };
   author: {
     userId: string;
@@ -364,8 +367,7 @@ function buildFeedDetailBundleFromParts(input: {
   const normalizedLocation = normalizeLocation(input.postData);
   const normalizedGeoData = normalizeGeoData(input.postData);
   const embeddedComments = normalizeEmbeddedComments(input.postData.comments, input.responsePostId);
-  return {
-    post: {
+  const postSeed = {
       postId: input.responsePostId,
       userId,
       caption: normalizeCaption(input.postData),
@@ -395,8 +397,20 @@ function buildFeedDetailBundleFromParts(input: {
       assetLocations: normalizeAssetLocations(input.postData.assetLocations),
       assets: normalizeAssets(input.responsePostId, mediaType, thumbUrl, input.postData),
       comments: embeddedComments,
-      commentsPreview: embeddedComments
-    },
+      commentsPreview: embeddedComments,
+      rawPost: input.postData as unknown as Record<string, unknown>,
+      sourcePost: input.postData as unknown as Record<string, unknown>,
+    };
+  return {
+    post: buildPostEnvelope({
+      postId: input.responsePostId,
+      seed: postSeed,
+      sourcePost: input.postData as unknown as Record<string, unknown>,
+      rawPost: input.postData as unknown as Record<string, unknown>,
+      hydrationLevel: "detail",
+      sourceRoute: "feed_detail_firestore",
+      debugSource: "buildFeedDetailBundleFromParts",
+    }) as FirestoreFeedDetailBundle["post"],
     author: {
       userId,
       handle: String(input.userData.handle ?? "").replace(/^@+/, "") || `user_${userId.slice(0, 8)}`,

@@ -49,4 +49,12 @@ export class RedisCacheStore implements CacheStore {
   private namespaced(key: string): string {
     return `${this.keyPrefix}${key}`;
   }
+
+  getRuntimeStats(): { provider: string; size: number | null; distributed: boolean } {
+    return {
+      provider: "redis",
+      size: null,
+      distributed: true
+    };
+  }
 }

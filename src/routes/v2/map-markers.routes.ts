@@ -3,12 +3,57 @@ import { globalCache } from "../../cache/global-cache.js";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { loadEnv } from "../../config/env.js";
 import { failure, success } from "../../lib/response.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { setRouteName, recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 import { mapMarkersContract, type MapMarkersResponse } from "../../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../../repositories/source-of-truth/map-markers-firestore.adapter.js";
 
 const env = loadEnv();
 const adapter = new MapMarkersFirestoreAdapter();
+
+function ensureMarkerOpenPayload(marker: Record<string, unknown>): Record<string, unknown> {
+  const existing = marker.openPayload;
+  if (existing && typeof existing === "object") return existing as Record<string, unknown>;
+  const postId = String(marker.postId ?? marker.id ?? "").trim();
+  return buildPostEnvelope({
+    postId,
+    seed: {
+      postId,
+      rankToken: `marker-${postId}`,
+      media: {
+        type: marker.hasVideo === true ? "video" : "image",
+        posterUrl: String(marker.thumbnailUrl ?? "").trim(),
+        aspectRatio: 1,
+        startupHint: marker.hasVideo === true ? "poster_then_preview" : "poster_only",
+      },
+      social: { likeCount: 0, commentCount: 0 },
+      viewer: { liked: false, saved: false },
+      author: {
+        userId: String(marker.ownerId ?? ""),
+        handle: String(marker.ownerId ?? ""),
+        name: null,
+        pic: null,
+      },
+      createdAtMs: Number(marker.createdAt ?? 0) || Date.now(),
+      updatedAtMs: Number(marker.updatedAt ?? 0) || Date.now(),
+    },
+    sourcePost: {
+      postId,
+      id: postId,
+      mediaType: marker.hasVideo === true ? "video" : "image",
+      thumbUrl: marker.thumbnailUrl ?? null,
+      displayPhotoLink: marker.thumbnailUrl ?? null,
+      ownerId: marker.ownerId ?? null,
+      userId: marker.ownerId ?? null,
+      lat: marker.lat ?? null,
+      lng: marker.lng ?? null,
+      activities: Array.isArray(marker.activities) ? marker.activities : [],
+      visibility: marker.visibility ?? null,
+    },
+    hydrationLevel: "marker",
+    sourceRoute: "map.markers.route_fallback",
+  });
+}
 
 export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<void> {
   app.get(mapMarkersContract.path, async (request, reply) => {
@@ -49,9 +94,9 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       const dataset = ownerId
         ? await adapter.fetchByOwner({ ownerId, maxDocs: limit, includeNonPublic })
         : await adapter.fetchAll({ maxDocs: limit });
-      const markers =
-        payloadMode === "compact"
-          ? dataset.markers.map((marker) => ({
+	      const markers =
+	        payloadMode === "compact"
+	          ? dataset.markers.map((marker) => ({
               id: marker.id,
               postId: marker.postId,
               lat: marker.lat,
@@ -66,9 +111,13 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
               thumbKey: marker.thumbKey ?? null,
               followedUserPic: marker.followedUserPic ?? null,
               hasPhoto: marker.hasPhoto,
-              hasVideo: marker.hasVideo
-            }))
-          : dataset.markers;
+              hasVideo: marker.hasVideo,
+	              openPayload: ensureMarkerOpenPayload(marker as Record<string, unknown>),
+	            }))
+	          : dataset.markers.map((marker) => ({
+	              ...marker,
+	              openPayload: ensureMarkerOpenPayload(marker as Record<string, unknown>),
+	            }));
       const payload: MapMarkersResponse = {
         routeName: "map.markers.get",
         markers,

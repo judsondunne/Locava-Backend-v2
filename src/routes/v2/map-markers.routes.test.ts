@@ -134,6 +134,9 @@ describe("v2 map markers route", () => {
     expect(data.markers[0].activities).toEqual(["hike"]);
     expect(data.markers[0].ownerId).toBe("u1");
     expect(data.markers[0].thumbnailUrl).toBe("https://cdn/p1.jpg");
+    expect(data.markers[0].openPayload?.postId).toBe("p1");
+    expect(Array.isArray(data.markers[0].openPayload?.assets)).toBe(true);
+    expect(data.markers[0].openPayload?.hydrationLevel).toBe("marker");
     expect(data.markers[0].description).toBeUndefined();
     expect(data.markers[0].comments).toBeUndefined();
     expect(data.diagnostics.payloadMode).toBe("compact");
@@ -175,6 +178,7 @@ describe("v2 map markers route", () => {
     expect(response.statusCode).toBe(200);
     const data = response.json().data;
     expect(data.markers[0].thumbnailUrl).toBe("https://cdn/p1.jpg");
+    expect(data.markers[0].openPayload?.postId).toBe("p1");
     expect(data.diagnostics.payloadMode).toBe("full");
   });
 

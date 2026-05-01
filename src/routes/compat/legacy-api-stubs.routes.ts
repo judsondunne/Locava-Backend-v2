@@ -13,15 +13,18 @@ import { mergeUserDocumentWritePayload } from "../../repositories/source-of-trut
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
 import { readMaybeMillis } from "../../repositories/source-of-truth/post-firestore-projection.js";
 import { getWasabiConfigOrNull, uploadPostSessionStagingFromBuffer } from "../../services/storage/wasabi-staging.service.js";
-import { wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
+import { readWasabiConfigFromEnv, wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
 import { mapV2NotificationListToLegacyItems } from "./map-v2-notification-to-legacy-product.js";
 import { postingMutationRepository } from "../../repositories/mutations/posting-mutation.repository.js";
 import { CompatPostsBatchOrchestrator } from "../../orchestration/compat/posts-batch.orchestrator.js";
 import { CompatUserFullOrchestrator } from "../../orchestration/compat/user-full.orchestrator.js";
 import { ProfileRepository } from "../../repositories/surfaces/profile.repository.js";
+import { chatsRepository } from "../../repositories/surfaces/chats.repository.js";
+import { ChatsService } from "../../services/surfaces/chats.service.js";
 import { userActivityRepository } from "../../repositories/surfaces/user-activity.repository.js";
 import { UserActivityService } from "../../services/surfaces/user-activity.service.js";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
+import { uploadGroupChatAvatar, uploadGroupChatPhoto } from "../../services/storage/wasabi-chat-photos.service.js";
 
 function applyViewerPatch(base: ProductCompatViewer, patch: Record<string, unknown>): ProductCompatViewer {
   const next: ProductCompatViewer = { ...base };
@@ -66,6 +69,7 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
   });
   const db = _env.FIRESTORE_SOURCE_ENABLED ? getFirestoreSourceClient() : null;
   const userActivityService = new UserActivityService(userActivityRepository);
+  const chatsService = new ChatsService(chatsRepository);
   const collectionsAdapter = new CollectionsFirestoreAdapter();
   const postsBatchOrchestrator = new CompatPostsBatchOrchestrator();
   const userFullOrchestrator = new CompatUserFullOrchestrator();
@@ -1798,27 +1802,29 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     const chatId = encodeURIComponent(String(request.params.chatId ?? ""));
     try {
       const v2 = await callV2GetOrThrow(
-        `/v2/chats/${chatId}/messages?limit=25`,
+        `/v2/chats/${chatId}`,
         viewerId,
         "/api/v1/product/chats/:chatId"
       );
       const data = v2Data(v2);
-      const items = (data.items ?? []) as Array<Record<string, unknown>>;
+      const conversation = (data.conversation ?? {}) as Record<string, unknown>;
       return reply.send({
         success: true,
         chat: {
           id: request.params.chatId,
           chatId: request.params.chatId,
           conversationId: request.params.chatId,
-          participants: [],
-          isGroupChat: false,
-          messages: items
+          participants: Array.isArray(conversation.participantIds) ? conversation.participantIds : [],
+          isGroupChat: Boolean(conversation.isGroup),
+          groupName: typeof conversation.title === "string" ? conversation.title : undefined,
+          displayPhotoURL: typeof conversation.displayPhotoUrl === "string" ? conversation.displayPhotoUrl : undefined,
+          createdAt: conversation.createdAtMs
         }
       });
     } catch {
       return reply.send({
-        success: true,
-        chat: { id: request.params.chatId, participants: [], isGroupChat: false }
+        success: false,
+        error: "Failed to fetch chat"
       });
     }
   });
@@ -1921,6 +1927,36 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     return reply.send({ success: anyOk, results });
   });
   app.post("/api/v1/product/chats/upload-group-avatar", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
+    if (contentType.includes("multipart/form-data")) {
+      const cfg = readWasabiConfigFromEnv();
+      if (!cfg) {
+        return reply.status(503).send({ success: false, error: "Wasabi configuration unavailable" });
+      }
+      const part = await request.file();
+      if (!part) {
+        return reply.status(400).send({ success: false, error: "Photo file is required" });
+      }
+      const normalizedType = String(part.mimetype ?? "").trim().toLowerCase() || "image/jpeg";
+      if (!["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(normalizedType)) {
+        return reply.status(400).send({ success: false, error: `Invalid file type (${normalizedType})` });
+      }
+      const bytes = await part.toBuffer();
+      if (!bytes.length) {
+        return reply.status(400).send({ success: false, error: "Empty file" });
+      }
+      const uploaded = await uploadGroupChatAvatar({
+        cfg,
+        viewerId,
+        bytes,
+        contentType: normalizedType
+      });
+      if (!uploaded.ok) {
+        return reply.status(500).send({ success: false, error: uploaded.message });
+      }
+      return reply.send({ success: true, displayPhotoUrl: uploaded.url, imageUrl: uploaded.url });
+    }
     const raw = (request.body ?? {}) as Record<string, unknown>;
     const imageUrl =
       typeof raw.imageUrl === "string"
@@ -1972,7 +2008,50 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     "/api/v1/product/chats/:chatId/group-photo",
     async (request, reply) => {
       const viewerId = resolveCompatViewerId(request);
-      const chatId = encodeURIComponent(String(request.params.chatId ?? ""));
+      const rawChatId = String(request.params.chatId ?? "");
+      const chatId = encodeURIComponent(rawChatId);
+      const contentType = String(request.headers["content-type"] ?? "").toLowerCase();
+      if (contentType.includes("multipart/form-data")) {
+        const cfg = readWasabiConfigFromEnv();
+        if (!cfg) {
+          return reply.status(503).send({ success: false, error: "Wasabi configuration unavailable" });
+        }
+        const part = await request.file();
+        if (!part) {
+          return reply.status(400).send({ success: false, error: "Photo file is required" });
+        }
+        const normalizedType = String(part.mimetype ?? "").trim().toLowerCase() || "image/jpeg";
+        if (!["image/jpeg", "image/jpg", "image/png", "image/webp"].includes(normalizedType)) {
+          return reply.status(400).send({ success: false, error: `Invalid file type (${normalizedType})` });
+        }
+        const bytes = await part.toBuffer();
+        if (!bytes.length) {
+          return reply.status(400).send({ success: false, error: "Empty file" });
+        }
+        const uploaded = await uploadGroupChatPhoto({
+          cfg,
+          viewerId,
+          conversationId: rawChatId,
+          bytes,
+          contentType: normalizedType
+        });
+        if (!uploaded.ok) {
+          return reply.status(500).send({ success: false, error: uploaded.message });
+        }
+        try {
+          await chatsService.updateGroupMetadata({
+            viewerId,
+            conversationId: rawChatId,
+            displayPhotoURL: uploaded.url
+          });
+          return reply.send({ success: true, displayPhotoUrl: uploaded.url, imageUrl: uploaded.url });
+        } catch (error) {
+          if (error instanceof Error) {
+            return reply.status(400).send({ success: false, error: error.message });
+          }
+          throw error;
+        }
+      }
       const raw = request.body ?? {};
       const displayPhotoURL =
         typeof raw.displayPhotoURL === "string"

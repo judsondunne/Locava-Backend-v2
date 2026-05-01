@@ -16,6 +16,7 @@ import {
   isStrictSourceOfTruthEnabled,
   SourceOfTruthRequiredError
 } from "../source-of-truth/strict-mode.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 
 type FirestoreUserSummary = {
   userId: string;
@@ -26,6 +27,7 @@ type FirestoreUserSummary = {
 
 export type FeedBootstrapCandidateRecord = {
   postId: string;
+  rankToken?: string;
   author: {
     userId: string;
     handle: string;
@@ -80,6 +82,10 @@ export type FeedBootstrapCandidateRecord = {
     saved: boolean;
   };
   updatedAtMs: number;
+  rawPost?: Record<string, unknown> | null;
+  sourcePost?: Record<string, unknown> | null;
+  comments?: Array<Record<string, unknown>>;
+  commentsPreview?: Array<Record<string, unknown>>;
 };
 
 export type FeedDetailRecord = {
@@ -142,6 +148,8 @@ export type FeedDetailRecord = {
     generated?: Record<string, unknown>;
     variants?: Record<string, unknown>;
   }>;
+  rawPost?: Record<string, unknown> | null;
+  sourcePost?: Record<string, unknown> | null;
 };
 
 export type FeedSessionHintsRecord = {
@@ -220,10 +228,14 @@ function buildFeedCardShell(
     likeCount: number;
     commentCount: number;
     likedByUserIds: string[];
+    rawPost?: Record<string, unknown> | null;
+    sourcePost?: Record<string, unknown> | null;
+    comments?: Array<Record<string, unknown>>;
+    commentsPreview?: Array<Record<string, unknown>>;
   }
 ): FeedBootstrapCandidateRecord {
   const aid = candidate.authorId.trim();
-  return {
+  const seed: FeedBootstrapCandidateRecord = {
     postId: candidate.postId,
     author: {
       userId: aid,
@@ -262,8 +274,25 @@ function buildFeedCardShell(
         candidate.likedByUserIds.includes(viewerId),
       saved: mutationStateRepository.resolveViewerSavedPost(viewerId, candidate.postId, false)
     },
-    updatedAtMs: candidate.updatedAtMs
+    updatedAtMs: candidate.updatedAtMs,
+    rawPost: candidate.rawPost ?? null,
+    sourcePost: candidate.sourcePost ?? candidate.rawPost ?? null,
+    comments: candidate.comments,
+    commentsPreview: candidate.commentsPreview,
   };
+  return buildPostEnvelope({
+    postId: candidate.postId,
+    seed,
+    sourcePost: candidate.sourcePost ?? candidate.rawPost ?? null,
+    rawPost: candidate.rawPost ?? candidate.sourcePost ?? null,
+    hydrationLevel: "card",
+    sourceRoute: "feed.repository.card",
+    rankToken: seed.rankToken,
+    author: seed.author,
+    social: seed.social,
+    viewer: seed.viewer,
+    debugSource: "buildFeedCardShell",
+  }) as FeedBootstrapCandidateRecord;
 }
 
 function buildSyntheticTestFeedCard(viewerId: string, postId: string): FeedBootstrapCandidateRecord | null {
@@ -437,7 +466,7 @@ function buildFeedCardFromDetailBundle(
     firstStartup720 ??
     (typeof firstAsset?.thumbnail === "string" && firstAsset.thumbnail.trim() ? firstAsset.thumbnail.trim() : null) ??
     bundle.post.thumbUrl;
-  return {
+  const seed: FeedBootstrapCandidateRecord = {
     postId: bundle.post.postId,
     author: bundle.author,
     activities: bundle.post.activities ?? [],
@@ -502,7 +531,24 @@ function buildFeedCardFromDetailBundle(
       saved: mutationStateRepository.resolveViewerSavedPost(viewerId, bundle.post.postId, bundle.viewer.saved),
     },
     updatedAtMs: bundle.post.updatedAtMs,
+    rawPost: bundle.post.rawPost ?? null,
+    sourcePost: bundle.post.sourcePost ?? bundle.post.rawPost ?? null,
+    comments: bundle.post.comments,
+    commentsPreview: bundle.post.commentsPreview,
   };
+  return buildPostEnvelope({
+    postId: bundle.post.postId,
+    seed,
+    sourcePost: bundle.post.sourcePost ?? bundle.post.rawPost ?? null,
+    rawPost: bundle.post.rawPost ?? bundle.post.sourcePost ?? null,
+    hydrationLevel: "detail",
+    sourceRoute: "feed.repository.detail_bundle",
+    rankToken: seed.rankToken,
+    author: seed.author,
+    social: seed.social,
+    viewer: seed.viewer,
+    debugSource: "buildFeedCardFromDetailBundle",
+  }) as FeedBootstrapCandidateRecord;
 }
 
 function resolvePostSlot(postId: string): { slot: number; valid: boolean } {

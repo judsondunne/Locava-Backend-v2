@@ -155,7 +155,7 @@ describe("posts detail orchestrator missing author hardening", () => {
     ]);
   });
 
-  it("playback mode returns hydrated playback and location truth instead of poster-only shell", async () => {
+  it("playback mode stays on the lightweight card path and skips heavy detail hydration", async () => {
     const loadPostDetail = vi.fn(async (postId: string) => ({
       postId,
       userId: "detail-user",
@@ -206,14 +206,13 @@ describe("posts detail orchestrator missing author hardening", () => {
       reason: "prefetch",
       hydrationMode: "playback",
     });
-    expect(loadPostDetail).toHaveBeenCalled();
+    expect(loadPostDetail).not.toHaveBeenCalled();
     const detail = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
-    expect(detail.address).toBe("Spirit Falls, Washington");
-    expect((detail.playbackLab as Record<string, unknown> | undefined)?.assets).toBeTruthy();
+    expect(detail.address).toBeUndefined();
+    expect(detail.playbackLab).toBeUndefined();
     expect(Array.isArray(detail.assets)).toBe(true);
-    expect(
-      ((detail.assets as Array<Record<string, unknown>>)[0]?.variants as Record<string, unknown>)
-        ?.startup720FaststartAvc,
-    ).toBe("https://cdn/startup720.mp4");
+    expect((detail.assets as Array<Record<string, unknown>>)[0]?.poster).toBe("https://cdn/p.jpg");
+    expect(out.debugPayloadCategory).toBe("small");
+    expect((detail.cardSummary as Record<string, unknown> | undefined)?.postId).toBe("post-1");
   });
 });

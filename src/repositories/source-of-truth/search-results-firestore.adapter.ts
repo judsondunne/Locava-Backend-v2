@@ -24,6 +24,14 @@ export type FirestoreSearchResultCandidate = {
   likeCount: number;
   commentCount: number;
   updatedAtMs: number;
+  rawPost?: Record<string, unknown> | null;
+  sourcePost?: Record<string, unknown> | null;
+  assets?: unknown[] | null;
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  comments?: unknown[] | null;
+  commentsPreview?: unknown[] | null;
 };
 
 export type FirestoreSearchResultsPage = {
@@ -431,6 +439,12 @@ export class SearchResultsFirestoreAdapter {
         likeCount: post.likeCount,
         commentCount: post.commentCount,
         updatedAtMs: post.updatedAtMs,
+        rawPost: post as unknown as Record<string, unknown>,
+        sourcePost: post as unknown as Record<string, unknown>,
+        assets: post.assets,
+        address: post.address,
+        lat: post.lat,
+        lng: post.lng,
       }))
       .filter((row) => Number.isFinite(row.rank))
       .sort((a, b) => a.rank - b.rank || a.postId.localeCompare(b.postId));

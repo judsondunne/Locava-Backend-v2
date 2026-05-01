@@ -17,8 +17,9 @@ export const MapMarkerRecordSchema = z.object({
   thumbKey: z.string().nullable().optional(),
   followedUserPic: z.string().nullable().optional(),
   hasPhoto: z.boolean().optional(),
-  hasVideo: z.boolean().optional()
-});
+  hasVideo: z.boolean().optional(),
+  openPayload: z.record(z.unknown()).nullable().optional(),
+}).passthrough();
 
 export const MapMarkersResponseSchema = z.object({
   routeName: z.literal("map.markers.get"),

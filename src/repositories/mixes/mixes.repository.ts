@@ -4,16 +4,22 @@ import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js
 
 export type MixSourcePost = Record<string, unknown> & { postId: string };
 
+export type MixPoolState = "cold" | "warming" | "warm" | "stale" | "failed";
+
 type MixPool = {
   posts: MixSourcePost[];
   loadedAtMs: number;
-  loading: boolean;
+  state: MixPoolState;
   inFlight: Promise<void> | null;
   lastBuildLatencyMs: number;
   lastBuildReadCount: number;
+  lastRefreshStartedAtMs: number;
+  lastRefreshFailedAtMs: number;
+  lastRefreshErrorMessage: string | null;
 };
 
 const DEFAULT_REFRESH_MS = 60_000;
+const DEFAULT_MAX_STALE_MS = 10 * 60_000;
 const DEFAULT_MAX_DOCS = 12_000;
 
 function toIntEnv(name: string, fallback: number, min: number, max: number): number {
@@ -59,26 +65,33 @@ function mapDoc(doc: QueryDocumentSnapshot): MixSourcePost {
 }
 
 export class MixesRepository {
-  private readonly db = getFirestoreSourceClient();
+  private dbClient: ReturnType<typeof getFirestoreSourceClient> | null | undefined;
   private readonly refreshMs = toIntEnv("MIXES_POOL_REFRESH_MS", DEFAULT_REFRESH_MS, 15_000, 300_000);
+  private readonly maxStaleMs = toIntEnv("MIXES_POOL_MAX_STALE_MS", DEFAULT_MAX_STALE_MS, 30_000, 3_600_000);
   private readonly maxDocs = toIntEnv("MIXES_POOL_MAX_DOCS", DEFAULT_MAX_DOCS, 500, 30_000);
   private readonly coldStartDocs = toIntEnv("MIXES_POOL_COLD_START_DOCS", 1200, 200, 10_000);
   private readonly pool: MixPool = {
     posts: [],
     loadedAtMs: 0,
-    loading: false,
+    state: "cold",
     inFlight: null,
     lastBuildLatencyMs: 0,
     lastBuildReadCount: 0,
+    lastRefreshStartedAtMs: 0,
+    lastRefreshFailedAtMs: 0,
+    lastRefreshErrorMessage: null,
   };
   private refreshTimer: NodeJS.Timeout | null = null;
+  private log: FastifyBaseLogger | undefined;
 
   startBackgroundRefresh(log?: FastifyBaseLogger): void {
     if (this.refreshTimer) return;
-    if (!this.db || typeof (this.db as any).collection !== "function") return;
-    void this.refreshPool(log);
+    const db = this.getDb();
+    if (!db || typeof (db as any).collection !== "function") return;
+    this.log = log ?? this.log;
+    void this.scheduleRefresh(this.coldStartDocs, "startup");
     this.refreshTimer = setInterval(() => {
-      void this.refreshPool(log);
+      void this.scheduleRefresh(this.maxDocs, "scheduled");
     }, this.refreshMs);
   }
 
@@ -92,67 +105,114 @@ export class MixesRepository {
     readCount: number;
     source: string;
     poolLimit: number;
+    poolState: MixPoolState;
     poolBuiltAt: string | null;
     poolBuildLatencyMs: number;
     poolBuildReadCount: number;
+    servedStale: boolean;
+    servedEmptyWarming: boolean;
   }> {
-    if (this.pool.posts.length === 0) {
-      const loaded = await this.refreshPool(undefined, this.coldStartDocs);
-      // Cold-start serves a bounded subset fast, then continues to full pool in background.
-      if (this.pool.posts.length < this.maxDocs && !this.pool.loading) {
-        void this.refreshPool();
+    const now = Date.now();
+    const builtAt = this.pool.loadedAtMs > 0 ? new Date(this.pool.loadedAtMs).toISOString() : null;
+    const ageMs = this.pool.loadedAtMs > 0 ? Math.max(0, now - this.pool.loadedAtMs) : Number.POSITIVE_INFINITY;
+    const hasPosts = this.pool.posts.length > 0;
+
+    if (!hasPosts) {
+      void this.scheduleRefresh(this.coldStartDocs, "route_cold");
+      const poolState = this.pool.state === "failed" ? "failed" : "warming";
+      if (poolState === "warming") {
+        this.log?.info({ event: "served_empty_warming", pool_state: poolState }, "mixes pool served empty while warming");
       }
       return {
-        posts: loaded.posts,
-        readCount: loaded.readCount,
-        source: loaded.source,
+        posts: [],
+        readCount: 0,
+        source: "memory_pool_empty_warming",
         poolLimit: this.maxDocs,
-        poolBuiltAt: this.pool.loadedAtMs > 0 ? new Date(this.pool.loadedAtMs).toISOString() : null,
+        poolState,
+        poolBuiltAt: builtAt,
         poolBuildLatencyMs: this.pool.lastBuildLatencyMs,
         poolBuildReadCount: this.pool.lastBuildReadCount,
+        servedStale: false,
+        servedEmptyWarming: true,
       };
     }
-    if (Date.now() - this.pool.loadedAtMs > this.refreshMs && !this.pool.loading) {
-      void this.refreshPool();
+
+    if (ageMs > this.refreshMs) {
+      void this.scheduleRefresh(this.maxDocs, ageMs > this.maxStaleMs ? "route_expired" : "route_stale");
+      this.log?.info(
+        { event: "served_stale", pool_state: "stale", ageMs, staleBeyondMax: ageMs > this.maxStaleMs },
+        "mixes pool served stale snapshot"
+      );
+      return {
+        posts: this.pool.posts,
+        readCount: 0,
+        source: ageMs > this.maxStaleMs ? "memory_pool_stale_expired" : "memory_pool_stale",
+        poolLimit: this.maxDocs,
+        poolState: "stale",
+        poolBuiltAt: builtAt,
+        poolBuildLatencyMs: this.pool.lastBuildLatencyMs,
+        poolBuildReadCount: this.pool.lastBuildReadCount,
+        servedStale: true,
+        servedEmptyWarming: false,
+      };
     }
+
     return {
       posts: this.pool.posts,
       readCount: 0,
       source: "memory_pool",
       poolLimit: this.maxDocs,
-      poolBuiltAt: this.pool.loadedAtMs > 0 ? new Date(this.pool.loadedAtMs).toISOString() : null,
+      poolState: "warm",
+      poolBuiltAt: builtAt,
       poolBuildLatencyMs: this.pool.lastBuildLatencyMs,
       poolBuildReadCount: this.pool.lastBuildReadCount,
+      servedStale: false,
+      servedEmptyWarming: false,
     };
   }
 
-  private async refreshPool(
-    log?: FastifyBaseLogger,
+  private async scheduleRefresh(
     maxDocsOverride?: number,
-  ): Promise<{ posts: MixSourcePost[]; readCount: number; source: string }> {
-    if (this.pool.loading && this.pool.inFlight) {
-      await this.pool.inFlight;
-      return { posts: this.pool.posts, readCount: 0, source: "memory_pool_shared_refresh" };
-    }
-    if (!this.db) {
+    reason: string = "manual",
+    log?: FastifyBaseLogger,
+  ): Promise<void> {
+    const logger = log ?? this.log;
+    if (this.pool.inFlight) return this.pool.inFlight;
+    const db = this.getDb();
+    if (!db) {
       this.pool.posts = [];
       this.pool.loadedAtMs = Date.now();
-      return { posts: [], readCount: 0, source: "memory_pool_firestore_unavailable" };
+      this.pool.state = "failed";
+      this.pool.lastRefreshFailedAtMs = this.pool.loadedAtMs;
+      this.pool.lastRefreshErrorMessage = "firestore_unavailable";
+      logger?.warn({ event: "pool_refresh_failed", pool_state: this.pool.state, reason }, "mixes pool refresh failed");
+      return;
     }
     const targetDocs = Math.max(1, Math.min(this.maxDocs, Math.floor(maxDocsOverride ?? this.maxDocs)));
-    this.pool.loading = true;
-    let completedReads = 0;
+    this.pool.state = this.pool.posts.length > 0 ? "stale" : "warming";
+    this.pool.lastRefreshStartedAtMs = Date.now();
+    logger?.info(
+      {
+        event: "pool_refresh_started",
+        pool_state: this.pool.state,
+        reason,
+        targetDocs,
+        existingDocs: this.pool.posts.length,
+      },
+      "mixes pool refresh started"
+    );
     this.pool.inFlight = (async () => {
       const started = Date.now();
       const out: MixSourcePost[] = [];
       let totalReads = 0;
       const pageSize = 1000;
       let lastDoc: QueryDocumentSnapshot | null = null;
-      const db = this.db;
       if (!db) {
         this.pool.posts = [];
         this.pool.loadedAtMs = Date.now();
-        completedReads = totalReads;
+        this.pool.state = "failed";
+        this.pool.lastRefreshFailedAtMs = this.pool.loadedAtMs;
+        this.pool.lastRefreshErrorMessage = "firestore_unavailable";
         return;
       }
       while (out.length < targetDocs) {
@@ -161,7 +221,9 @@ export class MixesRepository {
         if (!collectionRef || typeof collectionRef.orderBy !== "function") {
           this.pool.posts = [];
           this.pool.loadedAtMs = Date.now();
-          completedReads = totalReads;
+          this.pool.state = "failed";
+          this.pool.lastRefreshFailedAtMs = this.pool.loadedAtMs;
+          this.pool.lastRefreshErrorMessage = "invalid_collection_ref";
           return;
         }
         let q: Query = collectionRef.orderBy("time", "desc").limit(want);
@@ -177,16 +239,44 @@ export class MixesRepository {
       this.pool.loadedAtMs = Date.now();
       this.pool.lastBuildLatencyMs = Math.max(0, this.pool.loadedAtMs - started);
       this.pool.lastBuildReadCount = totalReads;
-      completedReads = totalReads;
-      log?.info({ event: "mixes_pool_refreshed", docs: this.pool.posts.length }, "mixes pool refreshed");
+      this.pool.lastRefreshErrorMessage = null;
+      this.pool.state = "warm";
+      logger?.info(
+        {
+          event: "pool_refresh_completed",
+          pool_state: this.pool.state,
+          reason,
+          docs: this.pool.posts.length,
+          reads: totalReads,
+          latencyMs: this.pool.lastBuildLatencyMs,
+        },
+        "mixes pool refresh completed"
+      );
     })()
+      .catch((error) => {
+        this.pool.lastRefreshFailedAtMs = Date.now();
+        this.pool.lastRefreshErrorMessage = error instanceof Error ? error.message : String(error);
+        this.pool.state = this.pool.posts.length > 0 ? "stale" : "failed";
+        logger?.error(
+          {
+            event: "pool_refresh_failed",
+            pool_state: this.pool.state,
+            reason,
+            error: this.pool.lastRefreshErrorMessage,
+          },
+          "mixes pool refresh failed"
+        );
+      })
       .finally(() => {
-        this.pool.loading = false;
         this.pool.inFlight = null;
       });
-    await this.pool.inFlight;
-    const source = targetDocs < this.maxDocs ? "firestore_pool_cold_start" : "firestore_pool_refresh";
-    return { posts: this.pool.posts, readCount: completedReads, source };
+    return this.pool.inFlight ?? Promise.resolve();
+  }
+
+  private getDb() {
+    if (this.dbClient !== undefined) return this.dbClient;
+    this.dbClient = getFirestoreSourceClient();
+    return this.dbClient;
   }
 }
 

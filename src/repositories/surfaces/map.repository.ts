@@ -1,5 +1,6 @@
 import type { MapMarkerSummary } from "../../contracts/entities/map-entities.contract.js";
 import { loadEnv } from "../../config/env.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { MapMarkersFirestoreAdapter } from "../source-of-truth/map-markers-firestore.adapter.js";
 
 const env = loadEnv();
@@ -52,7 +53,28 @@ export class MapRepository {
         mediaType: marker.hasVideo ? "video" : "image",
         ts: marker.updatedAt ?? marker.createdAt ?? Date.now(),
         activityIds: uniqueStrings([...(marker.activities ?? []), ...(marker.activity ? [marker.activity] : [])]),
-        settingType: null
+        settingType: null,
+        openPayload: buildPostEnvelope({
+          postId: marker.postId,
+          seed: {
+            postId: marker.postId,
+            id: marker.postId,
+            thumbUrl: marker.thumbnailUrl ?? null,
+            displayPhotoLink: marker.thumbnailUrl ?? null,
+            mediaType: marker.hasVideo ? "video" : "image",
+            activities: uniqueStrings([...(marker.activities ?? []), ...(marker.activity ? [marker.activity] : [])]),
+            lat: marker.lat,
+            long: marker.lng,
+            userId: marker.ownerId ?? null,
+            authorId: marker.ownerId ?? null,
+            visibility: marker.visibility ?? null,
+            updatedAtMs: marker.updatedAt ?? marker.createdAt ?? Date.now(),
+            createdAtMs: marker.createdAt ?? marker.updatedAt ?? Date.now(),
+          },
+          hydrationLevel: "marker",
+          sourceRoute: "map.bootstrap",
+          debugSource: "MapRepository.listMarkers",
+        }),
       })),
       hasMore: page.hasMore,
       nextCursor: page.nextCursor

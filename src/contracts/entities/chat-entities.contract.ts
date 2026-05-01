@@ -18,3 +18,11 @@ export const ConversationSummarySchema = z.object({
 });
 
 export type ConversationSummary = z.infer<typeof ConversationSummarySchema>;
+
+export const ConversationDetailSchema = ConversationSummarySchema.extend({
+  createdAtMs: z.number().int().nonnegative(),
+  updatedAtMs: z.number().int().nonnegative().nullable(),
+  createdBy: z.string().nullable()
+});
+
+export type ConversationDetail = z.infer<typeof ConversationDetailSchema>;

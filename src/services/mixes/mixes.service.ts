@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mixCache } from "../../cache/mixCache.js";
 import type { MixFilter } from "../../contracts/v2/mixes.contract.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import type { MixesRepository, MixSourcePost } from "../../repositories/mixes/mixes.repository.js";
 import { mixesRepository, parsePostTimeMs } from "../../repositories/mixes/mixes.repository.js";
 
@@ -170,7 +171,7 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
   const title = normalizeText((row as any).title ?? (row as any).caption ?? (row as any).content);
   const activities = postActivityTokens(row);
   const coords = postLatLng(row);
-  return {
+  const seed = {
     postId,
     rankToken: `mix-${mixKey}-${index + 1}`,
     author: {
@@ -188,6 +189,17 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
     createdAtMs: Math.max(0, parsePostTimeMs(row)),
     updatedAtMs: Math.max(0, parsePostTimeMs(row)),
   };
+  return buildPostEnvelope({
+    postId,
+    seed,
+    sourcePost: row,
+    rawPost: row,
+    hydrationLevel: "card",
+    sourceRoute: "mixes.service",
+    rankToken: seed.rankToken,
+    author: seed.author as unknown as Record<string, unknown>,
+    debugSource: "mapPostCard",
+  }) as MixPostCard;
 }
 
 function hashFilter(filter: MixFilter, viewerId: string | null): string {
@@ -210,7 +222,18 @@ export class MixesService {
         diagnostics: { ...cached.diagnostics, cacheHit: true, latencyMs: Date.now() - started },
       };
     }
-    const { posts: pool, readCount, source, poolLimit, poolBuiltAt, poolBuildLatencyMs, poolBuildReadCount } =
+    const {
+      posts: pool,
+      readCount,
+      source,
+      poolLimit,
+      poolState,
+      poolBuiltAt,
+      poolBuildLatencyMs,
+      poolBuildReadCount,
+      servedStale,
+      servedEmptyWarming,
+    } =
       await this.repo.listFromPool();
     const filtered = this.filterRows(pool, filter);
     const cards = filtered.slice(0, limit).map((row, idx) => mapPostCard(row, idx, input.mixKey));
@@ -218,6 +241,7 @@ export class MixesService {
       ok: true as const,
       mixKey: input.mixKey,
       filters: filter,
+      poolState,
       posts: cards,
       diagnostics: {
         routeName: "mixes.preview.get",
@@ -226,6 +250,9 @@ export class MixesService {
         candidateCount: filtered.length,
         returnedCount: cards.length,
         source,
+        poolState,
+        servedStale,
+        servedEmptyWarming,
         cacheHit: false,
         latencyMs: Date.now() - started,
         readCount,
@@ -252,7 +279,18 @@ export class MixesService {
         diagnostics: { ...cached.diagnostics, cacheHit: true, latencyMs: Date.now() - started },
       };
     }
-    const { posts: pool, readCount, source, poolLimit, poolBuiltAt, poolBuildLatencyMs, poolBuildReadCount } =
+    const {
+      posts: pool,
+      readCount,
+      source,
+      poolLimit,
+      poolState,
+      poolBuiltAt,
+      poolBuildLatencyMs,
+      poolBuildReadCount,
+      servedStale,
+      servedEmptyWarming,
+    } =
       await this.repo.listFromPool();
     const filtered = this.filterRows(pool, filter);
     const afterCursor = parsedCursor
@@ -273,6 +311,7 @@ export class MixesService {
       ok: true as const,
       mixKey: input.mixKey,
       filters: filter,
+      poolState,
       posts: cards,
       nextCursor,
       hasMore,
@@ -283,6 +322,9 @@ export class MixesService {
         candidateCount: filtered.length,
         returnedCount: cards.length,
         source,
+        poolState,
+        servedStale,
+        servedEmptyWarming,
         cacheHit: false,
         latencyMs: Date.now() - started,
         readCount,

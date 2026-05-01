@@ -19,13 +19,10 @@ export class CollectionsService {
           page.items.map((item) => item.postId)
         );
         const savedAtByPostId = new Map(page.items.map((item) => [item.postId, item.savedAtMs] as const));
-        const items = cards.map((card) => {
-          const { assets: _assets, ...lean } = card;
-          return {
-            ...lean,
-            rankToken: `saved-rank-${savedAtByPostId.get(card.postId) ?? 0}`
-          };
-        });
+        const items = cards.map((card) => ({
+          ...card,
+          rankToken: `saved-rank-${savedAtByPostId.get(card.postId) ?? 0}`
+        }));
         return { ...page, items };
       })
     );

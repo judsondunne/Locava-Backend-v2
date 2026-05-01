@@ -1,6 +1,7 @@
 import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { loadEnv } from "../../config/env.js";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { incrementDbOps } from "../../observability/request-context.js";
 
@@ -22,6 +23,7 @@ export type MapMarkerRecord = {
   followedUserPic?: string | null;
   hasPhoto?: boolean;
   hasVideo?: boolean;
+  openPayload?: Record<string, unknown> | null;
 };
 
 export type MapMarkersDataset = {
@@ -339,7 +341,29 @@ function project(
       thumbKey,
       followedUserPic: null,
       hasPhoto: media.hasPhoto,
-      hasVideo: media.hasVideo
+      hasVideo: media.hasVideo,
+      openPayload: buildPostEnvelope({
+        postId: doc.id,
+        seed: {
+          postId: doc.id,
+          id: doc.id,
+          thumbUrl: thumbnailUrl,
+          displayPhotoLink: thumbnailUrl,
+          mediaType: media.hasVideo ? "video" : "image",
+          activities,
+          activity: readActivity(data.activity),
+          lat: coords.lat,
+          long: coords.lng,
+          userId: ownerId,
+          authorId: ownerId,
+          visibility,
+          updatedAtMs: updatedAt ?? createdAt ?? Date.now(),
+          createdAtMs: createdAt ?? updatedAt ?? Date.now(),
+        },
+        hydrationLevel: "marker",
+        sourceRoute: "map.markers",
+        debugSource: "MapMarkersFirestoreAdapter.project",
+      }),
     });
   }
   markers.sort((a, b) => {

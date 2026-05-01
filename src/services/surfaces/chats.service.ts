@@ -1,6 +1,8 @@
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { withMutationLock } from "../../lib/mutation-lock.js";
+import type { ConversationDetail } from "../../contracts/entities/chat-entities.contract.js";
+import type { MessageSummary } from "../../contracts/entities/chat-message-entities.contract.js";
 import type { ChatsRepository } from "../../repositories/surfaces/chats.repository.js";
 
 export class ChatsService {
@@ -14,6 +16,12 @@ export class ChatsService {
         // per-user entity-cache round trip that duplicated work and inflated cold latency.
         return this.repository.listInbox(input);
       })
+    );
+  }
+
+  async loadConversation(input: { viewerId: string; conversationId: string }): Promise<ConversationDetail> {
+    return dedupeInFlight(`chats:conversation:${input.viewerId}:${input.conversationId}`, () =>
+      withConcurrencyLimit("chats-conversation-repo", 8, () => this.repository.getConversation(input))
     );
   }
 
@@ -33,12 +41,17 @@ export class ChatsService {
     );
   }
 
-  async loadThreadPage(input: { viewerId: string; conversationId: string; cursor: string | null; limit: number }) {
+  async loadThreadPage(input: { viewerId: string; conversationId: string; cursor: string | null; limit: number }): Promise<{
+    cursorIn: string | null;
+    items: Array<MessageSummary & { seenBy: string[] }>;
+    hasMore: boolean;
+    nextCursor: string | null;
+  }> {
     const cursorPart = input.cursor ?? "start";
     return dedupeInFlight(`chats:thread:${input.viewerId}:${input.conversationId}:${cursorPart}:${input.limit}`, () =>
       withConcurrencyLimit("chats-thread-repo", 8, async () => {
         const page = await this.repository.listThreadMessages(input);
-        const items = page.items.map((item) => ({
+        const items = page.items.map((item): MessageSummary & { seenBy: string[] } => ({
           ...item,
           ownedByViewer: item.senderId === input.viewerId,
           seenByViewer: item.seenBy.includes(input.viewerId)
@@ -85,6 +98,7 @@ export class ChatsService {
     conversationId: string;
     groupName?: string;
     displayPhotoURL?: string | null;
+    participants?: string[];
   }) {
     return withMutationLock(`chats-update-group:${input.viewerId}:${input.conversationId}`, () =>
       this.repository.updateGroupMetadata(input)

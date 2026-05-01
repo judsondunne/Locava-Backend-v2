@@ -5,8 +5,12 @@ import { ZodError } from "zod";
 import { type AppEnv, loadEnv } from "../config/env.js";
 import { failure } from "../lib/response.js";
 import { diagnosticsStore } from "../observability/diagnostics-store.js";
+import { requestMetricsCollector } from "../observability/request-metrics.collector.js";
 import { getRequestContext, recordPayloadBytes, runWithRequestContext } from "../observability/request-context.js";
+import { attachErrorBufferToLogger } from "../observability/error-ring-buffer.js";
+import { cacheMetricsCollector } from "../observability/cache-metrics.collector.js";
 import { registerAdminRoutes } from "../routes/admin.routes.js";
+import { registerInternalHealthDashboardRoutes } from "../routes/internal/health-dashboard.routes.js";
 import { registerInternalOpsRoutes } from "../routes/internal/internal-ops.routes.js";
 import { registerSystemRoutes } from "../routes/system.routes.js";
 import { registerTestRoutes } from "../routes/test.routes.js";
@@ -44,6 +48,7 @@ import { registerV2PostingMediaRegisterRoutes } from "../routes/v2/posting-media
 import { registerV2PostingMediaMarkUploadedRoutes } from "../routes/v2/posting-media-mark-uploaded.routes.js";
 import { registerV2PostingMediaStatusRoutes } from "../routes/v2/posting-media-status.routes.js";
 import { registerV2PostingLocationSuggestRoutes } from "../routes/v2/posting-location-suggest.routes.js";
+import { registerV2PostingSongsRoutes } from "../routes/v2/posting-songs.routes.js";
 import { registerV2LegendsStagePostRoutes } from "../routes/v2/legends-stage-post.routes.js";
 import { registerV2LegendsStagePostCancelRoutes } from "../routes/v2/legends-stage-post-cancel.routes.js";
 import { registerV2LegendsMeBootstrapRoutes } from "../routes/v2/legends-me-bootstrap.routes.js";
@@ -59,11 +64,13 @@ import { registerV2NotificationsListRoutes } from "../routes/v2/notifications-li
 import { registerV2NotificationsMarkReadRoutes } from "../routes/v2/notifications-mark-read.routes.js";
 import { registerV2NotificationsMarkAllReadRoutes } from "../routes/v2/notifications-mark-all-read.routes.js";
 import { registerV2ChatsInboxRoutes } from "../routes/v2/chats-inbox.routes.js";
+import { registerV2ChatsConversationRoutes } from "../routes/v2/chats-conversation.routes.js";
 import { registerV2ChatsMarkReadRoutes } from "../routes/v2/chats-mark-read.routes.js";
 import { registerV2ChatsThreadRoutes } from "../routes/v2/chats-thread.routes.js";
 import { registerV2ChatsSendMessageRoutes } from "../routes/v2/chats-send-message.routes.js";
 import { registerV2ChatsMarkUnreadRoutes } from "../routes/v2/chats-mark-unread.routes.js";
 import { registerV2ChatsCreateRoutes } from "../routes/v2/chats-create.routes.js";
+import { registerV2ChatsGroupMediaRoutes } from "../routes/v2/chats-group-media.routes.js";
 import { registerV2ChatsManageRoutes } from "../routes/v2/chats-manage.routes.js";
 import { registerV2ChatsMessageReactionRoutes } from "../routes/v2/chats-message-reaction.routes.js";
 import { registerV2UsersLastActiveRoutes } from "../routes/v2/users-last-active.routes.js";
@@ -174,6 +181,8 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   });
 
   app.decorate("config", env);
+  attachErrorBufferToLogger(app.log as unknown as Record<string, unknown>);
+  cacheMetricsCollector.setStatsProvider(() => globalCache.getRuntimeStats?.() ?? null);
 
   if (shouldPrimeFirestoreOnReady) {
     app.addHook("onReady", async () => {
@@ -204,6 +213,12 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     span?.setAttribute("http.request_id", requestId);
 
     request.log = request.log.child({ requestId, method: request.method, url: request.url });
+    attachErrorBufferToLogger(request.log as unknown as Record<string, unknown>, () => ({
+      requestId,
+      method: request.method,
+      route: request.routeOptions.url ?? request.url,
+      routeName: getRequestContext()?.routeName ?? null
+    }));
 
     return runWithRequestContext(
       {
@@ -307,7 +322,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     const timeouts = ctx ? [...ctx.timeouts] : [];
     const surfaceTimings = ctx ? { ...ctx.surfaceTimings } : {};
 
-    diagnosticsStore.addRequest({
+    const requestDiagnostic = {
       requestId: request.requestIdValue,
       method: request.method,
       route: request.routeOptions.url ?? request.url,
@@ -333,7 +348,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       surfaceTimings,
       orchestration: ctx?.orchestration,
       timestamp: new Date().toISOString()
-    });
+    };
+    diagnosticsStore.addRequest(requestDiagnostic);
+    requestMetricsCollector.record(requestDiagnostic);
 
     const verboseRequestLogs = process.env.BACKENDV2_VERBOSE_REQUEST_LOGS === "1";
     if (verboseRequestLogs) {
@@ -448,6 +465,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2PostingMediaMarkUploadedRoutes);
   app.register(registerV2PostingMediaStatusRoutes);
   app.register(registerV2PostingLocationSuggestRoutes);
+  app.register(registerV2PostingSongsRoutes);
   app.register(registerV2LegendsStagePostRoutes);
   app.register(registerV2LegendsStagePostCancelRoutes);
   app.register(registerV2LegendsMeBootstrapRoutes);
@@ -462,12 +480,16 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2NotificationsMarkReadRoutes);
   app.register(registerV2NotificationsMarkAllReadRoutes);
   app.register(registerV2ChatsInboxRoutes);
+  app.register(registerV2ChatsConversationRoutes);
   app.register(registerV2ChatsThreadRoutes);
   app.register(registerV2ChatsSendMessageRoutes);
   app.register(registerV2ChatsMarkReadRoutes);
   app.register(registerV2UsersLastActiveRoutes);
   app.register(registerV2ChatsMarkUnreadRoutes);
   app.register(registerV2ChatsCreateRoutes);
+  app.register(async (instance) => {
+    await registerV2ChatsGroupMediaRoutes(instance, env);
+  });
   app.register(registerV2ChatsManageRoutes);
   app.register(registerV2ChatsMessageReactionRoutes);
   app.register(registerV2GroupsRoutes);
@@ -516,6 +538,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2UsersSuggestedRoutes);
   app.register(registerLegacyReelsNearMeRoutes);
   app.register(registerInternalOpsRoutes);
+  app.register(registerInternalHealthDashboardRoutes);
   app.register(registerAdminRoutes);
   if (isLocalDevIdentityModeEnabled()) {
     app.register(registerLocalDebugRoutes);

@@ -65,6 +65,8 @@ export type ForYouCandidate = {
   }>;
   comments: Array<Record<string, unknown>>;
   commentsPreview: Array<Record<string, unknown>>;
+  rawPost?: Record<string, unknown> | null;
+  sourcePost?: Record<string, unknown> | null;
   carouselFitWidth?: boolean;
   layoutLetterbox?: boolean;
   letterboxGradientTop?: string | null;
@@ -203,7 +205,6 @@ export class FeedForYouRepository {
       postIds: null
     });
     return rows
-      .filter((row) => row.reel !== true)
       .slice(0, Math.max(1, Math.min(limit, 1000)))
       .map((row) => row.postId);
   }
@@ -352,6 +353,8 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
     assets,
     comments: embeddedComments,
     commentsPreview: embeddedComments,
+    rawPost: data,
+    sourcePost: data,
     carouselFitWidth: typeof data.carouselFitWidth === "boolean" ? data.carouselFitWidth : undefined,
     layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
     ...normalizeLetterboxHints(data),

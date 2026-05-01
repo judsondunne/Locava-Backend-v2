@@ -21,6 +21,7 @@ import {
   type NativePostGeoBlock,
   type NativePostUserSnapshot
 } from "../posting/buildPostDocument.js";
+import { PostingAudioService } from "../posting/posting-audio.service.js";
 import {
   enqueueVideoProcessingCloudTask,
   triggerVideoProcessingSynchronously
@@ -91,6 +92,7 @@ export class PostingMutationService {
   private readonly viewerDocWarmTimers = new Map<string, true>();
   private readonly finalizeSupplementaryWriteTimers = new Map<string, true>();
   private readonly authBootstrapAdapter = new AuthBootstrapFirestoreAdapter();
+  private readonly postingAudioService = new PostingAudioService();
 
   async createUploadSession(input: {
     viewerId: string;
@@ -915,6 +917,7 @@ export class PostingMutationService {
     const lat = normalizeNumber(input.lat);
     const lng = normalizeNumber(input.long);
     const activities = input.activities.map((value) => String(value ?? "").trim()).filter(Boolean);
+    const enrichedRecordings = await this.postingAudioService.enrichRecordingsForPublish(input.recordings);
     const assembled = assemblePostAssetsFromStagedItems(postId, input.stagedItems);
     const geo = this.resolveFinalizeGeo(lat, lng, input.address ?? "");
     const postDoc = buildNativePostDocument({
@@ -936,7 +939,7 @@ export class PostingMutationService {
       privacy: input.privacy ?? "Public Spot",
       tags: input.tags,
       texts: input.texts,
-      recordings: input.recordings,
+      recordings: enrichedRecordings,
       assembled,
       geo
     });
@@ -970,6 +973,14 @@ export class PostingMutationService {
         throw error;
       }
       createdNewPost = false;
+    }
+
+    if (createdNewPost) {
+      await this.postingAudioService.recordUsageForPublishedPost({
+        recordings: enrichedRecordings,
+        activities,
+        postId
+      });
     }
 
     let videoTaskEnqueued = false;

@@ -12,7 +12,7 @@ describe("v2 search results route", () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it("returns lean shared-card shape with stale-suppression metadata", async () => {
+  it("returns openable shared-card payloads with envelope metadata", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/v2/search/results?q=hiking&limit=8",
@@ -31,10 +31,13 @@ describe("v2 search results route", () => {
     expect(body.data.page.limit).toBe(8);
     expect(body.data.page.sort).toBe("search_ranked_v1");
     expect(body.data.items.length).toBeLessThanOrEqual(8);
+    if (body.data.items.length === 0) return;
     expect(body.data.items[0].author.userId).toBeTruthy();
     expect(body.data.items[0].media.posterUrl).toBeTruthy();
-    expect(body.data.items[0].assets).toBeUndefined();
-    expect(body.data.items[0].comments).toBeUndefined();
+    expect(Array.isArray(body.data.items[0].assets)).toBe(true);
+    expect(body.data.items[0].hydrationLevel).toBe("card");
+    expect(body.data.items[0].hasAssetsArray).toBe(true);
+    expect(body.data.items[0].hasRawPost).toBe(true);
   });
 
   it("supports cursor pagination and echoes cursorIn", async () => {

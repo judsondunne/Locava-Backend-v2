@@ -1,4 +1,5 @@
 import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 
 /**
  * Maps legacy / normalized Backendv2 projection fields and real Locava post documents
@@ -94,7 +95,7 @@ export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
   const data = doc.data() as Record<string, unknown>;
   const proc = inferPostProcessing(data);
   const ar = readAspectRatio(data);
-  return {
+  const seed = {
     postId: doc.id,
     thumbUrl: readPostThumbUrl(data, doc.id),
     mediaType: inferPostMediaType(data),
@@ -102,6 +103,18 @@ export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
     updatedAtMs: readPostDisplayMillis(data),
     processing: proc.processing,
     processingFailed: proc.processingFailed
+  };
+  return {
+    ...seed,
+    ...(buildPostEnvelope({
+      postId: doc.id,
+      seed,
+      sourcePost: data,
+      rawPost: data,
+      hydrationLevel: "card",
+      sourceRoute: "profile.grid",
+      debugSource: "mapPostDocToGridPreview",
+    }) as Record<string, unknown>),
   };
 }
 

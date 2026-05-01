@@ -49,4 +49,18 @@ describe("v2 chats create routes", () => {
     expect(response.json().data.routeName).toBe("chats.create_group.post");
     expect(response.json().data.conversationId).toBeTypeOf("string");
   });
+
+  it("rejects group creation when fewer than two invited participants are provided", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/v2/chats/create-group",
+      headers: viewerHeaders,
+      payload: {
+        participants: ["chat_user_888"],
+        groupName: "Too small",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
 });

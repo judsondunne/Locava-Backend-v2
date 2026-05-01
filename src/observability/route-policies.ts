@@ -408,6 +408,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "recommended",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 2 }
   },
+  "posting.songs.get": {
+    routeName: "posting.songs.get",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 90, p95Ms: 220 },
+      dbOps: { maxReadsCold: 500, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 60_000, targetBytes: 24_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 2 }
+  },
   "legends.stagepost.post": {
     routeName: "legends.stagepost.post",
     priority: "critical_interactive",
@@ -594,6 +605,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 10 }
+  },
+  "chats.conversation.get": {
+    routeName: "chats.conversation.get",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 80, p95Ms: 180 },
+      dbOps: { maxReadsCold: 4, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 14_000, targetBytes: 5_000 }
+    },
+    cacheExpectation: "required",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 8 }
   },
   "chats.thread.get": {
     routeName: "chats.thread.get",
@@ -1267,6 +1289,28 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "chats.group_avatar_upload.post": {
+    routeName: "chats.group_avatar_upload.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 180, p95Ms: 900 },
+      dbOps: { maxReadsCold: 0, maxQueriesCold: 0, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 4_000, targetBytes: 1_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 2 }
+  },
+  "chats.group_photo_upload.post": {
+    routeName: "chats.group_photo_upload.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 220, p95Ms: 1_100 },
+      dbOps: { maxReadsCold: 2, maxQueriesCold: 1, expectedReadsWarm: 1, expectedQueriesWarm: 1 },
+      payload: { maxBytes: 5_000, targetBytes: 1_200 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 2 }
   },
   "chats.delete.delete": {
     routeName: "chats.delete.delete",

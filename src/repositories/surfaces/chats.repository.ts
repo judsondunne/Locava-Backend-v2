@@ -1,15 +1,29 @@
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
-import type { ConversationSummary } from "../../contracts/entities/chat-entities.contract.js";
+import type { ConversationDetail, ConversationSummary } from "../../contracts/entities/chat-entities.contract.js";
 import type { MessageSummary } from "../../contracts/entities/chat-message-entities.contract.js";
 import { decodeCursor, encodeCursor } from "../../lib/pagination.js";
 import { incrementDbOps, recordEntityCacheHit, recordFallback, recordSurfaceTimings } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
+import { FeedRepository } from "./feed.repository.js";
+import { FeedService } from "../../services/surfaces/feed.service.js";
 
 type ConversationRecord = ConversationSummary & { viewerId: string };
-type MessageRecord = Omit<MessageSummary, "ownedByViewer" | "seenByViewer"> & {
+type MessageRecord = {
+  messageId: string;
+  conversationId: string;
+  senderId: string;
+  sender: MessageSummary["sender"];
+  messageType: MessageSummary["messageType"];
+  text: string | null;
+  photoUrl?: string | null;
+  gif?: MessageSummary["gif"];
+  postId?: string | null;
+  post?: Record<string, unknown>;
+  createdAtMs: number;
+  replyToMessageId: string | null;
   seenBy: string[];
   reactions?: Record<string, string>;
 };
@@ -39,7 +53,7 @@ type SendTextMessageInput = {
 
 export class ChatsRepositoryError extends Error {
   constructor(
-    public readonly code: "invalid_cursor" | "conversation_not_found" | "not_group_chat",
+    public readonly code: "invalid_cursor" | "conversation_not_found" | "not_group_chat" | "invalid_participants",
     message: string
   ) {
     super(message);
@@ -133,6 +147,8 @@ function mapCachedUserDocToSummary(userId: string, userDoc: Record<string, unkno
           : null
   };
 }
+
+const chatsFeedService = new FeedService(new FeedRepository());
 
 export class ChatsRepository {
   private readonly db = getFirestoreSourceClient();
@@ -620,6 +636,19 @@ export class ChatsRepository {
       )
     ];
     const users = missingSenderIds.length > 0 ? await this.loadUserSummaries(missingSenderIds) : new Map<string, UserSummary>();
+    const threadPostIds = [...new Set(
+      pageDocs
+        .map((doc) => {
+          const data = doc.data() as Record<string, unknown>;
+          return typeof data.postId === "string" ? data.postId.trim() : "";
+        })
+        .filter(Boolean)
+    )];
+    const threadPostCards =
+      threadPostIds.length > 0
+        ? await chatsFeedService.loadPostCardSummaryBatch(input.viewerId, threadPostIds).catch(() => [])
+        : [];
+    const threadPostById = new Map(threadPostCards.map((row) => [row.postId, row] as const));
     const items = pageDocs.map((doc) => {
       const data = doc.data() as Record<string, unknown>;
       const senderId = typeof data.senderId === "string" ? data.senderId : "unknown";
@@ -696,6 +725,7 @@ export class ChatsRepository {
         photoUrl: messageType === "photo" ? photoUrl : undefined,
         gif: messageType === "gif" ? gif : undefined,
         postId: messageType === "post" ? postId : undefined,
+        post: messageType === "post" && postId ? threadPostById.get(postId) : undefined,
         createdAtMs: toMillis(data.timestamp),
         replyToMessageId: typeof data.replyToMessageId === "string" ? data.replyToMessageId : null,
         seenBy,
@@ -1003,6 +1033,100 @@ export class ChatsRepository {
     }
   }
 
+  async getConversation(input: { viewerId: string; conversationId: string }): Promise<ConversationDetail> {
+    if (shouldAllowSeededFallback(input.viewerId)) {
+      recordFallback("chats_seeded_conversation");
+      this.ensureSeededViewer(input.viewerId);
+      incrementDbOps("queries", 1);
+      const rows = this.seededConversationsByViewer.get(input.viewerId) ?? [];
+      const row = rows.find((it) => it.conversationId === input.conversationId);
+      if (!row) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
+      return {
+        ...row,
+        createdAtMs: row.lastMessageAtMs,
+        updatedAtMs: row.lastMessageAtMs,
+        createdBy: row.participantIds[0] ?? null
+      };
+    }
+    if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
+    const data = await this.assertViewerMembership(input.viewerId, input.conversationId);
+    const participants = Array.isArray(data.participants) ? data.participants.filter((x): x is string => typeof x === "string") : [];
+    const isGroup =
+      participants.length > 2 ||
+      typeof data.groupName === "string" ||
+      data.isGroupChat === true;
+    const createdAtMs = toMillis(data.createdAt) || toMillis(data.lastMessageTime) || Date.now();
+    const updatedAtMs = toMillis(data.updatedAt) || toMillis(data.lastMessageTime) || createdAtMs;
+    const lastMessage = data.lastMessage && typeof data.lastMessage === "object" ? (data.lastMessage as Record<string, unknown>) : null;
+    const lastMessageAtMs = toMillis(data.lastMessageTime) || toMillis(lastMessage?.timestamp) || createdAtMs;
+    const manualUnreadBy = Array.isArray(data.manualUnreadBy)
+      ? data.manualUnreadBy.filter((x): x is string => typeof x === "string")
+      : [];
+    const unreadCount =
+      manualUnreadBy.includes(input.viewerId)
+        ? 1
+        : typeof data.unreadCount === "number" && Number.isFinite(data.unreadCount)
+          ? Math.max(0, Math.floor(data.unreadCount))
+          : 0;
+    const previewIds = isGroup
+      ? participants.filter((id) => id !== input.viewerId).slice(0, 3)
+      : participants.filter((id) => id !== input.viewerId).slice(0, 1);
+    const previewSummaries = await this.loadUserSummaries(previewIds, input.viewerId);
+    const participantPreview = previewIds.map((id) => {
+      const summary = previewSummaries.get(id) ?? fallbackAuthor(id);
+      return {
+        id: summary.userId,
+        userId: summary.userId,
+        handle: summary.handle,
+        name: summary.name ?? summary.handle,
+        pic: summary.pic,
+        profilePic: summary.pic,
+        photo: summary.pic
+      };
+    });
+    const otherId = participants.find((id) => id !== input.viewerId);
+    const otherSummary = otherId
+      ? previewSummaries.get(otherId) ?? (await this.loadCachedUserSummary(otherId)) ?? fallbackAuthor(otherId)
+      : null;
+    const title = isGroup
+      ? (typeof data.groupName === "string" && data.groupName.trim()
+          ? data.groupName.trim()
+          : participantPreview.map((author) => author.name || author.handle || "Friend").join(", ") || "Group chat")
+      : otherSummary?.name ?? otherSummary?.handle ?? "Chat";
+    const lastSenderId = typeof lastMessage?.senderId === "string" ? lastMessage.senderId : null;
+    const lastSenderSummary = lastSenderId
+      ? previewSummaries.get(lastSenderId) ?? (await this.loadCachedUserSummary(lastSenderId)) ?? fallbackAuthor(lastSenderId)
+      : null;
+    return {
+      conversationId: input.conversationId,
+      isGroup,
+      title,
+      displayPhotoUrl: typeof data.displayPhotoURL === "string" ? data.displayPhotoURL : null,
+      participantIds: participants.slice(0, 12),
+      participantPreview,
+      lastMessagePreview: lastMessage ? toPreviewText(normalizeMessageType(lastMessage.type), lastMessage) : null,
+      lastMessageType: lastMessage ? normalizeConversationType(lastMessage.type) : null,
+      lastSender: lastSenderSummary
+        ? {
+            id: lastSenderSummary.userId,
+            userId: lastSenderSummary.userId,
+            handle: lastSenderSummary.handle,
+            name: lastSenderSummary.name ?? lastSenderSummary.handle,
+            pic: lastSenderSummary.pic,
+            profilePic: lastSenderSummary.pic,
+            photo: lastSenderSummary.pic
+          }
+        : null,
+      lastMessageAtMs,
+      unreadCount,
+      muted: Boolean(data.muted),
+      archived: Boolean(data.archived),
+      createdAtMs,
+      updatedAtMs,
+      createdBy: typeof data.createdBy === "string" ? data.createdBy : null
+    };
+  }
+
   async createGroupConversation(input: {
     viewerId: string;
     participantIds: string[];
@@ -1044,8 +1168,11 @@ export class ChatsRepository {
     const created = await this.db.collection("chats").add({
       participants,
       groupName: input.groupName.trim() || "Group chat",
+      createdBy: input.viewerId,
       displayPhotoURL: input.displayPhotoUrl ?? null,
       createdAt: now,
+      updatedAt: now,
+      isGroupChat: true,
       manualUnreadBy: [],
       lastMessageTime: now
     });
@@ -1054,8 +1181,11 @@ export class ChatsRepository {
       {
         participants,
         groupName: input.groupName.trim() || "Group chat",
+        createdBy: input.viewerId,
         displayPhotoURL: input.displayPhotoUrl ?? null,
         createdAt: now,
+        updatedAt: now,
+        isGroupChat: true,
         manualUnreadBy: [],
         lastMessageTime: now
       },
@@ -1069,7 +1199,8 @@ export class ChatsRepository {
     conversationId: string;
     groupName?: string;
     displayPhotoURL?: string | null;
-  }): Promise<{ conversationId: string; groupName: string; displayPhotoURL: string | null }> {
+    participants?: string[];
+  }): Promise<{ conversationId: string; groupName: string; displayPhotoURL: string | null; participantIds: string[] }> {
     if (shouldAllowSeededFallback(input.viewerId)) {
       recordFallback("chats_seeded_update_group");
       this.ensureSeededViewer(input.viewerId);
@@ -1086,12 +1217,23 @@ export class ChatsRepository {
       if (input.displayPhotoURL !== undefined) {
         row.displayPhotoUrl = input.displayPhotoURL;
       }
+      if (Array.isArray(input.participants)) {
+        const nextParticipants = [...new Set(input.participants.filter((id) => typeof id === "string" && id.length > 0))];
+        if (!nextParticipants.includes(input.viewerId)) {
+          throw new ChatsRepositoryError("invalid_participants", "You cannot remove yourself from the group.");
+        }
+        if (nextParticipants.length < 2) {
+          throw new ChatsRepositoryError("invalid_participants", "Group chat must have at least 2 participants.");
+        }
+        row.participantIds = nextParticipants.slice(0, 12);
+      }
       row.lastMessageAtMs = Date.now();
       incrementDbOps("writes", 1);
       return {
         conversationId: input.conversationId,
         groupName: row.title,
-        displayPhotoURL: row.displayPhotoUrl ?? null
+        displayPhotoURL: row.displayPhotoUrl ?? null,
+        participantIds: row.participantIds
       };
     }
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
@@ -1108,7 +1250,19 @@ export class ChatsRepository {
     if (input.displayPhotoURL !== undefined) {
       updates.displayPhotoURL = input.displayPhotoURL;
     }
+    if (Array.isArray(input.participants)) {
+      const nextParticipants = [...new Set(input.participants.filter((id) => typeof id === "string" && id.length > 0))];
+      if (!nextParticipants.includes(input.viewerId)) {
+        throw new ChatsRepositoryError("invalid_participants", "You cannot remove yourself from the group.");
+      }
+      if (nextParticipants.length < 2) {
+        throw new ChatsRepositoryError("invalid_participants", "Group chat must have at least 2 participants.");
+      }
+      updates.participants = nextParticipants.slice(0, 12);
+      updates.isGroupChat = true;
+    }
     if (Object.keys(updates).length > 0) {
+      updates.updatedAt = Timestamp.now();
       incrementDbOps("writes", 1);
       await this.db.collection("chats").doc(input.conversationId).update(updates);
     }
@@ -1124,7 +1278,16 @@ export class ChatsRepository {
         : typeof data.displayPhotoURL === "string"
           ? data.displayPhotoURL
           : null;
-    return { conversationId: input.conversationId, groupName: nextName, displayPhotoURL: nextPhoto };
+    const nextParticipants =
+      Array.isArray(updates.participants)
+        ? (updates.participants as string[])
+        : participants.slice(0, 12);
+    return {
+      conversationId: input.conversationId,
+      groupName: nextName,
+      displayPhotoURL: nextPhoto,
+      participantIds: nextParticipants
+    };
   }
 
   async setMessageReaction(input: {

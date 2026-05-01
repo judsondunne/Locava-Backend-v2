@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "./createApp.js";
+import { requestMetricsCollector } from "../observability/request-metrics.collector.js";
+import { errorRingBuffer } from "../observability/error-ring-buffer.js";
 
 describe("backend foundation routes", () => {
   const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -144,6 +146,41 @@ describe("backend foundation routes", () => {
     expect(res.json().error.code).toBe("internal_ops_disabled");
   });
 
+  it("dashboard data endpoint returns 200 locally and html endpoint returns html", async () => {
+    requestMetricsCollector.clear();
+    errorRingBuffer.clear();
+    const dataRes = await app.inject({ method: "GET", url: "/internal/health-dashboard/data" });
+    expect(dataRes.statusCode).toBe(200);
+    expect(dataRes.json().ok).toBe(true);
+    expect(dataRes.json().data.routeHealth).toBeTruthy();
+
+    const htmlRes = await app.inject({ method: "GET", url: "/internal/health-dashboard" });
+    expect(htmlRes.statusCode).toBe(200);
+    expect(htmlRes.headers["content-type"]).toContain("text/html");
+    expect(htmlRes.body).toContain("Locava Backendv2 Health Dashboard");
+  });
+
+  it("dashboard rejects the wrong token when INTERNAL_DASHBOARD_TOKEN is set", async () => {
+    const secured = createApp({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      INTERNAL_DASHBOARD_TOKEN: "expected-token"
+    });
+    try {
+      const res = await secured.inject({
+        method: "GET",
+        url: "/internal/health-dashboard/data",
+        headers: {
+          "x-internal-dashboard-token": "wrong-token"
+        }
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error.code).toBe("unauthorized");
+    } finally {
+      await secured.close();
+    }
+  });
+
   it("V2 update-group and post chat messages work for seeded chats", async () => {
     const headers = { "x-viewer-id": "aXngoh9jeqW35FNM3fq1w9aXdEh1", "x-viewer-roles": "internal" };
     const inbox = await app.inject({ method: "GET", url: "/v2/chats/inbox?limit=20", headers });
@@ -156,10 +193,18 @@ describe("backend foundation routes", () => {
       method: "POST",
       url: `/v2/chats/${gid}/update-group`,
       headers: { ...headers, "content-type": "application/json" },
-      payload: { groupName: "Renamed probe group" }
+      payload: {
+        groupName: "Renamed probe group",
+        participants: ["aXngoh9jeqW35FNM3fq1w9aXdEh1", "chat_user_5", "chat_user_305"]
+      }
     });
     expect(upd.statusCode).toBe(200);
     expect(upd.json().data.routeName).toBe("chats.updategroup.post");
+    expect(upd.json().data.participantIds).toEqual([
+      "aXngoh9jeqW35FNM3fq1w9aXdEh1",
+      "chat_user_5",
+      "chat_user_305"
+    ]);
 
     const dm = items.find((c) => !c.isGroup);
     expect(dm).toBeTruthy();
@@ -204,5 +249,23 @@ describe("backend foundation routes", () => {
     });
     const first = thread2.json().data.items[0] as { reactions?: Record<string, string> };
     expect(first.reactions?.["aXngoh9jeqW35FNM3fq1w9aXdEh1"]).toBe("🔥");
+  });
+
+  it("V2 conversation detail returns participants and group metadata for seeded chats", async () => {
+    const headers = { "x-viewer-id": "aXngoh9jeqW35FNM3fq1w9aXdEh1", "x-viewer-roles": "internal" };
+    const inbox = await app.inject({ method: "GET", url: "/v2/chats/inbox?limit=20", headers });
+    expect(inbox.statusCode).toBe(200);
+    const items = (inbox.json().data.items ?? []) as Array<{ conversationId: string; isGroup: boolean }>;
+    const group = items.find((c) => c.isGroup);
+    expect(group).toBeTruthy();
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v2/chats/${encodeURIComponent(group!.conversationId)}`,
+      headers
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().data.routeName).toBe("chats.conversation.get");
+    expect(Array.isArray(detail.json().data.conversation.participantIds)).toBe(true);
+    expect(detail.json().data.conversation.isGroup).toBe(true);
   });
 });

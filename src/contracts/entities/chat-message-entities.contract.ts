@@ -23,12 +23,13 @@ export const MessageSummarySchema = z.object({
   photoUrl: z.string().url().nullable().optional(),
   gif: GifAttachmentSchema.nullable().optional(),
   postId: z.string().nullable().optional(),
+  post: z.record(z.unknown()).optional(),
   createdAtMs: z.number().int().nonnegative(),
   ownedByViewer: z.boolean(),
   seenByViewer: z.boolean(),
   replyToMessageId: z.string().nullable(),
   /** Map of userId -> emoji string for persisted message reactions */
   reactions: z.record(z.string()).optional()
-});
+}).passthrough();
 
 export type MessageSummary = z.infer<typeof MessageSummarySchema>;

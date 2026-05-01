@@ -7,11 +7,14 @@ import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { incrementDbOps, recordEntityCacheHit, recordFallback, recordSurfaceTimings } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
+import { FeedRepository } from "./feed.repository.js";
+import { FeedService } from "../../services/surfaces/feed.service.js";
 
 type NotificationRecord = NotificationSummary & { viewerId: string };
 type CachedNotificationReadState = {
   exists: boolean;
   read: boolean;
+  badgeEligible?: boolean;
 };
 
 type RawNotificationDoc = {
@@ -67,6 +70,7 @@ const KNOWN_NOTIFICATION_TYPES = new Set([
 const LIKE_AGG_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LIKE_AGG_INDIVIDUAL_CAP = 2;
 const MAX_IDS_IN_AGG_METADATA = 80;
+const notificationFeedService = new FeedService(new FeedRepository());
 
 type LegacySenderData = {
   senderName?: string;
@@ -143,10 +147,29 @@ function defaultPreviewText(type: NotificationSummary["type"]): string {
   return "interacted with your content";
 }
 
+function countsTowardNotificationsUnreadCount(type: unknown): boolean {
+  return normalizeType(type) !== "chat";
+}
+
 function asTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function isLikelyPlaceholderIdentity(value: unknown, userId?: string | null): boolean {
+  const trimmed = asTrimmedString(value);
+  if (!trimmed) return true;
+  const lower = trimmed.toLowerCase().replace(/^@+/, "");
+  const normalizedUserId = asTrimmedString(userId)?.toLowerCase() ?? "";
+  if (lower === "someone" || lower === "unknown" || lower === "unknown user") return true;
+  if (normalizedUserId && lower === normalizedUserId) return true;
+  if (/^(user|chat_user|sender)_[a-z0-9][a-z0-9._-]{3,}$/i.test(lower)) return true;
+  if (/^user_?id[a-z0-9._-]+$/i.test(lower)) return true;
+  if (/^[a-z0-9_-]{20,}$/i.test(lower) && !lower.includes(".") && !lower.includes("@") && !lower.includes(" ")) {
+    return true;
+  }
+  return false;
 }
 
 function safeFirestoreDocIdSegment(id: string): string {
@@ -335,7 +358,7 @@ export class NotificationsRepository {
     incrementDbOps("queries", 1);
     incrementDbOps("reads", slice.length);
     const items = this.mapSeededDocsToRecords(slice, input.viewerId);
-    const unreadCount = all.filter((r) => !r.read).length;
+    const unreadCount = all.filter((r) => !r.read && countsTowardNotificationsUnreadCount(r.type)).length;
     const tail = items[items.length - 1];
     const nextCursor = hasMore && tail ? encodeCursor({ id: tail.notificationId, createdAtMs: tail.createdAtMs }) : null;
     return { cursorIn: input.cursor, items, hasMore, nextCursor, unreadCount, degraded: false, fallbacks: [] };
@@ -441,14 +464,18 @@ export class NotificationsRepository {
     }
   }
 
-  private async cacheNotificationReadStates(viewerId: string, states: Array<{ notificationId: string; read: boolean }>): Promise<void> {
+  private async cacheNotificationReadStates(
+    viewerId: string,
+    states: Array<{ notificationId: string; read: boolean; badgeEligible?: boolean }>,
+  ): Promise<void> {
     await Promise.all(
       states.map((state) =>
         globalCache.set<CachedNotificationReadState>(
           this.notificationReadStateCacheKey(viewerId, state.notificationId),
           {
             exists: true,
-            read: state.read
+            read: state.read,
+            badgeEligible: state.badgeEligible
           },
           25_000
         )
@@ -456,7 +483,10 @@ export class NotificationsRepository {
     );
   }
 
-  private queueNotificationReadStateCache(viewerId: string, states: Array<{ notificationId: string; read: boolean }>): void {
+  private queueNotificationReadStateCache(
+    viewerId: string,
+    states: Array<{ notificationId: string; read: boolean; badgeEligible?: boolean }>,
+  ): void {
     void this.cacheNotificationReadStates(viewerId, states).catch(() => undefined);
   }
 
@@ -635,7 +665,8 @@ export class NotificationsRepository {
     notificationData: Record<string, unknown>;
     unreadDelta?: number;
   }): Promise<{ notificationId: string }> {
-    const unreadDelta = input.unreadDelta ?? 1;
+    const unreadDelta =
+      countsTowardNotificationsUnreadCount(input.notificationData.type) ? (input.unreadDelta ?? 1) : 0;
     if (this.useSeededNotifications()) {
       const rows = this.ensureSeededViewer(input.recipientUserId);
       const notificationId = `seed_${Date.now()}_${rows.length + 1}`;
@@ -1020,21 +1051,61 @@ export class NotificationsRepository {
     const pageDocs = snapshot.docs.slice(0, safeLimit);
     const hasMore = snapshot.docs.length > safeLimit;
     const allRaw = pageDocs.map((doc) => ({ id: doc.id, ...(doc.data() as RawNotificationDoc) }));
+    const tUserHydr0 = performance.now();
+    const actorIdsNeedingHydration = [
+      ...new Set(
+        allRaw
+          .map((row) => (typeof row.senderUserId === "string" ? row.senderUserId.trim() : ""))
+          .filter((actorId) => {
+            if (!actorId || actorId === "system") return false;
+            return allRaw.some(
+              (row) =>
+                row.senderUserId === actorId &&
+                isLikelyPlaceholderIdentity(row.senderName, actorId)
+            );
+          })
+      )
+    ];
+    const hydratedUsersById =
+      actorIdsNeedingHydration.length > 0 ? await this.loadUsersById(actorIdsNeedingHydration) : new Map<string, DocumentData>();
+    const tUserHydr1 = performance.now();
+    const notificationPostIds = [...new Set(
+      allRaw
+        .map((row) => (typeof row.postId === "string" ? row.postId.trim() : ""))
+        .filter(Boolean)
+    )];
+    const notificationPostCards =
+      notificationPostIds.length > 0
+        ? await notificationFeedService.loadPostCardSummaryBatch(input.viewerId, notificationPostIds).catch(() => [])
+        : [];
+    const notificationPostById = new Map(notificationPostCards.map((row) => [row.postId, row] as const));
     const tMap0 = performance.now();
     const items: NotificationRecord[] = allRaw.map((row) => {
       const actorId = String(row.senderUserId ?? "system");
       const type = normalizeType(row.type);
       const createdAtMs = toMillis(row.timestamp ?? row.createdAt);
       const metadata = row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : {};
+      const hydratedSender = this.extractSenderData(
+        actorId,
+        (hydratedUsersById.get(actorId) as Record<string, unknown> | undefined) ?? null
+      );
+      const storedHandle = asTrimmedString(row.senderUsername)?.replace(/^@+/, "") ?? null;
       const handle =
         actorId === "system"
           ? "locava"
-          : String(row.senderUsername ?? actorId)
-              .replace(/^@+/, "")
-              .trim();
-      const name = String(row.senderName ?? (actorId === "system" ? "Locava" : handle)).trim();
-      const pic = sanitizeProfilePic(row.senderProfilePic);
+          : isLikelyPlaceholderIdentity(storedHandle, actorId)
+            ? hydratedSender.senderUsername ?? `user_${actorId.slice(0, 8)}`
+            : storedHandle ?? hydratedSender.senderUsername ?? `user_${actorId.slice(0, 8)}`;
+      const storedName = asTrimmedString(row.senderName);
+      const name =
+        actorId === "system"
+          ? "Locava"
+          : isLikelyPlaceholderIdentity(storedName, actorId)
+            ? hydratedSender.senderName ?? handle
+            : storedName ?? hydratedSender.senderName ?? handle;
+      const pic = sanitizeProfilePic(row.senderProfilePic) ?? sanitizeProfilePic(hydratedSender.senderProfilePic);
       const rawTarget = String(row.postId ?? row.targetId ?? row.targetUserId ?? row.collectionId ?? row.id);
+      const postId = typeof row.postId === "string" ? row.postId.trim() : "";
       const targetId = type === "follow" ? actorId : rawTarget;
       const readState: "read" | "unread" =
         Boolean(row.read) || (readAllAtMs > 0 && createdAtMs <= readAllAtMs) ? "read" : "unread";
@@ -1056,6 +1127,7 @@ export class NotificationsRepository {
           text: String(row.message ?? metadata.postTitle ?? defaultPreviewText(type)),
           thumbUrl: typeof metadata.postThumbUrl === "string" ? metadata.postThumbUrl : null
         },
+        ...(postId && notificationPostById.has(postId) ? { post: notificationPostById.get(postId) } : {}),
         ...(metaOut ? { metadata: metaOut } : {}),
         viewerId: input.viewerId
       };
@@ -1063,7 +1135,7 @@ export class NotificationsRepository {
     const tMap1 = performance.now();
     recordSurfaceTimings({
       notifications_firestore_parallel_ms: tParallel1 - tParallel0,
-      notifications_user_batch_ms: 0,
+      notifications_user_batch_ms: tUserHydr1 - tUserHydr0,
       notifications_map_ms: tMap1 - tMap0
     });
 
@@ -1073,7 +1145,8 @@ export class NotificationsRepository {
       input.viewerId,
       items.map((item) => ({
         notificationId: item.notificationId,
-        read: item.readState === "read"
+        read: item.readState === "read",
+        badgeEligible: countsTowardNotificationsUnreadCount(item.type)
       }))
     );
     return {
@@ -1109,7 +1182,7 @@ export class NotificationsRepository {
           incrementDbOps("writes", 1);
         }
       }
-      const unreadCount = rows.filter((r) => !r.read).length;
+      const unreadCount = rows.filter((r) => !r.read && countsTowardNotificationsUnreadCount(r.type)).length;
       return {
         requestedCount: requested.length,
         markedCount,
@@ -1127,11 +1200,16 @@ export class NotificationsRepository {
         )
       )
     ]);
-    const docsById = new Map<string, { exists: boolean; read: boolean }>();
+    const docsById = new Map<string, CachedNotificationReadState>();
     const unresolvedIds: string[] = [];
     requested.forEach((id, index) => {
       const cached = cachedReadStates[index];
-      if (cached && typeof cached.exists === "boolean" && typeof cached.read === "boolean") {
+      if (
+        cached &&
+        typeof cached.exists === "boolean" &&
+        typeof cached.read === "boolean" &&
+        typeof cached.badgeEligible === "boolean"
+      ) {
         docsById.set(id, cached);
       } else {
         unresolvedIds.push(id);
@@ -1148,7 +1226,10 @@ export class NotificationsRepository {
           if (!notificationId) return Promise.resolve();
           const state: CachedNotificationReadState = {
             exists: snap.exists,
-            read: snap.exists ? Boolean((snap.data() as RawNotificationDoc).read) : false
+            read: snap.exists ? Boolean((snap.data() as RawNotificationDoc).read) : false,
+            badgeEligible: snap.exists
+              ? countsTowardNotificationsUnreadCount((snap.data() as RawNotificationDoc).type)
+              : false
           };
           docsById.set(notificationId, state);
           return globalCache.set(this.notificationReadStateCacheKey(input.viewerId, notificationId), state, 25_000);
@@ -1157,6 +1238,7 @@ export class NotificationsRepository {
     }
 
     let markedCount = 0;
+    let badgeMarkedCount = 0;
     const batch = db.batch();
     const markedIds: string[] = [];
     for (const id of requested) {
@@ -1164,20 +1246,25 @@ export class NotificationsRepository {
       if (!doc?.exists || doc.read) continue;
       batch.update(coll.doc(id), { read: true, readAt: Timestamp.now() });
       markedCount += 1;
+      if (doc.badgeEligible) badgeMarkedCount += 1;
       markedIds.push(id);
     }
     let unreadCount = cachedUnreadCount ?? 0;
     if (markedCount > 0) {
       await batch.commit();
       incrementDbOps("writes", markedCount);
-      const readStates = markedIds.map((notificationId) => ({ notificationId, read: true }));
+      const readStates = markedIds.map((notificationId) => ({
+        notificationId,
+        read: true,
+        badgeEligible: docsById.get(notificationId)?.badgeEligible,
+      }));
       if (process.env.VITEST === "true") {
         await this.cacheNotificationReadStates(input.viewerId, readStates);
       } else {
         this.queueNotificationReadStateCache(input.viewerId, readStates);
       }
       if (cachedUnreadCount != null) {
-        unreadCount = Math.max(0, cachedUnreadCount - markedCount);
+        unreadCount = Math.max(0, cachedUnreadCount - badgeMarkedCount);
         if (process.env.VITEST === "true") {
           await Promise.all([this.writeUnreadCountCaches(input.viewerId, unreadCount), this.writeUnreadCountFirestore(input.viewerId, unreadCount)]);
         } else {
@@ -1185,7 +1272,7 @@ export class NotificationsRepository {
           this.queueUnreadCountFirestore(input.viewerId, unreadCount);
         }
       } else {
-        unreadCount = await this.adjustUnreadCountFirestore(input.viewerId, -markedCount);
+        unreadCount = await this.adjustUnreadCountFirestore(input.viewerId, -badgeMarkedCount);
       }
     } else {
       unreadCount = Math.max(0, unreadCount);

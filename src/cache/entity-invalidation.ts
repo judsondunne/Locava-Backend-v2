@@ -104,6 +104,11 @@ export type MutationInvalidationInput =
       mutationType: "chat.message.delete";
       viewerId: string;
       conversationId: string;
+    }
+  | {
+      mutationType: "chat.updategroup";
+      viewerId: string;
+      conversationId: string;
     };
 
 export type InvalidationResult = {
@@ -355,11 +360,14 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
   if (
     input.mutationType === "chat.sendtext" ||
     input.mutationType === "chat.reaction" ||
-    input.mutationType === "chat.message.delete"
+    input.mutationType === "chat.message.delete" ||
+    input.mutationType === "chat.updategroup"
   ) {
     const keys = await invalidateRouteCacheByTags(
       [
         `route:chats.inbox:${input.viewerId}`,
+        `route:chats.conversation:${input.viewerId}:${input.conversationId}`,
+        `route:chats.conversation:${input.viewerId}`,
         `route:chats.thread:${input.viewerId}:${input.conversationId}`,
         `route:chats.thread:${input.viewerId}`
       ],
@@ -371,7 +379,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     });
     return {
       mutationType: input.mutationType,
-      invalidationTypes: ["route.chats_thread", "route.chats_inbox"],
+      invalidationTypes: ["route.chats_thread", "route.chats_conversation", "route.chats_inbox"],
       invalidatedKeys: keys
     };
   }

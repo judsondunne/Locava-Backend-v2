@@ -9,7 +9,8 @@ export const MapMarkerSummarySchema = z.object({
   mediaType: z.enum(["image", "video"]),
   ts: z.number().int().nonnegative(),
   activityIds: z.array(z.string()),
-  settingType: z.enum(["indoor", "outdoor"]).nullable()
-});
+  settingType: z.enum(["indoor", "outdoor"]).nullable(),
+  openPayload: z.record(z.unknown()).nullable().optional(),
+}).passthrough();
 
 export type MapMarkerSummary = z.infer<typeof MapMarkerSummarySchema>;

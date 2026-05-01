@@ -9,6 +9,11 @@ export interface CacheStore {
   set<T>(key: string, value: T, ttlMs: number): Promise<void>;
   del(key: string): Promise<void>;
   clear?(): Promise<void>;
+  getRuntimeStats?(): {
+    provider: string;
+    size: number | null;
+    distributed: boolean;
+  };
 }
 
 export type CacheNamespace = "entity" | "list" | "bootstrap";

@@ -45,6 +45,8 @@ const EnvSchema = z.object({
   ENABLE_PUBLIC_FIRESTORE_PROBE: z.coerce.boolean().default(false),
   /** When set, enables POST /internal/ops/* bearer-protected maintenance routes (e.g. search-field backfill). */
   INTERNAL_OPS_TOKEN: z.string().optional(),
+  /** When set, protects the internal health dashboard endpoints. */
+  INTERNAL_DASHBOARD_TOKEN: z.string().optional(),
   MAP_MARKERS_CACHE_TTL_MS: z.coerce.number().int().min(30_000).max(120_000).default(60_000),
   MAP_MARKERS_MAX_DOCS: z.coerce.number().int().min(100).max(10_000).default(5000),
   /**

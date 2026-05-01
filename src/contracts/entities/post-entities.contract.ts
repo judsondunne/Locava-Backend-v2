@@ -13,31 +13,80 @@ const EmbeddedCommentSchema = z.object({
   createdAtMs: z.number().nullable().optional(),
   likedBy: z.array(z.string()).optional(),
   replies: z.array(z.unknown()).optional()
-});
+}).passthrough();
 
 export const AuthorSummarySchema = z.object({
   userId: z.string(),
   handle: z.string(),
   name: z.string().nullable(),
   pic: z.string().nullable()
-});
+}).passthrough();
 
 export const SocialSummarySchema = z.object({
   likeCount: z.number().int().nonnegative(),
   commentCount: z.number().int().nonnegative()
-});
+}).passthrough();
 
 export const ViewerPostStateSchema = z.object({
   liked: z.boolean(),
   saved: z.boolean()
-});
+}).passthrough();
 
 export const MediaStartupHintsSchema = z.object({
   type: z.enum(["image", "video"]),
   posterUrl: z.string().url(),
   aspectRatio: z.number().positive(),
   startupHint: z.enum(["poster_only", "poster_then_preview"])
-});
+}).passthrough();
+
+const PostEnvelopeDebugSchema = z.object({
+  sourceRoute: z.string().optional(),
+  hydrationLevel: z.enum(["card", "detail", "marker"]).optional(),
+  debugSource: z.string().nullable().optional()
+}).passthrough();
+
+const PostEnvelopeMediaSchema = z.object({
+  mediaType: z.enum(["image", "video"]).optional(),
+  assets: z.array(z.record(z.unknown())).optional(),
+  firstAssetUrl: z.string().nullable().optional(),
+  posterUrl: z.string().nullable().optional(),
+  hasPlayableVideo: z.boolean().optional(),
+  playableVideoUrl: z.string().nullable().optional()
+}).passthrough();
+
+const PostEnvelopeLocationSchema = z.object({
+  address: z.string().nullable().optional(),
+  lat: z.number().nullable().optional(),
+  long: z.number().nullable().optional(),
+  city: z.string().nullable().optional(),
+  state: z.string().nullable().optional(),
+  country: z.string().nullable().optional(),
+  geohash: z.string().nullable().optional()
+}).passthrough();
+
+const PostEnvelopeCountsSchema = z.object({
+  likeCount: z.number().int().nonnegative().optional(),
+  commentCount: z.number().int().nonnegative().optional()
+}).passthrough();
+
+const PostEnvelopeFieldsSchema = z.object({
+  id: z.string().optional(),
+  hydrationLevel: z.enum(["card", "detail", "marker"]).optional(),
+  normalizedCard: z.record(z.unknown()).optional(),
+  normalizedMedia: PostEnvelopeMediaSchema.optional(),
+  normalizedAuthor: AuthorSummarySchema.optional(),
+  normalizedLocation: PostEnvelopeLocationSchema.optional(),
+  normalizedCounts: PostEnvelopeCountsSchema.optional(),
+  mediaResolutionSource: z.string().optional(),
+  hasPlayableVideo: z.boolean().optional(),
+  hasAssetsArray: z.boolean().optional(),
+  hasRawPost: z.boolean().optional(),
+  hasEmbeddedComments: z.boolean().optional(),
+  sourceRoute: z.string().optional(),
+  rawPost: z.record(z.unknown()).nullable().optional(),
+  sourcePost: z.record(z.unknown()).nullable().optional(),
+  debugPostEnvelope: PostEnvelopeDebugSchema.optional()
+}).passthrough();
 
 export const PostCardSummarySchema = z.object({
   postId: z.string(),
@@ -96,7 +145,7 @@ export const PostCardSummarySchema = z.object({
   ,
   comments: z.array(EmbeddedCommentSchema).optional(),
   commentsPreview: z.array(EmbeddedCommentSchema).optional()
-});
+}).merge(PostEnvelopeFieldsSchema).passthrough();
 
 export const PostDetailAssetSchema = z.object({
   id: z.string(),
@@ -116,7 +165,7 @@ export const PostDetailAssetSchema = z.object({
   playbackLab: z.record(z.unknown()).optional(),
   generated: z.record(z.unknown()).optional(),
   variants: z.record(z.unknown()).optional()
-});
+}).passthrough();
 
 export const PostDetailSchema = z.object({
   postId: z.string(),
@@ -167,4 +216,4 @@ export const PostDetailSchema = z.object({
   ,
   comments: z.array(EmbeddedCommentSchema).optional(),
   commentsPreview: z.array(EmbeddedCommentSchema).optional()
-});
+}).merge(PostEnvelopeFieldsSchema).passthrough();

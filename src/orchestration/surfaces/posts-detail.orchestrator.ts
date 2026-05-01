@@ -147,6 +147,7 @@ export class PostsDetailOrchestrator {
     debugReads: number;
     debugEntityConstructionCount: number;
     debugPayloadCategory: "tiny" | "small" | "medium" | "heavy";
+    debugPayloadBytes?: number;
     debugPostIds: string[];
     debugMissingIds: string[];
     debugDurationMs: number;
@@ -154,7 +155,7 @@ export class PostsDetailOrchestrator {
     const startedAt = Date.now();
     const ordered = input.postIds.map((id) => id.trim()).filter(Boolean);
     const unique = [...new Set(ordered)];
-    if (input.hydrationMode === "card") {
+    if (input.hydrationMode === "card" || input.hydrationMode === "playback") {
       return this.runBatchLightweight(
         {
           viewerId: input.viewerId,
@@ -190,6 +191,7 @@ export class PostsDetailOrchestrator {
         skipped.push(postId);
       }
     }
+    const payloadBytes = Buffer.byteLength(JSON.stringify(found), "utf8");
     return {
       routeName: "posts.detail.batch",
       reason: input.reason,
@@ -201,6 +203,7 @@ export class PostsDetailOrchestrator {
       debugReads: 0,
       debugEntityConstructionCount: entityConstructionCount,
       debugPayloadCategory: classifyPayloadCategory(found.length, input.hydrationMode),
+      debugPayloadBytes: payloadBytes,
       debugPostIds: unique,
       debugMissingIds: [...missing, ...skipped],
       debugDurationMs: Date.now() - startedAt
@@ -227,11 +230,12 @@ export class PostsDetailOrchestrator {
     debugReads: number;
     debugEntityConstructionCount: number;
     debugPayloadCategory: "tiny" | "small" | "medium" | "heavy";
+    debugPayloadBytes?: number;
     debugPostIds: string[];
     debugMissingIds: string[];
     debugDurationMs: number;
   }> {
-    const MAX_BATCH = 15;
+    const MAX_BATCH = input.hydrationMode === "playback" ? 5 : 15;
     const cappedIds = unique.slice(0, MAX_BATCH);
     const missingFromCap = unique.slice(MAX_BATCH);
     const serviceWithBatch = this.service as FeedService & {
@@ -281,6 +285,7 @@ export class PostsDetailOrchestrator {
         }
       }));
     const missing = cappedIds.filter((id) => !byId.has(id)).concat(missingFromCap);
+    const payloadBytes = Buffer.byteLength(JSON.stringify(found), "utf8");
     return {
       routeName: "posts.detail.batch",
       reason: input.reason,
@@ -292,6 +297,7 @@ export class PostsDetailOrchestrator {
       debugReads: 0,
       debugEntityConstructionCount: found.length,
       debugPayloadCategory: classifyPayloadCategory(found.length, input.hydrationMode),
+      debugPayloadBytes: payloadBytes,
       debugPostIds: unique,
       debugMissingIds: missing,
       debugDurationMs: Date.now() - startedAt

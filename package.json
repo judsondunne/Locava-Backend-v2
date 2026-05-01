@@ -17,6 +17,7 @@
     "test:firestore:reset": "tsx test/firestore/reset.mts",
     "test:firestore:seed": "tsx test/firestore/seed.mts",
     "test:deterministic": "tsx test/firestore/run-deterministic.mts",
+    "health:dashboard:check": "tsx scripts/health-dashboard-check.mts",
     "backfill:user-search-fields": "tsx scripts/backfill-user-search-fields.mts",
     "debug:smoke:local": "tsx scripts/debug-smoke-local-harness.mts",
     "debug:probe:public-firestore": "tsx scripts/debug-public-firestore-probe.mts",
