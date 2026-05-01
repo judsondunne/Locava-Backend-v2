@@ -59,11 +59,12 @@ async function withMaybeTempLogoPath<T>(
   try {
     return await fn(tempLogoPath);
   } finally {
-    if (!tempLogoPath) return;
-    try {
-      if (fs.existsSync(tempLogoPath)) fs.unlinkSync(tempLogoPath);
-    } catch {
-      // ignore cleanup errors
+    if (tempLogoPath) {
+      try {
+        if (fs.existsSync(tempLogoPath)) fs.unlinkSync(tempLogoPath);
+      } catch {
+        // ignore cleanup errors
+      }
     }
   }
 }
@@ -181,4 +182,3 @@ export async function generatePosterStyleQrPngBuffer({
     return buffer as Buffer;
   });
 }
-

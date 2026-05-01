@@ -7,6 +7,35 @@ import { z } from "zod";
 
 type PostsDetailResponse = z.infer<typeof PostsDetailResponseSchema>;
 type SafeCardSummary = FeedBootstrapCandidateRecord & { rankToken: string };
+type DeferredCommentPreview = NonNullable<PostsDetailResponse["deferred"]["commentsPreview"]>;
+type DeferredCommentPreviewItem = DeferredCommentPreview[number];
+
+function normalizeCommentsPreview(value: unknown): DeferredCommentPreview {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const wire = entry as Record<string, unknown>;
+    const commentId = String(wire.commentId ?? wire.id ?? "").trim();
+    const userId = String(wire.userId ?? "").trim();
+    const text = String(wire.text ?? wire.content ?? "").trim();
+    const createdAtMsRaw = wire.createdAtMs;
+    const createdAtMs =
+      typeof createdAtMsRaw === "number" && Number.isFinite(createdAtMsRaw)
+        ? Math.max(0, Math.floor(createdAtMsRaw))
+        : 0;
+    if (!commentId || !userId || !text) return [];
+    const item: DeferredCommentPreviewItem = {
+      commentId,
+      userId,
+      text,
+      createdAtMs,
+      userName: typeof wire.userName === "string" ? wire.userName : null,
+      userHandle: typeof wire.userHandle === "string" ? wire.userHandle : null,
+      userPic: typeof wire.userPic === "string" ? wire.userPic : null
+    };
+    return [item];
+  });
+}
 
 export class PostsDetailOrchestrator {
   constructor(private readonly service: FeedService) {}
@@ -14,14 +43,19 @@ export class PostsDetailOrchestrator {
   async run(input: { viewerId: string; postId: string }): Promise<PostsDetailResponse> {
     const startedAt = Date.now();
     const { viewerId, postId } = input;
-    const [cardSummary, post] = await Promise.all([
-      this.service.loadPostCardSummary(viewerId, postId),
-      this.service.loadPostDetail(postId, viewerId)
-    ]);
+    const post = await this.service.loadPostDetail(postId, viewerId);
+    const cardSummary = this.ensureSafeCardSummary(
+      post.cardSummary ?? (await this.service.loadPostCardSummary(viewerId, postId)),
+      postId,
+      post
+    );
     const author = cardSummary.author;
     const social = cardSummary.social;
     const viewer = cardSummary.viewer;
-    const commentsPreview = await this.service.loadCommentsPreview(postId, 0).catch(() => null);
+    const commentsPreview =
+      Array.isArray(post.commentsPreview)
+        ? normalizeCommentsPreview(post.commentsPreview)
+        : await this.service.loadCommentsPreview(postId, 0).catch(() => null);
     return {
       routeName: "posts.detail.get",
       firstRender: {
@@ -35,6 +69,8 @@ export class PostsDetailOrchestrator {
           address: post.address ?? null,
           lat: post.lat ?? null,
           lng: post.lng ?? null,
+          geoData: post.geoData,
+          coordinates: post.coordinates,
           carouselFitWidth: post.carouselFitWidth,
           layoutLetterbox: post.layoutLetterbox,
           letterboxGradientTop: post.letterboxGradientTop ?? null,
@@ -51,8 +87,12 @@ export class PostsDetailOrchestrator {
           deleted: post.deleted,
           blocked: post.blocked,
           createdAtMs: post.createdAtMs,
+          updatedAtMs: (post as { updatedAtMs?: number }).updatedAtMs,
           mediaType: post.mediaType,
           thumbUrl: post.thumbUrl,
+          assetsReady: (post as { assetsReady?: boolean }).assetsReady,
+          playbackLab: (post as { playbackLab?: Record<string, unknown> }).playbackLab,
+          assetLocations: (post as { assetLocations?: Array<Record<string, unknown>> }).assetLocations,
           assets: post.assets,
           cardSummary: {
             ...cardSummary,
@@ -114,7 +154,7 @@ export class PostsDetailOrchestrator {
     const startedAt = Date.now();
     const ordered = input.postIds.map((id) => id.trim()).filter(Boolean);
     const unique = [...new Set(ordered)];
-    if (input.hydrationMode === "card" || input.hydrationMode === "playback") {
+    if (input.hydrationMode === "card") {
       return this.runBatchLightweight(
         {
           viewerId: input.viewerId,
@@ -310,7 +350,10 @@ export class PostsDetailOrchestrator {
       letterboxGradients: Array.isArray(detail.letterboxGradients) ? detail.letterboxGradients : undefined
     };
     if (input.hydrationMode === "open" || input.hydrationMode === "full") {
-      const commentsPreview = await this.service.loadCommentsPreview(input.postId, 0).catch(() => null);
+      const commentsPreview =
+        Array.isArray(detail.commentsPreview)
+          ? normalizeCommentsPreview(detail.commentsPreview)
+          : await this.service.loadCommentsPreview(input.postId, 0).catch(() => null);
       return {
         routeName: "posts.detail.get",
         firstRender: {

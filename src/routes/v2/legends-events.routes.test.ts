@@ -103,10 +103,7 @@ describe("v2 legends events routes", () => {
   it("falls back gracefully when unseen query needs missing index", async () => {
     const mocked = vi.mocked(getFirestoreSourceClient);
     mocked.mockImplementationOnce(
-      () =>
-        buildDbWithUnseenEvents([]) as unknown as {
-          collection: (name: string) => any;
-        }
+      () => buildDbWithUnseenEvents([]) as any
     );
     const failingDb: FirestoreDb = {
       collection: (name: string) => {
@@ -140,4 +137,3 @@ describe("v2 legends events routes", () => {
     expect(json.nextPollAfterMs).toBe(120000);
   });
 });
-

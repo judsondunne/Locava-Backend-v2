@@ -51,7 +51,7 @@ async function buildMiniApp(env: AppEnv): Promise<FastifyInstance> {
   const app = Fastify({ logger: false });
   app.decorate("config", env);
   app.setErrorHandler((error, _request, reply) => {
-    const isValidationError = error.name === "ZodError";
+    const isValidationError = error instanceof Error && error.name === "ZodError";
     reply.status(isValidationError ? 400 : 500).send({
       ok: false,
       error: { code: isValidationError ? "validation_error" : "internal_error" }
@@ -140,29 +140,30 @@ describe("analytics events routes", () => {
     }
   });
 
-  it("supports the legacy /api analytics alias and resolves userId from Bearer JWT", async () => {
+  it("supports the legacy /api analytics alias and resolves userId from x-viewer-id", async () => {
     const publisher = createPublisher();
     const service = new AnalyticsIngestService(buildEnv(), publisher);
     setAnalyticsIngestServiceForTests(service);
     const app = await buildMiniApp(buildEnv());
 
     try {
-      const payload = Buffer.from(JSON.stringify({ sub: "jwt-user-1" })).toString("base64url");
-      const token = `e30.${payload}.x`;
       const res = await app.inject({
         method: "POST",
         url: "/api/analytics/v2/events",
         headers: {
-          authorization: `Bearer ${token}`
+          "x-viewer-id": "header-user-1",
+          "user-agent": "Locava/3.1 CFNetwork Darwin"
         },
         payload: {
-          events: [{ eventId: "evt-legacy-1", event: "app_open", properties: { source: "cold" } }]
+          events: [{ eventId: "evt-legacy-1", event: "app_open", platform: "web", properties: { source: "cold" } }]
         }
       });
 
       expect(res.statusCode).toBe(202);
       await service.flushNowForTests();
-      expect(publisher.rows[0]?.[0]?.userId).toBe("jwt-user-1");
+      expect(publisher.rows[0]?.[0]?.userId).toBe("header-user-1");
+      expect(publisher.rows[0]?.[0]?.platform).toBe("ios");
+      expect(publisher.rows[0]?.[0]?.properties).toContain("\"clientPlatform\":\"web\"");
     } finally {
       await app.close();
     }

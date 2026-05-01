@@ -1,6 +1,5 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { generateInstagramStyleQrPngBuffer, generatePosterStyleQrPngBuffer } from "../../lib/qr/instagramQr.js";
 
 const GenerateQrQuerySchema = z.object({
   url: z.string().min(1),
@@ -14,6 +13,10 @@ const GenerateQrBodySchema = z.object({
   logoUrl: z.string().url().optional()
 });
 
+async function loadQrModule() {
+  return import("../../lib/qr/instagramQr.js");
+}
+
 export async function registerCompatQrCodeRoutes(app: FastifyInstance): Promise<void> {
   // Legacy endpoint used by native: /api/qr-code/generate?url=https://locava.app/profile/...
   app.get("/api/qr-code/generate", async (request, reply) => {
@@ -24,6 +27,7 @@ export async function registerCompatQrCodeRoutes(app: FastifyInstance): Promise<
         .send({ error: "URL query parameter is required. Usage: /api/qr-code/generate?url=https://example.com" });
     }
 
+    const { generateInstagramStyleQrPngBuffer } = await loadQrModule();
     const pngBuffer = await generateInstagramStyleQrPngBuffer({
       data: query.data.url,
       size: query.data.size ?? 4000,
@@ -41,6 +45,7 @@ export async function registerCompatQrCodeRoutes(app: FastifyInstance): Promise<
       return reply.status(400).send({ error: "URL is required" });
     }
 
+    const { generateInstagramStyleQrPngBuffer } = await loadQrModule();
     const pngBuffer = await generateInstagramStyleQrPngBuffer({
       data: body.data.url,
       size: body.data.size ?? 4000,
@@ -60,6 +65,7 @@ export async function registerCompatQrCodeRoutes(app: FastifyInstance): Promise<
         .send({ error: "URL query parameter is required. Usage: /api/qr-code/generate-poster?url=https://example.com" });
     }
 
+    const { generatePosterStyleQrPngBuffer } = await loadQrModule();
     const pngBuffer = await generatePosterStyleQrPngBuffer({
       data: query.data.url,
       size: query.data.size ?? 4000,
@@ -77,6 +83,7 @@ export async function registerCompatQrCodeRoutes(app: FastifyInstance): Promise<
       return reply.status(400).send({ error: "URL is required" });
     }
 
+    const { generatePosterStyleQrPngBuffer } = await loadQrModule();
     const pngBuffer = await generatePosterStyleQrPngBuffer({
       data: body.data.url,
       size: body.data.size ?? 4000,
@@ -88,4 +95,3 @@ export async function registerCompatQrCodeRoutes(app: FastifyInstance): Promise<
     return reply.send(pngBuffer);
   });
 }
-

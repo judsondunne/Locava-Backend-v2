@@ -28,9 +28,9 @@ export function recordBackendRouteObservation(input: {
     dbQueries: input.ctx?.dbOps.queries ?? 0,
     viewerId: viewerId !== "anonymous" ? viewerId : null,
     errorCode: input.request.analyticsErrorCode ?? null,
-    surface: input.ctx?.orchestration.surface ?? null,
-    requestGroup: input.ctx?.orchestration.requestGroup ?? null,
-    hydrationMode: input.ctx?.orchestration.hydrationMode ?? null,
+    surface: input.ctx?.orchestration?.surface ?? null,
+    requestGroup: input.ctx?.orchestration?.requestGroup ?? null,
+    hydrationMode: input.ctx?.orchestration?.hydrationMode ?? null,
     budgetViolations: input.budgetViolations
   });
 }

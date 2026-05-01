@@ -326,6 +326,7 @@ function promoteParsedSentenceToFront(query: string, rows: SuggestRow[]): Sugges
   if (idx <= 0) return rows;
   const copy = rows.slice();
   const [hit] = copy.splice(idx, 1);
+  if (!hit) return rows;
   copy.unshift(hit);
   return copy;
 }
@@ -614,4 +615,3 @@ export class SearchAutofillService {
     };
   }
 }
-

@@ -51,6 +51,14 @@ export type ProfileGridPageInput = {
   limit: number;
 };
 
+type ProfilePostWithLikeMeta = Record<string, unknown> & {
+  time: unknown;
+  createdAtMs: unknown;
+  updatedAtMs: unknown;
+  likedAt: unknown;
+  likedAtMs: number;
+};
+
 export type ProfileConnectionsPage = {
   items: Array<{
     userId: string;
@@ -374,8 +382,8 @@ export class ProfileRepository {
       if (id) postById.set(id, row);
     }
 
-    const posts: Array<Record<string, unknown>> = pageIds
-      .map((postId) => {
+    const posts: ProfilePostWithLikeMeta[] = pageIds
+      .map<ProfilePostWithLikeMeta | null>((postId) => {
         const post = postById.get(postId);
         if (!post) return null;
         const meta = metaByPostId.get(postId);
@@ -389,7 +397,7 @@ export class ProfileRepository {
           likedAtMs: meta?.likedAtMs ?? 0
         };
       })
-      .filter((row): row is Record<string, unknown> => Boolean(row));
+      .filter((row): row is ProfilePostWithLikeMeta => row !== null);
 
     const hasMore = metaDocs.length > safeLimit;
     const lastVisible = visibleMetaDocs[visibleMetaDocs.length - 1];

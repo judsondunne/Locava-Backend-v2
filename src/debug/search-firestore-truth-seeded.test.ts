@@ -166,7 +166,7 @@ describe("Firestore truth harness (seeded dataset, independent expected)", () =>
       return distanceMiles(viewer, { lat: p!.lat!, lng: p!.lng! });
     });
     for (let i = 1; i < gotMiles.length; i += 1) {
-      expect(gotMiles[i]).toBeGreaterThanOrEqual(gotMiles[i - 1] - 0.001);
+      expect(gotMiles[i]!).toBeGreaterThanOrEqual(gotMiles[i - 1]! - 0.001);
     }
 
     // And the ids should match the closest-first expectation for this dataset (first page).
@@ -179,4 +179,3 @@ describe("Firestore truth harness (seeded dataset, independent expected)", () =>
     expect(new Set(b.ids)).toEqual(new Set(a.ids));
   });
 });
-

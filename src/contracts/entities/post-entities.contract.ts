@@ -104,6 +104,17 @@ export const PostDetailAssetSchema = z.object({
   original: z.string().url().nullable().optional(),
   poster: z.string().url().nullable(),
   thumbnail: z.string().url().nullable(),
+  aspectRatio: z.number().nullable().optional(),
+  durationSec: z.number().nullable().optional(),
+  width: z.number().nullable().optional(),
+  height: z.number().nullable().optional(),
+  orientation: z.string().nullable().optional(),
+  hasAudio: z.boolean().optional(),
+  codecs: z.record(z.unknown()).optional(),
+  variantMetadata: z.record(z.unknown()).optional(),
+  instantPlaybackReady: z.boolean().optional(),
+  playbackLab: z.record(z.unknown()).optional(),
+  generated: z.record(z.unknown()).optional(),
   variants: z.record(z.unknown()).optional()
 });
 
@@ -112,6 +123,7 @@ export const PostDetailSchema = z.object({
   userId: z.string(),
   caption: z.string().nullable(),
   createdAtMs: z.number().int().nonnegative(),
+  updatedAtMs: z.number().int().nonnegative().optional(),
   carouselFitWidth: z.boolean().optional(),
   layoutLetterbox: z.boolean().optional(),
   letterboxGradientTop: z.string().nullable().optional(),
@@ -126,6 +138,30 @@ export const PostDetailSchema = z.object({
     .optional(),
   mediaType: z.enum(["image", "video"]),
   thumbUrl: z.string().url(),
+  assetsReady: z.boolean().optional(),
+  playbackLab: z.record(z.unknown()).optional(),
+  geoData: z
+    .object({
+      city: z.string().nullable().optional(),
+      state: z.string().nullable().optional(),
+      country: z.string().nullable().optional(),
+      geohash: z.string().nullable().optional()
+    })
+    .optional(),
+  coordinates: z
+    .object({
+      lat: z.number().nullable().optional(),
+      lng: z.number().nullable().optional()
+    })
+    .optional(),
+  assetLocations: z
+    .array(
+      z.object({
+        lat: z.number().nullable().optional(),
+        long: z.number().nullable().optional()
+      })
+    )
+    .optional(),
   assets: z.array(PostDetailAssetSchema),
   cardSummary: PostCardSummarySchema
   ,

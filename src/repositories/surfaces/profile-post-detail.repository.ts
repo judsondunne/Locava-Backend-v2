@@ -11,19 +11,39 @@ export type ProfilePostDetailRecord = {
   postId: string;
   userId: string;
   caption?: string;
+  title?: string | null;
+  description?: string | null;
+  activities?: string[];
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  geoData?: Record<string, unknown>;
+  coordinates?: Record<string, unknown>;
   createdAtMs: number;
+  updatedAtMs?: number;
   mediaType: "image" | "video";
   thumbUrl: string;
+  assetsReady?: boolean;
+  playbackLab?: Record<string, unknown>;
+  assetLocations?: Array<Record<string, unknown>>;
   assets: Array<{
     id: string;
     type: "image" | "video";
+    original?: string;
     poster?: string;
     thumbnail?: string;
-    variants?: {
-      startup720FaststartAvc?: string;
-      main720Avc?: string;
-      hls?: string;
-    };
+    aspectRatio?: number | null;
+    durationSec?: number | null;
+    width?: number | null;
+    height?: number | null;
+    orientation?: string | null;
+    hasAudio?: boolean;
+    codecs?: Record<string, unknown>;
+    variantMetadata?: Record<string, unknown>;
+    instantPlaybackReady?: boolean;
+    playbackLab?: Record<string, unknown>;
+    generated?: Record<string, unknown>;
+    variants?: Record<string, unknown>;
   }>;
   author: {
     userId: string;

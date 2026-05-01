@@ -12,6 +12,16 @@ export type FirestoreFeedDetailBundle = {
     address?: string | null;
     lat?: number | null;
     lng?: number | null;
+    geoData?: {
+      city?: string | null;
+      state?: string | null;
+      country?: string | null;
+      geohash?: string | null;
+    };
+    coordinates?: {
+      lat?: number | null;
+      lng?: number | null;
+    };
     tags?: string[];
     createdAtMs: number;
     updatedAtMs: number;
@@ -22,12 +32,26 @@ export type FirestoreFeedDetailBundle = {
     letterboxGradients?: Array<{ top: string; bottom: string }>;
     mediaType: "image" | "video";
     thumbUrl: string;
+    assetsReady?: boolean;
+    playbackLab?: Record<string, unknown>;
+    assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
     assets: Array<{
       id: string;
       type: "image" | "video";
       original?: string | null;
       poster: string | null;
       thumbnail: string | null;
+      aspectRatio?: number | null;
+      durationSec?: number | null;
+      width?: number | null;
+      height?: number | null;
+      orientation?: string | null;
+      hasAudio?: boolean;
+      codecs?: Record<string, unknown>;
+      variantMetadata?: Record<string, unknown>;
+      instantPlaybackReady?: boolean;
+      playbackLab?: Record<string, unknown>;
+      generated?: Record<string, unknown>;
       variants?: Record<string, unknown>;
     }>;
     comments?: Array<Record<string, unknown>>;
@@ -49,6 +73,21 @@ export type FirestoreFeedDetailBundle = {
   };
   queryCount: number;
   readCount: number;
+};
+
+type NormalizedEmbeddedComment = Record<string, unknown> & {
+  id: string;
+  commentId: string;
+  content: string;
+  text: string;
+  userId: string;
+  userName: string | null;
+  userHandle: string | null;
+  userPic: string | null;
+  time: unknown;
+  createdAt: unknown;
+  likedBy: string[];
+  replies: unknown[];
 };
 
 export class FeedDetailFirestoreAdapter {
@@ -238,12 +277,26 @@ type PostDataShape = {
   thumbUrl?: string;
   displayPhotoLink?: string;
   photoLink?: string;
+  assetsReady?: boolean;
+  playbackLab?: Record<string, unknown>;
+  assetLocations?: Array<Record<string, unknown>>;
   assets?: Array<{
     id?: string;
     type?: "image" | "video";
     original?: string;
     poster?: string;
     thumbnail?: string;
+    aspectRatio?: number;
+    durationSec?: number;
+    width?: number;
+    height?: number;
+    orientation?: string;
+    hasAudio?: boolean;
+    codecs?: Record<string, unknown>;
+    variantMetadata?: Record<string, unknown>;
+    instantPlaybackReady?: boolean;
+    playbackLab?: Record<string, unknown>;
+    generated?: Record<string, unknown>;
     variants?: Record<string, unknown>;
   }>;
   likeCount?: number;
@@ -309,6 +362,7 @@ function buildFeedDetailBundleFromParts(input: {
 
   const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(input.postData);
   const normalizedLocation = normalizeLocation(input.postData);
+  const normalizedGeoData = normalizeGeoData(input.postData);
   const embeddedComments = normalizeEmbeddedComments(input.postData.comments, input.responsePostId);
   return {
     post: {
@@ -321,6 +375,11 @@ function buildFeedDetailBundleFromParts(input: {
       address: normalizeNullable(input.postData.address) ?? normalizedLocation.address ?? null,
       lat: normalizedLocation.lat,
       lng: normalizedLocation.lng,
+      ...(normalizedGeoData ? { geoData: normalizedGeoData } : {}),
+      coordinates: {
+        lat: normalizedLocation.lat,
+        lng: normalizedLocation.lng,
+      },
       tags: normalizeStringArray(input.postData.tags),
       createdAtMs: normalizeTs(createdAtMsCandidate),
       updatedAtMs: normalizeTs(updatedAtMsCandidate),
@@ -331,7 +390,10 @@ function buildFeedDetailBundleFromParts(input: {
       ...(letterboxGradients ? { letterboxGradients } : {}),
       mediaType,
       thumbUrl: normalizeThumbUrl(input.postData, thumbUrl),
-      assets: normalizeAssets(input.responsePostId, mediaType, thumbUrl, input.postData.assets),
+      assetsReady: typeof input.postData.assetsReady === "boolean" ? input.postData.assetsReady : undefined,
+      playbackLab: asRecord(input.postData.playbackLab) ?? undefined,
+      assetLocations: normalizeAssetLocations(input.postData.assetLocations),
+      assets: normalizeAssets(input.responsePostId, mediaType, thumbUrl, input.postData),
       comments: embeddedComments,
       commentsPreview: embeddedComments
     },
@@ -476,10 +538,10 @@ function getCommentText(comment: Record<string, unknown>): string {
   return "";
 }
 
-function normalizeEmbeddedComments(value: unknown, postIdForDebug?: string): Array<Record<string, unknown>> {
+function normalizeEmbeddedComments(value: unknown, postIdForDebug?: string): NormalizedEmbeddedComment[] {
   if (!Array.isArray(value)) return [];
   return value
-    .map((entry) => {
+    .map<NormalizedEmbeddedComment | null>((entry) => {
       if (!entry || typeof entry !== "object") return null;
       const wire = entry as Record<string, unknown>;
       const idRaw = wire.id ?? wire.commentId;
@@ -511,7 +573,7 @@ function normalizeEmbeddedComments(value: unknown, postIdForDebug?: string): Arr
         replies: Array.isArray(wire.replies) ? wire.replies : [],
       };
     })
-    .filter((row): row is Record<string, unknown> => row !== null);
+    .filter((row): row is NormalizedEmbeddedComment => row !== null);
 }
 
 function isTopLevelEmbeddedComment(value: unknown): boolean {
@@ -579,6 +641,47 @@ function normalizeLocation(post: PostDataShape): {
   };
 }
 
+function normalizeGeoData(
+  post: PostDataShape,
+): {
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  geohash?: string | null;
+} | undefined {
+  const geo = (post.geo ?? post.geoData ?? {}) as Record<string, unknown>;
+  const city = normalizeNullable(geo.city);
+  const state = normalizeNullable(geo.state);
+  const country = normalizeNullable(geo.country);
+  const geohash = normalizeNullable(geo.geohash);
+  if (!city && !state && !country && !geohash) return undefined;
+  return { city, state, country, geohash };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function normalizeAssetLocations(
+  value: unknown,
+): Array<{ lat?: number | null; long?: number | null }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value
+    .map<{ lat?: number | null; long?: number | null } | null>((entry) => {
+      const record = asRecord(entry);
+      if (!record) return null;
+      const lat = firstFiniteNumber(record.lat, record.latitude);
+      const long = firstFiniteNumber(record.long, record.lng, record.longitude);
+      if (lat == null && long == null) return null;
+      return {
+        ...(lat != null ? { lat } : {}),
+        ...(long != null ? { long } : {}),
+      };
+    })
+    .filter((entry): entry is { lat?: number | null; long?: number | null } => entry !== null);
+  return out.length > 0 ? out : undefined;
+}
+
 function normalizeStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0);
@@ -613,26 +716,55 @@ function normalizeAssets(
   syntheticPostId: string,
   mediaType: "image" | "video",
   thumbUrl: string,
-  rawAssets:
-    | Array<{
-        id?: string;
-        type?: "image" | "video";
-        poster?: string;
-        thumbnail?: string;
-        original?: string;
-        variants?: Record<string, unknown>;
-      }>
-    | undefined
+  postData: PostDataShape,
 ): FirestoreFeedDetailBundle["post"]["assets"] {
+  const rawAssets = Array.isArray(postData.assets) ? postData.assets : undefined;
+  const playbackLabAssets = asRecord(asRecord(postData.playbackLab)?.assets);
   if (Array.isArray(rawAssets) && rawAssets.length > 0) {
-    return rawAssets.map((asset, idx) => ({
-      id: typeof asset.id === "string" && asset.id ? asset.id : `${syntheticPostId}-asset-${idx + 1}`,
-      type: asset.type === "video" ? "video" : "image",
-      original: typeof asset.original === "string" ? asset.original : null,
-      poster: typeof asset.poster === "string" ? asset.poster : thumbUrl,
-      thumbnail: typeof asset.thumbnail === "string" ? asset.thumbnail : thumbUrl,
-      variants: asset.variants ?? {}
-    }));
+    return rawAssets.map((asset, idx) => {
+      const assetId = typeof asset.id === "string" && asset.id ? asset.id : `${syntheticPostId}-asset-${idx + 1}`;
+      const labAsset = asRecord(playbackLabAssets?.[String(asset.id ?? "")]);
+      const sourceSnapshot = asRecord(labAsset?.sourceSnapshot);
+      return {
+        id: assetId,
+        type: asset.type === "video" ? "video" : "image",
+        original:
+          normalizeNullable(asset.original) ??
+          normalizeNullable(sourceSnapshot?.original) ??
+          null,
+        poster:
+          normalizeNullable(asset.poster) ??
+          normalizeNullable(asset.thumbnail) ??
+          normalizeNullable(sourceSnapshot?.poster) ??
+          thumbUrl,
+        thumbnail:
+          normalizeNullable(asset.thumbnail) ??
+          normalizeNullable(asset.poster) ??
+          normalizeNullable(sourceSnapshot?.poster) ??
+          thumbUrl,
+        aspectRatio: normalizeNullableNumber(asset.aspectRatio),
+        durationSec: normalizeNullableNumber(asset.durationSec),
+        width: normalizeNullableNumber(asset.width),
+        height: normalizeNullableNumber(asset.height),
+        orientation: normalizeNullable(asset.orientation),
+        ...(typeof asset.hasAudio === "boolean" ? { hasAudio: asset.hasAudio } : {}),
+        ...(asRecord(asset.codecs) ? { codecs: asRecord(asset.codecs) ?? undefined } : {}),
+        ...(asRecord(asset.variantMetadata)
+          ? { variantMetadata: asRecord(asset.variantMetadata) ?? undefined }
+          : {}),
+        ...(typeof asset.instantPlaybackReady === "boolean"
+          ? { instantPlaybackReady: asset.instantPlaybackReady }
+          : {}),
+        ...(asRecord(asset.playbackLab) ? { playbackLab: asRecord(asset.playbackLab) ?? undefined } : {}),
+        ...(asRecord(asset.generated) ? { generated: asRecord(asset.generated) ?? undefined } : {}),
+        variants: {
+          ...(asset.variants ?? {}),
+          ...(asRecord(sourceSnapshot?.variants) ?? {}),
+          ...(asRecord(labAsset?.generated) ?? {}),
+          ...(asRecord(asset.generated) ?? {}),
+        }
+      };
+    });
   }
   if (mediaType === "video") {
     return [

@@ -501,6 +501,8 @@ export class SearchMixesServiceV2 {
         heads.sort((a, b) => {
           const ra = a.rows[a.idx];
           const rb = b.rows[b.idx];
+          if (!ra) return 1;
+          if (!rb) return -1;
           const ta = postTime(ra);
           const tb = postTime(rb);
           if (ta !== tb) return tb - ta;
@@ -510,7 +512,9 @@ export class SearchMixesServiceV2 {
           return hb.localeCompare(ha);
         });
         const h = heads[0];
+        if (!h) break;
         const row = h.rows[h.idx];
+        if (!row) break;
         h.idx += 1;
         const pid = postId(row);
         if (!pid || seen.has(pid)) continue;
@@ -855,4 +859,3 @@ export class SearchMixesServiceV2 {
     };
   }
 }
-

@@ -148,9 +148,16 @@ export class MixesRepository {
       let totalReads = 0;
       const pageSize = 1000;
       let lastDoc: QueryDocumentSnapshot | null = null;
+      const db = this.db;
+      if (!db) {
+        this.pool.posts = [];
+        this.pool.loadedAtMs = Date.now();
+        completedReads = totalReads;
+        return;
+      }
       while (out.length < targetDocs) {
         const want = Math.min(pageSize, targetDocs - out.length);
-        const collectionRef = this.db.collection("posts") as any;
+        const collectionRef = db.collection("posts") as any;
         if (!collectionRef || typeof collectionRef.orderBy !== "function") {
           this.pool.posts = [];
           this.pool.loadedAtMs = Date.now();

@@ -70,8 +70,8 @@ describe("mixes service", () => {
     });
     expect(out.ok).toBe(true);
     expect(out.posts.length).toBe(3);
-    expect(out.posts.every((p) => p.activities.includes("hiking"))).toBe(true);
-    expect(out.posts.map((p) => p.postId)).toEqual(["p4", "p3", "p1"]);
+    expect(out.posts.every((p: any) => p.activities.includes("hiking"))).toBe(true);
+    expect(out.posts.map((p: any) => p.postId)).toEqual(["p4", "p3", "p1"]);
   });
 
   it("filters by radius + activity", async () => {
@@ -82,7 +82,7 @@ describe("mixes service", () => {
       viewerId: null,
     });
     expect(out.posts.length).toBeGreaterThan(0);
-    expect(out.posts.every((p) => p.postId !== "p2")).toBe(true);
+    expect(out.posts.every((p: any) => p.postId !== "p2")).toBe(true);
   });
 
   it("paginates stably with cursor and no duplicates", async () => {
@@ -93,7 +93,7 @@ describe("mixes service", () => {
       cursor: null,
       viewerId: null,
     });
-    expect(first.posts.map((p) => p.postId)).toEqual(["p4", "p3"]);
+    expect(first.posts.map((p: any) => p.postId)).toEqual(["p4", "p3"]);
     const second = await service.page({
       mixKey: "hiking",
       filter: { activity: "hiking" },
@@ -101,9 +101,9 @@ describe("mixes service", () => {
       cursor: first.nextCursor,
       viewerId: null,
     });
-    const ids1 = new Set(first.posts.map((p) => p.postId));
-    expect(second.posts.some((p) => ids1.has(p.postId))).toBe(false);
-    expect(second.posts.map((p) => p.postId)).toEqual(["p1"]);
+    const ids1 = new Set(first.posts.map((p: any) => p.postId));
+    expect(second.posts.some((p: any) => ids1.has(p.postId))).toBe(false);
+    expect(second.posts.map((p: any) => p.postId)).toEqual(["p1"]);
   });
 
   it("returns empty mix with ok true and hasMore false", async () => {
@@ -133,7 +133,7 @@ describe("mixes service", () => {
       limit: 3,
       viewerId: "v2",
     });
-    expect(spaced.posts.map((p) => p.postId)).toEqual(singular.posts.map((p) => p.postId));
+    expect(spaced.posts.map((p: any) => p.postId)).toEqual(singular.posts.map((p: any) => p.postId));
   });
 
   it("keeps first page ordering and cursor stable across pool reorder", async () => {
@@ -167,7 +167,7 @@ describe("mixes service", () => {
       cursor: null,
       viewerId: "b",
     });
-    expect(pageA.posts.map((p) => p.postId)).toEqual(pageB.posts.map((p) => p.postId));
+    expect(pageA.posts.map((p: any) => p.postId)).toEqual(pageB.posts.map((p: any) => p.postId));
     expect(pageA.nextCursor).toEqual(pageB.nextCursor);
   });
 
@@ -205,6 +205,6 @@ describe("mixes service", () => {
       limit: 3,
       viewerId: null,
     });
-    expect(out.posts.some((p) => p.postId === "px")).toBe(false);
+    expect(out.posts.some((p: any) => p.postId === "px")).toBe(false);
   });
 });

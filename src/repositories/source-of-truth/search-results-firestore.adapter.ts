@@ -149,7 +149,8 @@ export class SearchResultsFirestoreAdapter {
 
     const activityKeys = intent.activity?.queryActivities?.map((v) => String(v ?? "").trim().toLowerCase()).filter(Boolean) ?? [];
     const hasActivity = activityKeys.length > 0;
-    const hasLocation = Boolean(intent.location?.cityRegionId || intent.location?.stateRegionId);
+    const location = intent.location;
+    const hasLocation = Boolean(location?.cityRegionId || location?.stateRegionId);
     const wantsNearMe = Boolean(intent.nearMe);
     const hasViewerCoords = viewerCoords != null;
     const cursorSafe = Math.max(0, Math.floor(cursorOffset));
@@ -174,8 +175,8 @@ export class SearchResultsFirestoreAdapter {
     const intersectLimit = Math.min(900, Math.max(perQueryLimit, poolTarget));
     if (hasActivity && hasLocation) {
       const acts = activityKeys.slice(0, 2);
-      if (intent.location.cityRegionId) {
-        const raw = String(intent.location.cityRegionId ?? "").trim() || null;
+      if (location?.cityRegionId) {
+        const raw = String(location.cityRegionId ?? "").trim() || null;
         const normalized = normalizeRegionId(raw);
         const cityIds = [...new Set([raw, normalized].filter(Boolean) as string[])];
         for (const activity of acts) {
@@ -199,8 +200,8 @@ export class SearchResultsFirestoreAdapter {
             );
           }
         }
-      } else if (intent.location.stateRegionId) {
-        const raw = String(intent.location.stateRegionId ?? "").trim() || null;
+      } else if (location?.stateRegionId) {
+        const raw = String(location.stateRegionId ?? "").trim() || null;
         const normalized = normalizeRegionId(raw);
         const stateIds = [...new Set([raw, normalized].filter(Boolean) as string[])];
         for (const activity of acts) {

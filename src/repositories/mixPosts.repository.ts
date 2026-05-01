@@ -292,7 +292,7 @@ export class MixPostsRepository {
       candidateCount += afterCursor.length;
       fetched.push({ chunkIndex: i, rows: afterCursor });
       if (rows.length < poolLimit) {
-        cursors[i] = { ...cursors[i], exhausted: true };
+        cursors[i] = { ...c, exhausted: true };
       }
     }
 
@@ -315,7 +315,9 @@ export class MixPostsRepository {
         return idb.localeCompare(ida);
       });
       const h = heads[0];
+      if (!h) break;
       const row = h.rows[h.idx];
+      if (!row) break;
       h.idx += 1;
       const pid = String((row as any)?.postId ?? (row as any)?.id ?? "");
       if (!pid || seen.has(pid)) continue;
@@ -410,4 +412,3 @@ export class MixPostsRepository {
       .map(([a]) => a);
   }
 }
-

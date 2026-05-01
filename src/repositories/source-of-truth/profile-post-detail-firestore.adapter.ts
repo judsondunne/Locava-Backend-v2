@@ -10,6 +10,23 @@ export type FirestoreProfilePostDetail = {
   postId: string;
   userId: string;
   caption?: string;
+  title?: string | null;
+  description?: string | null;
+  activities?: string[];
+  address?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  geoData?: {
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    geohash?: string | null;
+  };
+  coordinates?: {
+    lat?: number | null;
+    lng?: number | null;
+  };
+  tags?: string[];
   createdAtMs: number;
   carouselFitWidth?: boolean;
   layoutLetterbox?: boolean;
@@ -18,16 +35,27 @@ export type FirestoreProfilePostDetail = {
   letterboxGradients?: Array<{ top: string; bottom: string }>;
   mediaType: "image" | "video";
   thumbUrl: string;
+  assetsReady?: boolean;
+  playbackLab?: Record<string, unknown>;
+  assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
   assets: Array<{
     id: string;
     type: "image" | "video";
+    original?: string;
     poster?: string;
     thumbnail?: string;
-    variants?: {
-      startup720FaststartAvc?: string;
-      main720Avc?: string;
-      hls?: string;
-    };
+    aspectRatio?: number | null;
+    durationSec?: number | null;
+    width?: number | null;
+    height?: number | null;
+    orientation?: string | null;
+    hasAudio?: boolean;
+    codecs?: Record<string, unknown>;
+    variantMetadata?: Record<string, unknown>;
+    instantPlaybackReady?: boolean;
+    playbackLab?: Record<string, unknown>;
+    generated?: Record<string, unknown>;
+    variants?: Record<string, unknown>;
   }>;
   author: {
     userId: string;
@@ -171,6 +199,8 @@ function mapProfilePostDetail(input: {
         : typeof postData.title === "string"
           ? postData.title
           : undefined;
+  const title = normalizeNullable(postData.title);
+  const description = normalizeNullable(postData.content) ?? normalizeNullable(postData.caption);
   const mediaType = inferPostMediaType(raw);
   const likeCount = normalizeCounter(postData.likeCount ?? postData.likesCount);
   const likesArr = Array.isArray(postData.likes) ? postData.likes : [];
@@ -179,10 +209,24 @@ function mapProfilePostDetail(input: {
   );
 
   const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(postData);
+  const location = normalizeLocation(raw);
+  const geoData = normalizeGeoData(raw);
   return {
     postId: input.postDoc.id,
     userId: input.userId,
     caption,
+    title,
+    description,
+    activities: normalizeStringArray(raw.activities),
+    address: location.address,
+    lat: location.lat,
+    lng: location.lng,
+    ...(geoData ? { geoData } : {}),
+    coordinates: {
+      lat: location.lat,
+      lng: location.lng,
+    },
+    tags: normalizeStringArray(raw.tags),
     createdAtMs: normalizePostCreatedMs(raw),
     carouselFitWidth: typeof postData.carouselFitWidth === "boolean" ? postData.carouselFitWidth : undefined,
     layoutLetterbox: typeof postData.layoutLetterbox === "boolean" ? postData.layoutLetterbox : undefined,
@@ -191,7 +235,10 @@ function mapProfilePostDetail(input: {
     ...(letterboxGradients ? { letterboxGradients } : {}),
     mediaType,
     thumbUrl: readPostThumbUrl(raw, input.postDoc.id),
-    assets: Array.isArray(postData.assets) && postData.assets.length > 0 ? postData.assets : defaultAssets(input.postDoc.id, mediaType),
+    assetsReady: typeof (raw as { assetsReady?: unknown }).assetsReady === "boolean" ? ((raw as { assetsReady: boolean }).assetsReady) : undefined,
+    playbackLab: asRecord((raw as { playbackLab?: unknown }).playbackLab) ?? undefined,
+    assetLocations: normalizeAssetLocations((raw as { assetLocations?: unknown }).assetLocations),
+    assets: normalizeAssets(raw, input.postDoc.id, mediaType),
     author: {
       userId: input.userId,
       handle: String(userData.handle ?? "").replace(/^@+/, "") || `user_${input.userId.slice(0, 8)}`,
@@ -311,6 +358,174 @@ function pickPic(data: { profilePic?: string; profilePicture?: string; photo?: s
   const trimmed = typeof value === "string" ? value.trim() : "";
   if (trimmed && !/placeholder/i.test(trimmed)) return trimmed;
   return "";
+}
+
+function normalizeNullable(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter(Boolean);
+}
+
+function firstFiniteNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
+function readGeoPoint(value: unknown): { latitude?: number; longitude?: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const geo = value as { latitude?: unknown; longitude?: unknown };
+  return {
+    latitude: typeof geo.latitude === "number" && Number.isFinite(geo.latitude) ? geo.latitude : undefined,
+    longitude: typeof geo.longitude === "number" && Number.isFinite(geo.longitude) ? geo.longitude : undefined,
+  };
+}
+
+function normalizeLocation(raw: Record<string, unknown>): {
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+} {
+  const location = (raw.location ?? {}) as Record<string, unknown>;
+  const coordinates = (raw.coordinates ?? {}) as Record<string, unknown>;
+  const geo = (raw.geo ?? raw.geoData ?? {}) as Record<string, unknown>;
+  const geoPoint = readGeoPoint((geo as { geopoint?: unknown }).geopoint);
+  return {
+    lat: firstFiniteNumber(
+      raw.lat,
+      raw.latitude,
+      location.lat,
+      location.latitude,
+      coordinates.lat,
+      coordinates.latitude,
+      geoPoint?.latitude,
+    ),
+    lng: firstFiniteNumber(
+      raw.long,
+      raw.lng,
+      raw.longitude,
+      location.long,
+      location.lng,
+      location.longitude,
+      coordinates.long,
+      coordinates.lng,
+      coordinates.longitude,
+      geoPoint?.longitude,
+    ),
+    address:
+      normalizeNullable(raw.address) ??
+      normalizeNullable(location.address) ??
+      normalizeNullable((geo as { address?: unknown }).address),
+  };
+}
+
+function normalizeGeoData(
+  raw: Record<string, unknown>,
+): {
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  geohash?: string | null;
+} | undefined {
+  const geo = (raw.geo ?? raw.geoData ?? {}) as Record<string, unknown>;
+  const city = normalizeNullable(geo.city);
+  const state = normalizeNullable(geo.state);
+  const country = normalizeNullable(geo.country);
+  const geohash = normalizeNullable(geo.geohash);
+  if (!city && !state && !country && !geohash) return undefined;
+  return { city, state, country, geohash };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function normalizeNullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeAssetLocations(
+  value: unknown,
+): Array<{ lat?: number | null; long?: number | null }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const out = value
+    .map<{ lat?: number | null; long?: number | null } | null>((entry) => {
+      const record = asRecord(entry);
+      if (!record) return null;
+      const lat = firstFiniteNumber(record.lat, record.latitude);
+      const long = firstFiniteNumber(record.long, record.lng, record.longitude);
+      if (lat == null && long == null) return null;
+      return {
+        ...(lat != null ? { lat } : {}),
+        ...(long != null ? { long } : {}),
+      };
+    })
+    .filter((entry): entry is { lat?: number | null; long?: number | null } => entry !== null);
+  return out.length > 0 ? out : undefined;
+}
+
+function normalizeAssets(
+  raw: Record<string, unknown>,
+  postId: string,
+  mediaType: "image" | "video" | undefined,
+): FirestoreProfilePostDetail["assets"] {
+  const thumbUrl = readPostThumbUrl(raw, postId);
+  const rawAssets = Array.isArray(raw.assets) ? (raw.assets as Array<Record<string, unknown>>) : [];
+  const playbackLabAssets = asRecord(asRecord((raw as { playbackLab?: unknown }).playbackLab)?.assets);
+  if (rawAssets.length === 0) return defaultAssets(postId, mediaType);
+  return rawAssets.map((asset, idx) => {
+    const assetId =
+      typeof asset.id === "string" && asset.id.trim() ? asset.id : `${postId}-asset-${idx + 1}`;
+    const labAsset = asRecord(playbackLabAssets?.[assetId]);
+    const sourceSnapshot = asRecord(labAsset?.sourceSnapshot);
+    return {
+      id: assetId,
+      type: asset.type === "video" ? "video" : "image",
+      original:
+        normalizeNullable(asset.original) ??
+        normalizeNullable(sourceSnapshot?.original) ??
+        undefined,
+      poster:
+        normalizeNullable(asset.poster) ??
+        normalizeNullable(asset.thumbnail) ??
+        normalizeNullable(sourceSnapshot?.poster) ??
+        thumbUrl,
+      thumbnail:
+        normalizeNullable(asset.thumbnail) ??
+        normalizeNullable(asset.poster) ??
+        normalizeNullable(sourceSnapshot?.poster) ??
+        thumbUrl,
+      aspectRatio: normalizeNullableNumber(asset.aspectRatio),
+      durationSec: normalizeNullableNumber(asset.durationSec),
+      width: normalizeNullableNumber(asset.width),
+      height: normalizeNullableNumber(asset.height),
+      orientation: normalizeNullable(asset.orientation),
+      ...(typeof asset.hasAudio === "boolean" ? { hasAudio: asset.hasAudio } : {}),
+      ...(asRecord(asset.codecs) ? { codecs: asRecord(asset.codecs) ?? undefined } : {}),
+      ...(asRecord(asset.variantMetadata)
+        ? { variantMetadata: asRecord(asset.variantMetadata) ?? undefined }
+        : {}),
+      ...(typeof asset.instantPlaybackReady === "boolean"
+        ? { instantPlaybackReady: asset.instantPlaybackReady }
+        : {}),
+      ...(asRecord(asset.playbackLab) ? { playbackLab: asRecord(asset.playbackLab) ?? undefined } : {}),
+      ...(asRecord(asset.generated) ? { generated: asRecord(asset.generated) ?? undefined } : {}),
+      variants: {
+        ...((asset.variants ?? {}) as Record<string, unknown>),
+        ...(asRecord(sourceSnapshot?.variants) ?? {}),
+        ...(asRecord(labAsset?.generated) ?? {}),
+        ...(asRecord(asset.generated) ?? {}),
+      },
+    };
+  });
 }
 
 function defaultAssets(postId: string, mediaType: "image" | "video" | undefined): FirestoreProfilePostDetail["assets"] {

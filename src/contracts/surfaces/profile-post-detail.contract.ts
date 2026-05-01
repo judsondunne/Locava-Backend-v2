@@ -13,15 +13,21 @@ export const ProfilePostDetailQuerySchema = z.object({
 const AssetSchema = z.object({
   id: z.string(),
   type: z.enum(["image", "video"]),
+  original: z.string().url().optional(),
   poster: z.string().url().optional(),
   thumbnail: z.string().url().optional(),
-  variants: z
-    .object({
-      startup720FaststartAvc: z.string().url().optional(),
-      main720Avc: z.string().url().optional(),
-      hls: z.string().url().optional()
-    })
-    .optional()
+  aspectRatio: z.number().nullable().optional(),
+  durationSec: z.number().nullable().optional(),
+  width: z.number().nullable().optional(),
+  height: z.number().nullable().optional(),
+  orientation: z.string().nullable().optional(),
+  hasAudio: z.boolean().optional(),
+  codecs: z.record(z.unknown()).optional(),
+  variantMetadata: z.record(z.unknown()).optional(),
+  instantPlaybackReady: z.boolean().optional(),
+  playbackLab: z.record(z.unknown()).optional(),
+  generated: z.record(z.unknown()).optional(),
+  variants: z.record(z.unknown()).optional()
 });
 
 export const ProfilePostDetailResponseSchema = z.object({
@@ -32,9 +38,21 @@ export const ProfilePostDetailResponseSchema = z.object({
       postId: z.string(),
       userId: z.string(),
       caption: z.string().optional(),
+      title: z.string().nullable().optional(),
+      description: z.string().nullable().optional(),
+      activities: z.array(z.string()).optional(),
+      address: z.string().nullable().optional(),
+      lat: z.number().nullable().optional(),
+      lng: z.number().nullable().optional(),
+      geoData: z.record(z.unknown()).optional(),
+      coordinates: z.record(z.unknown()).optional(),
       createdAtMs: z.number().int().nonnegative(),
+      updatedAtMs: z.number().int().nonnegative().optional(),
       mediaType: z.enum(["image", "video"]),
       thumbUrl: z.string().url(),
+      assetsReady: z.boolean().optional(),
+      playbackLab: z.record(z.unknown()).optional(),
+      assetLocations: z.array(z.record(z.unknown())).optional(),
       assets: z.array(AssetSchema)
     }),
     author: z.object({

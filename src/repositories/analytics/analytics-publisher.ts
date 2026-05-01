@@ -13,8 +13,6 @@ export type AnalyticsRow = {
   requestIp: string | null;
   userAgent: string | null;
   properties: string | null;
-  ingestId: string | null;
-  eventId: string | null;
 };
 
 export type AnalyticsPublisherDestination = {
@@ -53,7 +51,21 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
     if (!table) {
       throw new Error("analytics_publisher_unconfigured");
     }
-    await table.insert(rows);
+    try {
+      await table.insert(rows);
+      console.info("[analytics] bigquery_publish_ok", {
+        count: rows.length,
+        dataset: this.destination.dataset,
+        table: this.destination.table
+      });
+    } catch (error) {
+      console.error("[analytics] bigquery_publish_fail", {
+        dataset: this.destination.dataset,
+        table: this.destination.table,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
   }
 
   private ensureTable(): Table | null {

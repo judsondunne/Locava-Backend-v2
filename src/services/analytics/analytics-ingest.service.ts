@@ -73,10 +73,31 @@ const DEDUPE_MAX_KEYS = 50_000;
 const RECENT_BUFFER_LIMIT = 200;
 const RETRY_TIMER_FLOOR_MS = 250;
 
-function normalizePlatform(value: string | undefined): string {
+function inferPlatformFromUserAgent(userAgent: string | null | undefined): string | null {
+  const normalizedUserAgent = String(userAgent ?? "").trim().toLowerCase();
+  if (!normalizedUserAgent) return null;
+  if (
+    normalizedUserAgent.includes("cfnetwork") ||
+    normalizedUserAgent.includes("darwin") ||
+    normalizedUserAgent.includes("iphone") ||
+    normalizedUserAgent.includes("ios")
+  ) {
+    return "ios";
+  }
+  if (normalizedUserAgent.includes("okhttp") || normalizedUserAgent.includes("android")) {
+    return "android";
+  }
+  return null;
+}
+
+function normalizePlatform(value: string | undefined, userAgent: string | null | undefined): string {
   const normalized = String(value ?? "unknown").trim().toLowerCase();
-  if (normalized === "ios" || normalized === "android") return "native";
-  if (normalized === "native" || normalized === "web" || normalized === "backend") return normalized;
+  const inferredNativePlatform = inferPlatformFromUserAgent(userAgent);
+  if (normalized === "ios" || normalized === "android") return normalized;
+  if (normalized === "native") return inferredNativePlatform ?? "native";
+  if (normalized === "web" && inferredNativePlatform) return inferredNativePlatform;
+  if (normalized === "web" || normalized === "backend") return normalized;
+  if (inferredNativePlatform) return inferredNativePlatform;
   if (!normalized) return "unknown";
   return normalized.slice(0, 32);
 }
@@ -400,6 +421,9 @@ export class AnalyticsIngestService {
     if (rawEvent.installId || installId) {
       properties.installId = installId;
     }
+    if (rawEvent.platform) {
+      properties.clientPlatform = trimString(rawEvent.platform, 32);
+    }
 
     const errors: string[] = [];
     if (!event) errors.push("event is required");
@@ -420,7 +444,7 @@ export class AnalyticsIngestService {
       sessionId,
       clientTime: rawEvent.clientTime ?? rawEvent.serverTime ?? input.receivedAt,
       receivedAt: input.receivedAt,
-      platform: normalizePlatform(rawEvent.platform),
+      platform: normalizePlatform(rawEvent.platform, input.userAgent),
       requestIp: input.requestIp,
       userAgent: input.userAgent,
       properties,
@@ -439,6 +463,11 @@ export class AnalyticsIngestService {
   }
 
   private toRow(event: NormalizedAnalyticsEvent): AnalyticsRow {
+    const compatibleProperties = {
+      ...event.properties,
+      eventId: event.eventId,
+      ingestId: event.ingestId
+    };
     return {
       event: event.event,
       schemaVersion: event.schemaVersion,
@@ -450,9 +479,7 @@ export class AnalyticsIngestService {
       platform: event.platform,
       requestIp: event.requestIp,
       userAgent: event.userAgent,
-      properties: Object.keys(event.properties).length > 0 ? JSON.stringify(event.properties) : null,
-      ingestId: event.ingestId,
-      eventId: event.eventId
+      properties: Object.keys(compatibleProperties).length > 0 ? JSON.stringify(compatibleProperties) : null
     };
   }
 

@@ -78,12 +78,13 @@ describe("AnalyticsIngestService", () => {
       event: "screen_view",
       userId: "viewer-1",
       sessionId: "session-a",
-      platform: "native",
+      platform: "ios",
       requestIp: "127.0.0.1",
       userAgent: "vitest"
     });
     expect(publisher.rows[0]?.[0]?.properties).toContain("\"screenName\":\"home_tab\"");
     expect(publisher.rows[0]?.[0]?.properties).toContain("\"installId\":\"anon-a\"");
+    expect(publisher.rows[0]?.[0]?.properties).toContain("\"clientPlatform\":\"ios\"");
   });
 
   it("dedupes repeated eventIds inside the ingest window", async () => {

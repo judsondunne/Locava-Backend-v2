@@ -207,8 +207,7 @@ export class FeedFirestoreAdapter {
           cursorOffset,
           limit,
           scanLimit,
-          timeoutMs: FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
-          ...(tab === "following" ? { followingCount: 0 } : {})
+          timeoutMs: FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS
         });
         while (readCount < scanLimit) {
           const chunkLimit = Math.min(FeedFirestoreAdapter.QUERY_CHUNK_LIMIT, scanLimit - readCount);
@@ -309,7 +308,7 @@ export class FeedFirestoreAdapter {
   private async loadFollowingIds(viewerId: string): Promise<Set<string>> {
     if (!this.db || !viewerId || viewerId === "anonymous") return new Set();
     const viewerDoc = await withTimeout(
-      this.db.collection("users").doc(viewerId).select("following").get(),
+      this.db.collection("users").doc(viewerId).get(),
       FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
       "feed-firestore-following-viewer-doc"
     );
@@ -325,7 +324,7 @@ export class FeedFirestoreAdapter {
       }
     }
     const snap = await withTimeout(
-      this.db.collection("users").doc(viewerId).collection("following").select().limit(FeedFirestoreAdapter.FOLLOWING_MAX_IDS).get(),
+      this.db.collection("users").doc(viewerId).collection("following").limit(FeedFirestoreAdapter.FOLLOWING_MAX_IDS).get(),
       FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
       "feed-firestore-following-query"
     );

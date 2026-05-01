@@ -123,12 +123,12 @@ describe("v2 search mixes production truth (bootstrap + feed)", () => {
     const posts = b.posts as any[];
     expect(posts.length).toBeGreaterThan(0);
     // assert non-decreasing distance miles (debug field set by service)
-    const ds = posts.map((p) => Number(p._debugDistanceMiles ?? NaN)).filter((n) => Number.isFinite(n));
-    if (ds.length >= 2) {
-      for (let i = 1; i < ds.length; i += 1) {
-        expect(ds[i]).toBeGreaterThanOrEqual(ds[i - 1]);
+      const ds = posts.map((p) => Number(p._debugDistanceMiles ?? NaN)).filter((n) => Number.isFinite(n));
+      if (ds.length >= 2) {
+        for (let i = 1; i < ds.length; i += 1) {
+          expect(ds[i]!).toBeGreaterThanOrEqual(ds[i - 1]!);
+        }
       }
-    }
   });
 
   it("daily mix ordering is stable for the same day/viewer across pages", async () => {
@@ -152,4 +152,3 @@ describe("v2 search mixes production truth (bootstrap + feed)", () => {
     expect(ids1b.slice(0, 6)).toEqual(ids1.slice(0, 6));
   });
 });
-

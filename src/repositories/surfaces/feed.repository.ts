@@ -92,6 +92,16 @@ export type FeedDetailRecord = {
   address?: string | null;
   lat?: number | null;
   lng?: number | null;
+  geoData?: {
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    geohash?: string | null;
+  };
+  coordinates?: {
+    lat?: number | null;
+    lng?: number | null;
+  };
   commentCount?: number;
   commentsCount?: number;
   comments?: Array<Record<string, unknown>>;
@@ -109,16 +119,28 @@ export type FeedDetailRecord = {
   letterboxGradients?: Array<{ top: string; bottom: string }> | null;
   mediaType: "image" | "video";
   thumbUrl: string;
+  assetsReady?: boolean;
+  playbackLab?: Record<string, unknown>;
+  assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+  cardSummary?: FeedBootstrapCandidateRecord;
   assets: Array<{
     id: string;
     type: "image" | "video";
+    original?: string | null;
     poster: string | null;
     thumbnail: string | null;
-    variants?: {
-      startup720FaststartAvc?: string;
-      main720Avc?: string;
-      hls?: string;
-    };
+    aspectRatio?: number | null;
+    durationSec?: number | null;
+    width?: number | null;
+    height?: number | null;
+    orientation?: string | null;
+    hasAudio?: boolean;
+    codecs?: Record<string, unknown>;
+    variantMetadata?: Record<string, unknown>;
+    instantPlaybackReady?: boolean;
+    playbackLab?: Record<string, unknown>;
+    generated?: Record<string, unknown>;
+    variants?: Record<string, unknown>;
   }>;
 };
 
@@ -316,9 +338,16 @@ function mergeBundleIntoFeedCard(
     ...card,
     postId,
     author: bundle.author,
-    activities: card.activities,
-    address: card.address,
-    geo: card.geo,
+    activities: bundle.post.activities ?? card.activities,
+    address: bundle.post.address ?? card.address,
+    geo: {
+      lat: bundle.post.lat ?? card.geo.lat,
+      long: bundle.post.lng ?? card.geo.long,
+      city: bundle.post.geoData?.city ?? card.geo.city,
+      state: bundle.post.geoData?.state ?? card.geo.state,
+      country: bundle.post.geoData?.country ?? card.geo.country,
+      geohash: bundle.post.geoData?.geohash ?? card.geo.geohash,
+    },
     assets: bundle.post.assets.map((asset) => ({
       id: asset.id,
       type: asset.type,
@@ -345,7 +374,7 @@ function mergeBundleIntoFeedCard(
       aspectRatio: null,
       orientation: null
     })),
-    title: card.title,
+    title: bundle.post.title ?? card.title,
     description: bundle.post.description ?? card.description ?? null,
     captionPreview: bundle.post.caption,
     tags: bundle.post.tags ?? card.tags ?? [],
@@ -386,6 +415,93 @@ function mergeBundleIntoFeedCard(
       saved: mutationStateRepository.resolveViewerSavedPost(viewerId, postId, bundle.viewer.saved)
     },
     updatedAtMs: bundle.post.updatedAtMs
+  };
+}
+
+function buildFeedCardFromDetailBundle(
+  viewerId: string,
+  bundle: FirestoreFeedDetailBundle
+): FeedBootstrapCandidateRecord {
+  const firstAsset = bundle.post.assets[0];
+  const firstMain720 =
+    typeof firstAsset?.variants?.main720Avc === "string" && firstAsset.variants.main720Avc.trim()
+      ? firstAsset.variants.main720Avc.trim()
+      : null;
+  const firstStartup720 =
+    typeof firstAsset?.variants?.startup720FaststartAvc === "string" && firstAsset.variants.startup720FaststartAvc.trim()
+      ? firstAsset.variants.startup720FaststartAvc.trim()
+      : null;
+  const firstAssetUrl =
+    (typeof firstAsset?.original === "string" && firstAsset.original.trim() ? firstAsset.original.trim() : null) ??
+    firstMain720 ??
+    firstStartup720 ??
+    (typeof firstAsset?.thumbnail === "string" && firstAsset.thumbnail.trim() ? firstAsset.thumbnail.trim() : null) ??
+    bundle.post.thumbUrl;
+  return {
+    postId: bundle.post.postId,
+    author: bundle.author,
+    activities: bundle.post.activities ?? [],
+    address: bundle.post.address ?? null,
+    geo: {
+      lat: bundle.post.lat ?? null,
+      long: bundle.post.lng ?? null,
+      city: null,
+      state: null,
+      country: null,
+      geohash: null,
+    },
+    assets: bundle.post.assets.map((asset) => ({
+      id: asset.id,
+      type: asset.type,
+      previewUrl:
+        typeof asset.variants?.startup720FaststartAvc === "string" && asset.variants.startup720FaststartAvc.trim()
+          ? asset.variants.startup720FaststartAvc.trim()
+          : typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
+            ? asset.variants.main720Avc.trim()
+            : typeof asset.thumbnail === "string" && asset.thumbnail.trim()
+              ? asset.thumbnail.trim()
+              : null,
+      posterUrl: asset.poster,
+      originalUrl:
+        typeof asset.original === "string" && asset.original.trim()
+          ? asset.original.trim()
+          : typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
+            ? asset.variants.main720Avc.trim()
+            : typeof asset.variants?.startup720FaststartAvc === "string" && asset.variants.startup720FaststartAvc.trim()
+              ? asset.variants.startup720FaststartAvc.trim()
+              : null,
+      blurhash: null,
+      width: null,
+      height: null,
+      aspectRatio: null,
+      orientation: null,
+    })),
+    title: bundle.post.title ?? null,
+    description: bundle.post.description ?? null,
+    captionPreview: bundle.post.caption,
+    tags: bundle.post.tags ?? [],
+    carouselFitWidth: bundle.post.carouselFitWidth,
+    layoutLetterbox: bundle.post.layoutLetterbox,
+    letterboxGradientTop: bundle.post.letterboxGradientTop ?? null,
+    letterboxGradientBottom: bundle.post.letterboxGradientBottom ?? null,
+    letterboxGradients: bundle.post.letterboxGradients ?? undefined,
+    createdAtMs: bundle.post.createdAtMs,
+    firstAssetUrl,
+    media: {
+      type: bundle.post.mediaType,
+      posterUrl: bundle.post.thumbUrl,
+      aspectRatio: 9 / 16,
+      startupHint: bundle.post.mediaType === "video" ? "poster_then_preview" : "poster_only",
+    },
+    social: {
+      likeCount: Math.max(0, bundle.social.likeCount + mutationStateRepository.getPostLikeDelta(bundle.post.postId)),
+      commentCount: bundle.social.commentCount,
+    },
+    viewer: {
+      liked: mutationStateRepository.hasViewerLikedPost(viewerId, bundle.post.postId) || bundle.viewer.liked,
+      saved: mutationStateRepository.resolveViewerSavedPost(viewerId, bundle.post.postId, bundle.viewer.saved),
+    },
+    updatedAtMs: bundle.post.updatedAtMs,
   };
 }
 
@@ -620,6 +736,8 @@ export class FeedRepository {
         address: fromSource.post.address ?? null,
         lat: fromSource.post.lat ?? null,
         lng: fromSource.post.lng ?? null,
+        geoData: fromSource.post.geoData ?? undefined,
+        coordinates: fromSource.post.coordinates ?? undefined,
         commentCount: fromSource.social.commentCount,
         commentsCount: fromSource.social.commentCount,
         comments: (fromSource.post.comments ?? []) as Array<Record<string, unknown>>,
@@ -633,7 +751,11 @@ export class FeedRepository {
         letterboxGradients: fromSource.post.letterboxGradients ?? null,
         mediaType: fromSource.post.mediaType,
         thumbUrl: fromSource.post.thumbUrl,
-        assets: fromSource.post.assets
+        assetsReady: fromSource.post.assetsReady,
+        playbackLab: fromSource.post.playbackLab,
+        assetLocations: fromSource.post.assetLocations,
+        assets: fromSource.post.assets,
+        cardSummary: buildFeedCardFromDetailBundle(viewerId, fromSource),
       };
     }
 
@@ -864,18 +986,35 @@ export class FeedRepository {
                   assets: profileById.data.assets.map((asset, idx) => ({
                     id: asset.id || `${profileById.data.postId}-asset-${idx + 1}`,
                     type: (asset.type === "video" ? "video" : "image") as "image" | "video",
-                    original: undefined,
+                    original: typeof asset.original === "string" ? asset.original : undefined,
                     poster: asset.poster ?? asset.thumbnail ?? profileById.data.thumbUrl,
                     thumbnail: asset.thumbnail ?? asset.poster ?? profileById.data.thumbUrl,
+                    aspectRatio: asset.aspectRatio,
+                    durationSec: asset.durationSec,
+                    width: asset.width,
+                    height: asset.height,
+                    orientation: asset.orientation,
+                    hasAudio: asset.hasAudio,
+                    codecs: asset.codecs,
+                    variantMetadata: asset.variantMetadata,
+                    instantPlaybackReady: asset.instantPlaybackReady,
+                    playbackLab: asset.playbackLab,
+                    generated: asset.generated,
                     variants: (asset.variants ?? {}) as Record<string, unknown>
                   })),
-                  title: null,
-                  description: null,
-                  activities: [],
-                  address: null,
-                  lat: null,
-                  lng: null,
-                  tags: []
+                  title: profileById.data.title ?? null,
+                  description: profileById.data.description ?? null,
+                  activities: profileById.data.activities ?? [],
+                  address: profileById.data.address ?? null,
+                  lat: profileById.data.lat ?? null,
+                  lng: profileById.data.lng ?? null,
+                  geoData: profileById.data.geoData ?? undefined,
+                  coordinates: profileById.data.coordinates ?? undefined,
+                  tags: profileById.data.tags ?? []
+                  ,
+                  assetsReady: profileById.data.assetsReady,
+                  playbackLab: profileById.data.playbackLab,
+                  assetLocations: profileById.data.assetLocations,
                 },
                 author: {
                   userId: profileById.data.author.userId,
