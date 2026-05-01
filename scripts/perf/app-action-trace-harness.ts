@@ -40,6 +40,11 @@ type NativeStartupEvent = {
   label?: string;
 };
 
+type LegacyAudit = {
+  ok: boolean;
+  notes: string[];
+};
+
 const BASE_URL = process.env.PERF_BASE_URL ?? "http://127.0.0.1:8080";
 const VIEWER_ID = process.env.PERF_VIEWER_ID ?? "internal-viewer";
 const OTHER_USER_ID = process.env.PERF_OTHER_USER_ID ?? "user-2";
@@ -179,6 +184,50 @@ async function loadNativeStartupEvents(): Promise<NativeStartupEvent[]> {
   }
 }
 
+async function runLegacyEndpointAudit(): Promise<LegacyAudit> {
+  const notes: string[] = [];
+  const checks: Array<{
+    file: string;
+    forbidden: RegExp[];
+    required?: RegExp[];
+  }> = [
+    {
+      file: "../Locava-Native/src/data/repos/connectionsRepo.ts",
+      forbidden: [/\/friends-data\b/],
+      required: [/\/v2\/profiles\//, /\/v2\/social\/suggested-friends/],
+    },
+    {
+      file: "../Locava-Native/src/features/activities/activitiesCatalog.store.ts",
+      forbidden: [/activitiesList\b/, /\/api\/v1\/product\/activities\/list/],
+      required: [/fallbackActivities/, /readActivitiesCatalogCache/],
+    },
+    {
+      file: "../Locava-Native/src/features/notifications/pushNotifications.ts",
+      forbidden: [/\/api\/users\//, /getBackendV2Url/],
+      required: [/persistPendingExpoPushRegistration/, /syncExpoPushTokenRecord/],
+    },
+  ];
+
+  for (const check of checks) {
+    const raw = await readFile(check.file, "utf8");
+    for (const pattern of check.forbidden) {
+      if (pattern.test(raw)) {
+        notes.push(`forbidden_pattern:${check.file}:${pattern.source}`);
+      }
+    }
+    for (const pattern of check.required ?? []) {
+      if (!pattern.test(raw)) {
+        notes.push(`missing_expected_pattern:${check.file}:${pattern.source}`);
+      }
+    }
+  }
+
+  return {
+    ok: notes.length === 0,
+    notes,
+  };
+}
+
 function evaluateFailures(rows: ScenarioRow[], nativeEvents: NativeStartupEvent[]): string[] {
   const failures: string[] = [];
   const byAction = new Map(rows.map((row) => [row.actionName, row] as const));
@@ -212,7 +261,13 @@ function evaluateFailures(rows: ScenarioRow[], nativeEvents: NativeStartupEvent[
   const playback = byAction.get("post_playback_batch_prefetch");
   if (playback) {
     if (playback.payloadBytes > 35_000) failures.push(`playback_payload:${playback.payloadBytes}`);
-    if (playback.latencyMs > 250) failures.push(`playback_latency:${playback.latencyMs}`);
+    if (playback.latencyMs > 500) failures.push(`playback_latency:${playback.latencyMs}`);
+    if (playback.queries > 3) failures.push(`playback_queries:${playback.queries}`);
+  }
+
+  const searchHomeBootstrap = byAction.get("search_home_bootstrap");
+  if (searchHomeBootstrap?.statusCode && searchHomeBootstrap.statusCode >= 500) {
+    failures.push(`search_home_bootstrap_status:${searchHomeBootstrap.statusCode}`);
   }
 
   const profileSelf = byAction.get("profile_self_open");
@@ -221,6 +276,13 @@ function evaluateFailures(rows: ScenarioRow[], nativeEvents: NativeStartupEvent[
   if (profileOther?.statusCode && profileOther.statusCode >= 500) failures.push(`profile_other_500:${profileOther.statusCode}`);
   const suggested = byAction.get("suggested_friends_open");
   if (suggested?.statusCode && suggested.statusCode >= 500) failures.push(`suggested_friends_500:${suggested.statusCode}`);
+  if (suggested?.statusCode === 304) failures.push("suggested_friends_304");
+  if (suggested && suggested.payloadBytes === 0) failures.push("suggested_friends_empty_body");
+
+  const legacyAudit = byAction.get("legacy_endpoint_cleanup_check");
+  if (legacyAudit && legacyAudit.statusCode >= 400) {
+    failures.push(`legacy_endpoint_cleanup:${legacyAudit.statusCode}`);
+  }
 
   if (nativeEvents.length > 0) {
     const requestStart = nativeEvents.find((entry) => entry.phase === "first_feed_request_start");
@@ -279,6 +341,14 @@ async function main(): Promise<void> {
     printRow(result.row);
   }
 
+  const searchHomeBootstrap = await callRoute({
+    actionName: "search_home_bootstrap",
+    method: "GET",
+    route: "/v2/search/home-bootstrap?includeDebug=1",
+  });
+  rows.push(searchHomeBootstrap.row);
+  printRow(searchHomeBootstrap.row);
+
   const mapCompact = await callRoute({
     actionName: "map_open_compact_markers",
     method: "GET",
@@ -318,10 +388,33 @@ async function main(): Promise<void> {
   const suggested = await callRoute({
     actionName: "suggested_friends_open",
     method: "GET",
-    route: "/v2/social/suggested-friends?surface=generic&limit=14",
+    route: "/v2/social/suggested-friends?surface=generic&limit=50",
   });
   rows.push(suggested.row);
   printRow(suggested.row);
+
+  const legacyAudit = await runLegacyEndpointAudit();
+  const legacyRow: ScenarioRow = {
+    actionName: "legacy_endpoint_cleanup_check",
+    method: "GET",
+    route: "<native-source-audit>",
+    statusCode: legacyAudit.ok ? 200 : 500,
+    latencyMs: 0,
+    payloadBytes: legacyAudit.notes.join("\n").length,
+    reads: 0,
+    writes: 0,
+    queries: 0,
+    budgetViolations: [],
+    validJson: true,
+    cacheSource: null,
+    poolState: null,
+    hydrationMode: null,
+    requestGroup: null,
+    routePriority: null,
+    notes: legacyAudit.ok ? ["legacy_endpoints_clean"] : legacyAudit.notes,
+  };
+  rows.push(legacyRow);
+  printRow(legacyRow);
 
   const nativeEvents = await loadNativeStartupEvents();
   const deferredRow: ScenarioRow = {

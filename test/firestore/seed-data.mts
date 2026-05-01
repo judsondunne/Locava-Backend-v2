@@ -41,6 +41,15 @@ function geohashFor(_lat: number, _lng: number, _precision = 5): string {
   return "dr4e3x";
 }
 
+function hashNumber(value: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 function buildUserDoc(input: {
   userId: string;
   handle: string;
@@ -103,6 +112,8 @@ function buildPostDoc(input: {
   const lat = input.lat ?? 40.68843;
   const lng = input.lng ?? -75.22073;
   const gh = geohashFor(lat, lng, 5);
+  const randomKeySeed = typeof input.feedSlot === "number" ? input.feedSlot : hashNumber(input.postId);
+  const randomKey = ((Math.abs(randomKeySeed) % 1000) + 0.5) / 1000;
   return {
     path: `posts/${input.postId}`,
     data: {
@@ -128,6 +139,7 @@ function buildPostDoc(input: {
       lastUpdated: input.createdAtMs + 30_000,
       createdAt: input.createdAtMs,
       "time-created": input.createdAtMs,
+      randomKey,
       likeCount: 2,
       likesCount: 2,
       commentCount: 1,
@@ -217,6 +229,7 @@ function buildTruthPostDoc(input: {
   const mediaType = input.mediaType ?? "image";
   const hasMedia = input.hasMedia;
   const gh = geohashFor(input.lat, input.lng, 5);
+  const randomKey = ((hashNumber(input.postId) % 1000) + 0.5) / 1000;
   return {
     path: `posts/${input.postId}`,
     data: {
@@ -241,6 +254,7 @@ function buildTruthPostDoc(input: {
       createdAtMs: input.createdAtMs,
       updatedAtMs: input.createdAtMs + 30_000,
       lastUpdated: input.createdAtMs + 30_000,
+      randomKey,
       likeCount: 0,
       likesCount: 0,
       commentCount: 0,

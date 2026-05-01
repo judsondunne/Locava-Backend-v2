@@ -20,8 +20,8 @@ export async function registerV2SearchHomeV1Routes(app: FastifyInstance): Promis
       return reply.status(403).send(failure("v2_surface_disabled", "Search v2 surface is not enabled for this viewer"));
     }
     setRouteName("search.home_bootstrap.v1");
+    const query = SearchHomeBootstrapV1QuerySchema.parse(request.query);
     try {
-      const query = SearchHomeBootstrapV1QuerySchema.parse(request.query);
       const raw = await orchestrator.homeBootstrap({
         viewerId: viewer.viewerId,
         includeDebug: Boolean(query.includeDebug),
@@ -29,8 +29,37 @@ export async function registerV2SearchHomeV1Routes(app: FastifyInstance): Promis
       });
       const data = SearchHomeBootstrapV1ResponseSchema.parse(raw);
       return success(data);
-    } catch {
-      return reply.status(503).send(failure("upstream_unavailable", "Search home bootstrap is temporarily unavailable"));
+    } catch (error) {
+      request.log.warn(
+        {
+          routeName: "search.home_bootstrap.v1",
+          viewerId: viewer.viewerId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        "search home bootstrap fallback to empty/partial payload"
+      );
+      return success({
+        version: 1 as const,
+        viewerId: viewer.viewerId,
+        generatedAt: new Date().toISOString(),
+        suggestedUsers: [],
+        activityMixes: [],
+        ...(query.includeDebug
+          ? {
+              debug: {
+                routeName: "search.home_bootstrap.v1" as const,
+                cacheStatus: "bypass" as const,
+                latencyMs: 0,
+                readCount: 0,
+                payloadBytes: 0,
+                suggestedUserCount: 0,
+                suggestedUsersWithFirstPostCount: 0,
+                activityMixCount: 0,
+                postsPerMix: [],
+              },
+            }
+          : {}),
+      });
     }
   });
 

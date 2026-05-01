@@ -44,8 +44,10 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
     const computeLimit =
       surface === "onboarding"
         ? limit
-        : Math.min(20, Math.max(limit, cursorOffset + limit));
+        : Math.min(50, Math.max(limit, cursorOffset + limit));
     setRouteName(socialSuggestedFriendsContract.routeName);
+    let fallbackReason: string | null = null;
+    let fallbackErrorCode: string | null = null;
     let data;
     try {
       data = await service.getSuggestionsForUser(targetUserId, {
@@ -64,12 +66,16 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
         sortBy: query.sortBy ?? "default",
       });
     } catch (error) {
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      fallbackReason = "repository_failure";
+      fallbackErrorCode = rawMessage.includes("FAILED_PRECONDITION") ? "FAILED_PRECONDITION" : "unknown";
       request.log.error(
         {
           routeName: socialSuggestedFriendsContract.routeName,
           viewerId: targetUserId,
           surface,
-          error: error instanceof Error ? error.message : String(error),
+          error: rawMessage,
+          errorCode: fallbackErrorCode,
         },
         "suggested friends fallback to empty payload"
       );
@@ -77,7 +83,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
         users: [],
         sourceBreakdown: {},
         generatedAt: Date.now(),
-        etag: `suggested-empty:${targetUserId}:${surface}:${limit}`,
+        etag: undefined,
       };
     }
     const users = data.users.slice(cursorOffset, cursorOffset + limit);
@@ -91,6 +97,8 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
       viewerId: targetUserId,
       surface,
       users,
+      suggestions: users,
+      source: fallbackReason ? "fallback_empty" : "computed",
       page: {
         limit,
         count: users.length,
@@ -115,15 +123,11 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
           misses: reqCtx?.cache.misses ?? 0
         },
         dedupeCount: reqCtx?.dedupe.hits ?? 0,
-        excludedAlreadyFollowingCount
+        excludedAlreadyFollowingCount,
+        ...(fallbackReason ? { reason: fallbackReason } : {}),
+        ...(fallbackErrorCode ? { errorCode: fallbackErrorCode } : {}),
       }
     };
-    if (data.etag) {
-      if (request.headers["if-none-match"] === data.etag) {
-        return reply.status(304).send();
-      }
-      reply.header("etag", data.etag);
-    }
     return success(payload);
   });
 }

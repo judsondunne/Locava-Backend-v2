@@ -39,6 +39,32 @@ export const SocialSuggestedFriendsResponseSchema = z.object({
       score: z.number().optional()
     })
   ),
+  suggestions: z
+    .array(
+      z.object({
+        userId: z.string().min(1),
+        handle: z.string().nullable(),
+        name: z.string().nullable(),
+        profilePic: z.string().nullable(),
+        reason: z.enum(["contacts", "referral", "groups", "mutuals", "popular", "nearby", "all_users"]),
+        reasonLabel: z.string().max(120).nullable().optional(),
+        mutualCount: z.number().int().nonnegative().optional(),
+        mutualPreview: z
+          .array(
+            z.object({
+              userId: z.string().min(1),
+              handle: z.string().nullable().optional()
+            })
+          )
+          .optional(),
+        isFollowing: z.boolean(),
+        followerCount: z.number().int().nonnegative().optional(),
+        postCount: z.number().int().nonnegative().optional(),
+        score: z.number().optional()
+      })
+    )
+    .optional(),
+  source: z.string().optional(),
   page: z.object({
     limit: z.number().int().positive(),
     count: z.number().int().nonnegative(),
@@ -64,7 +90,9 @@ export const SocialSuggestedFriendsResponseSchema = z.object({
         misses: z.number().int().nonnegative()
       }),
       dedupeCount: z.number().int().nonnegative(),
-      excludedAlreadyFollowingCount: z.number().int().nonnegative()
+      excludedAlreadyFollowingCount: z.number().int().nonnegative(),
+      reason: z.string().optional(),
+      errorCode: z.string().optional()
     })
     .optional()
 });

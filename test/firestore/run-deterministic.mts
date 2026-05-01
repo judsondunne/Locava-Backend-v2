@@ -19,6 +19,7 @@ const EMULATOR_FILES = [
   "src/routes/v2/comments.routes.test.ts",
   "src/routes/v2/feed-item-detail.routes.test.ts",
   "src/routes/v2/feed-for-you.routes.test.ts",
+  "src/routes/v2/feed-for-you-simple.routes.test.ts",
   "src/routes/v2/map-bootstrap.routes.test.ts",
   "src/routes/v2/mutations.routes.test.ts",
   "src/routes/v2/notifications.routes.test.ts",

@@ -19,6 +19,7 @@ import { registerV2AuthMutationRoutes } from "../routes/v2/auth-mutations.routes
 import { registerProfilePictureUploadRoutes } from "../routes/v2/profile-picture-upload.routes.js";
 import { registerV2FeedBootstrapRoutes } from "../routes/v2/feed-bootstrap.routes.js";
 import { registerV2FeedForYouRoutes } from "../routes/v2/feed-for-you.routes.js";
+import { registerV2FeedForYouSimpleRoutes } from "../routes/v2/feed-for-you-simple.routes.js";
 import { registerV2FeedItemDetailRoutes } from "../routes/v2/feed-item-detail.routes.js";
 import { registerV2FeedPageRoutes } from "../routes/v2/feed-page.routes.js";
 import { registerV2ProfileRoutes } from "../routes/v2/profile.routes.js";
@@ -438,6 +439,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   });
   app.register(registerV2FeedBootstrapRoutes);
   app.register(registerV2FeedForYouRoutes);
+  app.register(registerV2FeedForYouSimpleRoutes);
   app.register(registerV2FeedPageRoutes);
   app.register(registerV2FeedItemDetailRoutes);
   app.register(registerV2ProfileRoutes);

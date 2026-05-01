@@ -1,11 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../app/createApp.js";
+import { SuggestedFriendsService } from "../../services/surfaces/suggested-friends.service.js";
 
 describe("v2 social suggested friends + contacts sync", () => {
-  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
   const headers = { "x-viewer-id": "viewer-a", "x-viewer-roles": "internal" };
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("contacts sync matches normalized phone", async () => {
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({
       method: "POST",
       url: "/v2/social/contacts/sync",
@@ -19,6 +24,7 @@ describe("v2 social suggested friends + contacts sync", () => {
   });
 
   it("contacts sync matches normalized email", async () => {
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({
       method: "POST",
       url: "/v2/social/contacts/sync",
@@ -31,6 +37,7 @@ describe("v2 social suggested friends + contacts sync", () => {
   });
 
   it("returns suggested users when contacts unavailable", async () => {
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({
       method: "GET",
       url: "/v2/social/suggested-friends?surface=onboarding&limit=8",
@@ -43,6 +50,7 @@ describe("v2 social suggested friends + contacts sync", () => {
   });
 
   it("follow invalidates suggestions cache and excludes followed user", async () => {
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const first = await app.inject({
       method: "GET",
       url: "/v2/social/suggested-friends?surface=onboarding&limit=5",
@@ -69,6 +77,7 @@ describe("v2 social suggested friends + contacts sync", () => {
   });
 
   it("supports explicit userId, excludeUserIds, and postCount ordering without 500s", async () => {
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({
       method: "GET",
       url: "/v2/social/suggested-friends?surface=generic&limit=14&userId=viewer-a&excludeUserIds=seed-contact-1,seed-email-1&sortBy=postCount",
@@ -88,6 +97,7 @@ describe("v2 social suggested friends + contacts sync", () => {
   });
 
   it("supports large limits without crashing and returns valid pagination metadata", async () => {
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({
       method: "GET",
       url: "/v2/social/suggested-friends?surface=generic&limit=50",
@@ -98,5 +108,59 @@ describe("v2 social suggested friends + contacts sync", () => {
     expect(body.ok).toBe(true);
     expect(Array.isArray(body.data.users)).toBe(true);
     expect(body.data.page.limit).toBe(50);
+  });
+
+  it("does not truncate generic limit=50 requests down to 20", async () => {
+    const mockedUsers = Array.from({ length: 50 }, (_, index) => ({
+      userId: `user-${index + 1}`,
+      handle: `user${index + 1}`,
+      name: `User ${index + 1}`,
+      profilePic: null,
+      reason: "all_users" as const,
+      isFollowing: false,
+      postCount: 100 - index,
+      score: 1000 - index,
+    }));
+    vi.spyOn(SuggestedFriendsService.prototype, "getSuggestionsForUser").mockResolvedValueOnce({
+      users: mockedUsers,
+      sourceBreakdown: { all_users: 50 },
+      generatedAt: Date.now(),
+      etag: "mock-etag",
+    });
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/social/suggested-friends?surface=generic&limit=50",
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data.users).toHaveLength(50);
+    expect(body.data.suggestions).toHaveLength(50);
+    expect(body.data.page.limit).toBe(50);
+    expect(body.data.page.count).toBe(50);
+    expect(body.data.page.hasMore).toBe(false);
+  });
+
+  it("returns 200 JSON fallback instead of 304/empty when Firestore hits FAILED_PRECONDITION", async () => {
+    vi.spyOn(SuggestedFriendsService.prototype, "getSuggestionsForUser").mockRejectedValueOnce(
+      new Error("9 FAILED_PRECONDITION: missing index")
+    );
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/social/suggested-friends?surface=generic&limit=50",
+      headers: {
+        ...headers,
+        "if-none-match": "\"legacy-etag\"",
+      }
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.source).toBe("fallback_empty");
+    expect(body.data.users).toEqual([]);
+    expect(body.data.suggestions).toEqual([]);
+    expect(body.data.diagnostics?.errorCode).toBe("FAILED_PRECONDITION");
   });
 });

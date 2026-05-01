@@ -420,26 +420,23 @@ export class FeedFirestoreAdapter {
       return { items: [], queryCount: 0, readCount: 0 };
     }
     const chunks: string[][] = [];
-    for (let i = 0; i < uniqueIds.length; i += 10) {
-      chunks.push(uniqueIds.slice(i, i + 10));
+    for (let i = 0; i < uniqueIds.length; i += 50) {
+      chunks.push(uniqueIds.slice(i, i + 50));
     }
     let queryCount = 0;
     let readCount = 0;
     const items: FirestoreFeedCandidate[] = [];
     for (const chunk of chunks) {
-      const snapshot = await withTimeout(
-        this.db
-          .collection("posts")
-          .where(FieldPath.documentId(), "in", chunk)
-          .select(...FEED_CANDIDATE_SELECT_FIELDS)
-          .get(),
-        FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+      const refs = chunk.map((id) => this.db!.collection("posts").doc(id));
+      const docs = await withTimeout(
+        this.db.getAll(...refs, { fieldMask: [...FEED_CANDIDATE_SELECT_FIELDS] }),
+        Math.min(500, FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS),
         "feed-firestore-candidates-by-id"
       );
-      queryCount += 1;
-      readCount += snapshot.docs.length;
+      readCount += docs.length;
       items.push(
-        ...snapshot.docs
+        ...docs
+          .filter((doc) => doc.exists)
           .filter((doc) => {
             const data = doc.data() as Record<string, unknown>;
             if (Boolean(data.deleted) || Boolean(data.isDeleted) || Boolean(data.archived) || Boolean(data.hidden)) return false;
@@ -454,7 +451,7 @@ export class FeedFirestoreAdapter {
             const hasAssets = Array.isArray(data.assets) && data.assets.length > 0;
             return Boolean(thumb || hasAssets);
           })
-          .map(mapDocToCandidate)
+          .map((doc) => mapDocToCandidate(doc as QueryDocumentSnapshot))
       );
     }
     return { items, queryCount, readCount };

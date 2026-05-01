@@ -707,11 +707,12 @@ export class FeedRepository {
   async getPostCardSummariesByPostIds(
     viewerId: string,
     postIds: string[],
-    options?: { hydrateAuthors?: boolean }
+    options?: { hydrateAuthors?: boolean; allowPerIdFallback?: boolean }
   ): Promise<FeedBootstrapCandidateRecord[]> {
     const uniqueIds = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
     if (uniqueIds.length === 0) return [];
     const hydrateAuthors = options?.hydrateAuthors !== false;
+    const allowPerIdFallback = options?.allowPerIdFallback !== false;
     if (this.firestoreAdapter.isEnabled()) {
       try {
         const page = await this.firestoreAdapter.getCandidatesByPostIds(uniqueIds);
@@ -729,6 +730,9 @@ export class FeedRepository {
         }
         recordFallback("feed_card_batch_firestore_fallback");
       }
+    }
+    if (!allowPerIdFallback) {
+      return [];
     }
     const hydrated = await Promise.all(uniqueIds.map((postId) => this.getPostCardSummary(viewerId, postId)));
     return hydrated;

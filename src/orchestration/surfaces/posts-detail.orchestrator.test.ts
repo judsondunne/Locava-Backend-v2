@@ -236,4 +236,47 @@ describe("posts detail orchestrator missing author hardening", () => {
       }),
     ).toBe(true);
   });
+
+  it("playback cold fallback can return partial cached shells without blocking on misses", async () => {
+    const service = buildService({
+      loadPostCardSummaryBatchLightweight: vi.fn(async () => [
+        {
+          postId: "p1",
+          rankToken: "rank-1",
+          author: { userId: "u1", handle: "u1", name: "User 1", pic: null },
+          captionPreview: "caption 1",
+          media: { type: "video" as const, posterUrl: "https://cdn/p1.jpg", aspectRatio: 9 / 16, startupHint: "poster_then_preview" as const },
+          social: { likeCount: 1, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+        },
+        {
+          postId: "p3",
+          rankToken: "rank-3",
+          author: { userId: "u3", handle: "u3", name: "User 3", pic: null },
+          captionPreview: "caption 3",
+          media: { type: "video" as const, posterUrl: "https://cdn/p3.jpg", aspectRatio: 9 / 16, startupHint: "poster_then_preview" as const },
+          social: { likeCount: 3, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 3,
+          updatedAtMs: 3,
+        },
+      ]),
+      loadPostDetail: vi.fn(async () => {
+        throw new Error("should stay on lightweight path");
+      }),
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["p1", "p2", "p3"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+    });
+
+    expect(out.found.map((row) => row.postId)).toEqual(["p1", "p3"]);
+    expect(out.missing).toEqual(["p2"]);
+    expect(service.loadPostDetail).not.toHaveBeenCalled();
+  });
 });

@@ -517,6 +517,17 @@ export class SuggestedFriendsRepository {
     const viewer = await this.loadViewerGraph(viewerId, { allowFirestore: true });
 
     const out = new Map<string, UserSuggestionSummary>();
+    const warnSourceFailure = (source: string, error: unknown): void => {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = message.includes("FAILED_PRECONDITION") ? "FAILED_PRECONDITION" : "unknown";
+      console.warn("[suggested-friends] source query failed", {
+        source,
+        viewerId,
+        surface,
+        errorCode: code,
+        error: message,
+      });
+    };
     const add = (items: UserSuggestionSummary[]) => {
       for (const user of items) {
         if (user.userId === viewerId) continue;
@@ -541,18 +552,22 @@ export class SuggestedFriendsRepository {
       // Hydrate a tiny number of deep-link/referral candidates; these should always be prioritized.
       const ids = viewer.branchCandidateUserIds.slice(0, 6).filter((id) => id !== viewerId);
       if (this.db && ids.length > 0) {
-        const docs = await this.db.getAll(...ids.map((id) => this.db!.collection("users").doc(id)));
-        incrementDbOps("reads", docs.length);
-        add(
-          docs
-            .filter((doc) => doc.exists)
-            .map((doc) =>
-              ({
-                ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "referral", viewer.following.has(doc.id), 1400),
-                reasonLabel: "From an invite"
-              }) satisfies UserSuggestionSummary
-            )
-        );
+        try {
+          const docs = await this.db.getAll(...ids.map((id) => this.db!.collection("users").doc(id)));
+          incrementDbOps("reads", docs.length);
+          add(
+            docs
+              .filter((doc) => doc.exists)
+              .map((doc) =>
+                ({
+                  ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "referral", viewer.following.has(doc.id), 1400),
+                  reasonLabel: "From an invite"
+                }) satisfies UserSuggestionSummary
+              )
+          );
+        } catch (error) {
+          warnSourceFailure("referral", error);
+        }
       }
     }
 
@@ -568,9 +583,12 @@ export class SuggestedFriendsRepository {
 
     const contactsPromise =
       this.db && includeContacts && viewer.contactUserSummaries.length === 0 && viewer.contactUsers.length > 0
-        ? this.db.getAll(
-            ...viewer.contactUsers.slice(0, Math.min(Math.max(safeLimit, 4), 6)).map((id) => this.db!.collection("users").doc(id))
-          )
+        ? this.db
+            .getAll(...viewer.contactUsers.slice(0, Math.min(Math.max(safeLimit, 4), 6)).map((id) => this.db!.collection("users").doc(id)))
+            .catch((error) => {
+              warnSourceFailure("contacts", error);
+              return null;
+            })
         : null;
     // Mutuals: bounded + cheap. Read a few of the viewer's following docs and derive mutual candidates from their `following` arrays.
     const mutualsPromise =
@@ -599,7 +617,10 @@ export class SuggestedFriendsRepository {
               }
             }
             return { counts, previewByCandidate };
-          })()
+          })().catch((error) => {
+            warnSourceFailure("mutuals", error);
+            return null;
+          })
         : null;
 
     const [contactDocs, mutualDerived] = await Promise.all([contactsPromise, mutualsPromise]);
@@ -678,49 +699,53 @@ export class SuggestedFriendsRepository {
     }
 
     if (includeGroups && this.db && out.size < safeLimit) {
-      // Shared communities/groups: suggest other members from groups the viewer is in.
-      const membershipSnap = await this.db.collectionGroup("members").where("userId", "==", viewerId).limit(10).get();
-      incrementDbOps("queries", 1);
-      incrementDbOps("reads", membershipSnap.size);
-      const groupIds = membershipSnap.docs
-        .map((doc) => doc.ref.parent.parent?.id ?? "")
-        .filter((id) => id.length > 0)
-        .slice(0, 10);
-      const groupSnap = groupIds.length > 0
-        ? await Promise.all(groupIds.map((groupId) => this.db!.collection("groups").doc(groupId).get()))
-        : [];
-      incrementDbOps("reads", groupSnap.length);
-      const candidateIds: string[] = [];
-      const labelsByUser = new Map<string, string>();
-      for (const g of groupSnap) {
-        if (!g.exists) continue;
-        const gd = g.data() as Record<string, unknown>;
-        const name = typeof gd.name === "string" ? gd.name.trim() : "a group";
-        const membersSnap = await this.db.collection("groups").doc(g.id).collection("members").limit(100).get();
-        incrementDbOps("reads", membersSnap.size);
-        const members = membersSnap.docs
-          .map((doc) => String((doc.data() ?? {}).userId ?? doc.id).trim())
-          .filter((id) => id.length > 0);
-        for (const uid of members) {
-          if (!uid || uid === viewerId) continue;
-          if (viewer.following.has(uid)) continue;
-          if (excludeBlocked && viewer.blocked.has(uid)) continue;
-          candidateIds.push(uid);
-          if (!labelsByUser.has(uid)) labelsByUser.set(uid, `In ${name}`);
+      try {
+        // Shared communities/groups: suggest other members from groups the viewer is in.
+        const membershipSnap = await this.db.collectionGroup("members").where("userId", "==", viewerId).limit(10).get();
+        incrementDbOps("queries", 1);
+        incrementDbOps("reads", membershipSnap.size);
+        const groupIds = membershipSnap.docs
+          .map((doc) => doc.ref.parent.parent?.id ?? "")
+          .filter((id) => id.length > 0)
+          .slice(0, 10);
+        const groupSnap = groupIds.length > 0
+          ? await Promise.all(groupIds.map((groupId) => this.db!.collection("groups").doc(groupId).get()))
+          : [];
+        incrementDbOps("reads", groupSnap.length);
+        const candidateIds: string[] = [];
+        const labelsByUser = new Map<string, string>();
+        for (const g of groupSnap) {
+          if (!g.exists) continue;
+          const gd = g.data() as Record<string, unknown>;
+          const name = typeof gd.name === "string" ? gd.name.trim() : "a group";
+          const membersSnap = await this.db.collection("groups").doc(g.id).collection("members").limit(100).get();
+          incrementDbOps("reads", membersSnap.size);
+          const members = membersSnap.docs
+            .map((doc) => String((doc.data() ?? {}).userId ?? doc.id).trim())
+            .filter((id) => id.length > 0);
+          for (const uid of members) {
+            if (!uid || uid === viewerId) continue;
+            if (viewer.following.has(uid)) continue;
+            if (excludeBlocked && viewer.blocked.has(uid)) continue;
+            candidateIds.push(uid);
+            if (!labelsByUser.has(uid)) labelsByUser.set(uid, `In ${name}`);
+          }
         }
-      }
-      const unique = [...new Set(candidateIds)].slice(0, 30);
-      if (unique.length > 0) {
-        const docs = await this.db.getAll(...unique.map((id) => this.db!.collection("users").doc(id)));
-        incrementDbOps("reads", docs.length);
-        add(
-          docs
-            .filter((doc) => doc.exists)
-            .map((doc) => ({
-              ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "groups", viewer.following.has(doc.id), 1000),
-              reasonLabel: labelsByUser.get(doc.id) ?? "In your communities"
-            }))
-        );
+        const unique = [...new Set(candidateIds)].slice(0, 30);
+        if (unique.length > 0) {
+          const docs = await this.db.getAll(...unique.map((id) => this.db!.collection("users").doc(id)));
+          incrementDbOps("reads", docs.length);
+          add(
+            docs
+              .filter((doc) => doc.exists)
+              .map((doc) => ({
+                ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "groups", viewer.following.has(doc.id), 1000),
+                reasonLabel: labelsByUser.get(doc.id) ?? "In your communities"
+              }))
+          );
+        }
+      } catch (error) {
+        warnSourceFailure("groups", error);
       }
     }
 
@@ -734,6 +759,10 @@ export class SuggestedFriendsRepository {
             .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
             .limit(Math.min(Math.max(safeLimit - out.size, 4), 12))
             .get()
+            .catch((error) => {
+              warnSourceFailure("popular", error);
+              return null;
+            })
         : null;
     const nearbyPromise =
       this.db && needNearby
@@ -743,6 +772,10 @@ export class SuggestedFriendsRepository {
             .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers")
             .limit(1)
             .get()
+            .catch((error) => {
+              warnSourceFailure("nearby", error);
+              return null;
+            })
         : null;
     const [popularSnap, nearbySnap] = await Promise.all([popularPromise, nearbyPromise]);
 
@@ -771,38 +804,46 @@ export class SuggestedFriendsRepository {
 
     // Final fallback: return real eligible users when every signal is empty.
     if (this.db && includeAllUsersFallback && out.size < safeLimit) {
-      const fallbackSnap = await this.db
-        .collection("users")
-        .orderBy("postCount", "desc")
-        .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
-        .limit(Math.min(60, Math.max(safeLimit * 2, 20)))
-        .get();
-      incrementDbOps("queries", 1);
-      incrementDbOps("reads", fallbackSnap.size);
-      add(
-        fallbackSnap.docs.map((doc) => ({
-          ...toSummary(doc.id, doc.data() as Record<string, unknown>, "all_users", viewer.following.has(doc.id), 200),
-          reasonLabel: "Suggested for you"
-        }))
-      );
+      try {
+        const fallbackSnap = await this.db
+          .collection("users")
+          .orderBy("postCount", "desc")
+          .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
+          .limit(Math.min(60, Math.max(safeLimit * 2, 20)))
+          .get();
+        incrementDbOps("queries", 1);
+        incrementDbOps("reads", fallbackSnap.size);
+        add(
+          fallbackSnap.docs.map((doc) => ({
+            ...toSummary(doc.id, doc.data() as Record<string, unknown>, "all_users", viewer.following.has(doc.id), 200),
+            reasonLabel: "Suggested for you"
+          }))
+        );
+      } catch (error) {
+        warnSourceFailure("all_users_fallback", error);
+      }
     }
 
     // Hard floor: always return at least a few real users, even if viewer follows everyone in the normal pool.
     if (this.db && out.size === 0) {
-      const hardFallbackSnap = await this.db
-        .collection("users")
-        .orderBy("postCount", "desc")
-        .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
-        .limit(12)
-        .get();
-      incrementDbOps("queries", 1);
-      incrementDbOps("reads", hardFallbackSnap.size);
-      addHardFallback(
-        hardFallbackSnap.docs.map((doc) => ({
-          ...toSummary(doc.id, doc.data() as Record<string, unknown>, "popular", viewer.following.has(doc.id), 100),
-          reasonLabel: "Popular on Locava"
-        }))
-      );
+      try {
+        const hardFallbackSnap = await this.db
+          .collection("users")
+          .orderBy("postCount", "desc")
+          .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
+          .limit(12)
+          .get();
+        incrementDbOps("queries", 1);
+        incrementDbOps("reads", hardFallbackSnap.size);
+        addHardFallback(
+          hardFallbackSnap.docs.map((doc) => ({
+            ...toSummary(doc.id, doc.data() as Record<string, unknown>, "popular", viewer.following.has(doc.id), 100),
+            reasonLabel: "Popular on Locava"
+          }))
+        );
+      } catch (error) {
+        warnSourceFailure("hard_floor", error);
+      }
     }
 
     const users = [...out.values()]

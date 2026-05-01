@@ -112,4 +112,29 @@ describe("v2 posts detail route", () => {
     expect(typeof first?.thumbUrl).toBe("string");
     expect(String(first?.thumbUrl ?? "").length).toBeGreaterThan(0);
   });
+
+  it("keeps full detail payload under the current guardrail and reports top-level contributors on drift", async () => {
+    const headers = { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" };
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/posts/internal-viewer-feed-post-1/detail",
+      headers,
+    });
+    if (res.statusCode === 503) return;
+    expect(res.statusCode).toBe(200);
+    const body = res.json().data;
+    const contributors = [
+      ["assets", Buffer.byteLength(JSON.stringify(body.firstRender?.post?.assets ?? []), "utf8")],
+      ["playbackLab", Buffer.byteLength(JSON.stringify(body.firstRender?.post?.playbackLab ?? null), "utf8")],
+      ["cardSummary", Buffer.byteLength(JSON.stringify(body.firstRender?.post?.cardSummary ?? null), "utf8")],
+      ["commentsPreview", Buffer.byteLength(JSON.stringify(body.deferred?.commentsPreview ?? []), "utf8")],
+    ]
+      .sort((a, b) => Number(b[1]) - Number(a[1]))
+      .slice(0, 4);
+    const payloadBytes = Buffer.byteLength(res.body, "utf8");
+    expect(
+      payloadBytes,
+      `detail payload contributors ${JSON.stringify(contributors)}`,
+    ).toBeLessThan(120_000);
+  });
 });

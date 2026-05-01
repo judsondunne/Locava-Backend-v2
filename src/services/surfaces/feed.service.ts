@@ -120,7 +120,12 @@ export class FeedService {
           }
         }
         const loaded =
-          missing.length > 0 ? await this.repository.getPostCardSummariesByPostIds(viewerId, missing, { hydrateAuthors: false }) : [];
+          missing.length > 0
+            ? await this.repository.getPostCardSummariesByPostIds(viewerId, missing, {
+                hydrateAuthors: false,
+                allowPerIdFallback: false,
+              })
+            : [];
         for (const item of loaded) {
           void globalCache.set(entityCacheKeys.postCard(item.postId), item, 20_000).catch(() => undefined);
           cachedById.set(item.postId, item);
