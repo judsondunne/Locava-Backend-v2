@@ -134,6 +134,8 @@ describe("v2 legends events routes", () => {
     expect(res.statusCode).toBe(200);
     const json = res.json().data;
     expect(json.events).toEqual([]);
-    expect(json.nextPollAfterMs).toBe(120000);
+    expect(json.nextPollAfterMs).toBe(60000);
+    expect(json.degraded).toBe(true);
   });
+
 });

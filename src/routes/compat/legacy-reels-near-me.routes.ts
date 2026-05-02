@@ -128,6 +128,81 @@ function postTimeMs(post: NearMePost): number {
   return 0;
 }
 
+/** Match feed card / For You simple: letterbox gradients + fit-width hints for native carousel. */
+function presentationHintsFromNearMePost(post: NearMePost): {
+  carouselFitWidth?: boolean;
+  layoutLetterbox?: boolean;
+  letterboxGradientTop?: string | null;
+  letterboxGradientBottom?: string | null;
+  letterboxGradients?: Array<{ top: string; bottom: string }>;
+} {
+  const record = post as Record<string, unknown>;
+  const legacy = record.legacy as
+    | {
+        letterboxGradientTop?: unknown;
+        letterboxGradientBottom?: unknown;
+        letterboxGradients?: unknown;
+        letterbox_gradient_top?: unknown;
+        letterbox_gradient_bottom?: unknown;
+      }
+    | undefined;
+  const topRaw =
+    typeof record.letterboxGradientTop === "string"
+      ? record.letterboxGradientTop
+      : typeof record.letterbox_gradient_top === "string"
+        ? record.letterbox_gradient_top
+        : typeof legacy?.letterboxGradientTop === "string"
+          ? legacy.letterboxGradientTop
+          : typeof legacy?.letterbox_gradient_top === "string"
+            ? legacy.letterbox_gradient_top
+            : null;
+  const bottomRaw =
+    typeof record.letterboxGradientBottom === "string"
+      ? record.letterboxGradientBottom
+      : typeof record.letterbox_gradient_bottom === "string"
+        ? record.letterbox_gradient_bottom
+        : typeof legacy?.letterboxGradientBottom === "string"
+          ? legacy.letterboxGradientBottom
+          : typeof legacy?.letterbox_gradient_bottom === "string"
+            ? legacy.letterbox_gradient_bottom
+            : null;
+  const top = topRaw?.trim() ? topRaw.trim() : null;
+  const bottom = bottomRaw?.trim() ? bottomRaw.trim() : null;
+
+  const out: {
+    carouselFitWidth?: boolean;
+    layoutLetterbox?: boolean;
+    letterboxGradientTop?: string | null;
+    letterboxGradientBottom?: string | null;
+    letterboxGradients?: Array<{ top: string; bottom: string }>;
+  } = {};
+  if (typeof post.carouselFitWidth === "boolean") out.carouselFitWidth = post.carouselFitWidth;
+  if (typeof post.layoutLetterbox === "boolean") out.layoutLetterbox = post.layoutLetterbox;
+  if (top !== null) out.letterboxGradientTop = top;
+  if (bottom !== null) out.letterboxGradientBottom = bottom;
+
+  const gradientsRaw = Array.isArray(record.letterboxGradients)
+    ? record.letterboxGradients
+    : Array.isArray(legacy?.letterboxGradients)
+      ? legacy.letterboxGradients
+      : null;
+  if (Array.isArray(gradientsRaw)) {
+    const gradients: Array<{ top: string; bottom: string }> = [];
+    for (const entry of gradientsRaw) {
+      if (!entry || typeof entry !== "object") continue;
+      const e = entry as { top?: unknown; bottom?: unknown };
+      if (typeof e.top !== "string" || typeof e.bottom !== "string") continue;
+      const t = e.top.trim();
+      const b = e.bottom.trim();
+      if (!t || !b) continue;
+      gradients.push({ top: t, bottom: b });
+    }
+    if (gradients.length > 0) out.letterboxGradients = gradients;
+  }
+
+  return out;
+}
+
 function mapLegacyReelsItem(post: NearMePost) {
   const assets = Array.isArray(post.assets) ? (post.assets as Array<Record<string, unknown>>) : [];
   const firstAsset = assets[0];
@@ -207,8 +282,81 @@ function mapLegacyReelsItem(post: NearMePost) {
       hasAudio: mediaType === "video" ? true : null,
       cacheKey: null
     },
-    updatedAtMs: postTimeMs(post) || null
+    updatedAtMs: postTimeMs(post) || null,
+    ...presentationHintsFromNearMePost(post)
   };
+}
+
+function nearMeQuickBootstrapDocs(): number {
+  const raw = process.env.NEAR_ME_POOL_QUICK_DOCS;
+  if (raw != null && raw !== "") {
+    const n = parseInt(String(raw), 10);
+    if (Number.isFinite(n) && n >= 200 && n <= 8000) return n;
+  }
+  return 900;
+}
+
+/** First-page fill so near-me never waits on a 10k-doc scan on cold request paths. */
+async function rebuildPostPoolQuick(app: FastifyInstance): Promise<void> {
+  if (pool.posts.length > 0) return;
+  if (pool.loading && pool.inFlight) {
+    await Promise.race([
+      pool.inFlight,
+      new Promise<void>((resolve) => setTimeout(resolve, 2200))
+    ]);
+    return;
+  }
+  const db = getFirestoreSourceClient();
+  if (!db) {
+    app.log.info(
+      {
+        event: "near_me_pool_refresh_skipped_reason",
+        reason: "no_firestore",
+        near_me_pool_refresh_latency_ms: 0,
+        near_me_pool_doc_count: 0
+      },
+      "near-me quick pool skipped"
+    );
+    return;
+  }
+  const started = Date.now();
+  const cap = nearMeQuickBootstrapDocs();
+  app.log.info(
+    {
+      event: "near_me_pool_refresh_started",
+      mode: "quick",
+      targetDocs: cap,
+      near_me_pool_doc_count_before: pool.posts.length
+    },
+    "near-me cache pool refresh started"
+  );
+  try {
+    const snap = await db.collection("posts").orderBy("time", "desc").limit(cap).get();
+    const out: NearMePost[] = [];
+    for (const doc of snap.docs) out.push({ id: doc.id, ...(doc.data() as Record<string, unknown>) });
+    pool.posts = out;
+    pool.loadedAtMs = Date.now();
+    const latency = Date.now() - started;
+    app.log.info(
+      {
+        event: "near_me_pool_refresh_completed",
+        mode: "quick",
+        near_me_pool_refresh_latency_ms: latency,
+        near_me_pool_doc_count: out.length
+      },
+      "near-me quick pool refreshed"
+    );
+  } catch (error) {
+    app.log.warn(
+      {
+        event: "near_me_pool_refresh_failed",
+        mode: "quick",
+        reason: error instanceof Error ? error.message : String(error),
+        near_me_pool_refresh_latency_ms: Date.now() - started
+      },
+      "near-me quick pool refresh failed"
+    );
+  }
 }
 
 async function rebuildPostPool(app: FastifyInstance): Promise<void> {
@@ -217,6 +365,15 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
   if (!db) return;
 
   pool.loading = true;
+  const fullStarted = Date.now();
+  app.log.info(
+    {
+      event: "near_me_pool_refresh_started",
+      mode: "full",
+      targetDocs: getNearMeFirestoreFallbackMaxDocs()
+    },
+    "near-me full pool refresh started"
+  );
   pool.inFlight = (async () => {
     const maxDocs = getNearMeFirestoreFallbackMaxDocs();
     const pageSize = 1000;
@@ -236,7 +393,15 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
 
     pool.posts = out;
     pool.loadedAtMs = Date.now();
-    app.log.info({ event: "near_me_pool_refreshed", docs: out.length }, "near-me cache pool refreshed");
+    app.log.info(
+      {
+        event: "near_me_pool_refresh_completed",
+        mode: "full",
+        near_me_pool_refresh_latency_ms: Date.now() - fullStarted,
+        near_me_pool_doc_count: out.length
+      },
+      "near-me cache pool refreshed"
+    );
   })()
     .catch((error) => {
       app.log.warn({ event: "near_me_pool_refresh_failed", reason: error instanceof Error ? error.message : String(error) }, "near-me cache pool refresh failed");
@@ -270,7 +435,9 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
 
   app.addHook("onReady", async () => {
     // Never block startup on warm-cache hydration.
-    void rebuildPostPool(app);
+    void rebuildPostPoolQuick(app).finally(() => {
+      void rebuildPostPool(app);
+    });
     refreshTimer = setInterval(() => {
       void rebuildPostPool(app);
     }, CACHE_REFRESH_MS);
@@ -294,9 +461,13 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     if (radiusMiles < 1 || radiusMiles > 500) return reply.status(400).send({ error: "radiusMiles must be 1-500" });
     if (!getFirestoreSourceClient()) return reply.status(503).send({ error: "Near me feed unavailable" });
 
-    // Only cold-start waits for pool load. Once loaded, requests are in-memory only.
+    // Cold path: bounded quick scan only — never await the multi-thousand-doc full rebuild on the request thread.
     if (pool.posts.length === 0) {
-      await rebuildPostPool(app);
+      await Promise.race([
+        rebuildPostPoolQuick(app),
+        new Promise<void>((resolve) => setTimeout(resolve, 2200))
+      ]);
+      void rebuildPostPool(app);
     } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
       void rebuildPostPool(app);
     }
@@ -322,7 +493,11 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     if (!getFirestoreSourceClient()) return reply.status(503).send({ error: "Near me count unavailable" });
 
     if (pool.posts.length === 0) {
-      await rebuildPostPool(app);
+      await Promise.race([
+        rebuildPostPoolQuick(app),
+        new Promise<void>((resolve) => setTimeout(resolve, 2200))
+      ]);
+      void rebuildPostPool(app);
     } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
       void rebuildPostPool(app);
     }

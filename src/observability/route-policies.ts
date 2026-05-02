@@ -188,6 +188,42 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "recommended",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
   },
+  "feed.for_you_simple.get": {
+    routeName: "feed.for_you_simple.get",
+    priority: "critical_interactive",
+    lane: "P1_NEXT_PLAYBACK",
+    budgets: {
+      latency: { p50Ms: 320, p95Ms: 650 },
+      dbOps: { maxReadsCold: 120, maxQueriesCold: 6, expectedReadsWarm: 40, expectedQueriesWarm: 3 },
+      payload: { maxBytes: 45_000, targetBytes: 24_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
+  "compat.reels.near_me": {
+    routeName: "compat.reels.near_me",
+    priority: "critical_interactive",
+    lane: "P1_NEXT_PLAYBACK",
+    budgets: {
+      latency: { p50Ms: 280, p95Ms: 900 },
+      dbOps: { maxReadsCold: 12_000, maxQueriesCold: 24, expectedReadsWarm: 0, expectedQueriesWarm: 2 },
+      payload: { maxBytes: 180_000, targetBytes: 90_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "compat.reels.near_me_count": {
+    routeName: "compat.reels.near_me_count",
+    priority: "critical_interactive",
+    lane: "P1_NEXT_PLAYBACK",
+    budgets: {
+      latency: { p50Ms: 200, p95Ms: 700 },
+      dbOps: { maxReadsCold: 12_000, maxQueriesCold: 24, expectedReadsWarm: 0, expectedQueriesWarm: 2 },
+      payload: { maxBytes: 8_000, targetBytes: 1_200 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
   "feed.itemdetail.get": {
     routeName: "feed.itemdetail.get",
     priority: "critical_interactive",
@@ -509,9 +545,10 @@ const policies: Record<string, RouteBudgetPolicy> = {
   },
   "legends.events.unseen.get": {
     routeName: "legends.events.unseen.get",
-    priority: "deferred_interactive",
+    priority: "background",
+    lane: "P4_BACKGROUND",
     budgets: {
-      latency: { p50Ms: 70, p95Ms: 180 },
+      latency: { p50Ms: 55, p95Ms: 120 },
       dbOps: { maxReadsCold: 8, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 1 },
       payload: { maxBytes: 18_000, targetBytes: 6_000 }
     },
@@ -852,9 +889,10 @@ const policies: Record<string, RouteBudgetPolicy> = {
   },
   "achievements.bootstrap.get": {
     routeName: "achievements.bootstrap.get",
-    priority: "deferred_interactive",
+    priority: "background",
+    lane: "P4_BACKGROUND",
     budgets: {
-      latency: { p50Ms: 85, p95Ms: 190 },
+      latency: { p50Ms: 120, p95Ms: 280 },
       dbOps: { maxReadsCold: 6, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
       payload: { maxBytes: 44_000, targetBytes: 18_000 }
     },
@@ -940,7 +978,8 @@ const policies: Record<string, RouteBudgetPolicy> = {
   },
   "achievements.leagues.get": {
     routeName: "achievements.leagues.get",
-    priority: "deferred_interactive",
+    priority: "background",
+    lane: "P4_BACKGROUND",
     budgets: {
       latency: { p50Ms: 55, p95Ms: 140 },
       dbOps: { maxReadsCold: 2, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
@@ -951,9 +990,10 @@ const policies: Record<string, RouteBudgetPolicy> = {
   },
   "achievements.leaderboard.get": {
     routeName: "achievements.leaderboard.get",
-    priority: "deferred_interactive",
+    priority: "background",
+    lane: "P4_BACKGROUND",
     budgets: {
-      latency: { p50Ms: 85, p95Ms: 200 },
+      latency: { p50Ms: 120, p95Ms: 320 },
       dbOps: { maxReadsCold: 4, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
       payload: { maxBytes: 120_000, targetBytes: 45_000 }
     },
@@ -1509,6 +1549,18 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "analytics.events.post": {
+    routeName: "analytics.events.post",
+    priority: "background",
+    lane: "P4_BACKGROUND",
+    budgets: {
+      latency: { p50Ms: 45, p95Ms: 120 },
+      dbOps: { maxReadsCold: 0, maxQueriesCold: 0, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 64_000, targetBytes: 24_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 8 }
   }
 };
 

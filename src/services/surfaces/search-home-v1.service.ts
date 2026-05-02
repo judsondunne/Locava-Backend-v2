@@ -1,6 +1,7 @@
 import { MixPostsRepository } from "../../repositories/mixPosts.repository.js";
 import { SearchHomeV1UsersRepository, type SearchHomeV1UserSummary } from "../../repositories/surfaces/search-home-v1-users.repository.js";
-import { MixesRepository as MixPoolRepository } from "../../repositories/mixes/mixes.repository.js";
+// P1 search home must share the same warmed pool as /v2/mixes — a separate MixesRepository instance stays cold forever.
+import { mixesRepository } from "../../repositories/mixes/mixes.repository.js";
 import { SuggestedFriendsService } from "./suggested-friends.service.js";
 import { getBestPostCover } from "../mixes/mixCover.service.js";
 import { SearchMixesServiceV2 } from "../mixes/v2/searchMixes.service.js";
@@ -90,7 +91,6 @@ export class SearchHomeV1Service {
   private readonly suggested = new SuggestedFriendsService();
   private readonly usersRepo = new SearchHomeV1UsersRepository();
   private readonly postsRepo = new MixPostsRepository();
-  private readonly mixPoolRepo = new MixPoolRepository();
   private readonly searchMixes = new SearchMixesServiceV2();
 
   async build(viewerId: string, opts?: { bypassSuggestedFriendsCache?: boolean }): Promise<SearchHomeV1BuildResult> {
@@ -140,7 +140,10 @@ export class SearchHomeV1Service {
         includeDebug: false,
       })
       .catch(() => ({ mixes: [] as Awaited<ReturnType<SearchMixesServiceV2["bootstrap"]>>["mixes"] }));
-    const mixPool = await this.mixPoolRepo.listFromPool().catch(() => ({ posts: [] as Array<Record<string, unknown>> }));
+    // Wait briefly for the shared mixes pool cold-start (same instance as mixes routes) so first search open is not empty.
+    const mixPool = await mixesRepository
+      .listFromPoolWithWarmWait({ timeoutMs: 520 })
+      .catch(() => ({ posts: [] as Array<Record<string, unknown>> }));
     const activityMixes = await this.buildActivityMixes(mixBootstrap.mixes, mixPool.posts as Array<Record<string, unknown>>);
     try {
       console.info("[search.bootstrap.section_summary]", {

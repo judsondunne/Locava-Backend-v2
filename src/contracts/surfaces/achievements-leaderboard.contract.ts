@@ -22,7 +22,9 @@ export const AchievementsLeaderboardResponseSchema = z.object({
   leagueColor: z.string().nullable(),
   leagueBgColor: z.string().nullable(),
   degraded: z.boolean(),
-  fallbacks: z.array(z.string())
+  fallbacks: z.array(z.string()),
+  servedStale: z.boolean().optional(),
+  optionalWorkSkipped: z.boolean().optional()
 });
 
 export const achievementsLeaderboardContract = defineContract({

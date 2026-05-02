@@ -6,7 +6,11 @@ export const LegendsEventsUnseenResponseSchema = z.object({
   routeName: z.literal("legends.events.unseen.get"),
   events: z.array(LegendEventWireSchema).max(20),
   count: z.number().int().nonnegative(),
-  nextPollAfterMs: z.number().int().nonnegative()
+  nextPollAfterMs: z.number().int().nonnegative(),
+  /** Present when we returned empty without waiting on optional Firestore work (startup pressure / timeout / cold client). */
+  degraded: z.boolean().optional(),
+  reason: z.string().max(160).optional(),
+  debugTimingsMs: z.record(z.number()).optional()
 });
 
 export const legendsEventsUnseenContract = defineContract({

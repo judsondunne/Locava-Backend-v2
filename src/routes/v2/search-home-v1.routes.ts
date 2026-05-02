@@ -10,9 +10,15 @@ import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
 import { SearchHomeV1Orchestrator } from "../../orchestration/surfaces/search-home-v1.orchestrator.js";
+import { mixesRepository } from "../../repositories/mixes/mixes.repository.js";
 
 export async function registerV2SearchHomeV1Routes(app: FastifyInstance): Promise<void> {
   const orchestrator = new SearchHomeV1Orchestrator();
+
+  app.addHook("onReady", async () => {
+    // Idempotent: ensures mixes pool starts warming even when Search opens before Mixes routes initialize.
+    mixesRepository.startBackgroundRefresh(app.log);
+  });
 
   app.get("/v2/search/home-bootstrap", async (request, reply) => {
     const viewer = buildViewerContext(request);

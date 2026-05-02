@@ -106,6 +106,31 @@ export class MixesRepository {
     this.refreshTimer = null;
   }
 
+  /**
+   * When the pool is still warming, optionally waits up to `timeoutMs` for the in-flight refresh
+   * so first-screen search/mix consumers can get non-empty previews without blocking unbounded.
+   */
+  async listFromPoolWithWarmWait(opts: { timeoutMs: number }): Promise<{
+    posts: MixSourcePost[];
+    readCount: number;
+    source: string;
+    poolLimit: number;
+    poolState: MixPoolState;
+    poolBuiltAt: string | null;
+    poolBuildLatencyMs: number;
+    poolBuildReadCount: number;
+    servedStale: boolean;
+    servedEmptyWarming: boolean;
+  }> {
+    let res = await this.listFromPool();
+    if (!res.servedEmptyWarming) return res;
+    const inflight = this.pool.inFlight;
+    if (!inflight) return res;
+    const ms = Math.max(0, Math.floor(opts.timeoutMs));
+    await Promise.race([inflight, new Promise<void>((resolve) => setTimeout(resolve, ms))]);
+    return this.listFromPool();
+  }
+
   async listFromPool(): Promise<{
     posts: MixSourcePost[];
     readCount: number;

@@ -158,11 +158,29 @@ class SearchPlacesIndexService {
     }
   }
 
+  /**
+   * Defer full index load until after backend grace + idle tick so app-open routes never share the
+   * process with a multi-hundred-ms JSON/index build.
+   */
+  scheduleDeferredIdleLoad(totalDelayMs: number): void {
+    if (this.loaded || this.loading || this.loadScheduled) return;
+    this.loadScheduled = true;
+    const timer = setTimeout(() => {
+      this.loadScheduled = false;
+      void new Promise<void>((r) => setImmediate(r)).then(() => this.load());
+    }, Math.max(0, totalDelayMs));
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+  }
+
   async load(): Promise<void> {
     if (this.loaded || this.loading) return;
     this.loading = true;
     this.loadScheduled = false;
     this.loadError = null;
+    const loopStart = Date.now();
+    let blockedEventLoopMs = 0;
     try {
       const localDataPath = path.resolve(process.cwd(), "src", "data", "geonames-places.json");
       const legacyDataPath = path.resolve(process.cwd(), "..", "Locava Backend", "src", "data", "geonames-places.json");
@@ -174,31 +192,40 @@ class SearchPlacesIndexService {
       }
       const raw = await fs.readFile(dataPath, "utf8");
       const rows = JSON.parse(raw) as PlaceRow[];
-      for (const row of rows) {
-        const countryCode = String(row.countryCode ?? "").trim().toUpperCase();
-        const admin1Code = String(row.admin1Code ?? "").trim().toUpperCase();
-        const stateName = US_STATE_CODE_TO_NAME[admin1Code];
-        const name = String(row.name ?? row.asciiName ?? "").trim();
-        if (!countryCode || !admin1Code || !stateName || !name) continue;
-        const population = Number(row.population ?? 0);
-        if (!Number.isFinite(population) || population <= 0) continue;
-        const place: SearchIndexedPlace = {
-          text: name,
-          cityRegionId: buildCityRegionId(countryCode, stateName, name),
-          stateRegionId: buildStateRegionId(countryCode, stateName),
-          searchKey: normalizeSearchText(name),
-          population,
-          countryCode,
-          stateName,
-          lat: Number.isFinite(Number(row.lat)) ? Number(row.lat) : null,
-          lng: Number.isFinite(Number(row.lng)) ? Number(row.lng) : null,
-        };
-        this.allPlaces.push(place);
-        this.addCandidate(place);
-        for (const alt of row.alternateNames ?? []) {
-          const alias = String(alt ?? "").trim();
-          if (!alias) continue;
-          this.addCandidate({ ...place, searchKey: normalizeSearchText(alias) });
+      const chunk = 2000;
+      for (let i = 0; i < rows.length; i += chunk) {
+        const slice = rows.slice(i, i + chunk);
+        const sliceStart = Date.now();
+        for (const row of slice) {
+          const countryCode = String(row.countryCode ?? "").trim().toUpperCase();
+          const admin1Code = String(row.admin1Code ?? "").trim().toUpperCase();
+          const stateName = US_STATE_CODE_TO_NAME[admin1Code];
+          const name = String(row.name ?? row.asciiName ?? "").trim();
+          if (!countryCode || !admin1Code || !stateName || !name) continue;
+          const population = Number(row.population ?? 0);
+          if (!Number.isFinite(population) || population <= 0) continue;
+          const place: SearchIndexedPlace = {
+            text: name,
+            cityRegionId: buildCityRegionId(countryCode, stateName, name),
+            stateRegionId: buildStateRegionId(countryCode, stateName),
+            searchKey: normalizeSearchText(name),
+            population,
+            countryCode,
+            stateName,
+            lat: Number.isFinite(Number(row.lat)) ? Number(row.lat) : null,
+            lng: Number.isFinite(Number(row.lng)) ? Number(row.lng) : null,
+          };
+          this.allPlaces.push(place);
+          this.addCandidate(place);
+          for (const alt of row.alternateNames ?? []) {
+            const alias = String(alt ?? "").trim();
+            if (!alias) continue;
+            this.addCandidate({ ...place, searchKey: normalizeSearchText(alias) });
+          }
+        }
+        blockedEventLoopMs += Date.now() - sliceStart;
+        if (i + chunk < rows.length) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
         }
       }
       for (const [key, bucket] of this.prefixMap.entries()) {
@@ -206,8 +233,9 @@ class SearchPlacesIndexService {
         this.prefixMap.set(key, bucket);
       }
       this.loaded = true;
+      const totalMs = Date.now() - loopStart;
       console.log(
-        `[SEARCH_PLACES_INDEX] loaded=true places=${this.exactMap.size} prefixes=${this.prefixMap.size} source=${dataPath}`
+        `[SEARCH_PLACES_INDEX] loaded=true places=${this.exactMap.size} prefixes=${this.prefixMap.size} source=${dataPath} totalMs=${totalMs} indexedWorkMs=${blockedEventLoopMs}`
       );
     } catch (error) {
       this.loadError = error instanceof Error ? error.message : String(error);

@@ -5,20 +5,10 @@ import { legendsEventsSeenContract, LegendsEventsSeenParamsSchema } from "../../
 import { legendsEventsUnseenContract } from "../../contracts/surfaces/legends-events-unseen.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
-import { incrementDbOps, recordFallback, setRouteName } from "../../observability/request-context.js";
+import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { legendRepository } from "../../domains/legends/legend.repository.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
-
-type FirestoreMap = Record<string, unknown>;
-
-function finiteInt(value: unknown, fallback: number): number {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
-  if (typeof value === "string" && value.trim()) {
-    const n = Number(value);
-    if (Number.isFinite(n)) return Math.trunc(n);
-  }
-  return fallback;
-}
+import { loadUnseenLegendEventsFast } from "../../domains/legends/legend-events-unseen.service.js";
 
 export async function registerV2LegendsEventsRoutes(app: FastifyInstance): Promise<void> {
   app.get(legendsEventsUnseenContract.path, async (request, reply) => {
@@ -27,54 +17,18 @@ export async function registerV2LegendsEventsRoutes(app: FastifyInstance): Promi
       return reply.status(403).send(failure("v2_surface_disabled", "Legends v2 surface is not enabled for this viewer"));
     }
     setRouteName(legendsEventsUnseenContract.routeName);
-    const db = getFirestoreSourceClient();
-    if (!db) {
-      return success({ routeName: legendsEventsUnseenContract.routeName, events: [], count: 0, nextPollAfterMs: 0 });
-    }
-
-    let snap;
-    try {
-      snap = await legendRepository.unseenLegendEventsQuery(viewer.viewerId, 5).get();
-    } catch (error) {
-      const message = error instanceof Error ? error.message.toLowerCase() : "";
-      if (message.includes("index") || message.includes("failed_precondition")) {
-        recordFallback("legends_events_unseen_missing_index");
-        return success({ routeName: legendsEventsUnseenContract.routeName, events: [], count: 0, nextPollAfterMs: 120_000 });
-      }
-      throw error;
-    }
-    incrementDbOps("queries", 1);
-    incrementDbOps("reads", snap.docs.length);
-    const events = snap.docs.map((doc) => {
-      const row = (doc.data() as FirestoreMap | undefined) ?? {};
-      return {
-        eventId: String(row.eventId ?? doc.id),
-        eventType: String(row.eventType ?? ""),
-        scopeId: String(row.scopeId ?? ""),
-        scopeType: String(row.scopeType ?? ""),
-        scopeTitle: String(row.scopeTitle ?? ""),
-        activityId: row.activityId == null ? null : String(row.activityId),
-        placeType: row.placeType == null ? null : String(row.placeType),
-        placeId: row.placeId == null ? null : String(row.placeId),
-        geohash: row.geohash == null ? null : String(row.geohash),
-        previousRank: row.previousRank == null ? null : Math.max(1, finiteInt(row.previousRank, 1)),
-        newRank: row.newRank == null ? null : Math.max(1, finiteInt(row.newRank, 1)),
-        previousLeaderCount: Math.max(0, finiteInt(row.previousLeaderCount, 0)),
-        newLeaderCount: Math.max(0, finiteInt(row.newLeaderCount, 0)),
-        viewerCount: Math.max(0, finiteInt(row.viewerCount, 0)),
-        deltaToReclaim: Math.max(0, finiteInt(row.deltaToReclaim, 0)),
-        overtakenByUserId: row.overtakenByUserId == null ? null : String(row.overtakenByUserId),
-        sourcePostId: String(row.sourcePostId ?? ""),
-        createdAt: row.createdAt,
-        seen: row.seen === true
-      };
-    });
-
+    const loaded = await loadUnseenLegendEventsFast({ viewerId: viewer.viewerId, log: request.log });
+    incrementDbOps("queries", loaded.dbQueries);
+    incrementDbOps("reads", loaded.dbReads);
+    const events = loaded.events;
+    const nextPoll = loaded.degraded ? 60_000 : events.length > 0 ? 0 : 120_000;
     return success({
       routeName: legendsEventsUnseenContract.routeName,
       events,
       count: events.length,
-      nextPollAfterMs: events.length > 0 ? 0 : 120_000
+      nextPollAfterMs: nextPoll,
+      ...(loaded.degraded ? { degraded: true as const, reason: loaded.reason } : {}),
+      debugTimingsMs: loaded.debugTimingsMs
     });
   });
 

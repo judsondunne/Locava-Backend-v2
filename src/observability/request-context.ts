@@ -27,6 +27,12 @@ export type OrchestrationContext = {
   canceled: boolean;
   deduped: boolean;
   queueWaitMs: number;
+  /** True when this request waited on the startup low-priority concurrency gate (P3/P4 vs grace window). */
+  blockedByStartupWarmers?: boolean;
+  /** Approximate event-loop lag sampled at request start when available (ms). */
+  eventLoopDelayMs?: number;
+  servedStale?: boolean;
+  optionalWorkSkipped?: boolean;
 };
 
 export type RequestContext = {
@@ -239,7 +245,11 @@ function createDefaultOrchestrationContext(): OrchestrationContext {
     stale: false,
     canceled: false,
     deduped: false,
-    queueWaitMs: 0
+    queueWaitMs: 0,
+    blockedByStartupWarmers: false,
+    eventLoopDelayMs: undefined,
+    servedStale: false,
+    optionalWorkSkipped: false
   };
 }
 

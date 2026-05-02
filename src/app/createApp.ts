@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { monitorEventLoopDelay } from "node:perf_hooks";
 import Fastify, { type FastifyInstance } from "fastify";
 import { context, trace } from "@opentelemetry/api";
 import { ZodError } from "zod";
@@ -6,7 +7,18 @@ import { type AppEnv, loadEnv } from "../config/env.js";
 import { failure } from "../lib/response.js";
 import { diagnosticsStore } from "../observability/diagnostics-store.js";
 import { requestMetricsCollector } from "../observability/request-metrics.collector.js";
-import { getRequestContext, recordPayloadBytes, runWithRequestContext } from "../observability/request-context.js";
+import {
+  getRequestContext,
+  recordPayloadBytes,
+  runWithRequestContext
+} from "../observability/request-context.js";
+import { getRoutePolicy } from "../observability/route-policies.js";
+import { inferRouteNameFromRequest } from "../runtime/infer-route-name.js";
+import {
+  enterLowPriorityStartupGateIfNeeded,
+  releaseLowPriorityStartupGate
+} from "../runtime/low-priority-request-gate.js";
+import { logStartupTimeline, startupGraceMs } from "../runtime/server-boot.js";
 import { attachErrorBufferToLogger } from "../observability/error-ring-buffer.js";
 import { cacheMetricsCollector } from "../observability/cache-metrics.collector.js";
 import { registerAdminRoutes } from "../routes/admin.routes.js";
@@ -162,12 +174,22 @@ function classifyError(error: unknown): { code: string; statusCode: number; deta
   return { code: "internal_error", statusCode: 500 };
 }
 
+let eventLoopDelayHistogram: ReturnType<typeof monitorEventLoopDelay> | null = null;
+try {
+  eventLoopDelayHistogram = monitorEventLoopDelay({ resolution: 20 });
+  eventLoopDelayHistogram.enable();
+} catch {
+  eventLoopDelayHistogram = null;
+}
+
 export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   const env = { ...loadEnv(), ...overrides };
   const mapMarkersAdapter = new MapMarkersFirestoreAdapter();
   const shouldPrimeFirestoreOnReady = process.env.VITEST !== "true";
   if (env.NODE_ENV !== "test") {
-    searchPlacesIndexService.scheduleLoad(5_000);
+    const deferMs = startupGraceMs() + 4_000;
+    searchPlacesIndexService.scheduleDeferredIdleLoad(deferMs);
+    logStartupTimeline("search_places_index_deferred", { deferMs });
   }
 
   const app = Fastify({
@@ -254,7 +276,11 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           stale: false,
           canceled: false,
           deduped: false,
-          queueWaitMs: 0
+          queueWaitMs: 0,
+          blockedByStartupWarmers: false,
+          eventLoopDelayMs: undefined,
+          servedStale: false,
+          optionalWorkSkipped: false
         },
         audit: {
           auditRunId: request.headers["x-audit-run-id"]?.toString(),
@@ -263,10 +289,20 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         }
       },
       () => {
+        const ctx = getRequestContext();
+        if (ctx?.orchestration && eventLoopDelayHistogram) {
+          ctx.orchestration.eventLoopDelayMs = Math.round(eventLoopDelayHistogram.mean / 1e6);
+        }
         request.log.info({ event: "request_start" }, "incoming request");
         done();
       }
     );
+  });
+
+  app.addHook("preHandler", async (request) => {
+    const inferred = inferRouteNameFromRequest(request.method, request.url);
+    const policy = inferred ? getRoutePolicy(inferred) : undefined;
+    await enterLowPriorityStartupGateIfNeeded(request, policy);
   });
 
   app.addHook("onSend", async (_request, _reply, payload) => {
@@ -288,6 +324,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   });
 
   app.addHook("onResponse", async (request, reply) => {
+    releaseLowPriorityStartupGate(request);
     const latencyMs = Number(process.hrtime.bigint() - request.requestStartNs) / 1_000_000;
     const ctx = getRequestContext();
     const budgetViolations: string[] = [];
@@ -393,6 +430,8 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         {
           event: "request_complete",
           routeName: ctx?.routeName,
+          routePolicyPriority: ctx?.routePolicy?.priority ?? null,
+          routePolicyLane: ctx?.routePolicy?.lane ?? null,
           statusCode: reply.statusCode,
           latencyMs: Number(latencyMs.toFixed(2)),
           payloadBytes: ctx?.payloadBytes ?? 0,
@@ -400,6 +439,13 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           surface: ctx?.orchestration?.surface ?? null,
           requestGroup: ctx?.orchestration?.requestGroup ?? null,
           hydrationMode: ctx?.orchestration?.hydrationMode ?? null,
+          blockedByStartupWarmers: ctx?.orchestration?.blockedByStartupWarmers ?? false,
+          schedulerQueueWaitMs: ctx?.orchestration?.queueWaitMs ?? 0,
+          eventLoopDelayMs: ctx?.orchestration?.eventLoopDelayMs ?? null,
+          cacheHit: (ctx?.cache?.hits ?? 0) > 0,
+          cacheMiss: (ctx?.cache?.misses ?? 0) > 0,
+          servedStale: ctx?.orchestration?.servedStale ?? false,
+          optionalWorkSkipped: ctx?.orchestration?.optionalWorkSkipped ?? false,
           budgetViolations,
           dbOps: ctx?.dbOps ?? { reads: 0, writes: 0, queries: 0 },
           fallbacks: (ctx?.fallbacks ?? []).length,
@@ -579,8 +625,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       },
       "local dev identity harness status"
     );
-    // Keep startup non-blocking. Search and map caches warm lazily per-route so audits
-    // and fresh cold starts measure the actual request path instead of background boot work.
+    logStartupTimeline("server_on_ready_complete", { nodeEnv: env.NODE_ENV });
   });
 
   return app;
