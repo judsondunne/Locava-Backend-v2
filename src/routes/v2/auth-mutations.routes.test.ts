@@ -110,6 +110,7 @@ describe("v2 auth mutation routes", () => {
   beforeEach(() => {
     resetState();
     vi.unstubAllGlobals();
+    process.env.FIREBASE_WEB_API_KEY = "test-api-key";
   });
 
   async function createApp() {
@@ -149,6 +150,68 @@ describe("v2 auth mutation routes", () => {
     }));
   }
 
+  function stubPasswordLoginResponse(input: {
+    uid: string;
+    email: string;
+    displayName?: string;
+  }): void {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (!url.includes("accounts:signInWithPassword")) {
+        throw new Error(`unexpected fetch ${url}`);
+      }
+      return new Response(
+        JSON.stringify({
+          localId: input.uid,
+          email: input.email,
+          displayName: input.displayName
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        }
+      );
+    }));
+  }
+
+  it("returns full viewer hydration for existing email/password login", async () => {
+    state.users.set("email-user-1", {
+      email: "email@example.com",
+      handle: "emailhandle",
+      name: "Email User",
+      profilePic: "https://cdn.example.com/p-medium.jpg",
+      profilePicMediumPath: "https://cdn.example.com/p-medium.jpg",
+      onboardingComplete: true,
+      profileComplete: true
+    });
+    stubPasswordLoginResponse({
+      uid: "email-user-1",
+      email: "email@example.com",
+      displayName: "Email User"
+    });
+
+    const app = await createApp();
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/v2/auth/login",
+        headers: { "content-type": "application/json", "x-viewer-roles": "internal" },
+        payload: {
+          email: "email@example.com",
+          password: "pw-1234"
+        }
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(body.data.success).toBe(true);
+      expect(body.data.viewer.viewerReady).toBe(true);
+      expect(body.data.viewer.handle).toBe("emailhandle");
+      expect(body.data.viewer.profilePic).toBe("https://cdn.example.com/p-medium.jpg");
+      expect(body.data.viewer.profileHydrationStatus).toBe("ready");
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
+
   it("logs in an existing completed Google account", async () => {
     state.users.set("google_google-user-1", {
       email: "person@example.com",
@@ -178,6 +241,8 @@ describe("v2 auth mutation routes", () => {
       expect(body.data.accountStatus).toBe("existing_complete");
       expect(body.data.onboardingRequired).toBe(false);
       expect(body.data.token).toBe("token:google_google-user-1");
+      expect(body.data.viewer.viewerReady).toBe(true);
+      expect(body.data.viewer.canonicalUserId).toBe("google_google-user-1");
       expect(state.writes).toHaveLength(0);
     } finally {
       await app.close();
@@ -244,6 +309,8 @@ describe("v2 auth mutation routes", () => {
       const body = res.json();
       expect(body.data.accountStatus).toBe("existing_complete");
       expect(body.data.token).toBe("token:apple_apple-user-1");
+      expect(body.data.viewer.viewerReady).toBe(true);
+      expect(body.data.viewer.canonicalUserId).toBe("apple_apple-user-1");
       expect(state.writes).toHaveLength(0);
     } finally {
       await app.close();
@@ -309,6 +376,65 @@ describe("v2 auth mutation routes", () => {
       expect(body.data.onboardingRequired).toBe(true);
       expect(body.data.nativeDestinationRoute).toBe("onboarding_existing");
       expect(body.data.token).toBe("token:google_google-user-3");
+    } finally {
+      await app.close();
+    }
+  }, 15_000);
+
+  it("keeps signup/login viewer response shapes compatible", async () => {
+    state.users.set("shape-user-1", {
+      email: "shape@example.com",
+      handle: "shape",
+      name: "Shape User",
+      onboardingComplete: true,
+      profileComplete: true
+    });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      if (url.includes("accounts:signInWithPassword")) {
+        return new Response(
+          JSON.stringify({
+            localId: "shape-user-1",
+            email: "shape@example.com"
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        );
+      }
+      if (url.includes("accounts:signUp")) {
+        return new Response(
+          JSON.stringify({
+            localId: "shape-new-user",
+            email: "newshape@example.com"
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }));
+    const app = await createApp();
+    try {
+      const loginRes = await app.inject({
+        method: "POST",
+        url: "/v2/auth/login",
+        headers: { "content-type": "application/json", "x-viewer-roles": "internal" },
+        payload: { email: "shape@example.com", password: "pw-1234" }
+      });
+      const registerRes = await app.inject({
+        method: "POST",
+        url: "/v2/auth/register",
+        headers: { "content-type": "application/json", "x-viewer-roles": "internal" },
+        payload: { email: "newshape@example.com", password: "pw-123456" }
+      });
+      expect(loginRes.statusCode).toBe(200);
+      expect(registerRes.statusCode).toBe(200);
+      expect(typeof loginRes.json().data.viewer).toBe("object");
+      expect(typeof registerRes.json().data.viewer).toBe("object");
+      expect(Object.keys(loginRes.json().data.viewer).sort()).toEqual(Object.keys(registerRes.json().data.viewer).sort());
     } finally {
       await app.close();
     }

@@ -116,6 +116,20 @@ describe("backend foundation routes", () => {
     }
   });
 
+  it("POST /api/v1/product/users/multiple is registered without legacy compat flag", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/v1/product/users/multiple",
+      headers: {
+        "content-type": "application/json",
+        "x-viewer-roles": "internal",
+      },
+      payload: { userIds: [] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { success?: boolean }).success).toBe(true);
+  });
+
   it("PATCH /api/v1/product/viewer merges fields and uses x-viewer-id", async () => {
     const res = await app.inject({
       method: "PATCH",

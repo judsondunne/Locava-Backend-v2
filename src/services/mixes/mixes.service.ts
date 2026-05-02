@@ -1,11 +1,21 @@
 import { createHash } from "node:crypto";
 import { mixCache } from "../../cache/mixCache.js";
 import type { MixFilter } from "../../contracts/v2/mixes.contract.js";
-import { toSearchMixPreviewDTO, type SearchMixPreviewDTO } from "../../dto/compact-surface-dto.js";
+import {
+  firestoreAssetsToCompactSeeds,
+  toSearchMixPreviewDTO,
+  type SearchMixPreviewDTO,
+} from "../../dto/compact-surface-dto.js";
+import { MixPostsRepository } from "../../repositories/mixPosts.repository.js";
 import type { MixesRepository, MixSourcePost } from "../../repositories/mixes/mixes.repository.js";
 import { mixesRepository, parsePostTimeMs } from "../../repositories/mixes/mixes.repository.js";
 
+const MAX_MIX_RADIUS_KM = 500;
+const ACTIVITY_FALLBACK_POOL_CAP = 96;
+const MIX_PREVIEW_WARM_WAIT_MS = 450;
+
 type CursorPayload = { v: 1; t: number; id: string };
+type GeoCursorPayload = { v: 2; lat: number; lng: number; d: number; t: number; id: string };
 
 type MixPostCard = SearchMixPreviewDTO;
 
@@ -47,8 +57,10 @@ function postActivityTokens(row: MixSourcePost): string[] {
 
   const activities = Array.isArray(row.activities) ? row.activities : [];
   const activitiesLooksPolluted = activities.length > SUSPICIOUS_ACTIVITY_TAGS;
-  if (!activitiesLooksPolluted || bucket.length === 0) {
+  if (!activitiesLooksPolluted) {
     collectActivityTokens(activities, bucket);
+  } else if (bucket.length === 0) {
+    // Huge `activities` blobs are often untrustworthy; do not infer tags from them alone.
   }
   return [...new Set(bucket)];
 }
@@ -91,15 +103,102 @@ function stableCursorDecode(cursor: string | null): CursorPayload | null {
   }
 }
 
+function stableGeoCursorEncode(cursor: GeoCursorPayload): string {
+  return `mc:v2:${Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url")}`;
+}
+
+function stableGeoCursorDecode(cursor: string | null): GeoCursorPayload | null {
+  if (!cursor) return null;
+  const m = /^mc:v2:(.+)$/.exec(cursor);
+  if (!m?.[1]) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(m[1], "base64url").toString("utf8")) as GeoCursorPayload;
+    if (
+      parsed.v !== 2 ||
+      !Number.isFinite(parsed.lat) ||
+      !Number.isFinite(parsed.lng) ||
+      !Number.isFinite(parsed.d) ||
+      !Number.isFinite(parsed.t) ||
+      typeof parsed.id !== "string"
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function geoCursorMatchesFilter(cursor: GeoCursorPayload, filter: MixFilter): boolean {
+  if (filter.lat == null || filter.lng == null) return false;
+  const eps = 1e-5;
+  return Math.abs(cursor.lat - filter.lat) < eps && Math.abs(cursor.lng - filter.lng) < eps;
+}
+
+function rowIsAfterGeoCursor(
+  row: MixSourcePost,
+  cursor: GeoCursorPayload,
+  origin: { lat: number; lng: number },
+): boolean {
+  const coords = postLatLng(row);
+  if (!coords) return false;
+  const d = computeDistanceKm(origin, coords);
+  const t = parsePostTimeMs(row);
+  const id = String(row.postId);
+  const eps = 1e-6;
+  if (d > cursor.d + eps) return true;
+  if (d < cursor.d - eps) return false;
+  if (t < cursor.t) return true;
+  if (t > cursor.t) return false;
+  return id.localeCompare(cursor.id) < 0;
+}
+
 function normalizeFilter(input: MixFilter): MixFilter {
+  const rawR = typeof input.radiusKm === "number" && Number.isFinite(input.radiusKm) ? input.radiusKm : undefined;
+  const radiusKm =
+    rawR == null ? undefined : Math.min(MAX_MIX_RADIUS_KM, Math.max(1e-6, rawR));
   return {
     activity: normalizeText(input.activity)?.toLowerCase() ?? undefined,
     state: normalizeText(input.state)?.toLowerCase() ?? undefined,
     place: normalizeText(input.place)?.toLowerCase() ?? undefined,
     lat: typeof input.lat === "number" && Number.isFinite(input.lat) ? input.lat : undefined,
     lng: typeof input.lng === "number" && Number.isFinite(input.lng) ? input.lng : undefined,
-    radiusKm: typeof input.radiusKm === "number" && Number.isFinite(input.radiusKm) ? input.radiusKm : undefined,
+    radiusKm,
   };
+}
+
+function mixDebugEnabled(): boolean {
+  return process.env.NODE_ENV !== "production" || process.env.MIXES_DEBUG === "1";
+}
+
+function locationIntentFor(filter: MixFilter): "none" | "geo_radius" | "state" | "place" {
+  if (filter.lat != null && filter.lng != null && filter.radiusKm != null) return "geo_radius";
+  if (filter.state) return "state";
+  if (filter.place) return "place";
+  return "none";
+}
+
+/** HTTP(S) visual we can show on a mix card or poster slot. */
+function hasUsableCoverMedia(row: MixSourcePost): boolean {
+  const assets = Array.isArray(row.assets) ? (row.assets as Array<Record<string, unknown>>) : [];
+  const first = assets[0] ?? {};
+  const variants = (first.variants ?? {}) as Record<string, unknown>;
+  const poster =
+    normalizeText((row as any).thumbUrl) ??
+    normalizeText((row as any).displayPhotoLink) ??
+    normalizeText((row as any).displayPhotoUrl) ??
+    normalizeText((row as any).photoLink) ??
+    normalizeText((row as any).thumbnailUrl) ??
+    normalizeText(first.poster) ??
+    normalizeText(first.thumbnail) ??
+    normalizeText(first.posterUrl);
+  const preview =
+    normalizeText(variants.preview360Avc) ??
+    normalizeText(variants.main720Avc) ??
+    normalizeText((first as any).original) ??
+    normalizeText((first as any).url);
+  const url = poster || preview;
+  return typeof url === "string" && /^https?:\/\//i.test(url.trim());
 }
 
 function postLocationSummary(row: MixSourcePost): string | null {
@@ -142,6 +241,8 @@ function matchesLocation(row: MixSourcePost, filter: MixFilter): boolean {
 
 function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPostCard {
   const assets = Array.isArray(row.assets) ? (row.assets as Array<Record<string, unknown>>) : [];
+  const compactFromFirestore =
+    assets.length > 0 ? firestoreAssetsToCompactSeeds(assets as unknown[], String(row.postId ?? row.id ?? ""), 12) : [];
   const first = assets[0] ?? {};
   const variants = (first.variants ?? {}) as Record<string, unknown>;
   const mediaReadiness = ((row as any).mediaReadiness ?? {}) as Record<string, unknown>;
@@ -154,8 +255,12 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
   const poster =
     normalizeText((row as any).thumbUrl) ??
     normalizeText((row as any).displayPhotoLink) ??
+    normalizeText((row as any).displayPhotoUrl) ??
+    normalizeText((row as any).photoLink) ??
+    normalizeText((row as any).thumbnailUrl) ??
     normalizeText(first.poster) ??
     normalizeText(first.thumbnail) ??
+    normalizeText(first.posterUrl) ??
     "";
   const preview =
     normalizeText(variants.preview360Avc) ??
@@ -219,22 +324,26 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
       startupHint: isVideoRow ? "poster_then_preview" : "poster_only",
     },
     geo: { lat: coords?.lat ?? null, long: coords?.lng ?? null },
-    assets: [
-      {
-        id: `${postId}-asset-1`,
-        type: isVideoAsset || isVideoRow ? "video" : "image",
-        previewUrl: preview,
-        posterUrl: poster || null,
-        originalUrl: playbackUrl ?? preview ?? (poster || null),
-        streamUrl: normalizeText(variants.hls),
-        mp4Url: playbackUrl,
-        blurhash: null,
-        width: typeof (row as any).width === "number" ? (row as any).width : null,
-        height: typeof (row as any).height === "number" ? (row as any).height : null,
-        aspectRatio: aspectRatio || null,
-        orientation: null,
-      },
-    ],
+    assets:
+      compactFromFirestore.length > 0
+        ? compactFromFirestore
+        : [
+            {
+              id: `${postId}-asset-1`,
+              type: isVideoAsset || isVideoRow ? "video" : "image",
+              previewUrl: preview,
+              posterUrl: poster || null,
+              originalUrl: playbackUrl ?? preview ?? (poster || null),
+              streamUrl: normalizeText(variants.hls),
+              mp4Url: playbackUrl,
+              blurhash: null,
+              width: typeof (row as any).width === "number" ? (row as any).width : null,
+              height: typeof (row as any).height === "number" ? (row as any).height : null,
+              aspectRatio: aspectRatio || null,
+              orientation: null,
+            },
+          ],
+    compactAssetLimit: 12,
     createdAtMs: Math.max(0, parsePostTimeMs(row)),
     updatedAtMs: Math.max(0, parsePostTimeMs(row)),
     social: { likeCount: 0, commentCount: 0 },
@@ -265,11 +374,31 @@ function hashFilter(filter: MixFilter, viewerId: string | null): string {
 }
 
 export class MixesService {
-  constructor(private readonly repo: Pick<MixesRepository, "listFromPool"> = mixesRepository) {}
+  private readonly postsRepoInjected?: Pick<MixPostsRepository, "pageByActivity">;
+  private postsRepoMemo?: MixPostsRepository;
+
+  constructor(
+    private readonly repo: Pick<MixesRepository, "listFromPool" | "listFromPoolWithWarmWait"> = mixesRepository,
+    postsRepo?: Pick<MixPostsRepository, "pageByActivity">,
+  ) {
+    this.postsRepoInjected = postsRepo;
+  }
+
+  private get postsRepo(): Pick<MixPostsRepository, "pageByActivity"> {
+    if (this.postsRepoInjected) return this.postsRepoInjected;
+    if (!this.postsRepoMemo) this.postsRepoMemo = new MixPostsRepository();
+    return this.postsRepoMemo;
+  }
 
   async preview(input: { mixKey: string; filter: MixFilter; limit: number; viewerId: string | null }) {
     const started = Date.now();
+    const requestedRadiusKm =
+      typeof input.filter.radiusKm === "number" && Number.isFinite(input.filter.radiusKm)
+        ? input.filter.radiusKm
+        : undefined;
     const filter = normalizeFilter(input.filter);
+    const radiusClamped =
+      requestedRadiusKm != null && filter.radiusKm != null && requestedRadiusKm > filter.radiusKm + 1e-9;
     const limit = input.limit === 1 ? 1 : 3;
     const cacheKey = `mixPreview:${hashFilter(filter, input.viewerId)}:limit:${limit}`;
     const cached = mixCache.get<any>(cacheKey);
@@ -290,10 +419,58 @@ export class MixesService {
       poolBuildReadCount,
       servedStale,
       servedEmptyWarming,
-    } =
-      await this.repo.listFromPool();
-    const filtered = this.filterRows(pool, filter);
-    const cards = filtered.slice(0, limit).map((row, idx) => mapPostCard(row, idx, input.mixKey));
+    } = await this.repo.listFromPoolWithWarmWait({ timeoutMs: MIX_PREVIEW_WARM_WAIT_MS });
+    let activityFallbackUsed = false;
+    let workingPool = pool;
+    let filtered = this.filterRows(pool, filter);
+    const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
+    if (filtered.length === 0 && normalizedActivity) {
+      try {
+        const fb = await this.postsRepo.pageByActivity({
+          activity: normalizedActivity,
+          limit: ACTIVITY_FALLBACK_POOL_CAP,
+          cursor: null,
+        });
+        if (fb.items.length > 0) {
+          activityFallbackUsed = true;
+          const asMix = fb.items as unknown as MixSourcePost[];
+          const seen = new Set(pool.map((r) => String(r.postId)));
+          workingPool = [...pool, ...asMix.filter((r) => !seen.has(String(r.postId)))];
+          filtered = this.filterRows(workingPool, filter);
+        }
+      } catch {
+        // Bounded fallback is best-effort; empty remains truthful.
+      }
+    }
+    const withCover = filtered.filter(hasUsableCoverMedia);
+    const droppedForMissingMediaCount = Math.max(0, filtered.length - withCover.length);
+    const pickRows = withCover.length > 0 ? withCover : filtered;
+    const cards = pickRows.slice(0, limit).map((row, idx) => mapPostCard(row, idx, input.mixKey));
+    const baseDebug = mixDebugEnabled()
+      ? {
+          requestedActivity: input.filter.activity,
+          normalizedActivity: normalizedActivity ?? undefined,
+          locationIntent: locationIntentFor(filter),
+          requestedRadiusKm: requestedRadiusKm ?? filter.radiusKm,
+          effectiveRadiusKm: filter.radiusKm,
+          radiusClamped: radiusClamped || undefined,
+          droppedForMissingMediaCount,
+          sourcePoolState: poolState,
+          activityFallbackUsed,
+          emptyReason:
+            cards.length === 0
+              ? servedEmptyWarming
+                ? "pool_warming_or_empty"
+                : normalizedActivity
+                  ? "no_posts_matched_filters"
+                  : "no_candidates"
+              : undefined,
+        }
+      : {
+          droppedForMissingMediaCount,
+          sourcePoolState: poolState,
+          activityFallbackUsed,
+        };
     const payload = {
       ok: true as const,
       mixKey: input.mixKey,
@@ -306,7 +483,7 @@ export class MixesService {
         filters: filter,
         candidateCount: filtered.length,
         returnedCount: cards.length,
-        source,
+        source: activityFallbackUsed ? `${source}+activity_fallback` : source,
         poolState,
         servedStale,
         servedEmptyWarming,
@@ -317,6 +494,8 @@ export class MixesService {
         poolBuiltAt,
         poolBuildLatencyMs,
         poolBuildReadCount,
+        nextCursorPresent: false,
+        ...baseDebug,
       },
     };
     mixCache.set(cacheKey, payload, 45_000);
@@ -325,9 +504,22 @@ export class MixesService {
 
   async page(input: { mixKey: string; filter: MixFilter; limit: number; cursor: string | null; viewerId: string | null }) {
     const started = Date.now();
+    const requestedRadiusKm =
+      typeof input.filter.radiusKm === "number" && Number.isFinite(input.filter.radiusKm)
+        ? input.filter.radiusKm
+        : undefined;
     const filter = normalizeFilter(input.filter);
+    const radiusClamped =
+      requestedRadiusKm != null && filter.radiusKm != null && requestedRadiusKm > filter.radiusKm + 1e-9;
     const limit = Math.max(1, Math.min(24, Math.floor(input.limit || 12)));
-    const parsedCursor = stableCursorDecode(input.cursor);
+    const geoSort =
+      filter.lat != null && filter.lng != null && filter.radiusKm != null
+        ? { lat: filter.lat, lng: filter.lng }
+        : null;
+    const parsedTimeCursor = geoSort ? null : stableCursorDecode(input.cursor);
+    const parsedGeoCursorRaw = geoSort ? stableGeoCursorDecode(input.cursor) : null;
+    const parsedGeoCursor =
+      parsedGeoCursorRaw && geoCursorMatchesFilter(parsedGeoCursorRaw, filter) ? parsedGeoCursorRaw : null;
     const cacheKey = `mixPage:${hashFilter(filter, input.viewerId)}:limit:${limit}:cursor:${input.cursor ?? "_"}`;
     const cached = mixCache.get<any>(cacheKey);
     if (cached) {
@@ -347,23 +539,87 @@ export class MixesService {
       poolBuildReadCount,
       servedStale,
       servedEmptyWarming,
-    } =
-      await this.repo.listFromPool();
-    const filtered = this.filterRows(pool, filter);
-    const afterCursor = parsedCursor
-      ? filtered.filter((row) => {
-          const t = parsePostTimeMs(row);
-          const id = String(row.postId);
-          if (t < parsedCursor.t) return true;
-          if (t > parsedCursor.t) return false;
-          return id.localeCompare(parsedCursor.id) < 0;
-        })
-      : filtered;
+    } = await this.repo.listFromPoolWithWarmWait({ timeoutMs: MIX_PREVIEW_WARM_WAIT_MS });
+    let activityFallbackUsed = false;
+    let workingPool = pool;
+    let filtered = this.filterRows(pool, filter);
+    const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
+    if (filtered.length === 0 && normalizedActivity) {
+      try {
+        const fb = await this.postsRepo.pageByActivity({
+          activity: normalizedActivity,
+          limit: ACTIVITY_FALLBACK_POOL_CAP,
+          cursor: null,
+        });
+        if (fb.items.length > 0) {
+          activityFallbackUsed = true;
+          const asMix = fb.items as unknown as MixSourcePost[];
+          const seen = new Set(pool.map((r) => String(r.postId)));
+          workingPool = [...pool, ...asMix.filter((r) => !seen.has(String(r.postId)))];
+          filtered = this.filterRows(workingPool, filter);
+        }
+      } catch {
+        // best-effort
+      }
+    }
+    let afterCursor = filtered;
+    if (geoSort && parsedGeoCursor) {
+      afterCursor = filtered.filter((row) => rowIsAfterGeoCursor(row, parsedGeoCursor, geoSort));
+    } else if (parsedTimeCursor) {
+      afterCursor = filtered.filter((row) => {
+        const t = parsePostTimeMs(row);
+        const id = String(row.postId);
+        if (t < parsedTimeCursor.t) return true;
+        if (t > parsedTimeCursor.t) return false;
+        return id.localeCompare(parsedTimeCursor.id) < 0;
+      });
+    }
     const pageRows = afterCursor.slice(0, limit);
     const hasMore = afterCursor.length > limit;
     const last = pageRows[pageRows.length - 1];
-    const nextCursor = hasMore && last ? stableCursorEncode({ v: 1, t: parsePostTimeMs(last), id: String(last.postId) }) : null;
+    let nextCursor: string | null = null;
+    if (hasMore && last && geoSort) {
+      const coords = postLatLng(last);
+      const d = coords ? computeDistanceKm(geoSort, coords) : 0;
+      nextCursor = stableGeoCursorEncode({
+        v: 2,
+        lat: geoSort.lat,
+        lng: geoSort.lng,
+        d,
+        t: parsePostTimeMs(last),
+        id: String(last.postId),
+      });
+    } else if (hasMore && last) {
+      nextCursor = stableCursorEncode({ v: 1, t: parsePostTimeMs(last), id: String(last.postId) });
+    }
     const cards = pageRows.map((row, idx) => mapPostCard(row, idx, input.mixKey));
+    const baseDebug = mixDebugEnabled()
+      ? {
+          requestedActivity: input.filter.activity,
+          normalizedActivity: normalizedActivity ?? undefined,
+          locationIntent: locationIntentFor(filter),
+          requestedRadiusKm: requestedRadiusKm ?? filter.radiusKm,
+          effectiveRadiusKm: filter.radiusKm,
+          radiusClamped: radiusClamped || undefined,
+          droppedForMissingMediaCount: 0,
+          nextCursorPresent: Boolean(nextCursor),
+          sourcePoolState: poolState,
+          activityFallbackUsed,
+          emptyReason:
+            cards.length === 0
+              ? servedEmptyWarming
+                ? "pool_warming_or_empty"
+                : normalizedActivity
+                  ? "no_posts_matched_filters"
+                  : "no_candidates"
+              : undefined,
+        }
+      : {
+          droppedForMissingMediaCount: 0,
+          nextCursorPresent: Boolean(nextCursor),
+          sourcePoolState: poolState,
+          activityFallbackUsed,
+        };
     const payload = {
       ok: true as const,
       mixKey: input.mixKey,
@@ -378,7 +634,7 @@ export class MixesService {
         filters: filter,
         candidateCount: filtered.length,
         returnedCount: cards.length,
-        source,
+        source: activityFallbackUsed ? `${source}+activity_fallback` : source,
         poolState,
         servedStale,
         servedEmptyWarming,
@@ -389,6 +645,7 @@ export class MixesService {
         poolBuiltAt,
         poolBuildLatencyMs,
         poolBuildReadCount,
+        ...baseDebug,
       },
     };
     mixCache.set(cacheKey, payload, 30_000);
@@ -397,20 +654,36 @@ export class MixesService {
 
   private filterRows(rows: MixSourcePost[], filter: MixFilter): MixSourcePost[] {
     const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
-    return rows
-      .filter((row) => {
-        if (normalizedActivity) {
-          const tokens = postActivityTokens(row);
-          if (!tokens.includes(normalizedActivity)) return false;
-        }
-        if (!matchesLocation(row, filter)) return false;
-        return true;
-      })
-      .sort((a, b) => {
+    const geoSort =
+      filter.lat != null && filter.lng != null && filter.radiusKm != null
+        ? { lat: filter.lat, lng: filter.lng }
+        : null;
+    const filtered = rows.filter((row) => {
+      if (normalizedActivity) {
+        const tokens = postActivityTokens(row);
+        if (!tokens.includes(normalizedActivity)) return false;
+      }
+      if (!matchesLocation(row, filter)) return false;
+      return true;
+    });
+    if (geoSort) {
+      return filtered.sort((a, b) => {
+        const ca = postLatLng(a);
+        const cb = postLatLng(b);
+        const da = ca ? computeDistanceKm(geoSort, ca) : Number.POSITIVE_INFINITY;
+        const db = cb ? computeDistanceKm(geoSort, cb) : Number.POSITIVE_INFINITY;
+        if (Math.abs(da - db) > 1e-6) return da - db;
         const ta = parsePostTimeMs(a);
         const tb = parsePostTimeMs(b);
         if (ta !== tb) return tb - ta;
         return String(b.postId).localeCompare(String(a.postId));
       });
+    }
+    return filtered.sort((a, b) => {
+      const ta = parsePostTimeMs(a);
+      const tb = parsePostTimeMs(b);
+      if (ta !== tb) return tb - ta;
+      return String(b.postId).localeCompare(String(a.postId));
+    });
   }
 }

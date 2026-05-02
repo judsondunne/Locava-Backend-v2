@@ -58,6 +58,11 @@ const EnvSchema = z.object({
    *   `create-from-staged` to this origin (requires publish auth). Leave unset for Backendv2-owned finalize.
    */
   LEGACY_MONOLITH_PROXY_BASE_URL: z.string().url().optional(),
+  /**
+   * When true (non-production only), contact sync diagnostics may include redacted samples.
+   * Production never logs raw PII regardless of this flag.
+   */
+  CONTACT_SYNC_VERBOSE_DIAGNOSTICS: z.coerce.boolean().default(false),
   /** Dev/test only: allow unauthenticated clients to hit /v2/posts/* routes. */
   ALLOW_PUBLIC_POSTING_TEST: z.coerce.boolean().default(false),
   /** Optional shared bearer token used by Backendv2 when forwarding publish to legacy monolith. */

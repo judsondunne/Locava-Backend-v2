@@ -10,10 +10,4 @@ export async function registerLaunchCompatRoutes(app: FastifyInstance): Promise<
     })
   );
 
-  app.patch("/api/v1/product/viewer", async () =>
-    success({
-      ok: true,
-      updated: false
-    })
-  );
 }

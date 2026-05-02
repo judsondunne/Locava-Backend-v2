@@ -2167,22 +2167,40 @@ export class AchievementsRepository {
     return data;
   }
 
-  private async ensureAchievementStateDoc(viewerId: string): Promise<FirestoreMap | null> {
-    const cached = await globalCache.get<FirestoreMap | null>(achievementsStateCacheKey(viewerId));
+  /** Default Firestore payload when `users/{id}/achievements/state` has never been written (lazy init on read). */
+  private buildSeededAchievementStateData(): FirestoreMap {
+    const xp0 = buildXpState(0);
+    return {
+      xp: {
+        current: xp0.current,
+        level: xp0.level,
+        levelProgress: xp0.levelProgress,
+        tier: xp0.tier
+      },
+      totalPosts: 0
+    };
+  }
+
+  private async ensureAchievementStateDoc(viewerId: string): Promise<FirestoreMap> {
+    const cached = await globalCache.get<FirestoreMap>(achievementsStateCacheKey(viewerId));
     if (cached !== undefined) return cached;
     const db = this.requireDb();
     const ref = db.collection("users").doc(viewerId).collection("achievements").doc("state");
     const snap = await ref.get();
     incrementDbOps("reads", snap.exists ? 1 : 0);
     if (!snap.exists) {
-      throw new Error("achievement_state_missing");
+      const seed = this.buildSeededAchievementStateData();
+      await ref.set({ ...seed, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      incrementDbOps("writes", 1);
+      void globalCache.set(achievementsStateCacheKey(viewerId), seed, 15_000).catch(() => undefined);
+      return seed;
     }
-    const data = snap.exists ? (((snap.data() as FirestoreMap | undefined) ?? {}) as FirestoreMap) : null;
+    const data = ((snap.data() as FirestoreMap | undefined) ?? {}) as FirestoreMap;
     void globalCache.set(achievementsStateCacheKey(viewerId), data, 15_000).catch(() => undefined);
     return data;
   }
 
-  private async loadBootstrapViewerDocs(viewerId: string): Promise<{ userDoc: FirestoreMap; stateDoc: FirestoreMap | null }> {
+  private async loadBootstrapViewerDocs(viewerId: string): Promise<{ userDoc: FirestoreMap; stateDoc: FirestoreMap }> {
     const [cachedUserDoc, cachedStateDoc] = await Promise.all([
       globalCache.get<FirestoreMap>(entityCacheKeys.userFirestoreDoc(viewerId)),
       globalCache.get<FirestoreMap | null>(achievementsStateCacheKey(viewerId))
@@ -2215,11 +2233,16 @@ export class AchievementsRepository {
     ) as [FirebaseFirestore.DocumentSnapshot, FirebaseFirestore.DocumentSnapshot];
     incrementDbOps("reads", userSnap.exists ? 1 : 0);
     incrementDbOps("reads", stateSnap.exists ? 1 : 0);
-    if (!stateSnap.exists) {
-      throw new Error("achievement_state_missing");
-    }
     const userDoc = (userSnap.data() as FirestoreMap | undefined) ?? {};
-    const stateDoc = ((stateSnap.data() as FirestoreMap | undefined) ?? {}) as FirestoreMap;
+    let stateDoc: FirestoreMap;
+    if (!stateSnap.exists) {
+      const seed = this.buildSeededAchievementStateData();
+      await stateRef.set({ ...seed, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      incrementDbOps("writes", 1);
+      stateDoc = seed;
+    } else {
+      stateDoc = ((stateSnap.data() as FirestoreMap | undefined) ?? {}) as FirestoreMap;
+    }
     void globalCache.set(entityCacheKeys.userFirestoreDoc(viewerId), userDoc, 20_000).catch(() => undefined);
     void globalCache.set(achievementsStateCacheKey(viewerId), stateDoc, 15_000).catch(() => undefined);
     return { userDoc, stateDoc };

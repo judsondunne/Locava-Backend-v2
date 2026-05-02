@@ -9,6 +9,7 @@ describe("search home v1 service", () => {
         users: [],
         sourceBreakdown: {},
         generatedAt: Date.now(),
+        sourceDiagnostics: [],
       })),
     };
     service.usersRepo = {

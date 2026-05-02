@@ -11,6 +11,23 @@ export const AuthLoginBodySchema = z.object({
 export const AuthLoginResponseSchema = z.object({
   routeName: z.literal("auth.login.post"),
   success: z.boolean(),
+  viewer: z
+    .object({
+      uid: z.string(),
+      canonicalUserId: z.string(),
+      email: z.string().nullable(),
+      handle: z.string().nullable(),
+      name: z.string().nullable(),
+      profilePic: z.string().nullable(),
+      profilePicSmallPath: z.string().nullable(),
+      profilePicMediumPath: z.string().nullable(),
+      profilePicLargePath: z.string().nullable(),
+      onboardingComplete: z.boolean().nullable(),
+      profileComplete: z.boolean().nullable(),
+      viewerReady: z.boolean(),
+      profileHydrationStatus: z.enum(["ready", "minimal_fallback"])
+    })
+    .optional(),
   user: z
     .object({
       uid: z.string(),

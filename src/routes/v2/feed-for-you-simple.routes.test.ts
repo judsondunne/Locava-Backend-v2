@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+  if (!process.env.FIRESTORE_TEST_MODE) {
+    process.env.FIRESTORE_TEST_MODE = "disabled";
+  }
+});
+
 import { FieldPath } from "firebase-admin/firestore";
 import { createApp } from "../../app/createApp.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { FOR_YOU_SIMPLE_SURFACE } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
+import {
+  drainFeedSeenAsyncWriterForTests,
+  resetFeedSeenAsyncWriterForTests
+} from "../../services/surfaces/feed-seen-async-writer.js";
 
 const isEmulator = process.env.FIRESTORE_TEST_MODE === "emulator";
 const headers = { "x-viewer-roles": "internal" };
@@ -406,7 +417,8 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
     expect(await verifyDocsExist(body.data.items.map((item) => item.postId))).toBe(true);
   });
 
-  it("handles seen-ledger write failures as non-fatal route responses", async () => {
+  it("queues durable seen writes off the response path (zero blocking writes)", async () => {
+    resetFeedSeenAsyncWriterForTests();
     await wipePostsCollection();
     await wipeFeedSeenCollection();
     await seedSimplePosts({ seedKey: `simple-page-6-${Date.now()}`, count: 12 });
@@ -429,16 +441,27 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
       });
       expect(response.statusCode).toBe(200);
       const body = response.json() as {
+        meta: { db: { writes: number; reads: number } };
         data: {
           items: Array<{ postId: string }>;
-          debug: { seenWriteAttempted: boolean; seenWriteSucceeded: boolean };
+          debug: {
+            seenWriteAttempted: boolean;
+            seenWriteSucceeded: boolean;
+            deferredWritesQueued: number;
+            responseDbWrites: number;
+          };
         };
       };
       expect(body.data.items.length).toBeGreaterThan(0);
+      expect(body.meta.db.writes).toBe(0);
+      expect(body.data.debug.responseDbWrites).toBe(0);
       expect(body.data.debug.seenWriteAttempted).toBe(true);
-      expect(body.data.debug.seenWriteSucceeded).toBe(false);
+      expect(body.data.debug.deferredWritesQueued).toBeGreaterThan(0);
+      expect(body.data.debug.seenWriteSucceeded).toBe(true);
+      await drainFeedSeenAsyncWriterForTests();
     } finally {
       mutableDb.batch = originalBatch;
+      resetFeedSeenAsyncWriterForTests();
     }
   });
 

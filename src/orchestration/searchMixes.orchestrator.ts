@@ -1,6 +1,6 @@
 import { mixCache } from "../cache/mixCache.js";
 import { SearchMixesServiceV2 } from "../services/mixes/v2/searchMixes.service.js";
-import { toSearchMixPreviewDTO } from "../dto/compact-surface-dto.js";
+import { firestoreAssetsToCompactSeeds, toSearchMixPreviewDTO } from "../dto/compact-surface-dto.js";
 
 function cleanString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -164,9 +164,19 @@ export class SearchMixesOrchestrator {
       mixType: payload.mixType,
       posts: payload.posts.map((row, index) =>
         (() => {
+          const postId = String(row.postId ?? row.id ?? "");
+          const rawAssets = Array.isArray((row as Record<string, unknown>).assets)
+            ? ((row as Record<string, unknown>).assets as unknown[])
+            : [];
+          const compactFromFirestore =
+            rawAssets.length > 0 ? firestoreAssetsToCompactSeeds(rawAssets, postId, 12) : [];
           const compactAsset = toCompactSeedAsset(row as Record<string, unknown>);
+          const primary = compactFromFirestore[0];
+          const mediaType = primary?.type ?? compactAsset.type;
+          const posterUrl =
+            cleanString(primary?.posterUrl) ?? compactAsset.posterUrl ?? "";
           return toSearchMixPreviewDTO({
-          postId: String(row.postId ?? row.id ?? ""),
+          postId,
           rankToken: `mix-${input.mixId}-${index + 1}`,
           author: {
             userId: String(row.userId ?? ""),
@@ -180,33 +190,40 @@ export class SearchMixesOrchestrator {
           locationSummary: typeof row.address === "string" ? row.address : null,
           address: typeof row.address === "string" ? row.address : null,
           media: {
-            type: compactAsset.type,
-            posterUrl: compactAsset.posterUrl,
-            aspectRatio: cleanNumber(compactAsset.asset?.aspectRatio) ?? 1,
-            startupHint: compactAsset.type === "video" ? "poster_then_preview" : "poster_only",
+            type: mediaType,
+            posterUrl,
+            aspectRatio:
+              cleanNumber(primary?.aspectRatio) ??
+              cleanNumber(compactAsset.asset?.aspectRatio) ??
+              1,
+            startupHint: mediaType === "video" ? "poster_then_preview" : "poster_only",
           },
           geo: {
             lat: typeof row.lat === "number" ? row.lat : null,
             long: typeof row.lng === "number" ? row.lng : typeof row.long === "number" ? row.long : null,
           },
-          assets: compactAsset.asset
-            ? [
-                {
-                  id: cleanString(compactAsset.asset.id) ?? `${String(row.postId ?? row.id ?? "")}-asset-1`,
-                  type: compactAsset.type,
-                  previewUrl: compactAsset.previewUrl,
-                  posterUrl: compactAsset.posterUrl || null,
-                  originalUrl: compactAsset.originalUrl,
-                  streamUrl: compactAsset.streamUrl,
-                  mp4Url: compactAsset.mp4Url,
-                  blurhash: cleanString(compactAsset.asset.blurhash),
-                  width: cleanNumber(compactAsset.asset.width),
-                  height: cleanNumber(compactAsset.asset.height),
-                  aspectRatio: cleanNumber(compactAsset.asset.aspectRatio),
-                  orientation: cleanString(compactAsset.asset.orientation),
-                },
-              ]
-            : [],
+          assets:
+            compactFromFirestore.length > 0
+              ? compactFromFirestore
+              : compactAsset.asset
+                ? [
+                    {
+                      id: cleanString(compactAsset.asset.id) ?? `${postId}-asset-1`,
+                      type: compactAsset.type,
+                      previewUrl: compactAsset.previewUrl,
+                      posterUrl: compactAsset.posterUrl || null,
+                      originalUrl: compactAsset.originalUrl,
+                      streamUrl: compactAsset.streamUrl,
+                      mp4Url: compactAsset.mp4Url,
+                      blurhash: cleanString(compactAsset.asset.blurhash),
+                      width: cleanNumber(compactAsset.asset.width),
+                      height: cleanNumber(compactAsset.asset.height),
+                      aspectRatio: cleanNumber(compactAsset.asset.aspectRatio),
+                      orientation: cleanString(compactAsset.asset.orientation),
+                    },
+                  ]
+                : [],
+          ...(compactFromFirestore.length > 0 ? { compactAssetLimit: 12 } : {}),
           createdAtMs: typeof row.time === "number" ? row.time : Date.now(),
           updatedAtMs: typeof row.updatedAtMs === "number" ? row.updatedAtMs : typeof row.time === "number" ? row.time : Date.now(),
           social: {
@@ -214,7 +231,10 @@ export class SearchMixesOrchestrator {
             commentCount: typeof row.commentCount === "number" ? row.commentCount : 0,
           },
           viewer: { liked: false, saved: false },
-          firstAssetUrl: compactAsset.originalUrl ?? compactAsset.previewUrl ?? compactAsset.posterUrl ?? null,
+          firstAssetUrl:
+            cleanString(primary?.originalUrl) ??
+            cleanString(primary?.previewUrl) ??
+            (compactAsset.originalUrl ?? compactAsset.previewUrl ?? compactAsset.posterUrl ?? null),
         });
         })(),
       ),

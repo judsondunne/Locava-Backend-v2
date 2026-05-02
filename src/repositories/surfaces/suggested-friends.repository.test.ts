@@ -110,6 +110,8 @@ describe("suggested friends branch candidate extraction", () => {
 
     expect(result.users.map((user) => user.userId)).toEqual(["user-a", "user-b", "user-c"]);
     expect(result.sourceBreakdown.all_users).toBe(3);
+    const groupsDiag = result.sourceDiagnostics.find((row) => row.sourceName === "groups");
+    expect(groupsDiag?.errorKind).toBe("FAILED_PRECONDITION");
   });
 });
 

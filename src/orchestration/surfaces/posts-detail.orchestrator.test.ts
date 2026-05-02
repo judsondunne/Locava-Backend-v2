@@ -239,6 +239,67 @@ describe("posts detail orchestrator missing author hardening", () => {
     ).toBe(true);
   });
 
+  it("playback batch upgrades incomplete post_card_cache via source-of-truth when media is missing", async () => {
+    const loadPostDetail = vi.fn(async (postId: string) => ({
+      postId,
+      userId: "u1",
+      caption: "caption",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      mediaType: "video" as const,
+      thumbUrl: "https://cdn/from-truth.jpg",
+      assetsReady: true,
+      assets: [
+        {
+          id: "a1",
+          type: "video" as const,
+          poster: "https://cdn/from-truth.jpg",
+          thumbnail: "https://cdn/from-truth.jpg",
+          variants: { main720Avc: "https://cdn/from-truth.mp4" },
+        },
+      ],
+    }));
+    const loadPostCardSummary = vi.fn(async (_viewerId: string, postId: string) => ({
+      postId,
+      rankToken: "rank",
+      author: { userId: "u1", handle: "u1", name: null, pic: null },
+      captionPreview: "c",
+      media: { type: "video" as const, posterUrl: "", aspectRatio: 9 / 16, startupHint: "poster_then_preview" as const },
+      social: { likeCount: 0, commentCount: 0 },
+      viewer: { liked: false, saved: false },
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    }));
+    const service = buildService({
+      loadPostCardSummaryBatchLightweight: vi.fn(async () => [
+        {
+          postId: "p1",
+          rankToken: "rank-1",
+          author: { userId: "u1", handle: "u1", name: null, pic: null },
+          captionPreview: "caption 1",
+          media: { type: "video" as const, posterUrl: "", aspectRatio: 9 / 16, startupHint: "poster_then_preview" as const },
+          social: { likeCount: 1, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+        },
+      ]),
+      loadPostDetail,
+      loadPostCardSummary,
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["p1"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+    });
+    expect(loadPostDetail).toHaveBeenCalledTimes(1);
+    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
+    expect(post.posterPresent === true || Boolean(post.thumbUrl)).toBe(true);
+    expect(out.itemStatuses?.[0]?.selectedSource).toBe("post_card_cache_upgraded");
+  });
+
   it("playback cold fallback can return partial cached shells without blocking on misses", async () => {
     const service = buildService({
       loadPostCardSummaryBatchLightweight: vi.fn(async () => [
@@ -348,10 +409,10 @@ describe("posts detail orchestrator missing author hardening", () => {
             {
               id: "asset-1",
               type: "video",
-              previewUrl: "https://cdn/preview.mp4",
+              previewUrl: null,
               posterUrl: "https://cdn/poster.jpg",
               originalUrl: "https://cdn/original.mp4",
-              mp4Url: "https://cdn/main720.mp4",
+              mp4Url: null,
               streamUrl: null,
               blurhash: null,
               width: null,
@@ -360,6 +421,7 @@ describe("posts detail orchestrator missing author hardening", () => {
               orientation: null,
             },
           ],
+          fallbackVideoUrl: "https://cdn/original.mp4",
           social: { likeCount: 0, commentCount: 0 },
           viewer: { liked: false, saved: false },
           createdAtMs: 1,
@@ -375,6 +437,7 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(out.degraded).toBe(true);
     expect(out.fallbacks).toContain("fallback_cached_projection");
     expect(out.firstRender.post.mediaType).toBe("video");
+    expect(String((out.firstRender.post as { playbackUrl?: string }).playbackUrl ?? "")).toContain("https://cdn/original.mp4");
     expect(
       Boolean(out.firstRender.post.playbackUrl) || Boolean(out.firstRender.post.fallbackVideoUrl),
     ).toBe(true);

@@ -52,9 +52,27 @@ const rows = [
   },
 ];
 
+function poolMeta(overrides: Record<string, unknown> = {}) {
+  return {
+    readCount: 4,
+    source: "test_pool",
+    poolLimit: 1000,
+    poolBuiltAt: "2026-01-01T00:00:00.000Z",
+    poolBuildLatencyMs: 0,
+    poolBuildReadCount: 4,
+    poolState: "warm",
+    servedStale: false,
+    servedEmptyWarming: false,
+    ...overrides,
+  };
+}
+
 const repo = {
   async listFromPool() {
-    return { posts: rows as any[], readCount: 4, source: "test_pool" };
+    return { posts: rows as any[], ...poolMeta() };
+  },
+  async listFromPoolWithWarmWait() {
+    return this.listFromPool();
   },
 };
 
@@ -83,6 +101,59 @@ describe("mixes service", () => {
     });
     expect(out.posts.length).toBeGreaterThan(0);
     expect(out.posts.every((p: any) => p.postId !== "p2")).toBe(true);
+    // 4 km radius around Burlington includes p4/p1 but not Stowe (p3).
+    expect(out.posts.map((p: any) => p.postId)).toEqual(["p4", "p1"]);
+  });
+
+  it("clamps radius beyond server max while staying 200-safe for clients", async () => {
+    const out = await service.preview({
+      mixKey: "nearby",
+      filter: { activity: "hiking", lat: 44.476, lng: -73.212, radiusKm: 650 },
+      limit: 3,
+      viewerId: null,
+    });
+    expect(out.ok).toBe(true);
+    expect(out.filters.radiusKm).toBe(500);
+  });
+
+  it("preview skips leading candidates with no usable cover when later rows are valid", async () => {
+    const beachRows = [
+      {
+        postId: "no-cover",
+        time: 9000,
+        userId: "u0",
+        userHandle: "a",
+        activities: ["beach"],
+        thumbUrl: "",
+        displayPhotoLink: "",
+        assets: [],
+      },
+      {
+        postId: "has-cover",
+        time: 8000,
+        userId: "u9",
+        userHandle: "b",
+        activities: ["beach"],
+        thumbUrl: "https://cdn/beach.jpg",
+      },
+    ];
+    const beachRepo = {
+      async listFromPool() {
+        return { posts: beachRows as any[], ...poolMeta({ readCount: 2 }) };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
+      },
+    };
+    const beachService = new MixesService(beachRepo as any);
+    const out = await beachService.preview({
+      mixKey: "beach",
+      filter: { activity: "beach" },
+      limit: 1,
+      viewerId: null,
+    });
+    expect(out.posts.map((p: any) => p.postId)).toEqual(["has-cover"]);
+    expect(out.diagnostics.droppedForMissingMediaCount).toBe(1);
   });
 
   it("paginates stably with cursor and no duplicates", async () => {
@@ -148,7 +219,13 @@ describe("mixes service", () => {
           poolBuiltAt: "2026-01-01T00:00:00.000Z",
           poolBuildLatencyMs: 10,
           poolBuildReadCount: 4,
+          poolState: "warm",
+          servedStale: false,
+          servedEmptyWarming: false,
         };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
       },
     };
     const unstableService = new MixesService(unstableRepo as any);
@@ -195,7 +272,13 @@ describe("mixes service", () => {
           poolBuiltAt: "2026-01-01T00:00:00.000Z",
           poolBuildLatencyMs: 10,
           poolBuildReadCount: 4,
+          poolState: "warm",
+          servedStale: false,
+          servedEmptyWarming: false,
         };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
       },
     };
     const pollutedService = new MixesService(pollutedRepo as any);
@@ -245,7 +328,17 @@ describe("mixes service", () => {
           ] as any[],
           readCount: 2,
           source: "test_pool",
+          poolState: "warm",
+          servedStale: false,
+          servedEmptyWarming: false,
+          poolLimit: 1000,
+          poolBuiltAt: "2026-01-01T00:00:00.000Z",
+          poolBuildLatencyMs: 0,
+          poolBuildReadCount: 2,
         };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
       },
     };
     const mediaService = new MixesService(mediaRepo as any);

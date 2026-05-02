@@ -36,6 +36,24 @@ export class AuthSessionOrchestrator {
 
     if (cached) {
       recordCacheHit();
+      console.log(
+        JSON.stringify({
+          event: "AUTH_SESSION_VIEWER_HYDRATION",
+          ts: Date.now(),
+          viewerId: viewer.viewerId,
+          canonicalUserId: cached.firstRender.viewer.canonicalUserId ?? cached.firstRender.viewer.uid ?? viewer.viewerId,
+          viewerSummaryPresent: Boolean(cached.deferred.viewerSummary),
+          viewerReady: cached.firstRender.account.viewerReady,
+          profileHydrationStatus: cached.firstRender.account.profileHydrationStatus,
+          profilePicPresent: Boolean(cached.firstRender.viewer.photoUrl),
+          handlePresent: Boolean(cached.firstRender.viewer.handle),
+          emailPresent: Boolean(cached.firstRender.viewer.email),
+          source: "session_cache",
+          cacheHit: true,
+          cacheMiss: false,
+          minimalViewerPresent: Boolean(cached.firstRender.viewer.id),
+        })
+      );
       return cached;
     }
     recordCacheMiss();
@@ -78,13 +96,23 @@ export class AuthSessionOrchestrator {
       }
     }
 
+    const client = viewer.clientProfile;
     const response: AuthSessionResponse = {
       routeName: "auth.session.get",
       firstRender: {
         authenticated: base.authenticated,
         viewer: {
           id: base.viewerId,
-          role: base.role
+          uid: viewerSummary?.uid ?? base.viewerId,
+          canonicalUserId: viewerSummary?.canonicalUserId ?? base.viewerId,
+          role: base.role,
+          email: viewerSummary?.email ?? client?.email ?? null,
+          handle: viewerSummary?.handle || client?.handle || null,
+          name: viewerSummary?.name ?? client?.name ?? null,
+          photoUrl: viewerSummary?.profilePic ?? client?.photoUrl ?? null,
+          profilePicSmallPath: viewerSummary?.profilePicSmallPath ?? null,
+          profilePicMediumPath: viewerSummary?.profilePicMediumPath ?? null,
+          profilePicLargePath: viewerSummary?.profilePicLargePath ?? null
         },
         session: {
           state: base.authenticated ? "active" : "anonymous",
@@ -95,10 +123,14 @@ export class AuthSessionOrchestrator {
           status:
             !base.authenticated
               ? null
-              : viewerSummary?.onboardingComplete === false
+              : viewerSummary?.viewerReady !== true
+                ? null
+                : viewerSummary?.onboardingComplete === false
                 ? "existing_incomplete"
                 : "existing_complete",
-          onboardingComplete: viewerSummary?.onboardingComplete ?? (base.authenticated ? null : true)
+          onboardingComplete: viewerSummary?.onboardingComplete ?? (base.authenticated ? null : true),
+          viewerReady: viewerSummary?.viewerReady ?? !base.authenticated,
+          profileHydrationStatus: viewerSummary?.profileHydrationStatus ?? (base.authenticated ? "minimal_fallback" : "ready")
         }
       },
       deferred: {
@@ -107,21 +139,48 @@ export class AuthSessionOrchestrator {
       background: {
         cacheWarmScheduled: true
       },
-      degraded: fallbacks.length > 0,
+      degraded: fallbacks.some((f) => f !== "viewer_summary_timeout"),
       fallbacks
     };
     console.log(
       JSON.stringify({
-        event: "AUTH_SESSION_RESPONSE",
+        event: "AUTH_SESSION_VIEWER_HYDRATION",
         ts: Date.now(),
         viewerId: viewer.viewerId,
+        canonicalUserId: response.firstRender.viewer.canonicalUserId ?? null,
         degraded: response.degraded,
         fallbacks: response.fallbacks,
-        viewerSummary: response.deferred.viewerSummary,
+        viewerSummaryPresent: Boolean(response.deferred.viewerSummary),
+        viewerReady: response.firstRender.account.viewerReady,
+        profileHydrationStatus: response.firstRender.account.profileHydrationStatus,
+        profilePicPresent: Boolean(response.firstRender.viewer.photoUrl),
+        handlePresent: Boolean(response.firstRender.viewer.handle),
+        emailPresent: Boolean(response.firstRender.viewer.email),
+        source: "session_live",
+        cacheHit: false,
+        cacheMiss: true,
+        minimalViewerPresent: Boolean(response.firstRender.viewer.id),
       }),
     );
-
-    await globalCache.set(cacheKey, response, 5000);
+    const canCache = Boolean(response.deferred.viewerSummary?.viewerReady);
+    if (canCache) {
+      await globalCache.set(cacheKey, response, 5000);
+    } else {
+      console.log(
+        JSON.stringify({
+          event: "AUTH_SESSION_MINIMAL_FALLBACK_NOT_CACHED",
+          ts: Date.now(),
+          viewerId: viewer.viewerId,
+          canonicalUserId: response.firstRender.viewer.canonicalUserId ?? null,
+          viewerSummaryPresent: Boolean(response.deferred.viewerSummary),
+          viewerReady: response.firstRender.account.viewerReady,
+          profileHydrationStatus: response.firstRender.account.profileHydrationStatus,
+          source: "session_live",
+          cacheHit: false,
+          cacheMiss: true
+        })
+      );
+    }
     if (!viewerSummary) {
       this.scheduleDetached("viewer-summary", 1_000, async () => {
         await this.service.loadViewerSummary(viewer.viewerId, 0);

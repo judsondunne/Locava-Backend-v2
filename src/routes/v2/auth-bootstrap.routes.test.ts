@@ -17,6 +17,27 @@ describe("v2 auth/session/bootstrap routes", () => {
     expect(res.json().ok).toBe(true);
   });
 
+  it("includes minimal viewer identity hints from optional headers without waiting on viewerSummary", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/auth/session",
+      headers: {
+        "x-viewer-id": "user-hdr",
+        "x-viewer-roles": "internal",
+        "x-viewer-email": "a@example.com",
+        "x-viewer-handle": "ahandle",
+        "x-viewer-name": "A User",
+        "x-viewer-photo-url": "https://cdn.example.com/p.jpg"
+      }
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.data.firstRender.viewer.email).toBe("a@example.com");
+    expect(body.data.firstRender.viewer.handle).toBe("ahandle");
+    expect(body.data.firstRender.viewer.name).toBe("A User");
+    expect(body.data.firstRender.viewer.photoUrl).toBe("https://cdn.example.com/p.jpg");
+  });
+
   it("returns session payload for internal viewer", async () => {
     const res = await app.inject({
       method: "GET",
@@ -46,7 +67,7 @@ describe("v2 auth/session/bootstrap routes", () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json();
-    expect(body.data.degraded).toBe(true);
+    expect(body.data.degraded).toBe(false);
     expect(body.data.fallbacks).toContain("viewer_summary_timeout");
     const summaryHandle = String(body.data.deferred?.viewerSummary?.handle ?? "");
     expect(summaryHandle.startsWith("user_")).toBe(false);

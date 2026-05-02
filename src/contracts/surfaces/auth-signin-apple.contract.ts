@@ -23,6 +23,22 @@ const AccountStatusSchema = z.enum([
   "new_account_required"
 ]);
 
+const AuthViewerSchema = z.object({
+  uid: z.string(),
+  canonicalUserId: z.string(),
+  email: z.string().nullable(),
+  handle: z.string().nullable(),
+  name: z.string().nullable(),
+  profilePic: z.string().nullable(),
+  profilePicSmallPath: z.string().nullable(),
+  profilePicMediumPath: z.string().nullable(),
+  profilePicLargePath: z.string().nullable(),
+  onboardingComplete: z.boolean().nullable(),
+  profileComplete: z.boolean().nullable(),
+  viewerReady: z.boolean(),
+  profileHydrationStatus: z.enum(["ready", "minimal_fallback"])
+});
+
 export const AuthSigninAppleResponseSchema = z.object({
   routeName: z.literal("auth.signin_apple.post"),
   success: z.boolean(),
@@ -37,6 +53,7 @@ export const AuthSigninAppleResponseSchema = z.object({
       displayName: z.string().optional()
     })
     .optional(),
+  viewer: AuthViewerSchema.optional(),
   token: z.string().optional(),
   oauthInfo: AuthAppleOauthInfoSchema.optional(),
   error: z.string().optional()

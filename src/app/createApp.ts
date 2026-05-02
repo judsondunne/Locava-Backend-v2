@@ -18,7 +18,7 @@ import {
   enterLowPriorityStartupGateIfNeeded,
   releaseLowPriorityStartupGate
 } from "../runtime/low-priority-request-gate.js";
-import { logStartupTimeline, startupGraceMs } from "../runtime/server-boot.js";
+import { logStartupTimeline } from "../runtime/server-boot.js";
 import { attachErrorBufferToLogger } from "../observability/error-ring-buffer.js";
 import { cacheMetricsCollector } from "../observability/cache-metrics.collector.js";
 import { registerAdminRoutes } from "../routes/admin.routes.js";
@@ -138,7 +138,11 @@ import {
   primeFirestoreSourceClient
 } from "../repositories/source-of-truth/firestore-client.js";
 import { isLocalDevIdentityModeEnabled, resolveLocalDebugViewerId } from "../lib/local-dev-identity.js";
-import { searchPlacesIndexService } from "../services/surfaces/search-places-index.service.js";
+import { registerNativeProductShimRoutes } from "../routes/compat/native-product-shim.routes.js";
+import {
+  markP1P2InteractiveRequest,
+  markProcessBoot
+} from "../runtime/warmer-traffic-gate.js";
 import { globalCache } from "../cache/global-cache.js";
 import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
@@ -184,13 +188,9 @@ try {
 
 export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   const env = { ...loadEnv(), ...overrides };
+  markProcessBoot();
   const mapMarkersAdapter = new MapMarkersFirestoreAdapter();
   const shouldPrimeFirestoreOnReady = process.env.VITEST !== "true";
-  if (env.NODE_ENV !== "test") {
-    const deferMs = startupGraceMs() + 4_000;
-    searchPlacesIndexService.scheduleDeferredIdleLoad(deferMs);
-    logStartupTimeline("search_places_index_deferred", { deferMs });
-  }
 
   const app = Fastify({
     logger: {
@@ -327,6 +327,10 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     releaseLowPriorityStartupGate(request);
     const latencyMs = Number(process.hrtime.bigint() - request.requestStartNs) / 1_000_000;
     const ctx = getRequestContext();
+    const lane = ctx?.routePolicy?.lane;
+    if (lane === "P1_NEXT_PLAYBACK" || lane === "P2_CURRENT_SCREEN") {
+      markP1P2InteractiveRequest();
+    }
     const budgetViolations: string[] = [];
     const policy = ctx?.routePolicy;
     if (policy) {
@@ -547,6 +551,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2GroupsRoutes);
   app.register(registerV2InvitesRoutes);
   app.register(registerLaunchCompatRoutes);
+  app.register(registerNativeProductShimRoutes);
   if (env.ENABLE_LEGACY_COMPAT_ROUTES) {
     app.register(async (instance) => {
       await registerLegacyProductUploadRoutes(instance, env);
@@ -604,18 +609,27 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.addHook("onReady", async () => {
     const db = getFirestoreSourceClient();
     const identity = getFirestoreAdminIdentity();
-    app.log.info(
-      {
-        event: "firestore_admin_identity",
-        firestoreEnabled: db !== null,
-        projectId: identity.projectId,
-        credentialType: identity.credentialType,
-        serviceAccountEmail: identity.serviceAccountEmail,
-        credentialsLoaded: identity.credentialsLoaded,
-        credentialPath: identity.credentialPath
-      },
-      "firestore admin runtime identity"
-    );
+    const safeIdentity =
+      env.NODE_ENV === "production"
+        ? {
+            event: "firestore_admin_identity" as const,
+            firestoreEnabled: db !== null,
+            projectId: identity.projectId,
+            credentialType: identity.credentialType,
+            credentialsLoaded: identity.credentialsLoaded,
+            hasServiceAccountEmail: Boolean(identity.serviceAccountEmail),
+            credentialPathPresent: Boolean(identity.credentialPath)
+          }
+        : {
+            event: "firestore_admin_identity" as const,
+            firestoreEnabled: db !== null,
+            projectId: identity.projectId,
+            credentialType: identity.credentialType,
+            serviceAccountEmail: identity.serviceAccountEmail,
+            credentialsLoaded: identity.credentialsLoaded,
+            credentialPath: identity.credentialPath
+          };
+    app.log.info(safeIdentity, "firestore admin runtime identity");
     app.log.info(
       {
         event: "local_dev_identity_mode",

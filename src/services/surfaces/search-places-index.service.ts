@@ -126,6 +126,8 @@ class SearchPlacesIndexService {
   private loaded = false;
   private loading = false;
   private loadScheduled = false;
+  private lastLoadTotalMs = 0;
+  private lastIndexedWorkMs = 0;
   private prefixMap = new Map<string, SearchIndexedPlace[]>();
   private exactMap = new Map<string, SearchIndexedPlace>();
   private readonly seedEntries: Array<{ searchKey: string; place: SearchIndexedPlace }> = [];
@@ -144,6 +146,26 @@ class SearchPlacesIndexService {
 
   getLoadError(): string | null {
     return this.loadError;
+  }
+
+  getLoaderDiagnostics(): {
+    loaded: boolean;
+    loading: boolean;
+    places: number;
+    prefixes: number;
+    lastLoadTotalMs: number;
+    lastIndexedWorkMs: number;
+    loadError: string | null;
+  } {
+    return {
+      loaded: this.loaded,
+      loading: this.loading,
+      places: this.exactMap.size,
+      prefixes: this.prefixMap.size,
+      lastLoadTotalMs: this.lastLoadTotalMs,
+      lastIndexedWorkMs: this.lastIndexedWorkMs,
+      loadError: this.loadError,
+    };
   }
 
   scheduleLoad(delayMs = 2_500): void {
@@ -228,15 +250,28 @@ class SearchPlacesIndexService {
           await new Promise<void>((resolve) => setImmediate(resolve));
         }
       }
+      let prefixIdx = 0;
       for (const [key, bucket] of this.prefixMap.entries()) {
         bucket.sort((a, b) => b.population - a.population || a.text.localeCompare(b.text));
         this.prefixMap.set(key, bucket);
+        prefixIdx += 1;
+        if (prefixIdx % 500 === 0) {
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
       }
       this.loaded = true;
       const totalMs = Date.now() - loopStart;
-      console.log(
-        `[SEARCH_PLACES_INDEX] loaded=true places=${this.exactMap.size} prefixes=${this.prefixMap.size} source=${dataPath} totalMs=${totalMs} indexedWorkMs=${blockedEventLoopMs}`
-      );
+      this.lastLoadTotalMs = totalMs;
+      this.lastIndexedWorkMs = blockedEventLoopMs;
+      if (process.env.NODE_ENV === "production") {
+        console.log(
+          `[SEARCH_PLACES_INDEX] loaded=true places=${this.exactMap.size} prefixes=${this.prefixMap.size} totalMs=${totalMs} indexedWorkMs=${blockedEventLoopMs}`
+        );
+      } else {
+        console.log(
+          `[SEARCH_PLACES_INDEX] loaded=true places=${this.exactMap.size} prefixes=${this.prefixMap.size} source=${dataPath} totalMs=${totalMs} indexedWorkMs=${blockedEventLoopMs}`
+        );
+      }
     } catch (error) {
       this.loadError = error instanceof Error ? error.message : String(error);
       console.warn(`[SEARCH_PLACES_INDEX] load_failed error=${this.loadError}`);
@@ -369,6 +404,30 @@ class SearchPlacesIndexService {
     }
     this.prefixMap.set(bucketKey, bucket);
   }
+
+  /**
+   * Vitest: the module singleton may already have loaded production GeoNames data from another suite.
+   */
+  resetForTests(): void {
+    if (process.env.VITEST !== "true" && process.env.NODE_ENV !== "test") return;
+    this.loaded = false;
+    this.loading = false;
+    this.loadScheduled = false;
+    this.lastLoadTotalMs = 0;
+    this.lastIndexedWorkMs = 0;
+    this.loadError = null;
+    this.prefixMap.clear();
+    this.exactMap.clear();
+    this.allPlaces.length = 0;
+    this.seedEntries.length = 0;
+    this.seedExactMap.clear();
+    this.seedPlaces.length = 0;
+    this.initializeSeeds();
+  }
 }
 
 export const searchPlacesIndexService = new SearchPlacesIndexService();
+
+export function resetSearchPlacesIndexForTests(): void {
+  searchPlacesIndexService.resetForTests();
+}

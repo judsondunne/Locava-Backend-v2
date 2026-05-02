@@ -181,15 +181,31 @@ export function buildPostMediaReadiness(
   const firstVideo = assets.find((asset) => pickString(asset?.type, asset?.mediaType) === "video") ?? null;
   const hasVideo = firstVideo != null;
   const posterUrl = pickString(firstVideo?.poster, firstVideo?.thumbnail, asRecord(firstVideo?.variants)?.poster);
-  const playbackUrl = pickProcessedPlaybackUrl(firstVideo);
-  const fallbackVideoUrl = pickFallbackVideoUrl(firstVideo, playbackUrl);
+  const mediaRoot = asRecord(post.media);
+  const postLevelPlayback = pickString(post.playbackUrl, post.videoUrl, mediaRoot?.playbackUrl);
+  const postLevelFallback = pickString(post.fallbackVideoUrl);
+  const processedPlayback =
+    pickProcessedPlaybackUrl(firstVideo) ??
+    (postLevelPlayback && isRemoteHttpUrl(postLevelPlayback) ? postLevelPlayback : undefined);
   const assetsReady = pickBoolean(post.assetsReady) === true;
   const instantPlaybackReady = pickBoolean(post.instantPlaybackReady, firstVideo?.instantPlaybackReady) === true;
   const videoProcessingStatus = pickString(post.videoProcessingStatus);
+  let fallbackVideoUrl = pickFallbackVideoUrl(firstVideo, processedPlayback) ?? postLevelFallback;
+  const allowFallbackAsCanonicalPlayback =
+    assetsReady ||
+    instantPlaybackReady ||
+    videoProcessingStatus === "completed" ||
+    videoProcessingStatus == null ||
+    videoProcessingStatus === "";
+  let effectivePlayback = processedPlayback;
+  if (!effectivePlayback && allowFallbackAsCanonicalPlayback && fallbackVideoUrl && isRemoteHttpUrl(fallbackVideoUrl)) {
+    effectivePlayback = fallbackVideoUrl;
+  }
+  const playbackUrl = effectivePlayback;
   const playbackReady =
     hasVideo === false
       ? false
-      : Boolean(playbackUrl) &&
+      : Boolean(processedPlayback) &&
         (assetsReady || instantPlaybackReady || videoProcessingStatus === "completed");
   let mediaStatus: MediaStatus = "ready";
   if (hasVideo) {
@@ -210,7 +226,7 @@ export function buildPostMediaReadiness(
     posterPresent: Boolean(posterUrl),
     ...(posterUrl ? { posterUrl } : {}),
     playbackReady,
-    playbackUrlPresent: Boolean(playbackUrl),
+    playbackUrlPresent: Boolean(processedPlayback),
     ...(playbackUrl ? { playbackUrl } : {}),
     ...(fallbackVideoUrl ? { fallbackVideoUrl } : {}),
     instantPlaybackReady,

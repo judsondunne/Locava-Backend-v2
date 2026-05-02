@@ -2,6 +2,10 @@ import { randomBytes } from "node:crypto";
 import { toFeedCardDTO, type FeedCardDTO } from "../../dto/compact-surface-dto.js";
 import type { FeedForYouSimpleRepository, SimpleFeedCandidate, SimpleFeedSortMode } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { FOR_YOU_SIMPLE_SURFACE } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
+import {
+  enqueueFeedSeenServedMarks,
+  getFeedSeenAsyncWriterStats
+} from "./feed-seen-async-writer.js";
 
 const CURSOR_PREFIX = "fys:v1:";
 const MAX_SEEN_IDS = 50;
@@ -53,6 +57,11 @@ export class FeedForYouSimpleService {
       cursorSeenFilteredCount: number;
       seenWriteAttempted: boolean;
       seenWriteSucceeded: boolean;
+      blockingResponseWrites: number;
+      deferredWritesQueued: number;
+      deferredWriterFlushAttempts: number;
+      deferredWriterSucceededFlushes: number;
+      deferredWriterFailedFlushes: number;
       boundedAttempts: number;
       exhaustedUnseenCandidates: boolean;
       recycledSeenPosts: false;
@@ -98,6 +107,7 @@ export class FeedForYouSimpleService {
     const items: SimpleFeedCandidate[] = [];
     let seenWriteAttempted = false;
     let seenWriteSucceeded = false;
+    let deferredWritesQueued = 0;
 
     const reelPhase = await this.fillFromPhase({
       reelOnly: true,
@@ -150,17 +160,15 @@ export class FeedForYouSimpleService {
     const returnedIds = items.map((candidate) => candidate.postId);
     if (durableViewerId && returnedIds.length > 0) {
       seenWriteAttempted = true;
-      try {
-        await this.repository.markPostsServedForViewer({
-          viewerId: durableViewerId,
-          postIds: returnedIds,
-          surface: FOR_YOU_SIMPLE_SURFACE
-        });
-        seenWriteSucceeded = true;
-      } catch {
-        seenWriteSucceeded = false;
-      }
+      const { queued } = enqueueFeedSeenServedMarks({
+        viewerId: durableViewerId,
+        postIds: returnedIds,
+        surface: FOR_YOU_SIMPLE_SURFACE
+      });
+      deferredWritesQueued = queued;
+      seenWriteSucceeded = queued > 0;
     }
+    const writerStats = getFeedSeenAsyncWriterStats();
 
     const nextCursor =
       items.length === 0 && reelPhase.exhausted && fallbackPhase.exhausted
@@ -193,6 +201,11 @@ export class FeedForYouSimpleService {
         cursorSeenFilteredCount,
         seenWriteAttempted,
         seenWriteSucceeded,
+        blockingResponseWrites: 0,
+        deferredWritesQueued,
+        deferredWriterFlushAttempts: writerStats.flushAttempts,
+        deferredWriterSucceededFlushes: writerStats.succeeded,
+        deferredWriterFailedFlushes: writerStats.failed,
         boundedAttempts,
         exhaustedUnseenCandidates: items.length < limit,
         recycledSeenPosts: false,

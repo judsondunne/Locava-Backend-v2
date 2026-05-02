@@ -11,7 +11,16 @@ export const AuthSessionResponseSchema = z.object({
     authenticated: z.boolean(),
     viewer: z.object({
       id: z.string(),
-      role: z.string()
+      uid: z.string().optional(),
+        canonicalUserId: z.string().optional(),
+      role: z.string(),
+      email: z.string().nullable().optional(),
+      handle: z.string().nullable().optional(),
+      name: z.string().nullable().optional(),
+        photoUrl: z.string().nullable().optional(),
+        profilePicSmallPath: z.string().nullable().optional(),
+        profilePicMediumPath: z.string().nullable().optional(),
+        profilePicLargePath: z.string().nullable().optional()
     }),
     session: z.object({
       state: z.enum(["active", "anonymous"]),
@@ -20,13 +29,25 @@ export const AuthSessionResponseSchema = z.object({
     }),
     account: z.object({
       status: z.enum(["existing_complete", "existing_incomplete", "new_account_required"]).nullable(),
-      onboardingComplete: z.boolean().nullable()
+      onboardingComplete: z.boolean().nullable(),
+      viewerReady: z.boolean(),
+      profileHydrationStatus: z.enum(["ready", "minimal_fallback"])
     })
   }),
   deferred: z.object({
     viewerSummary: z
       .object({
+        uid: z.string(),
+        canonicalUserId: z.string(),
+        viewerReady: z.boolean(),
+        profileHydrationStatus: z.enum(["ready", "minimal_fallback"]),
+        email: z.string().nullable(),
         handle: z.string(),
+        name: z.string().nullable(),
+        profilePic: z.string().nullable(),
+        profilePicSmallPath: z.string().nullable(),
+        profilePicMediumPath: z.string().nullable(),
+        profilePicLargePath: z.string().nullable(),
         badge: z.string(),
         onboardingComplete: z.boolean().nullable().optional()
       })

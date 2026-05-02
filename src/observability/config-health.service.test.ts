@@ -42,6 +42,7 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     MAP_MARKERS_MAX_DOCS: 5000,
     LEGACY_MONOLITH_PROXY_BASE_URL: undefined,
     ALLOW_PUBLIC_POSTING_TEST: false,
+    CONTACT_SYNC_VERBOSE_DIAGNOSTICS: false,
     LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN: undefined,
     ENABLE_LEGACY_COMPAT_ROUTES: false,
     VIDEO_PROCESSOR_FUNCTION_URL: undefined,

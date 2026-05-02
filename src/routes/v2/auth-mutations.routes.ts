@@ -33,6 +33,7 @@ import { canUseV2Surface } from "../../flags/cutover.js";
 import { getFirebaseAuthClient } from "../../repositories/source-of-truth/firebase-auth.client.js";
 import {
   AuthMutationsService,
+  type CanonicalViewerHydration,
   type OauthAccountStatus
 } from "../../services/mutations/auth-mutations.service.js";
 
@@ -242,6 +243,58 @@ async function createCustomToken(uid: string): Promise<string> {
   return auth.createCustomToken(uid);
 }
 
+function logAuthIdCanonicalization(
+  log: FastifyInstance["log"],
+  input: {
+    routeName: string;
+    viewerId: string;
+    canonicalUserId: string;
+    providerUid?: string | null;
+    source: string;
+    userDocFound: boolean;
+  }
+): void {
+  log.info({
+    event: "AUTH_ID_CANONICALIZATION",
+    routeName: input.routeName,
+    viewerId: input.viewerId,
+    canonicalUserId: input.canonicalUserId,
+    providerUid: input.providerUid ?? null,
+    providerUidPresent: Boolean(input.providerUid),
+    source: input.source,
+    userDocFound: input.userDocFound
+  }, "auth_id_canonicalization");
+}
+
+function logAuthLoginViewerHydration(
+  log: FastifyInstance["log"],
+  input: {
+    routeName: string;
+    viewerId: string;
+    canonicalUserId: string;
+    providerUid?: string | null;
+    hydration: CanonicalViewerHydration;
+    source: string;
+  }
+): void {
+  log.info({
+    event: "AUTH_LOGIN_VIEWER_HYDRATION",
+    routeName: input.routeName,
+    viewerId: input.viewerId,
+    canonicalUserId: input.canonicalUserId,
+    providerUid: input.providerUid ?? null,
+    providerUidPresent: Boolean(input.providerUid),
+    userDocFound: input.hydration.userDocFound,
+    viewerSummaryPresent: input.hydration.viewerReady,
+    profilePicPresent: Boolean(input.hydration.profilePic),
+    handlePresent: Boolean(input.hydration.handle),
+    emailPresent: Boolean(input.hydration.email),
+    source: input.source,
+    cacheHit: false,
+    cacheMiss: true
+  }, "auth_login_viewer_hydration");
+}
+
 async function buildOauthSuccessResponse(params: {
   routeName: string;
   authProvider: "google" | "apple";
@@ -303,6 +356,23 @@ async function buildOauthSuccessResponse(params: {
   }
 
   const token = await createCustomToken(params.resolvedUid);
+  const hydratedViewer = await params.authMutationsService.getCanonicalViewerHydration(params.resolvedUid);
+  logAuthIdCanonicalization(params.log, {
+    routeName: params.routeName,
+    viewerId: params.resolvedUid,
+    canonicalUserId: hydratedViewer.canonicalUserId,
+    providerUid: params.providerId,
+    source: "oauth_existing",
+    userDocFound: hydratedViewer.userDocFound
+  });
+  logAuthLoginViewerHydration(params.log, {
+    routeName: params.routeName,
+    viewerId: params.resolvedUid,
+    canonicalUserId: hydratedViewer.canonicalUserId,
+    providerUid: params.providerId,
+    hydration: hydratedViewer,
+    source: "oauth_existing"
+  });
   return success({
     routeName: params.routeName,
     success: true,
@@ -315,6 +385,7 @@ async function buildOauthSuccessResponse(params: {
       ...(params.email ? { email: params.email } : {}),
       displayName: params.displayName
     },
+    viewer: hydratedViewer,
     token
   });
 }
@@ -376,10 +447,26 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         await authMutationsService.mergeProfileBranch({ viewerId: signIn.uid, branchData: body.branchData }).catch(() => undefined);
       }
       const token = await createCustomToken(signIn.uid);
+      const hydratedViewer = await authMutationsService.getCanonicalViewerHydration(signIn.uid);
+      logAuthIdCanonicalization(request.log, {
+        routeName: authLoginContract.routeName,
+        viewerId: signIn.uid,
+        canonicalUserId: hydratedViewer.canonicalUserId,
+        source: "email_password",
+        userDocFound: hydratedViewer.userDocFound
+      });
+      logAuthLoginViewerHydration(request.log, {
+        routeName: authLoginContract.routeName,
+        viewerId: signIn.uid,
+        canonicalUserId: hydratedViewer.canonicalUserId,
+        hydration: hydratedViewer,
+        source: "email_password"
+      });
       return success({
         routeName: authLoginContract.routeName,
         success: true,
         user: { uid: signIn.uid, email: signIn.email, displayName: signIn.displayName },
+        viewer: hydratedViewer,
         token
       });
     } catch (error) {
@@ -398,10 +485,12 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     try {
       const user = await signUpWithPassword(body.email, body.password);
       const token = await createCustomToken(user.uid);
+      const hydratedViewer = await authMutationsService.getCanonicalViewerHydration(user.uid);
       return success({
         routeName: authRegisterContract.routeName,
         success: true,
         user: { uid: user.uid, email: user.email, displayName: user.displayName },
+        viewer: hydratedViewer,
         token
       });
     } catch (error) {

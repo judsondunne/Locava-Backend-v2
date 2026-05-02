@@ -5,7 +5,6 @@ import type { AppEnv } from "../../config/env.js";
 import type { ProductCompatViewer } from "./compat-viewer-payload.js";
 import { buildProductCompatViewer } from "./compat-viewer-payload.js";
 import { resolveCompatViewerId } from "./resolve-compat-viewer-id.js";
-import { applyViewerPatchGuarded } from "./viewer-patch-guard.js";
 import { collectionTelemetryRepository } from "../../repositories/surfaces/collection-telemetry.repository.js";
 import { feedSeenRepository } from "../../repositories/surfaces/feed-seen.repository.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
@@ -1110,58 +1109,6 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     }
   );
 
-  /**
-   * Monolith: PATCH whitelist fields → { viewer, etag }. Native `commitPatchToServer` expects 200 + body.
-   * Identity must match the signed-in user (see `resolveCompatViewerId` + native `x-viewer-id` for `/api/v1/product/`).
-   */
-  app.patch("/api/v1/product/viewer", async (request, reply) => {
-    const viewerId = resolveCompatViewerId(request);
-    const patch = (request.body ?? {}) as Record<string, unknown>;
-    request.log.info(
-      {
-        routeName: "compat.api.product.viewer.patch",
-        authViewerId: viewerId,
-        patchBody: patch,
-        patchFields: Object.keys(patch),
-        proxiesToOldBackend: false,
-        firestoreWritePath: "none",
-      },
-      "compat viewer patch request",
-    );
-    let base = buildProductCompatViewer(viewerId);
-    if (viewerId !== "anonymous") {
-      const profile = await callV2GetOrThrow(
-        `/v2/profiles/${encodeURIComponent(viewerId)}/bootstrap?gridLimit=6`,
-        viewerId,
-        "/api/v1/product/viewer"
-      );
-      const profileData = (profile.data as Record<string, unknown> | undefined)?.firstRender as Record<string, unknown> | undefined;
-      const profileObj = (profileData?.profile as Record<string, unknown> | undefined) ?? {};
-      if (typeof profileObj.name === "string") base.name = profileObj.name;
-      if (typeof profileObj.handle === "string") base.handle = String(profileObj.handle).replace(/^@+/, "");
-      if (typeof profileObj.profilePic === "string") base.profilePic = profileObj.profilePic;
-      if (!base.handle || !base.name) {
-        throw new Error("/api/v1/product/viewer: canonical profile identity required");
-      }
-    }
-    const viewer = applyViewerPatchGuarded(base, patch);
-    request.log.info(
-      {
-        routeName: "compat.api.product.viewer.patch",
-        authViewerId: viewerId,
-        mergedViewer: {
-          userId: viewer.userId,
-          handle: viewer.handle,
-          name: viewer.name,
-          profilePic: viewer.profilePic,
-        },
-      },
-      "compat viewer patch merged",
-    );
-    const etag = `viewer:${viewer.userId}:compat:${Date.now()}`;
-    return reply.status(200).send({ viewer, etag });
-  });
-
   app.get<{ Params: { userId: string } }>("/api/v1/product/users/:userId/friends-data", async (request, reply) => {
     const userId = String(request.params.userId ?? "").trim();
     const following = userId ? await loadFollowingIds(userId) : [];
@@ -1170,14 +1117,6 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       following,
       friendsData: following.map((id) => ({ id }))
     });
-  });
-
-  app.post<{ Body: { userIds?: unknown } }>("/api/v1/product/users/multiple", async (request, reply) => {
-    const userIds = Array.isArray(request.body?.userIds)
-      ? request.body!.userIds.filter((id): id is string => typeof id === "string")
-      : [];
-    const users = await loadUsersByIds(userIds);
-    return reply.send({ success: true, users });
   });
 
   app.get<{ Querystring: { userId?: string; limit?: string; excludeUserIds?: string } }>(

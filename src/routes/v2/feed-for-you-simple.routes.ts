@@ -23,7 +23,9 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         limit: query.limit,
         cursor: query.cursor ?? null
       });
-      const dbReads = getRequestContext()?.dbOps.reads ?? 0;
+      const ctx = getRequestContext();
+      const dbReads = ctx?.dbOps.reads ?? 0;
+      const dbWrites = ctx?.dbOps.writes ?? 0;
       const elapsedMs = Date.now() - startedAt;
       request.log.info(
         {
@@ -54,6 +56,8 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         debug: {
           ...payload.debug,
           dbReads,
+          responseDbReads: dbReads,
+          responseDbWrites: dbWrites,
           elapsedMs
         }
       });

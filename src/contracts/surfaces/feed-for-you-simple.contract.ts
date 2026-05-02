@@ -22,6 +22,11 @@ export const FeedForYouSimpleDebugSchema = z.object({
   cursorSeenFilteredCount: z.number().int().nonnegative(),
   seenWriteAttempted: z.boolean(),
   seenWriteSucceeded: z.boolean(),
+  blockingResponseWrites: z.number().int().nonnegative().optional(),
+  deferredWritesQueued: z.number().int().nonnegative().optional(),
+  deferredWriterFlushAttempts: z.number().int().nonnegative().optional(),
+  deferredWriterSucceededFlushes: z.number().int().nonnegative().optional(),
+  deferredWriterFailedFlushes: z.number().int().nonnegative().optional(),
   boundedAttempts: z.number().int().positive(),
   exhaustedUnseenCandidates: z.boolean(),
   recycledSeenPosts: z.literal(false),
@@ -32,6 +37,8 @@ export const FeedForYouSimpleDebugSchema = z.object({
   fallbackReturnedCount: z.number().int().nonnegative(),
   reelPhaseExhausted: z.boolean(),
   dbReads: z.number().int().nonnegative().optional(),
+  responseDbReads: z.number().int().nonnegative().optional(),
+  responseDbWrites: z.number().int().nonnegative().optional(),
   elapsedMs: z.number().nonnegative().optional()
 });
 

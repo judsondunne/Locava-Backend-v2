@@ -8,7 +8,8 @@ const MixFilterSchema = z
     place: z.string().trim().min(1).max(120).optional(),
     lat: z.coerce.number().finite().optional(),
     lng: z.coerce.number().finite().optional(),
-    radiusKm: z.coerce.number().finite().positive().max(500).optional(),
+    /** Raw client radius; service clamps to 500 km to match pool/geo semantics. */
+    radiusKm: z.coerce.number().finite().positive().max(20_000).optional(),
   })
   .strict();
 
@@ -100,16 +101,31 @@ const MixDiagnosticsSchema = z.object({
   cacheHit: z.boolean(),
   latencyMs: z.number().nonnegative(),
   readCount: z.number().int().nonnegative(),
+  poolState: z.string().optional(),
+  servedStale: z.boolean().optional(),
+  servedEmptyWarming: z.boolean().optional(),
   poolLimit: z.number().int().positive().optional(),
   poolBuiltAt: z.string().nullable().optional(),
   poolBuildLatencyMs: z.number().nonnegative().optional(),
   poolBuildReadCount: z.number().int().nonnegative().optional(),
+  requestedActivity: z.string().optional(),
+  normalizedActivity: z.string().optional(),
+  locationIntent: z.enum(["none", "geo_radius", "state", "place"]).optional(),
+  requestedRadiusKm: z.number().positive().optional(),
+  effectiveRadiusKm: z.number().positive().optional(),
+  radiusClamped: z.boolean().optional(),
+  droppedForMissingMediaCount: z.number().int().nonnegative().optional(),
+  nextCursorPresent: z.boolean().optional(),
+  sourcePoolState: z.string().optional(),
+  activityFallbackUsed: z.boolean().optional(),
+  emptyReason: z.string().optional(),
 });
 
 export const MixPreviewResponseSchema = z.object({
   ok: z.literal(true),
   mixKey: z.string(),
   filters: MixFilterSchema,
+  poolState: z.string().optional(),
   posts: z.array(MixPostCardSchema),
   diagnostics: MixDiagnosticsSchema,
 });
@@ -118,6 +134,7 @@ export const MixPageResponseSchema = z.object({
   ok: z.literal(true),
   mixKey: z.string(),
   filters: MixFilterSchema,
+  poolState: z.string().optional(),
   posts: z.array(MixPostCardSchema),
   nextCursor: z.string().nullable(),
   hasMore: z.boolean(),

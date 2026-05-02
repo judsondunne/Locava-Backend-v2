@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { endFullWarmerPass, evaluateFullWarmerGate } from "../../runtime/warmer-traffic-gate.js";
 
 const REELS_PREFIX = "/api/v1/product/reels";
 const FEED_ID = "reels:near-me";
@@ -22,6 +23,17 @@ const pool: CachedPool = {
   loading: false,
   inFlight: null
 };
+
+let nearMeRefreshSerial: Promise<void> = Promise.resolve();
+
+function toIntEnv(name: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[name];
+  if (raw != null && raw !== "") {
+    const n = parseInt(String(raw), 10);
+    if (Number.isFinite(n)) return Math.max(min, Math.min(max, n));
+  }
+  return fallback;
+}
 
 function parseFinite(value: unknown): number | null {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -293,17 +305,14 @@ function nearMeQuickBootstrapDocs(): number {
     const n = parseInt(String(raw), 10);
     if (Number.isFinite(n) && n >= 200 && n <= 8000) return n;
   }
-  return 900;
+  return 450;
 }
 
 /** First-page fill so near-me never waits on a 10k-doc scan on cold request paths. */
 async function rebuildPostPoolQuick(app: FastifyInstance): Promise<void> {
   if (pool.posts.length > 0) return;
   if (pool.loading && pool.inFlight) {
-    await Promise.race([
-      pool.inFlight,
-      new Promise<void>((resolve) => setTimeout(resolve, 2200))
-    ]);
+    await Promise.race([pool.inFlight, new Promise<void>((resolve) => setTimeout(resolve, 2200))]);
     return;
   }
   const db = getFirestoreSourceClient();
@@ -364,19 +373,39 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
   const db = getFirestoreSourceClient();
   if (!db) return;
 
+  const force = process.env.NEAR_ME_WARMER_FORCE === "1";
+  if (!force) {
+    const gate = evaluateFullWarmerGate({ force: false, mode: "near_me_full" });
+    if (!gate.ok) {
+      app.log.info(
+        {
+          event: "near_me_pool_refresh_skipped",
+          mode: "full",
+          reason: gate.reason,
+          skipped_due_to_active_traffic: gate.reason === "active_traffic",
+          skipped_due_to_recent_refresh: gate.reason === "recent_full_refresh",
+          skipped_due_to_singleflight: gate.reason === "singleflight_busy",
+        },
+        "near-me full pool refresh skipped"
+      );
+      return;
+    }
+  }
+
   pool.loading = true;
   const fullStarted = Date.now();
+  const targetDocs = getNearMeFirestoreFallbackMaxDocs();
   app.log.info(
     {
       event: "near_me_pool_refresh_started",
       mode: "full",
-      targetDocs: getNearMeFirestoreFallbackMaxDocs()
+      targetDocs
     },
     "near-me full pool refresh started"
   );
   pool.inFlight = (async () => {
-    const maxDocs = getNearMeFirestoreFallbackMaxDocs();
-    const pageSize = 1000;
+    const maxDocs = targetDocs;
+    const pageSize = Math.min(1000, toIntEnv("NEAR_ME_FULL_PAGE_SIZE", 800, 200, 1000));
     const out: NearMePost[] = [];
     let lastDoc: QueryDocumentSnapshot | null = null;
 
@@ -393,6 +422,7 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
 
     pool.posts = out;
     pool.loadedAtMs = Date.now();
+    endFullWarmerPass();
     app.log.info(
       {
         event: "near_me_pool_refresh_completed",
@@ -434,12 +464,17 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
   let refreshTimer: NodeJS.Timeout | null = null;
 
   app.addHook("onReady", async () => {
-    // Never block startup on warm-cache hydration.
-    void rebuildPostPoolQuick(app).finally(() => {
-      void rebuildPostPool(app);
-    });
+    const fullDelayMs = toIntEnv("NEAR_ME_FULL_REFRESH_DELAY_MS", 15_000, 2_000, 120_000);
+    nearMeRefreshSerial = nearMeRefreshSerial
+      .then(() => rebuildPostPoolQuick(app))
+      .then(() => {
+        setTimeout(() => {
+          nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
+        }, fullDelayMs);
+      })
+      .catch(() => undefined);
     refreshTimer = setInterval(() => {
-      void rebuildPostPool(app);
+      nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
     }, CACHE_REFRESH_MS);
   });
 
@@ -467,9 +502,8 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
         rebuildPostPoolQuick(app),
         new Promise<void>((resolve) => setTimeout(resolve, 2200))
       ]);
-      void rebuildPostPool(app);
     } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
-      void rebuildPostPool(app);
+      nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
     }
 
     const candidates = getFilteredCandidates(lat, lng, radiusMiles);
@@ -497,9 +531,8 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
         rebuildPostPoolQuick(app),
         new Promise<void>((resolve) => setTimeout(resolve, 2200))
       ]);
-      void rebuildPostPool(app);
     } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
-      void rebuildPostPool(app);
+      nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
     }
 
     const candidates = getFilteredCandidates(lat, lng, radiusMiles);

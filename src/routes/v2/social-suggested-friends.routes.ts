@@ -84,6 +84,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
         sourceBreakdown: {},
         generatedAt: Date.now(),
         etag: undefined,
+        sourceDiagnostics: [],
       };
     }
     const users = data.users.slice(cursorOffset, cursorOffset + limit);
@@ -126,6 +127,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
         excludedAlreadyFollowingCount,
         ...(fallbackReason ? { reason: fallbackReason } : {}),
         ...(fallbackErrorCode ? { errorCode: fallbackErrorCode } : {}),
+        sourceDiagnostics: data.sourceDiagnostics ?? [],
       }
     };
     return success(payload);

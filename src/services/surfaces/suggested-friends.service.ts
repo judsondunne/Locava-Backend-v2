@@ -4,6 +4,7 @@ import {
   SuggestedFriendsRepository,
   type ContactSyncDiagnostics,
   type SuggestedFriendsOptions,
+  type SuggestedFriendsSourceDiagnostic,
   type UserSuggestionSummary,
   buildSuggestedFriendsCacheKey
 } from "../../repositories/surfaces/suggested-friends.repository.js";
@@ -29,15 +30,25 @@ export class SuggestedFriendsService {
   async getSuggestionsForUser(
     viewerId: string,
     options: SuggestedFriendsOptions
-  ): Promise<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag?: string }> {
+  ): Promise<{
+    users: UserSuggestionSummary[];
+    sourceBreakdown: Record<string, number>;
+    generatedAt: number;
+    etag?: string;
+    sourceDiagnostics: SuggestedFriendsSourceDiagnostic[];
+  }> {
     const limit = Math.max(1, Math.min(options.limit ?? 20, 50));
     const surface = options.surface ?? "generic";
     const hasDynamicFilters = Boolean(options.excludeUserIds?.length) || options.sortBy === "postCount";
     const cacheKey = `${buildSuggestedFriendsCacheKey(viewerId, surface, limit)}:${options.sortBy ?? "default"}:${hasDynamicFilters ? "dynamic" : "static"}`;
     if (!options.bypassCache && !hasDynamicFilters) {
-      const cached = await globalCache.get<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag: string }>(
-        cacheKey
-      );
+      const cached = await globalCache.get<{
+        users: UserSuggestionSummary[];
+        sourceBreakdown: Record<string, number>;
+        generatedAt: number;
+        etag: string;
+        sourceDiagnostics: SuggestedFriendsSourceDiagnostic[];
+      }>(cacheKey);
       if (cached) {
         recordCacheHit();
         return cached;

@@ -13,6 +13,8 @@ type CompactAssetSeed = {
   height?: number | null;
   aspectRatio?: number | null;
   orientation?: string | null;
+  /** Firestore/Wasabi variant map (md/sm/thumb webp, etc.) — preserved for faithful client render. */
+  variants?: Record<string, unknown> | null;
 };
 
 type CompactAuthorSeed = {
@@ -42,6 +44,11 @@ type CompactCardSeed = {
     geohash?: string | null;
   } | null;
   assets?: CompactAssetSeed[] | null;
+  /**
+   * Feed/list surfaces default to 1 asset for payload size. Search/mix surfaces should pass 8–12
+   * so playback shells and open transitions match real multi-photo posts.
+   */
+  compactAssetLimit?: number | null;
   title?: string | null;
   captionPreview?: string | null;
   firstAssetUrl?: string | null;
@@ -115,6 +122,7 @@ export type FeedCardDTO = {
     height: number | null;
     aspectRatio: number | null;
     orientation: string | null;
+    variants?: Record<string, unknown> | null;
   }>;
   title: string | null;
   captionPreview: string | null;
@@ -301,7 +309,75 @@ function toCompactAssets(
     height: cleanNumber(asset.height),
     aspectRatio: cleanNumber(asset.aspectRatio),
     orientation: cleanString(asset.orientation),
+    ...(asset.variants && typeof asset.variants === "object" && Object.keys(asset.variants).length > 0
+      ? { variants: asset.variants }
+      : {}),
   }));
+}
+
+function asUnknownRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+/**
+ * Maps native Firestore post `assets[]` (image/video + Wasabi variants) into compact card seeds.
+ * Keeps stable ids and full `variants` so playback shells are not collapsed to a single synthetic row.
+ */
+export function firestoreAssetsToCompactSeeds(
+  rawAssets: unknown[] | null | undefined,
+  postId: string,
+  max = 12,
+): CompactAssetSeed[] {
+  if (!Array.isArray(rawAssets) || rawAssets.length === 0) return [];
+  const cap = Math.max(1, Math.min(24, Math.floor(max)));
+  return rawAssets.slice(0, cap).map((raw, index) => {
+    const asset = asUnknownRecord(raw) ?? {};
+    const variants = asUnknownRecord(asset.variants) ?? {};
+    const md = asUnknownRecord(variants.md);
+    const sm = asUnknownRecord(variants.sm);
+    const thumb = asUnknownRecord(variants.thumb);
+    const lg = asUnknownRecord(variants.lg);
+    const fallbackJpg = asUnknownRecord(variants.fallbackJpg);
+    const typeRaw = String(asset.type ?? asset.mediaType ?? "image").toLowerCase();
+    const type = typeRaw === "video" ? "video" : "image";
+    const original =
+      cleanString(typeof asset.original === "string" ? asset.original : null) ??
+      cleanString(typeof asset.url === "string" ? asset.url : null);
+    const poster =
+      cleanString(typeof asset.poster === "string" ? asset.poster : null) ??
+      cleanString(typeof asset.thumbnail === "string" ? asset.thumbnail : null);
+    const previewUrl =
+      cleanString(typeof md?.webp === "string" ? md.webp : null) ??
+      cleanString(typeof sm?.webp === "string" ? sm.webp : null) ??
+      cleanString(typeof thumb?.webp === "string" ? thumb.webp : null) ??
+      cleanString(typeof lg?.webp === "string" ? lg.webp : null) ??
+      (fallbackJpg && typeof fallbackJpg.jpg === "string" ? cleanString(fallbackJpg.jpg) : null) ??
+      original ??
+      poster;
+    const streamUrl = cleanString(typeof variants.hls === "string" ? variants.hls : null);
+    const mp4Url =
+      cleanString(typeof variants.main720Avc === "string" ? variants.main720Avc : null) ??
+      cleanString(typeof variants.main720 === "string" ? variants.main720 : null) ??
+      cleanString(typeof variants.main1080Avc === "string" ? variants.main1080Avc : null) ??
+      (type === "video" ? original : null);
+    const id =
+      cleanString(typeof asset.id === "string" ? asset.id : null) ?? `${postId}-asset-${index + 1}`;
+    return {
+      id,
+      type,
+      previewUrl,
+      posterUrl: poster,
+      originalUrl: original,
+      streamUrl,
+      mp4Url,
+      blurhash: cleanString(typeof asset.blurhash === "string" ? asset.blurhash : null),
+      width: cleanNumber(typeof asset.width === "number" ? asset.width : undefined),
+      height: cleanNumber(typeof asset.height === "number" ? asset.height : undefined),
+      aspectRatio: cleanNumber(typeof asset.aspectRatio === "number" ? asset.aspectRatio : undefined),
+      orientation: cleanString(typeof asset.orientation === "string" ? asset.orientation : null),
+      variants: Object.keys(variants).length > 0 ? variants : undefined,
+    };
+  });
 }
 
 function toCompactAuthor(seed: CompactAuthorSeed): FeedCardDTO["author"] {
@@ -323,7 +399,13 @@ function normalizeAspectRatio(value: number | null | undefined, fallback = 9 / 1
 }
 
 export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
-  const assets = toCompactAssets(seed.assets, 1) ?? [];
+  const assetCap =
+    typeof seed.compactAssetLimit === "number" &&
+    Number.isFinite(seed.compactAssetLimit) &&
+    seed.compactAssetLimit > 0
+      ? Math.min(24, Math.floor(seed.compactAssetLimit))
+      : 1;
+  const assets = toCompactAssets(seed.assets, assetCap) ?? [];
   const firstAsset = assets[0];
   const posterUrl = cleanString(seed.media.posterUrl) ?? firstAsset?.posterUrl ?? "";
   return {
@@ -402,7 +484,60 @@ export function toPlaybackPostShellDTO(seed: {
 }): PlaybackPostShellDTO {
   const firstAsset = seed.card.assets?.[0];
   const posterUrl = seed.card.media.posterUrl || firstAsset?.posterUrl || "";
-  const mp4Url = firstAsset?.mp4Url ?? firstAsset?.originalUrl ?? seed.card.firstAssetUrl ?? null;
+  const shellAssets: PlaybackPostShellDTO["assets"] =
+    seed.card.assets && seed.card.assets.length > 0
+      ? seed.card.assets.map((asset) => {
+          const thumb = asset.posterUrl || posterUrl || "";
+          const original =
+            asset.type === "video"
+              ? asset.mp4Url ?? asset.originalUrl ?? asset.previewUrl ?? null
+              : asset.originalUrl ?? asset.previewUrl ?? null;
+          const baseVariants =
+            asset.variants && typeof asset.variants === "object" ? { ...asset.variants } : {};
+          return {
+            id: asset.id,
+            type: asset.type,
+            original,
+            poster: asset.posterUrl || thumb || null,
+            thumbnail: asset.posterUrl || thumb || null,
+            aspectRatio: asset.aspectRatio ?? undefined,
+            width: asset.width ?? undefined,
+            height: asset.height ?? undefined,
+            orientation: asset.orientation ?? undefined,
+            variants: {
+              ...baseVariants,
+              ...(asset.previewUrl
+                ? { preview360: asset.previewUrl, preview360Avc: asset.previewUrl }
+                : {}),
+              ...(asset.streamUrl ? { hls: asset.streamUrl } : {}),
+              ...(asset.mp4Url ? { main720Avc: asset.mp4Url, main720: asset.mp4Url } : {}),
+            },
+          };
+        })
+      : [
+          {
+            id: firstAsset?.id ?? `${seed.card.postId}-asset-1`,
+            type: seed.card.media.type,
+            original:
+              firstAsset?.mp4Url ??
+              firstAsset?.originalUrl ??
+              seed.card.firstAssetUrl ??
+              null,
+            poster: posterUrl || null,
+            thumbnail: posterUrl || null,
+            aspectRatio: firstAsset?.aspectRatio ?? seed.card.media.aspectRatio,
+            width: firstAsset?.width ?? undefined,
+            height: firstAsset?.height ?? undefined,
+            orientation: firstAsset?.orientation ?? undefined,
+            variants: {
+              ...(firstAsset?.previewUrl
+                ? { preview360: firstAsset.previewUrl, preview360Avc: firstAsset.previewUrl }
+                : {}),
+              ...(firstAsset?.streamUrl ? { hls: firstAsset.streamUrl } : {}),
+              ...(firstAsset?.mp4Url ? { main720Avc: firstAsset.mp4Url, main720: firstAsset.mp4Url } : {}),
+            },
+          },
+        ];
   return {
     postId: seed.card.postId,
     userId: cleanString(seed.userId) ?? seed.card.author.userId,
@@ -417,24 +552,7 @@ export function toPlaybackPostShellDTO(seed: {
     createdAtMs: seed.card.createdAtMs,
     updatedAtMs: seed.card.updatedAtMs,
     assetsReady: true,
-    assets: [
-      {
-        id: firstAsset?.id ?? `${seed.card.postId}-asset-1`,
-        type: seed.card.media.type,
-        original: mp4Url,
-        poster: posterUrl || null,
-        thumbnail: posterUrl || null,
-        aspectRatio: firstAsset?.aspectRatio ?? seed.card.media.aspectRatio,
-        width: firstAsset?.width ?? null,
-        height: firstAsset?.height ?? null,
-        orientation: firstAsset?.orientation ?? null,
-        variants: {
-          ...(firstAsset?.previewUrl ? { preview360: firstAsset.previewUrl, preview360Avc: firstAsset.previewUrl } : {}),
-          ...(firstAsset?.streamUrl ? { hls: firstAsset.streamUrl } : {}),
-          ...(firstAsset?.mp4Url ? { main720Avc: firstAsset.mp4Url, main720: firstAsset.mp4Url } : {}),
-        },
-      },
-    ],
+    assets: shellAssets,
     cardSummary: seed.card,
   };
 }

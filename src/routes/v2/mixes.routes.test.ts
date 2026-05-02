@@ -36,6 +36,18 @@ describe("v2 mixes routes", () => {
     expect(body.diagnostics.routeName).toBe("mixes.page.get");
   });
 
+  it("does not 503 when radiusKm exceeds legacy 500 cap (clamped server-side)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/mixes/nearby/page?lat=44.47&lng=-73.21&radiusKm=650&limit=5",
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json().data;
+    expect(body.ok).toBe(true);
+    expect(body.filters.radiusKm).toBe(500);
+  });
+
   it("parallel cold previews always return parseable JSON envelopes", async () => {
     const urls = [
       "/v2/mixes/hiking/preview?activity=hiking&limit=3",

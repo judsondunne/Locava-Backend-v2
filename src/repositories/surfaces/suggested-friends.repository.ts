@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
-import { incrementDbOps } from "../../observability/request-context.js";
+import { getRequestContext, incrementDbOps } from "../../observability/request-context.js";
+import { allowContactSyncVerboseDiagnostics } from "../../lib/contact-sync-logging.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { mutationStateRepository } from "../mutations/mutation-state.repository.js";
-import { loadEnv } from "../../config/env.js";
 import {
   derivePhoneLast10,
   digitsOnly,
@@ -24,6 +24,18 @@ export type UserSuggestionSummary = {
   followerCount?: number;
   postCount?: number;
   score?: number;
+};
+
+export type SuggestedFriendsSourceDiagnostic = {
+  sourceName: string;
+  enabled: boolean;
+  skipped?: boolean;
+  skipReason?: string;
+  errorKind?: string;
+  readCount: number;
+  queryCount: number;
+  latencyMs: number;
+  returnedCount: number;
 };
 
 export type SuggestedFriendsOptions = {
@@ -152,8 +164,35 @@ export function buildContactPhoneVariants(raw: string): {
   };
 }
 
-const runtimeEnv = loadEnv();
-const allowVerboseContactSyncDiagnostics = runtimeEnv.NODE_ENV !== "production" && runtimeEnv.ENABLE_DEV_DIAGNOSTICS;
+let groupsCollectionGroupDisabledUntilMs = 0;
+const GROUPS_SOURCE_COOLDOWN_MS = 60 * 60 * 1000;
+const sourceFailureLogLastMs = new Map<string, number>();
+const SOURCE_FAILURE_LOG_COOLDOWN_MS = 300_000;
+
+function isFailedPreconditionError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  if (msg.includes("FAILED_PRECONDITION")) return true;
+  const code = (error as { code?: number })?.code;
+  return code === 9;
+}
+
+function throttledSourceWarn(source: string, payload: Record<string, unknown>): void {
+  const now = Date.now();
+  const last = sourceFailureLogLastMs.get(source) ?? 0;
+  if (now - last < SOURCE_FAILURE_LOG_COOLDOWN_MS) return;
+  sourceFailureLogLastMs.set(source, now);
+  console.warn("[suggested-friends] source query failed (summarized)", { source, ...payload });
+}
+
+function snapshotDbOps(): { reads: number; queries: number } {
+  const ctx = getRequestContext();
+  return { reads: ctx?.dbOps.reads ?? 0, queries: ctx?.dbOps.queries ?? 0 };
+}
+
+function dbOpsDelta(before: { reads: number; queries: number }): { readCount: number; queryCount: number } {
+  const after = snapshotDbOps();
+  return { readCount: Math.max(0, after.reads - before.reads), queryCount: Math.max(0, after.queries - before.queries) };
+}
 
 function pickProfilePic(data: Record<string, unknown>): string | null {
   const raw = data.profilePic ?? data.profilePicPath ?? data.profilePicLarge ?? data.profilePicSmall ?? data.photoURL;
@@ -565,7 +604,7 @@ export class SuggestedFriendsRepository {
     const diagnosticsMatchedUsers = [...matchedDetails.entries()].map(([userId, detail]) => ({
       userId,
       displayName: detail.displayName,
-      storedPhoneFields: allowVerboseContactSyncDiagnostics
+      storedPhoneFields: allowContactSyncVerboseDiagnostics()
         ? detail.storedPhoneFields
         : {
             phoneNumber: redactPhone(detail.storedPhoneFields.phoneNumber),
@@ -625,17 +664,26 @@ export class SuggestedFriendsRepository {
             !row.storedPhoneFields.phoneDigits ||
             !row.storedPhoneFields.phoneE164
         ).length,
-        finalMatchedUserIds: uniqueMatchedUserIds,
-        unmatchedContactPhonesSample: allowVerboseContactSyncDiagnostics
+        finalMatchedUserIds: allowContactSyncVerboseDiagnostics() ? uniqueMatchedUserIds : [],
+        unmatchedContactPhonesSample: allowContactSyncVerboseDiagnostics()
           ? unmatchedContactPhonesSample
           : unmatchedContactPhonesSample.map((value) => redactPhone(value) ?? value),
-        matchedUsers: diagnosticsMatchedUsers,
-        redactedForProduction: !allowVerboseContactSyncDiagnostics,
+        matchedUsers: allowContactSyncVerboseDiagnostics() ? diagnosticsMatchedUsers : [],
+        redactedForProduction: !allowContactSyncVerboseDiagnostics(),
       }
     };
   }
 
-  async getSuggestionsForUser(viewerId: string, options: SuggestedFriendsOptions): Promise<{ users: UserSuggestionSummary[]; sourceBreakdown: Record<string, number>; generatedAt: number; etag: string }> {
+  async getSuggestionsForUser(
+    viewerId: string,
+    options: SuggestedFriendsOptions
+  ): Promise<{
+    users: UserSuggestionSummary[];
+    sourceBreakdown: Record<string, number>;
+    generatedAt: number;
+    etag: string;
+    sourceDiagnostics: SuggestedFriendsSourceDiagnostic[];
+  }> {
     const safeLimit = Math.max(1, Math.min(options.limit ?? DEFAULT_LIMIT, 50));
     const surface = options.surface ?? "generic";
     const includeContacts = options.includeContacts ?? true;
@@ -653,16 +701,11 @@ export class SuggestedFriendsRepository {
     const viewer = await this.loadViewerGraph(viewerId, { allowFirestore: true });
 
     const out = new Map<string, UserSuggestionSummary>();
+    const sourceDiagnostics: SuggestedFriendsSourceDiagnostic[] = [];
     const warnSourceFailure = (source: string, error: unknown): void => {
       const message = error instanceof Error ? error.message : String(error);
-      const code = message.includes("FAILED_PRECONDITION") ? "FAILED_PRECONDITION" : "unknown";
-      console.warn("[suggested-friends] source query failed", {
-        source,
-        viewerId,
-        surface,
-        errorCode: code,
-        error: message,
-      });
+      const code = isFailedPreconditionError(error) ? "FAILED_PRECONDITION" : "unknown";
+      throttledSourceWarn(source, { errorCode: code, surface });
     };
     const add = (items: UserSuggestionSummary[]) => {
       for (const user of items) {
@@ -684,27 +727,54 @@ export class SuggestedFriendsRepository {
       }
     };
 
-    if (includeReferral && viewer.branchCandidateUserIds.length > 0) {
-      // Hydrate a tiny number of deep-link/referral candidates; these should always be prioritized.
+    if (includeReferral) {
+      const refT0 = performance.now();
+      const refOps = snapshotDbOps();
+      let refReturned = 0;
+      let refErr: string | undefined;
       const ids = viewer.branchCandidateUserIds.slice(0, 6).filter((id) => id !== viewerId);
       if (this.db && ids.length > 0) {
         try {
           const docs = await this.db.getAll(...ids.map((id) => this.db!.collection("users").doc(id)));
           incrementDbOps("reads", docs.length);
-          add(
-            docs
-              .filter((doc) => doc.exists)
-              .map((doc) =>
-                ({
-                  ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "referral", viewer.following.has(doc.id), 1400),
-                  reasonLabel: "From an invite"
-                }) satisfies UserSuggestionSummary
-              )
-          );
+          const rows = docs
+            .filter((doc) => doc.exists)
+            .map((doc) =>
+              ({
+                ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "referral", viewer.following.has(doc.id), 1400),
+                reasonLabel: "From an invite"
+              }) satisfies UserSuggestionSummary
+            );
+          refReturned = rows.length;
+          add(rows);
         } catch (error) {
+          refErr = isFailedPreconditionError(error) ? "FAILED_PRECONDITION" : "error";
           warnSourceFailure("referral", error);
         }
       }
+      const refDelta = dbOpsDelta(refOps);
+      sourceDiagnostics.push({
+        sourceName: "referral",
+        enabled: true,
+        skipped: !this.db || ids.length === 0,
+        skipReason: !this.db ? "no_db" : ids.length === 0 ? "no_candidates" : undefined,
+        errorKind: refErr,
+        readCount: refDelta.readCount,
+        queryCount: refDelta.queryCount,
+        latencyMs: Math.round(performance.now() - refT0),
+        returnedCount: refReturned
+      });
+    } else {
+      sourceDiagnostics.push({
+        sourceName: "referral",
+        enabled: false,
+        skipped: true,
+        skipReason: "disabled",
+        readCount: 0,
+        queryCount: 0,
+        latencyMs: 0,
+        returnedCount: 0
+      });
     }
 
     if (includeContacts && viewer.contactUserSummaries.length > 0) {
@@ -792,7 +862,7 @@ export class SuggestedFriendsRepository {
     if (mutualDerived && this.db) {
       const sortedCandidates = [...mutualDerived.counts.entries()]
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-        .slice(0, 30);
+        .slice(0, 18);
       const candidateIds = sortedCandidates.map(([id]) => id);
       if (candidateIds.length > 0) {
         const docs = await this.db.getAll(...candidateIds.map((id) => this.db!.collection("users").doc(id)));
@@ -835,54 +905,92 @@ export class SuggestedFriendsRepository {
     }
 
     if (includeGroups && this.db && out.size < safeLimit) {
-      try {
-        // Shared communities/groups: suggest other members from groups the viewer is in.
-        const membershipSnap = await this.db.collectionGroup("members").where("userId", "==", viewerId).limit(10).get();
-        incrementDbOps("queries", 1);
-        incrementDbOps("reads", membershipSnap.size);
-        const groupIds = membershipSnap.docs
-          .map((doc) => doc.ref.parent.parent?.id ?? "")
-          .filter((id) => id.length > 0)
-          .slice(0, 10);
-        const groupSnap = groupIds.length > 0
-          ? await Promise.all(groupIds.map((groupId) => this.db!.collection("groups").doc(groupId).get()))
-          : [];
-        incrementDbOps("reads", groupSnap.length);
-        const candidateIds: string[] = [];
-        const labelsByUser = new Map<string, string>();
-        for (const g of groupSnap) {
-          if (!g.exists) continue;
-          const gd = g.data() as Record<string, unknown>;
-          const name = typeof gd.name === "string" ? gd.name.trim() : "a group";
-          const membersSnap = await this.db.collection("groups").doc(g.id).collection("members").limit(100).get();
-          incrementDbOps("reads", membersSnap.size);
-          const members = membersSnap.docs
-            .map((doc) => String((doc.data() ?? {}).userId ?? doc.id).trim())
-            .filter((id) => id.length > 0);
-          for (const uid of members) {
-            if (!uid || uid === viewerId) continue;
-            if (viewer.following.has(uid)) continue;
-            if (excludeBlocked && viewer.blocked.has(uid)) continue;
-            candidateIds.push(uid);
-            if (!labelsByUser.has(uid)) labelsByUser.set(uid, `In ${name}`);
+      const gT0 = performance.now();
+      const gOps = snapshotDbOps();
+      let groupsReturned = 0;
+      let groupsErr: string | undefined;
+      let groupsSkipped: string | undefined;
+      if (Date.now() < groupsCollectionGroupDisabledUntilMs) {
+        groupsSkipped = "source_cooldown_after_failed_precondition";
+        throttledSourceWarn("groups", { skipReason: groupsSkipped, surface });
+      } else {
+        try {
+          // Shared communities/groups: suggest other members from groups the viewer is in.
+          const membershipSnap = await this.db.collectionGroup("members").where("userId", "==", viewerId).limit(8).get();
+          incrementDbOps("queries", 1);
+          incrementDbOps("reads", membershipSnap.size);
+          const groupIds = membershipSnap.docs
+            .map((doc) => doc.ref.parent.parent?.id ?? "")
+            .filter((id) => id.length > 0)
+            .slice(0, 8);
+          const groupSnap =
+            groupIds.length > 0 ? await Promise.all(groupIds.map((groupId) => this.db!.collection("groups").doc(groupId).get())) : [];
+          incrementDbOps("reads", groupSnap.length);
+          const candidateIds: string[] = [];
+          const labelsByUser = new Map<string, string>();
+          for (const g of groupSnap) {
+            if (!g.exists) continue;
+            const gd = g.data() as Record<string, unknown>;
+            const name = typeof gd.name === "string" ? gd.name.trim() : "a group";
+            const membersSnap = await this.db.collection("groups").doc(g.id).collection("members").limit(50).get();
+            incrementDbOps("reads", membersSnap.size);
+            const members = membersSnap.docs
+              .map((doc) => String((doc.data() ?? {}).userId ?? doc.id).trim())
+              .filter((id) => id.length > 0);
+            for (const uid of members) {
+              if (!uid || uid === viewerId) continue;
+              if (viewer.following.has(uid)) continue;
+              if (excludeBlocked && viewer.blocked.has(uid)) continue;
+              candidateIds.push(uid);
+              if (!labelsByUser.has(uid)) labelsByUser.set(uid, `In ${name}`);
+            }
           }
-        }
-        const unique = [...new Set(candidateIds)].slice(0, 30);
-        if (unique.length > 0) {
-          const docs = await this.db.getAll(...unique.map((id) => this.db!.collection("users").doc(id)));
-          incrementDbOps("reads", docs.length);
-          add(
-            docs
+          const unique = [...new Set(candidateIds)].slice(0, 24);
+          if (unique.length > 0) {
+            const docs = await this.db.getAll(...unique.map((id) => this.db!.collection("users").doc(id)));
+            incrementDbOps("reads", docs.length);
+            const rows = docs
               .filter((doc) => doc.exists)
               .map((doc) => ({
                 ...toSummary(doc.id, (doc.data() ?? {}) as Record<string, unknown>, "groups", viewer.following.has(doc.id), 1000),
                 reasonLabel: labelsByUser.get(doc.id) ?? "In your communities"
-              }))
-          );
+              }));
+            groupsReturned = rows.length;
+            add(rows);
+          }
+        } catch (error) {
+          if (isFailedPreconditionError(error)) {
+            groupsCollectionGroupDisabledUntilMs = Date.now() + GROUPS_SOURCE_COOLDOWN_MS;
+          }
+          groupsErr = isFailedPreconditionError(error) ? "FAILED_PRECONDITION" : "error";
+          warnSourceFailure("groups", error);
         }
-      } catch (error) {
-        warnSourceFailure("groups", error);
       }
+      const gDelta = dbOpsDelta(gOps);
+      sourceDiagnostics.push({
+        sourceName: "groups",
+        enabled: includeGroups,
+        skipped: Boolean(groupsSkipped),
+        skipReason:
+          groupsSkipped ??
+          (groupsErr === "FAILED_PRECONDITION" ? "failed_precondition" : undefined),
+        errorKind: groupsErr,
+        readCount: gDelta.readCount,
+        queryCount: gDelta.queryCount,
+        latencyMs: Math.round(performance.now() - gT0),
+        returnedCount: groupsReturned
+      });
+    } else {
+      sourceDiagnostics.push({
+        sourceName: "groups",
+        enabled: includeGroups,
+        skipped: true,
+        skipReason: !includeGroups ? "disabled" : !this.db ? "no_db" : "limit_satisfied",
+        readCount: 0,
+        queryCount: 0,
+        latencyMs: 0,
+        returnedCount: 0
+      });
     }
 
     const needPopular = includePopular && out.size < safeLimit;
@@ -945,7 +1053,7 @@ export class SuggestedFriendsRepository {
           .collection("users")
           .orderBy("postCount", "desc")
           .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
-          .limit(Math.min(60, Math.max(safeLimit * 2, 20)))
+          .limit(Math.min(28, Math.max(safeLimit * 2, 16)))
           .get();
         incrementDbOps("queries", 1);
         incrementDbOps("reads", fallbackSnap.size);
@@ -999,7 +1107,7 @@ export class SuggestedFriendsRepository {
     const etag = createHash("sha1")
       .update(`${viewerId}:${surface}:${users.map((u) => `${u.userId}:${u.reason}:${u.isFollowing ? 1 : 0}`).join("|")}`)
       .digest("hex");
-    return { users, sourceBreakdown, generatedAt, etag };
+    return { users, sourceBreakdown, generatedAt, etag, sourceDiagnostics };
   }
 }
 

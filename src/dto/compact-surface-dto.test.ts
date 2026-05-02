@@ -147,6 +147,61 @@ describe("compact surface dto mappers", () => {
     expect(listForbiddenCompactFieldViolations(dto)).toEqual([]);
   });
 
+  it("maps every compact card asset into the playback shell when compactAssetLimit > 1", () => {
+    const card = toFeedCardDTO({
+      postId: "multi-img",
+      rankToken: "r1",
+      author: { userId: "u1", handle: "a", name: null, pic: null },
+      title: "Three bridges",
+      captionPreview: "caption",
+      activities: ["view"],
+      assets: [
+        {
+          id: "image_a_0",
+          type: "image",
+          previewUrl: "https://cdn.test/a_md.webp",
+          posterUrl: null,
+          originalUrl: "https://cdn.test/a.jpg",
+          aspectRatio: 4 / 3,
+        },
+        {
+          id: "image_a_1",
+          type: "image",
+          previewUrl: "https://cdn.test/b_md.webp",
+          posterUrl: null,
+          originalUrl: "https://cdn.test/b.jpg",
+          aspectRatio: 4 / 3,
+        },
+        {
+          id: "image_a_2",
+          type: "image",
+          previewUrl: "https://cdn.test/c_md.webp",
+          posterUrl: null,
+          originalUrl: "https://cdn.test/c.jpg",
+          aspectRatio: 4 / 3,
+        },
+      ],
+      compactAssetLimit: 12,
+      media: {
+        type: "image",
+        posterUrl: "https://cdn.test/a_md.webp",
+        aspectRatio: 4 / 3,
+        startupHint: "poster_only",
+      },
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    } as never);
+
+    const shell = toPlaybackPostShellDTO({ userId: "u1", card });
+    expect(shell.assets).toHaveLength(3);
+    expect(shell.assets.map((a) => a.id)).toEqual(["image_a_0", "image_a_1", "image_a_2"]);
+    expect(shell.assets.map((a) => a.original)).toEqual([
+      "https://cdn.test/a.jpg",
+      "https://cdn.test/b.jpg",
+      "https://cdn.test/c.jpg",
+    ]);
+  });
+
   it("maps playback shells to a minimal render/playback contract", () => {
     const shell = toPlaybackPostShellDTO({
       userId: "user-1",

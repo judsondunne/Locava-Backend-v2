@@ -1,4 +1,6 @@
+import { globalCache } from "../../cache/global-cache.js";
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
+import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import type { ProfileRepository } from "../../repositories/surfaces/profile.repository.js";
 
@@ -48,16 +50,36 @@ export class ProfileService {
   }
 
   async loadFollowers(input: { viewerId: string; userId: string; cursor: string | null; limit: number }) {
-    return dedupeInFlight(
-      `profile-followers:${input.viewerId}:${input.userId}:${input.cursor ?? "start"}:${input.limit}`,
-      () => withConcurrencyLimit("profile-followers-repo", 4, () => this.repository.getFollowers(input))
+    const key = `profile-followers:v1:${input.viewerId}:${input.userId}:${input.cursor ?? "start"}:${input.limit}`;
+    const cached = await globalCache.get<Awaited<ReturnType<ProfileRepository["getFollowers"]>>>(key);
+    if (cached) {
+      recordCacheHit();
+      return cached;
+    }
+    recordCacheMiss();
+    return dedupeInFlight(key, () =>
+      withConcurrencyLimit("profile-followers-repo", 4, async () => {
+        const page = await this.repository.getFollowers(input);
+        await globalCache.set(key, page, 20_000);
+        return page;
+      })
     );
   }
 
   async loadFollowing(input: { viewerId: string; userId: string; cursor: string | null; limit: number }) {
-    return dedupeInFlight(
-      `profile-following:${input.viewerId}:${input.userId}:${input.cursor ?? "start"}:${input.limit}`,
-      () => withConcurrencyLimit("profile-following-repo", 4, () => this.repository.getFollowing(input))
+    const key = `profile-following:v1:${input.viewerId}:${input.userId}:${input.cursor ?? "start"}:${input.limit}`;
+    const cached = await globalCache.get<Awaited<ReturnType<ProfileRepository["getFollowing"]>>>(key);
+    if (cached) {
+      recordCacheHit();
+      return cached;
+    }
+    recordCacheMiss();
+    return dedupeInFlight(key, () =>
+      withConcurrencyLimit("profile-following-repo", 4, async () => {
+        const page = await this.repository.getFollowing(input);
+        await globalCache.set(key, page, 20_000);
+        return page;
+      })
     );
   }
 

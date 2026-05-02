@@ -4,6 +4,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { mergeUserDocumentWritePayload } from "../../repositories/source-of-truth/user-document-firestore.adapter.js";
 import { getFirebaseAuthClient } from "../../repositories/source-of-truth/firebase-auth.client.js";
+import { resolveProfilePicture } from "../../repositories/source-of-truth/profile-firestore.adapter.js";
 import { AuthBranchAttributionService } from "./auth-branch-attribution.service.js";
 
 type AuthRuntimeState = {
@@ -99,6 +100,11 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
 /** gRPC / Firestore codes that are worth retrying for delete-account. */
 function isFirestoreRetryable(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
@@ -169,6 +175,25 @@ type UserDocSummary = {
   uid: string;
   email: string | null;
   onboardingComplete: boolean;
+};
+
+export type CanonicalViewerHydration = {
+  uid: string;
+  canonicalUserId: string;
+  email: string | null;
+  handle: string | null;
+  name: string | null;
+  profilePic: string | null;
+  profilePicSmallPath: string | null;
+  profilePicMediumPath: string | null;
+  profilePicLargePath: string | null;
+  onboardingComplete: boolean | null;
+  profileComplete: boolean | null;
+  locationPreferences: Record<string, unknown> | null;
+  searchPreferences: Record<string, unknown> | null;
+  viewerReady: boolean;
+  profileHydrationStatus: "ready" | "minimal_fallback";
+  userDocFound: boolean;
 };
 
 export class AuthMutationsService {
@@ -265,6 +290,112 @@ export class AuthMutationsService {
       return this.toUserDocSummary(doc.id, (doc.data() as Record<string, unknown> | undefined) ?? undefined);
     } catch {
       return null;
+    }
+  }
+
+  async getCanonicalViewerHydration(uid: string): Promise<CanonicalViewerHydration> {
+    const canonicalUserId = uid.trim();
+    if (!canonicalUserId || !this.db) {
+      return {
+        uid: canonicalUserId,
+        canonicalUserId,
+        email: null,
+        handle: null,
+        name: null,
+        profilePic: null,
+        profilePicSmallPath: null,
+        profilePicMediumPath: null,
+        profilePicLargePath: null,
+        onboardingComplete: null,
+        profileComplete: null,
+        locationPreferences: null,
+        searchPreferences: null,
+        viewerReady: false,
+        profileHydrationStatus: "minimal_fallback",
+        userDocFound: false
+      };
+    }
+
+    try {
+      const doc = await this.db.collection("users").doc(canonicalUserId).get();
+      if (!doc.exists) {
+        return {
+          uid: canonicalUserId,
+          canonicalUserId,
+          email: null,
+          handle: null,
+          name: null,
+          profilePic: null,
+          profilePicSmallPath: null,
+          profilePicMediumPath: null,
+          profilePicLargePath: null,
+          onboardingComplete: null,
+          profileComplete: null,
+          locationPreferences: null,
+          searchPreferences: null,
+          viewerReady: false,
+          profileHydrationStatus: "minimal_fallback",
+          userDocFound: false
+        };
+      }
+      const data = (doc.data() as Record<string, unknown> | undefined) ?? {};
+      const picture = resolveProfilePicture({
+        profilePicPath: typeof data.profilePicPath === "string" ? data.profilePicPath : undefined,
+        profilePicLargePath: typeof data.profilePicLargePath === "string" ? data.profilePicLargePath : undefined,
+        profilePicLarge: typeof data.profilePicLarge === "string" ? data.profilePicLarge : undefined,
+        profilePic: typeof data.profilePic === "string" ? data.profilePic : undefined,
+        profilePicture: typeof data.profilePicture === "string" ? data.profilePicture : undefined,
+        profilePicSmallPath: typeof data.profilePicSmallPath === "string" ? data.profilePicSmallPath : undefined,
+        profilePicSmall: typeof data.profilePicSmall === "string" ? data.profilePicSmall : undefined,
+        photo: typeof data.photo === "string" ? data.photo : undefined,
+        photoURL: typeof data.photoURL === "string" ? data.photoURL : undefined,
+        avatarUrl: typeof data.avatarUrl === "string" ? data.avatarUrl : undefined
+      });
+      return {
+        uid: canonicalUserId,
+        canonicalUserId,
+        email: this.normalizeEmail(typeof data.email === "string" ? data.email : null),
+        handle: typeof data.handle === "string" && data.handle.trim() ? data.handle.trim() : null,
+        name:
+          typeof data.name === "string" && data.name.trim()
+            ? data.name.trim()
+            : typeof data.displayName === "string" && data.displayName.trim()
+              ? data.displayName.trim()
+              : null,
+        profilePic: picture.url,
+        profilePicSmallPath: picture.profilePicSmallPath,
+        profilePicMediumPath:
+          typeof data.profilePicMediumPath === "string" && data.profilePicMediumPath.trim()
+            ? data.profilePicMediumPath.trim()
+            : null,
+        profilePicLargePath: picture.profilePicLargePath,
+        onboardingComplete: typeof data.onboardingComplete === "boolean" ? data.onboardingComplete : null,
+        profileComplete: typeof data.profileComplete === "boolean" ? data.profileComplete : null,
+        locationPreferences: asRecord(data.locationPreferences ?? data.locationPrefs ?? null),
+        searchPreferences: asRecord(data.searchPreferences ?? data.searchPrefs ?? null),
+        viewerReady: true,
+        profileHydrationStatus: "ready",
+        userDocFound: true
+      };
+    } catch {
+      return {
+        uid: canonicalUserId,
+        canonicalUserId,
+        email: null,
+        handle: null,
+        name: null,
+        profilePic: null,
+        profilePicSmallPath: null,
+        profilePicMediumPath: null,
+        profilePicLargePath: null,
+        onboardingComplete: null,
+        profileComplete: null,
+        locationPreferences: null,
+        searchPreferences: null,
+        viewerReady: false,
+        profileHydrationStatus: "minimal_fallback",
+        userDocFound: false
+      };
     }
   }
 

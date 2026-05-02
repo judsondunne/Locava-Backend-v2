@@ -3,6 +3,7 @@ import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
+import { endFullWarmerPass, evaluateFullWarmerGate } from "../../runtime/warmer-traffic-gate.js";
 
 export type MixSourcePost = Record<string, unknown> & { postId: string };
 
@@ -95,7 +96,10 @@ export class MixesRepository {
     const db = this.getDb();
     if (!db || typeof (db as any).collection !== "function") return;
     this.log = log ?? this.log;
-    void this.scheduleRefresh(this.coldStartDocs, "startup");
+    const startupDelayMs = toIntEnv("MIXES_STARTUP_REFRESH_DELAY_MS", 2_000, 0, 60_000);
+    setTimeout(() => {
+      void this.scheduleRefresh(this.coldStartDocs, "startup");
+    }, startupDelayMs);
     this.refreshTimer = setInterval(() => {
       void this.scheduleRefresh(this.maxDocs, "scheduled");
     }, this.refreshMs);
@@ -221,6 +225,25 @@ export class MixesRepository {
       return;
     }
     const targetDocs = Math.max(1, Math.min(this.maxDocs, Math.floor(maxDocsOverride ?? this.maxDocs)));
+    const forceFull = process.env.MIXES_WARMER_FORCE === "1";
+    const isFullSizedPass = targetDocs >= this.maxDocs;
+    if (isFullSizedPass && !forceFull) {
+      const gate = evaluateFullWarmerGate({ force: false, mode: "mixes" });
+      if (!gate.ok) {
+        logger?.info(
+          {
+            event: "mixes_pool_refresh_skipped",
+            reason: gate.reason,
+            targetDocs,
+            skipped_due_to_active_traffic: gate.reason === "active_traffic",
+            skipped_due_to_recent_refresh: gate.reason === "recent_full_refresh",
+            skipped_due_to_singleflight: gate.reason === "singleflight_busy",
+          },
+          "mixes pool refresh skipped"
+        );
+        return;
+      }
+    }
     this.pool.state = this.pool.posts.length > 0 ? "stale" : "warming";
     this.pool.lastRefreshStartedAtMs = Date.now();
     logger?.info(
@@ -233,6 +256,7 @@ export class MixesRepository {
       },
       "mixes pool refresh started"
     );
+    const previousDocs = this.pool.posts.length;
     this.pool.inFlight = (async () => {
       const started = Date.now();
       const out: MixSourcePost[] = [];
@@ -267,18 +291,36 @@ export class MixesRepository {
         lastDoc = snap.docs[snap.docs.length - 1] ?? null;
         if (snap.size < want) break;
       }
-      this.pool.posts = sortDeterministicNewestFirst(out.filter(isPublicVisiblePost));
+      const nextPosts = sortDeterministicNewestFirst(out.filter(isPublicVisiblePost));
+      const swapAccepted = nextPosts.length > 0 || previousDocs === 0;
+      if (swapAccepted) {
+        this.pool.posts = nextPosts;
+      }
       this.pool.loadedAtMs = Date.now();
       this.pool.lastBuildLatencyMs = Math.max(0, this.pool.loadedAtMs - started);
       this.pool.lastBuildReadCount = totalReads;
       this.pool.lastRefreshErrorMessage = null;
-      this.pool.state = "warm";
+      if (swapAccepted && this.pool.posts.length > 0) {
+        this.pool.state = "warm";
+      } else if (!swapAccepted && previousDocs > 0) {
+        this.pool.state = "stale";
+      } else {
+        this.pool.state = "warm";
+      }
       await this.persistSnapshot().catch(() => undefined);
+      if (isFullSizedPass) {
+        endFullWarmerPass();
+      }
       logger?.info(
         {
           event: "pool_refresh_completed",
           pool_state: this.pool.state,
           reason,
+          previousDocs,
+          nextDocs: nextPosts.length,
+          swapAccepted,
+          swapRejectedReason: swapAccepted ? undefined : "empty_refresh_kept_prior_pool",
+          staleServed: !swapAccepted && previousDocs > 0,
           docs: this.pool.posts.length,
           reads: totalReads,
           latencyMs: this.pool.lastBuildLatencyMs,

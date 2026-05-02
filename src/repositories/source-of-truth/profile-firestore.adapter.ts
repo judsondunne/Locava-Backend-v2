@@ -800,6 +800,7 @@ function encodeStableGridCursor(orderMs: number, postId: string, rawOrder: unkno
 export function resolveProfilePicture(data: {
   profilePicPath?: string;
   profilePicLargePath?: string;
+  profilePicMediumPath?: string;
   profilePicLarge?: string;
   profilePic?: string;
   profilePicture?: string;
@@ -811,6 +812,7 @@ export function resolveProfilePicture(data: {
 }): { url: string | null; source: string | null; profilePicSmallPath: string | null; profilePicLargePath: string | null } {
   const candidates: Array<[string, unknown]> = [
     ["profilePicLargePath", data.profilePicLargePath],
+    ["profilePicMediumPath", data.profilePicMediumPath],
     ["profilePicLarge", data.profilePicLarge],
     ["profilePic", data.profilePic],
     ["profilePicture", data.profilePicture],
@@ -846,6 +848,7 @@ export function resolveProfilePicture(data: {
 function pickPic(data: {
   profilePicPath?: string;
   profilePicLargePath?: string;
+  profilePicMediumPath?: string;
   profilePicLarge?: string;
   profilePic?: string;
   profilePicture?: string;

@@ -3,7 +3,14 @@ import { globalCache } from "../../cache/global-cache.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 
 export type AuthBootstrapUserFields = {
+  uid: string;
+  email: string | null;
   handle: string;
+  name: string | null;
+  profilePic: string | null;
+  profilePicSmallPath: string | null;
+  profilePicMediumPath: string | null;
+  profilePicLargePath: string | null;
   badge: string;
   unreadCount: number;
   onboardingComplete: boolean;
@@ -29,6 +36,7 @@ export class AuthBootstrapFirestoreAdapter {
     "displayName",
     "bio",
     "profilePic",
+    "profilePicMediumPath",
     "profilePicPath",
     "profilePicLarge",
     "profilePicSmall",
@@ -95,7 +103,19 @@ export class AuthBootstrapFirestoreAdapter {
     if (!this.db) throw new Error("firestore_source_unavailable");
     if (viewerId === "anonymous") {
       return {
-        data: { handle: "guest", badge: "none", unreadCount: 0, onboardingComplete: true },
+        data: {
+          uid: "anonymous",
+          email: null,
+          handle: "guest",
+          name: "Guest",
+          profilePic: null,
+          profilePicSmallPath: null,
+          profilePicMediumPath: null,
+          profilePicLargePath: null,
+          badge: "none",
+          unreadCount: 0,
+          onboardingComplete: true
+        },
         queryCount: 0,
         readCount: 0
       };
@@ -119,12 +139,18 @@ export class AuthBootstrapFirestoreAdapter {
     }
 
     const data = doc.data() as {
+      email?: string;
       handle?: string;
       name?: string;
       displayName?: string;
       profilePic?: string;
+      profilePicMediumPath?: string;
+      profilePicLargePath?: string;
+      profilePicSmallPath?: string;
       profilePicture?: string;
       photo?: string;
+      photoURL?: string;
+      avatarUrl?: string;
       badge?: string;
       profileBadge?: string;
       viewerBadge?: string;
@@ -142,9 +168,31 @@ export class AuthBootstrapFirestoreAdapter {
     const badge = pickString(data.badge ?? data.profileBadge ?? data.viewerBadge, "standard");
     const unreadCount = pickUnread(data);
     const onboardingComplete = !(data.profileComplete === false || data.onboardingComplete === false);
+    const email = pickNullableString(data.email);
+    const name = pickNullableString(data.name ?? data.displayName);
+    const profilePicLargePath = pickNullableString(data.profilePicLargePath);
+    const profilePicMediumPath = pickNullableString(data.profilePicMediumPath);
+    const profilePicSmallPath = pickNullableString(data.profilePicSmallPath);
+    const profilePic = firstNonEmptyString([
+      data.profilePic,
+      data.profilePicLargePath,
+      data.profilePicMediumPath,
+      data.profilePicSmallPath,
+      data.profilePicture,
+      data.photoURL,
+      data.photo,
+      data.avatarUrl
+    ]);
 
     const payload: AuthBootstrapUserFields = {
+      uid: viewerId,
+      email,
       handle,
+      name,
+      profilePic,
+      profilePicSmallPath,
+      profilePicMediumPath,
+      profilePicLargePath,
       badge,
       unreadCount,
       onboardingComplete
@@ -225,6 +273,14 @@ function pickNullableString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function firstNonEmptyString(values: unknown[]): string | null {
+  for (const value of values) {
+    const normalized = pickNullableString(value);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {

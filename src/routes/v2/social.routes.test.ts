@@ -126,6 +126,7 @@ describe("v2 social suggested friends + contacts sync", () => {
       sourceBreakdown: { all_users: 50 },
       generatedAt: Date.now(),
       etag: "mock-etag",
+      sourceDiagnostics: [],
     });
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({

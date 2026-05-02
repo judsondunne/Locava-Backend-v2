@@ -12,7 +12,17 @@ export type SessionRecord = {
 };
 
 export type ViewerSummary = {
+  uid: string;
+  canonicalUserId: string;
+  viewerReady: boolean;
+  profileHydrationStatus: "ready" | "minimal_fallback";
+  email: string | null;
   handle: string;
+  name: string | null;
+  profilePic: string | null;
+  profilePicSmallPath: string | null;
+  profilePicMediumPath: string | null;
+  profilePicLargePath: string | null;
   badge: string;
   onboardingComplete: boolean | null;
 };
@@ -53,7 +63,17 @@ export class AuthBootstrapRepository {
           await delay(slowMs);
         }
         return {
+          uid: firestore.data.uid,
+          canonicalUserId: firestore.data.uid,
+          viewerReady: true,
+          profileHydrationStatus: "ready",
+          email: firestore.data.email,
           handle: firestore.data.handle,
+          name: firestore.data.name,
+          profilePic: firestore.data.profilePic,
+          profilePicSmallPath: firestore.data.profilePicSmallPath,
+          profilePicMediumPath: firestore.data.profilePicMediumPath,
+          profilePicLargePath: firestore.data.profilePicLargePath,
           badge: firestore.data.badge,
           onboardingComplete: firestore.data.onboardingComplete
         };
@@ -65,7 +85,17 @@ export class AuthBootstrapRepository {
         if (error instanceof Error && error.message === "auth_bootstrap_user_not_found") {
           recordFallback("auth_bootstrap_user_doc_missing");
           return {
+            uid: viewerId,
+            canonicalUserId: viewerId,
+            viewerReady: false,
+            profileHydrationStatus: "minimal_fallback",
+            email: null,
             handle: "",
+            name: null,
+            profilePic: null,
+            profilePicSmallPath: null,
+            profilePicMediumPath: null,
+            profilePicLargePath: null,
             badge: "standard",
             onboardingComplete: null
           };
@@ -84,7 +114,17 @@ export class AuthBootstrapRepository {
     }
 
     return {
+      uid: viewerId,
+      canonicalUserId: viewerId,
+      viewerReady: viewerId === "anonymous",
+      profileHydrationStatus: viewerId === "anonymous" ? "ready" : "minimal_fallback",
+      email: null,
       handle: viewerId === "anonymous" ? "guest" : "",
+      name: viewerId === "anonymous" ? "Guest" : null,
+      profilePic: null,
+      profilePicSmallPath: null,
+      profilePicMediumPath: null,
+      profilePicLargePath: null,
       badge: viewerId === "anonymous" ? "none" : "standard",
       onboardingComplete: viewerId === "anonymous" ? true : null
     };
