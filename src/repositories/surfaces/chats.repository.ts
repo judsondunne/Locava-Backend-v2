@@ -112,6 +112,15 @@ function toPreviewText(messageType: MessageSummary["messageType"], data: Record<
   if (messageType === "gif") return "Sent a GIF";
   if (messageType === "post") return "Shared a post";
   const text = typeof data.content === "string" ? data.content : typeof data.text === "string" ? data.text : null;
+  if (text) {
+    const normalized = text.trim().toLowerCase();
+    // Legacy clients can send GIFs as plain text URLs; keep inbox preview human-readable.
+    const looksLikeGifUrl =
+      normalized.includes("giphy.com") ||
+      normalized.includes("media.tenor.com") ||
+      /\.(gif)(\?|$)/i.test(normalized);
+    if (looksLikeGifUrl) return "Sent a GIF";
+  }
   return text ? text.slice(0, 140) : null;
 }
 

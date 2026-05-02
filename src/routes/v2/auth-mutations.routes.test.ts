@@ -118,6 +118,19 @@ describe("v2 auth mutation routes", () => {
     return createBackendApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_TEST_MODE: "disabled" });
   }
 
+  function expectAppReadyContract(payload: any): void {
+    expect(payload.accountStatus).toBe("existing_complete");
+    expect(payload.nativeDestinationRoute).toBe("app");
+    expect(payload.viewerReady).toBe(true);
+    expect(payload.profileHydrationStatus).toBe("ready");
+    expect(payload.profileComplete).toBe(true);
+    expect(payload.onboardingComplete).toBe(true);
+    expect(payload.requiresProfile).toBe(false);
+    expect(payload.isNewUser).toBe(false);
+    expect(typeof payload.canonicalUserId).toBe("string");
+    expect(payload.viewer?.canonicalUserId).toBe(payload.canonicalUserId);
+  }
+
   function stubIdpResponse(input: {
     providerUserId: string;
     email?: string;
@@ -190,6 +203,7 @@ describe("v2 auth mutation routes", () => {
     });
 
     const app = await createApp();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       const res = await app.inject({
         method: "POST",
@@ -203,11 +217,25 @@ describe("v2 auth mutation routes", () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.data.success).toBe(true);
+      expectAppReadyContract(body.data);
       expect(body.data.viewer.viewerReady).toBe(true);
       expect(body.data.viewer.handle).toBe("emailhandle");
       expect(body.data.viewer.profilePic).toBe("https://cdn.example.com/p-medium.jpg");
       expect(body.data.viewer.profileHydrationStatus).toBe("ready");
+      const sessionRes = await app.inject({
+        method: "GET",
+        url: "/v2/auth/session",
+        headers: { "x-viewer-id": "email-user-1", "x-viewer-roles": "internal" }
+      });
+      expect(sessionRes.statusCode).toBe(200);
+      const sessionBody = sessionRes.json();
+      expect(sessionBody.data.firstRender.account.viewerReady).toBe(true);
+      expect(sessionBody.data.firstRender.account.profileHydrationStatus).toBe("ready");
+      expect(sessionBody.data.firstRender.viewer.photoUrl).toBe("https://cdn.example.com/p-medium.jpg");
+      expect(sessionBody.data.firstRender.viewer.handle).toBe("emailhandle");
+      expect(logSpy.mock.calls.some((entry) => String(entry[0]).includes("AUTH_SESSION_VIEWER_SUMMARY_TIMEOUT"))).toBe(false);
     } finally {
+      logSpy.mockRestore();
       await app.close();
     }
   }, 15_000);
@@ -216,7 +244,8 @@ describe("v2 auth mutation routes", () => {
     state.users.set("google_google-user-1", {
       email: "person@example.com",
       onboardingComplete: true,
-      handle: "person"
+      handle: "person",
+      profilePic: "https://cdn.example.com/google-person.jpg"
     });
     stubIdpResponse({
       providerUserId: "google-user-1",
@@ -227,6 +256,7 @@ describe("v2 auth mutation routes", () => {
     });
 
     const app = await createApp();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       const res = await app.inject({
         method: "POST",
@@ -238,13 +268,27 @@ describe("v2 auth mutation routes", () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.data.success).toBe(true);
+      expectAppReadyContract(body.data);
       expect(body.data.accountStatus).toBe("existing_complete");
       expect(body.data.onboardingRequired).toBe(false);
       expect(body.data.token).toBe("token:google_google-user-1");
       expect(body.data.viewer.viewerReady).toBe(true);
       expect(body.data.viewer.canonicalUserId).toBe("google_google-user-1");
-      expect(state.writes).toHaveLength(0);
+      const sessionRes = await app.inject({
+        method: "GET",
+        url: "/v2/auth/session",
+        headers: { "x-viewer-id": "google_google-user-1", "x-viewer-roles": "internal" }
+      });
+      expect(sessionRes.statusCode).toBe(200);
+      const sessionBody = sessionRes.json();
+      expect(sessionBody.data.firstRender.account.viewerReady).toBe(true);
+      expect(sessionBody.data.firstRender.account.profileHydrationStatus).toBe("ready");
+      expect(sessionBody.data.firstRender.viewer.photoUrl).toBeTruthy();
+      expect(sessionBody.data.firstRender.viewer.handle).toBeTruthy();
+      expect(logSpy.mock.calls.some((entry) => String(entry[0]).includes("AUTH_SESSION_VIEWER_SUMMARY_TIMEOUT"))).toBe(false);
+      expect(state.writes.some((entry) => entry.uid === "google_google-user-1")).toBe(true);
     } finally {
+      logSpy.mockRestore();
       await app.close();
     }
   }, 15_000);
@@ -286,7 +330,8 @@ describe("v2 auth mutation routes", () => {
     state.users.set("apple_apple-user-1", {
       email: "apple@example.com",
       onboardingComplete: true,
-      handle: "apple-person"
+      handle: "apple-person",
+      profilePic: "https://cdn.example.com/apple-person.jpg"
     });
     stubIdpResponse({
       providerUserId: "apple-user-1",
@@ -297,6 +342,7 @@ describe("v2 auth mutation routes", () => {
     });
 
     const app = await createApp();
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
     try {
       const res = await app.inject({
         method: "POST",
@@ -308,11 +354,25 @@ describe("v2 auth mutation routes", () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.data.accountStatus).toBe("existing_complete");
+      expectAppReadyContract(body.data);
       expect(body.data.token).toBe("token:apple_apple-user-1");
       expect(body.data.viewer.viewerReady).toBe(true);
       expect(body.data.viewer.canonicalUserId).toBe("apple_apple-user-1");
-      expect(state.writes).toHaveLength(0);
+      const sessionRes = await app.inject({
+        method: "GET",
+        url: "/v2/auth/session",
+        headers: { "x-viewer-id": "apple_apple-user-1", "x-viewer-roles": "internal" }
+      });
+      expect(sessionRes.statusCode).toBe(200);
+      const sessionBody = sessionRes.json();
+      expect(sessionBody.data.firstRender.account.viewerReady).toBe(true);
+      expect(sessionBody.data.firstRender.account.profileHydrationStatus).toBe("ready");
+      expect(sessionBody.data.firstRender.viewer.photoUrl).toBeTruthy();
+      expect(sessionBody.data.firstRender.viewer.handle).toBeTruthy();
+      expect(logSpy.mock.calls.some((entry) => String(entry[0]).includes("AUTH_SESSION_VIEWER_SUMMARY_TIMEOUT"))).toBe(false);
+      expect(state.writes.some((entry) => entry.uid === "apple_apple-user-1")).toBe(true);
     } finally {
+      logSpy.mockRestore();
       await app.close();
     }
   }, 15_000);
@@ -347,7 +407,7 @@ describe("v2 auth mutation routes", () => {
     }
   }, 15_000);
 
-  it("returns onboarding-required for an existing incomplete OAuth account", async () => {
+  it("rejects existing incomplete OAuth account until viewer is fully app-ready", async () => {
     state.users.set("google_google-user-3", {
       email: "resume@example.com",
       onboardingComplete: false,
@@ -372,10 +432,13 @@ describe("v2 auth mutation routes", () => {
 
       expect(res.statusCode).toBe(200);
       const body = res.json();
+      expect(body.data.success).toBe(false);
+      expect(body.data.error).toBe("signin_not_fully_ready");
+      expect(body.data.reason).toBe("viewer_contract_incomplete");
       expect(body.data.accountStatus).toBe("existing_incomplete");
-      expect(body.data.onboardingRequired).toBe(true);
-      expect(body.data.nativeDestinationRoute).toBe("onboarding_existing");
-      expect(body.data.token).toBe("token:google_google-user-3");
+      expect(Array.isArray(body.data.failures)).toBe(true);
+      expect(body.data.failures.length).toBeGreaterThan(0);
+      expect(body.data.token).toBeUndefined();
     } finally {
       await app.close();
     }
@@ -387,7 +450,8 @@ describe("v2 auth mutation routes", () => {
       handle: "shape",
       name: "Shape User",
       onboardingComplete: true,
-      profileComplete: true
+      profileComplete: true,
+      profilePic: "https://cdn.locava.dev/shape-user-1/profile.jpg"
     });
     vi.stubGlobal("fetch", vi.fn(async (url: string) => {
       if (url.includes("accounts:signInWithPassword")) {
@@ -486,6 +550,9 @@ describe("v2 auth mutation routes", () => {
       expect(body.data.token).toBe("token:existing-email-uid");
       expect(state.writes.some((entry) => entry.uid === "existing-email-uid")).toBe(true);
       expect(state.writes.some((entry) => entry.uid === "google_google-user-4")).toBe(false);
+      const writtenUser = state.users.get("existing-email-uid");
+      expect(Array.isArray(writtenUser?.activityProfile)).toBe(false);
+      expect(writtenUser?.activityProfile).toEqual({ hiking: 4 });
     } finally {
       await app.close();
     }

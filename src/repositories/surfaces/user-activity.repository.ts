@@ -22,16 +22,53 @@ function toMillis(value: unknown): number | null {
   return null;
 }
 
+function objectField(input: unknown, key: string): unknown {
+  if (!input || typeof input !== "object") return null;
+  return (input as Record<string, unknown>)[key];
+}
+
 function extractLastActiveMsFromUserDoc(doc: Record<string, unknown>): number | null {
-  const msDirect = toMillis(doc.lastSeenMs);
-  if (msDirect != null) return msDirect;
-  const msFromLastSeen = toMillis(doc.lastSeen);
-  if (msFromLastSeen != null) return msFromLastSeen;
-  const msFromLastLoginAt = toMillis(doc.lastLoginAt);
-  if (msFromLastLoginAt != null) return msFromLastLoginAt;
-  const msFromLastLogin = toMillis(doc.lastLogin);
-  if (msFromLastLogin != null) return msFromLastLogin;
-  return null;
+  const presence = objectField(doc, "presence");
+  const activity = objectField(doc, "activity");
+
+  const candidates = [
+    doc.lastActiveMs,
+    doc.lastActiveAt,
+    doc.lastActive,
+    doc.last_active_ms,
+    doc.last_active_at,
+    doc.lastSeenMs,
+    doc.lastSeenAt,
+    doc.lastSeen,
+    doc.last_seen_ms,
+    doc.last_seen_at,
+    doc.last_seen,
+    doc.lastOnlineAt,
+    doc.last_online_at,
+    doc.lastLoginAt,
+    doc.lastLogin,
+    doc.last_login_at,
+    doc.presenceUpdatedAt,
+    doc.updatedAt,
+    doc.updated_at,
+    objectField(presence, "lastActiveMs"),
+    objectField(presence, "lastActiveAt"),
+    objectField(presence, "lastSeenMs"),
+    objectField(presence, "lastSeenAt"),
+    objectField(presence, "updatedAt"),
+    objectField(presence, "updated_at"),
+    objectField(activity, "lastActiveMs"),
+    objectField(activity, "lastActiveAt"),
+    objectField(activity, "lastSeenMs"),
+    objectField(activity, "lastSeenAt"),
+    objectField(activity, "updatedAt"),
+    objectField(activity, "updated_at")
+  ]
+    .map((value) => toMillis(value))
+    .filter((value): value is number => value != null && Number.isFinite(value) && value > 0);
+
+  if (candidates.length === 0) return null;
+  return Math.max(...candidates);
 }
 
 export class UserActivityRepository {

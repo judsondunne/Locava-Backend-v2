@@ -2,6 +2,7 @@ import { FieldPath } from "firebase-admin/firestore";
 import { incrementDbOps } from "../observability/request-context.js";
 import { getFirestoreSourceClient } from "./source-of-truth/firestore-client.js";
 import { SourceOfTruthRequiredError } from "./source-of-truth/strict-mode.js";
+import { normalizeActivityProfile } from "../domains/users/canonical-user-document.js";
 
 export class MixesRepository {
   private readonly db = getFirestoreSourceClient();
@@ -16,8 +17,19 @@ export class MixesRepository {
     const snap = await db.collection("users").doc(viewerId).get();
     incrementDbOps("reads", 1);
     const data = snap.data() as Record<string, unknown> | undefined;
-    const profile = Array.isArray(data?.activityProfile) ? (data?.activityProfile as unknown[]) : [];
-    return profile.map((v) => String(v ?? "").trim().toLowerCase()).filter(Boolean).slice(0, 8);
+    const raw = data?.activityProfile;
+    const normalized = normalizeActivityProfile(raw);
+    if (Array.isArray(raw)) {
+      console.warn("SEARCH_VIEWER_PROFILE_NORMALIZED", {
+        userId: viewerId,
+        rawActivityProfileType: "array",
+        normalizedActivityProfileCount: Object.keys(normalized).length,
+      });
+    }
+    return Object.entries(normalized)
+      .sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0))
+      .map(([activity]) => activity)
+      .slice(0, 8);
   }
 
   async loadViewerFollowingUserIds(viewerId: string, limit = 120): Promise<string[]> {

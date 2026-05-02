@@ -29,7 +29,7 @@ vi.mock("../../repositories/source-of-truth/auth-bootstrap-firestore.adapter.js"
 }));
 
 describe("v2 auth/session hydration behavior", () => {
-  it("does not cache timeout minimal fallback as final session", async () => {
+  it("avoids minimal fallback for immediate session hydration", async () => {
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_TEST_MODE: "disabled" });
     try {
@@ -43,7 +43,9 @@ describe("v2 auth/session hydration behavior", () => {
         headers
       });
       expect(timedOut.statusCode).toBe(200);
-      expect(timedOut.json().data.firstRender.account.viewerReady).toBe(false);
+      expect(timedOut.json().data.firstRender.account.viewerReady).toBe(true);
+      expect(timedOut.json().data.firstRender.account.profileHydrationStatus).toBe("ready");
+      expect(timedOut.json().data.firstRender.account.reason ?? null).toBe(null);
 
       const retried = await app.inject({
         method: "GET",

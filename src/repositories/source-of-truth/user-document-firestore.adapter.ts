@@ -1,5 +1,6 @@
 import { mergeSearchFieldsIntoUserWritePayload } from "../../lib/user-search-fields.js";
 import { mergePhoneSearchFieldsIntoUserWritePayload } from "../../lib/phone-search-fields.js";
+import { normalizeActivityProfile } from "../../domains/users/canonical-user-document.js";
 
 /**
  * Firestore `users/{userId}` write helpers.
@@ -9,6 +10,9 @@ import { mergePhoneSearchFieldsIntoUserWritePayload } from "../../lib/phone-sear
  */
 export function mergeUserDocumentWritePayload(fields: Record<string, unknown>): Record<string, unknown> {
   const next = { ...fields };
+  if ("activityProfile" in next) {
+    next.activityProfile = normalizeActivityProfile(next.activityProfile);
+  }
   const rawProfilePic = next.profilePic;
   const normalizedProfilePic = typeof rawProfilePic === "string" ? rawProfilePic.trim() : "";
   if (normalizedProfilePic.length > 0) {

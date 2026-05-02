@@ -11,6 +11,13 @@ export const PlacesReverseGeocodeResponseSchema = z.object({
   routeName: z.literal("places.reverse_geocode.get"),
   success: z.boolean(),
   address: z.string().nullable(),
+  locationDisplayName: z.string().nullable().optional(),
+  fallbackPrecision: z.enum(["address", "city", "region", "country", "coordinates"]).optional(),
+  reverseGeocodeStatus: z.enum(["resolved", "partial", "fallback", "failed"]).optional(),
+  city: z.string().nullable().optional(),
+  region: z.string().nullable().optional(),
+  country: z.string().nullable().optional(),
+  county: z.string().nullable().optional(),
   match: z
     .object({
       text: z.string(),

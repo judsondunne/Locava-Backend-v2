@@ -5,6 +5,7 @@ import {
   readMaybeMillis,
   readPostThumbUrl
 } from "./post-firestore-projection.js";
+import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 
 export type FirestoreProfilePostDetail = {
   postId: string;
@@ -398,8 +399,7 @@ function normalizeLocation(raw: Record<string, unknown>): {
   const coordinates = (raw.coordinates ?? {}) as Record<string, unknown>;
   const geo = (raw.geo ?? raw.geoData ?? {}) as Record<string, unknown>;
   const geoPoint = readGeoPoint((geo as { geopoint?: unknown }).geopoint);
-  return {
-    lat: firstFiniteNumber(
+  const lat = firstFiniteNumber(
       raw.lat,
       raw.latitude,
       location.lat,
@@ -407,8 +407,8 @@ function normalizeLocation(raw: Record<string, unknown>): {
       coordinates.lat,
       coordinates.latitude,
       geoPoint?.latitude,
-    ),
-    lng: firstFiniteNumber(
+    );
+  const lng = firstFiniteNumber(
       raw.long,
       raw.lng,
       raw.longitude,
@@ -419,11 +419,24 @@ function normalizeLocation(raw: Record<string, unknown>): {
       coordinates.lng,
       coordinates.longitude,
       geoPoint?.longitude,
-    ),
-    address:
+    );
+  const normalized = normalizeCanonicalPostLocation({
+    latitude: lat,
+    longitude: lng,
+    addressDisplayName:
       normalizeNullable(raw.address) ??
       normalizeNullable(location.address) ??
       normalizeNullable((geo as { address?: unknown }).address),
+    city: normalizeNullable((geo as { city?: unknown }).city) ?? normalizeNullable(raw.city),
+    region: normalizeNullable((geo as { state?: unknown }).state) ?? normalizeNullable(raw.state),
+    country: normalizeNullable((geo as { country?: unknown }).country) ?? normalizeNullable(raw.country),
+    source: raw.locationSource ?? "unknown",
+    reverseGeocodeMatched: raw.reverseGeocodeStatus === "resolved"
+  });
+  return {
+    lat: normalized.latitude,
+    lng: normalized.longitude,
+    address: normalized.addressDisplayName ?? "Unknown location"
   };
 }
 

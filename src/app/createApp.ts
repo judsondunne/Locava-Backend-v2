@@ -147,6 +147,7 @@ import { globalCache } from "../cache/global-cache.js";
 import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
 import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
+import { runFirebaseAdminPermissionProbe } from "../lib/firebase-admin.js";
 
 function classifyError(error: unknown): { code: string; statusCode: number; details?: unknown } {
   if (error instanceof ZodError) {
@@ -639,6 +640,17 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       },
       "local dev identity harness status"
     );
+    if (env.NODE_ENV !== "production") {
+      await runFirebaseAdminPermissionProbe().catch((error) => {
+        app.log.error(
+          {
+            event: "firebase_admin_permission_probe_failed",
+            message: error instanceof Error ? error.message : String(error)
+          },
+          "firebase admin permission probe failed"
+        );
+      });
+    }
     logStartupTimeline("server_on_ready_complete", { nodeEnv: env.NODE_ENV });
   });
 

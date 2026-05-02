@@ -299,6 +299,11 @@ export class LegendService {
     derivedScopes: LegendScopeId[];
   }> {
     const startedAt = Date.now();
+    console.info("[legend.commit] start", {
+      stageId: params.stageId,
+      postId: params.post.postId,
+      userId: params.post.userId
+    });
     const db = this.repo.scopeRef("__probe__").firestore;
     const stageRef = this.repo.stageRef(params.stageId);
     const processedRef = this.repo.processedPostRef(params.post.postId);
@@ -330,9 +335,17 @@ export class LegendService {
         tx.get(userStateRef)
       ]);
       if (processedSnap.exists) {
+        console.info("[legend.commit] already_processed", {
+          stageId: params.stageId,
+          postId: params.post.postId
+        });
         return { committed: false, alreadyProcessed: true, awardsCreated: 0, derivedScopes: [] as LegendScopeId[] };
       }
       if (!stageSnap.exists) {
+        console.warn("[legend.commit] stage_missing", {
+          stageId: params.stageId,
+          postId: params.post.postId
+        });
         throw new Error("legend_stage_not_found");
       }
       const stage = this.repo.readStageDoc(stageSnap.data(), params.stageId);
@@ -344,6 +357,12 @@ export class LegendService {
         throw new Error("legend_stage_expired");
       }
       const derivedScopes = (stage.derivedScopes ?? []).filter(Boolean).slice(0, 8);
+      console.info("[legend.commit] derived_scopes_loaded", {
+        stageId: params.stageId,
+        postId: params.post.postId,
+        derivedScopeCount: derivedScopes.length,
+        derivedScopes
+      });
 
       const scopeRefs = derivedScopes.map((scopeId) => this.repo.scopeRef(scopeId));
       const statRefs = derivedScopes.map((scopeId) => this.repo.userStatRef(scopeId, params.post.userId));
@@ -359,6 +378,12 @@ export class LegendService {
       const closeScopeIdsThisCommit: string[] = [];
       const awardIdsThisCommit: string[] = [];
       const defenseAtRiskScopeIdsThisCommit: string[] = [];
+      const pendingWrites: Array<() => void> = [];
+      const pendingFirstClaims: Array<{
+        claimKey: string;
+        claimRef: ReturnType<LegendRepository["firstClaimRef"]>;
+        payload: ReturnType<LegendRepository["buildFirstClaimDoc"]>;
+      }> = [];
       const earnedFirstLegends: Array<Record<string, unknown>> = [];
       const earnedRankLegends: Array<Record<string, unknown>> = [];
       const rankChanges: Array<Record<string, unknown>> = [];
@@ -487,20 +512,24 @@ export class LegendService {
             overtakenByUserSummary: { userId: nextLeaderUserId },
             sourcePostId: params.post.postId
           });
-          tx.set(eventRef, eventPayload, { merge: true });
+          pendingWrites.push(() => {
+            tx.set(eventRef, eventPayload, { merge: true });
+          });
           // Best-effort projection for old leader: mark pending global modal + lost lists (bounded via arrayUnion).
-          tx.set(
-            oldLeaderStateRef,
-            {
-              pendingGlobalModalEventId: eventId,
-              defense: {
-                lostEventIds: FieldValue.arrayUnion(eventId),
-                lostScopeIds: FieldValue.arrayUnion(scopeId)
-              },
-              updatedAt: FieldValue.serverTimestamp()
-            } as any,
-            { merge: true }
-          );
+          pendingWrites.push(() => {
+            tx.set(
+              oldLeaderStateRef,
+              {
+                pendingGlobalModalEventId: eventId,
+                defense: {
+                  lostEventIds: FieldValue.arrayUnion(eventId),
+                  lostScopeIds: FieldValue.arrayUnion(scopeId)
+                },
+                updatedAt: FieldValue.serverTimestamp()
+              } as any,
+              { merge: true }
+            );
+          });
         }
 
         const nextScope: LegendScopeDoc = {
@@ -550,31 +579,35 @@ export class LegendService {
         const scopeRef = scopeRefs[i]!;
         const statRef = statRefs[i]!;
 
-        tx.set(
-          scopeRef,
-          {
-            ...nextScope,
-            createdAt: scopeWasCreated ? FieldValue.serverTimestamp() : prevScope.createdAt ?? FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp()
-          },
-          { merge: true }
-        );
+        pendingWrites.push(() => {
+          tx.set(
+            scopeRef,
+            {
+              ...nextScope,
+              createdAt: scopeWasCreated ? FieldValue.serverTimestamp() : prevScope.createdAt ?? FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp()
+            },
+            { merge: true }
+          );
+        });
 
         const nextUserRank = findRank(nextTopUsers, params.post.userId);
-        tx.set(
-          statRef,
-          {
-            scopeId,
-            userId: params.post.userId,
-            count: nextUserCount,
-            rankSnapshot: nextUserRank,
-            isLeader: nextLeaderUserId === params.post.userId,
-            lastPostId: params.post.postId,
-            createdAt: statSnap.exists ? (prevUser.createdAt ?? FieldValue.serverTimestamp()) : FieldValue.serverTimestamp(),
-            updatedAt: FieldValue.serverTimestamp()
-          },
-          { merge: true }
-        );
+        pendingWrites.push(() => {
+          tx.set(
+            statRef,
+            {
+              scopeId,
+              userId: params.post.userId,
+              count: nextUserCount,
+              rankSnapshot: nextUserRank,
+              isLeader: nextLeaderUserId === params.post.userId,
+              lastPostId: params.post.postId,
+              createdAt: statSnap.exists ? (prevUser.createdAt ?? FieldValue.serverTimestamp()) : FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp()
+            },
+            { merge: true }
+          );
+        });
 
         if (award && kind) {
           const awardId = `${params.post.postId}_${scopeId}_${kind}`.slice(0, 240);
@@ -613,7 +646,9 @@ export class LegendService {
             leaderCount: nextScope.leaderCount,
             deltaToLeader: Math.max(0, nextScope.leaderCount - nextUserCount)
           });
-          tx.set(awardRef, awardPayload, { merge: true });
+          pendingWrites.push(() => {
+            tx.set(awardRef, awardPayload, { merge: true });
+          });
           awardsCreated += 1;
           awardIdsThisCommit.push(awardId);
 
@@ -665,26 +700,28 @@ export class LegendService {
           if (canonical.family === "rank") {
             const rankAggregateKey = `${canonical.kind}:${scopeId}`.slice(0, 240);
             const rankAggregateRef = this.repo.rankAggregateRef(rankAggregateKey);
-            tx.set(
-              rankAggregateRef,
-              {
-                aggregateKey: rankAggregateKey,
-                kind: canonical.kind as CanonicalRankAggregateDoc["kind"],
-                family: "rank",
-                dimension: canonical.dimension,
-                locationScope: locationParsed.locationScope,
-                locationKey: locationParsed.locationKey,
-                locationLabel: locationParsed.locationKey,
-                activityKey,
-                activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
-                comboKey,
-                [`countsByUser.${params.post.userId}`]: nextUserCount,
-                topUsers: nextTopUsers,
-                totalPosts: nextScope.totalPosts,
-                updatedAt: FieldValue.serverTimestamp()
-              } satisfies Partial<CanonicalRankAggregateDoc>,
-              { merge: true }
-            );
+            pendingWrites.push(() => {
+              tx.set(
+                rankAggregateRef,
+                {
+                  aggregateKey: rankAggregateKey,
+                  kind: canonical.kind as CanonicalRankAggregateDoc["kind"],
+                  family: "rank",
+                  dimension: canonical.dimension,
+                  locationScope: locationParsed.locationScope,
+                  locationKey: locationParsed.locationKey,
+                  locationLabel: locationParsed.locationKey,
+                  activityKey,
+                  activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
+                  comboKey,
+                  [`countsByUser.${params.post.userId}`]: nextUserCount,
+                  topUsers: nextTopUsers,
+                  totalPosts: nextScope.totalPosts,
+                  updatedAt: FieldValue.serverTimestamp()
+                } satisfies Partial<CanonicalRankAggregateDoc>,
+                { merge: true }
+              );
+            });
           }
 
           if (canonical.kind === "location_first" || canonical.kind === "activity_first" || canonical.kind === "combo_first") {
@@ -696,30 +733,28 @@ export class LegendService {
             });
             if (claimKey) {
               const claimRef = this.repo.firstClaimRef(claimKey);
-              const claimSnap = await tx.get(claimRef);
-              if (!claimSnap.exists) {
-                tx.create(
-                  claimRef,
-                  this.repo.buildFirstClaimDoc({
-                    claimKey,
-                    kind: canonical.kind,
-                    family: "first",
-                    dimension: canonical.dimension,
-                    userId: params.post.userId,
-                    postId: params.post.postId,
-                    locationScope: locationParsed.locationScope,
-                    locationKey: locationParsed.locationKey,
-                    locationLabel: locationParsed.locationKey,
-                    activityKey,
-                    activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
-                    comboKey,
-                    title: award.title,
-                    subtitle: award.subtitle,
-                    description: "Original legend claim. First to discover.",
-                    iconContext: canonical.dimension
-                  })
-                );
-              }
+              pendingFirstClaims.push({
+                claimKey,
+                claimRef,
+                payload: this.repo.buildFirstClaimDoc({
+                  claimKey,
+                  kind: canonical.kind,
+                  family: "first",
+                  dimension: canonical.dimension,
+                  userId: params.post.userId,
+                  postId: params.post.postId,
+                  locationScope: locationParsed.locationScope,
+                  locationKey: locationParsed.locationKey,
+                  locationLabel: locationParsed.locationKey,
+                  activityKey,
+                  activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
+                  comboKey,
+                  title: award.title,
+                  subtitle: award.subtitle,
+                  description: "Original legend claim. First to discover.",
+                  iconContext: canonical.dimension
+                })
+              });
             }
           }
           awardSummaries.push({
@@ -762,6 +797,27 @@ export class LegendService {
           if (deltaBehind <= 2) defenseAtRiskScopeIdsThisCommit.push(scopeId);
         } else if (deltaToLeader > 0 && deltaToLeader <= 2) {
           closeScopeIdsThisCommit.push(scopeId);
+        }
+      }
+
+      const claimReadsByPath = new Map<string, { exists: boolean; claim: (typeof pendingFirstClaims)[number] }>();
+      if (pendingFirstClaims.length > 0) {
+        const uniqueClaims = [...new Map(pendingFirstClaims.map((claim) => [claim.claimRef.path, claim])).values()];
+        const claimSnaps = await Promise.all(uniqueClaims.map((claim) => tx.get(claim.claimRef)));
+        for (let i = 0; i < uniqueClaims.length; i += 1) {
+          claimReadsByPath.set(uniqueClaims[i]!.claimRef.path, {
+            exists: claimSnaps[i]!.exists,
+            claim: uniqueClaims[i]!
+          });
+        }
+      }
+
+      for (const applyWrite of pendingWrites) {
+        applyWrite();
+      }
+      for (const read of claimReadsByPath.values()) {
+        if (!read.exists) {
+          tx.create(read.claim.claimRef, read.claim.payload);
         }
       }
 
@@ -842,11 +898,31 @@ export class LegendService {
     // Conservative dbOps accounting (missing docs don't count as reads in Firestore).
     incrementDbOps("reads", 3 + 2 * (result.derivedScopes?.length ?? 0));
     incrementDbOps("writes", 3 + 2 * (result.derivedScopes?.length ?? 0) + (result.awardsCreated ?? 0));
+    console.info("[legend.commit] done", {
+      stageId: params.stageId,
+      postId: params.post.postId,
+      userId: params.post.userId,
+      committed: result.committed,
+      alreadyProcessed: result.alreadyProcessed,
+      awardsCreated: result.awardsCreated,
+      derivedScopeCount: result.derivedScopes.length,
+      elapsedMs: Date.now() - startedAt
+    });
     return result;
   }
 
   async processPostCreated(post: LegendPostCreatedInput): Promise<{ committed: boolean; alreadyProcessed: boolean; awardsCreated: number; derivedScopes: LegendScopeId[] }> {
     const startedAt = Date.now();
+    console.info("[legend.process_post_created] start", {
+      postId: post.postId,
+      userId: post.userId,
+      geohash: post.geohash ?? null,
+      activityCount: (post.activities ?? []).length,
+      city: post.city ?? null,
+      state: post.state ?? null,
+      country: post.country ?? null,
+      region: post.region ?? null
+    });
     const derived = this.deriver.deriveFromPost({
       geohash: post.geohash ?? null,
       activities: post.activities ?? [],
@@ -866,6 +942,16 @@ export class LegendService {
     });
     const committed = await this.commitStagedPostLegend({ stageId, post });
     recordSurfaceTimings({ legendProcessMs: Date.now() - startedAt });
+    console.info("[legend.process_post_created] done", {
+      postId: post.postId,
+      userId: post.userId,
+      stageId,
+      derivedScopeCount: derived.scopes.length,
+      committed: committed.committed,
+      alreadyProcessed: committed.alreadyProcessed,
+      awardsCreated: committed.awardsCreated,
+      elapsedMs: Date.now() - startedAt
+    });
     return committed;
   }
 }

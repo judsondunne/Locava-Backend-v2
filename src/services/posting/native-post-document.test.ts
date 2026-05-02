@@ -30,7 +30,12 @@ describe("native post document (finalize parity)", () => {
       stateRegionId: "US-Pennsylvania",
       countryRegionId: "US",
       geohash: "dr4e3x",
-      geoData: { country: "United States", state: "Pennsylvania", city: "Easton" }
+      geoData: { country: "United States", state: "Pennsylvania", city: "Easton" },
+      addressDisplayName: "Easton, Pennsylvania",
+      locationDisplayName: "Easton, Pennsylvania",
+      fallbackPrecision: "address" as const,
+      reverseGeocodeStatus: "resolved" as const,
+      source: "manual" as const
     }
   };
 

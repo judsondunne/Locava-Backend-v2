@@ -23,6 +23,20 @@ function finiteInt(value: unknown, fallback: number): number {
   return fallback;
 }
 
+function parseScope(scopeId: string): { scopeKey: string | null; activityKey: string | null } {
+  const parts = String(scopeId ?? "").split(":").map((v) => v.trim());
+  if (parts[0] === "placeActivity") {
+    return { scopeKey: parts.slice(0, 3).join(":"), activityKey: parts[3] ?? null };
+  }
+  if (parts[0] === "activity") {
+    return { scopeKey: "activity:global", activityKey: parts[1] ?? null };
+  }
+  if (parts[0] === "place") {
+    return { scopeKey: parts.slice(0, 3).join(":"), activityKey: null };
+  }
+  return { scopeKey: scopeId || null, activityKey: null };
+}
+
 export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Promise<void> {
   app.get(legendsAfterPostContract.path, async (request, reply) => {
     const viewer = buildViewerContext(request);
@@ -46,18 +60,66 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       });
     }
     const params = LegendsAfterPostParamsSchema.parse(request.params);
+    request.log.info({
+      event: "legends_afterpost_lookup_start",
+      viewerId: viewer.viewerId,
+      postId: params.postId
+    });
     const resSnap = await db.collection("legendPostResults").doc(params.postId).get();
     incrementDbOps("reads", resSnap.exists ? 1 : 0);
+    const startedAt = Date.now();
     if (!resSnap.exists) {
+      const processedSnap = await db.collection("legendProcessedPosts").doc(params.postId).get();
+      incrementDbOps("reads", processedSnap.exists ? 1 : 0);
+      const stageId = processedSnap.exists ? String((processedSnap.data() as FirestoreMap | undefined)?.stageId ?? "") : "";
+      const stageSnap = stageId ? await db.collection("legendPostStages").doc(stageId).get() : null;
+      incrementDbOps("reads", stageSnap?.exists ? 1 : 0);
+      const reasonIfEmpty = !processedSnap.exists
+        ? "missing_post"
+        : !stageSnap?.exists
+          ? "stage_missing"
+          : "computation_timeout";
+      request.log.info({
+        event: "legends_afterpost_missing_diagnostics",
+        postId: params.postId,
+        viewerId: viewer.viewerId,
+        legendPostResultsExists: false,
+        legendProcessedPostExists: processedSnap.exists,
+        stageId: stageId || null,
+        stageExists: Boolean(stageSnap?.exists),
+        reasonIfEmpty
+      });
+      request.log.info({
+        event: "legends_afterpost_summary",
+        postId: params.postId,
+        viewerId: viewer.viewerId,
+        postFound: false,
+        stagedPostFound: Boolean(stageSnap?.exists),
+        finalizedPostFound: processedSnap.exists,
+        eventCreated: false,
+        eventReturned: false,
+        reasonIfEmpty,
+        latencyMs: Date.now() - startedAt
+      });
       return success({
         routeName: legendsAfterPostContract.routeName,
         postId: params.postId,
         status: "processing",
         pollAfterMs: 500,
-        awards: []
+        awards: [],
+        reasonIfEmpty
       });
     }
     const row = (resSnap.data() as FirestoreMap | undefined) ?? {};
+    request.log.info({
+      event: "legends_afterpost_result_row_loaded",
+      postId: params.postId,
+      viewerId: viewer.viewerId,
+      status: String(row.status ?? "processing"),
+      awardIdsCount: Array.isArray(row.awardIds) ? row.awardIds.length : 0,
+      awardsCount: Array.isArray(row.awards) ? row.awards.length : 0,
+      hasRewardsObject: Boolean(row.rewards && typeof row.rewards === "object")
+    });
     const awardSnap = await db.collection("users").doc(viewer.viewerId).collection("achievements_awards").doc(params.postId).get();
     incrementDbOps("reads", awardSnap.exists ? 1 : 0);
     const awardRow = (awardSnap.data() as FirestoreMap | undefined) ?? {};
@@ -137,6 +199,42 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
             overtakenUsers: [],
             displayCards: []
           };
+    const displayCards = Array.isArray((rewards as { displayCards?: unknown }).displayCards)
+      ? ((rewards as { displayCards: Array<Record<string, unknown>> }).displayCards)
+      : [];
+    const firstCard = displayCards[0] ?? null;
+    const topAward = awards[0] ?? null;
+    const parsed = parseScope(topAward?.scopeId ?? "");
+    const currentRank = topAward?.newRank ?? (typeof firstCard?.rank === "number" ? Math.max(1, finiteInt(firstCard.rank, 1)) : null);
+    const previousRank = topAward?.previousRank ?? null;
+    const distanceToLegend = topAward ? Math.max(0, finiteInt(topAward.deltaToLeader, 0)) : null;
+    const becameLegend = Boolean(currentRank === 1 && previousRank !== 1);
+    const podiumRank = currentRank != null && currentRank <= 3 ? currentRank : null;
+    const eventReturned = awards.length > 0 || displayCards.length > 0;
+    const reasonIfEmpty = eventReturned
+      ? null
+      : status === "processing"
+        ? "computation_timeout"
+        : "not_top_or_close";
+    request.log.info({
+      event: "legends_afterpost_summary",
+      postId: params.postId,
+      viewerId: viewer.viewerId,
+      activityKey: parsed.activityKey,
+      scopeKey: parsed.scopeKey,
+      scopeLabel: topAward?.subtitle ?? null,
+      postFound: true,
+      stagedPostFound: true,
+      finalizedPostFound: true,
+      eventCreated: Boolean(awards.length > 0),
+      eventReturned,
+      becameLegend,
+      currentRank,
+      podiumRank,
+      distanceToLegend,
+      reasonIfEmpty,
+      latencyMs: Date.now() - startedAt
+    });
     return success({
       routeName: legendsAfterPostContract.routeName,
       postId: params.postId,
@@ -155,7 +253,19 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       pendingCelebrations,
       pollAfterMs: status === "processing" ? 500 : 0,
       awards,
-      rewards
+      rewards,
+      reasonIfEmpty,
+      legendStatus: {
+        activityKey: parsed.activityKey,
+        activityLabel: typeof firstCard?.activityLabel === "string" ? firstCard.activityLabel : null,
+        scopeKey: parsed.scopeKey,
+        scopeLabel: topAward?.subtitle ?? null,
+        currentRank,
+        previousRank,
+        podiumRank,
+        distanceToLegend,
+        becameLegend
+      }
     });
   });
 }

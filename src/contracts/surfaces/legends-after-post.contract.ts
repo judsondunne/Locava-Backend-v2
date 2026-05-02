@@ -26,6 +26,21 @@ export const LegendsAfterPostResponseSchema = z.object({
   leaguePassCelebration: AchievementLeaguePassCelebrationSchema.nullable().optional(),
   pendingCelebrations: z.array(AchievementLeaguePassCelebrationSchema).optional(),
   pollAfterMs: z.number().int().nonnegative(),
+  reasonIfEmpty: z.string().nullable().optional(),
+  legendStatus: z
+    .object({
+      activityKey: z.string().nullable(),
+      activityLabel: z.string().nullable(),
+      scopeKey: z.string().nullable(),
+      scopeLabel: z.string().nullable(),
+      currentRank: z.number().int().positive().nullable(),
+      previousRank: z.number().int().positive().nullable(),
+      podiumRank: z.number().int().positive().max(3).nullable(),
+      distanceToLegend: z.number().int().nonnegative().nullable(),
+      becameLegend: z.boolean()
+    })
+    .nullable()
+    .optional(),
   awards: z.array(LegendAwardWireSchema).max(40),
   rewards: LegendRewardEnvelopeSchema.optional()
 });

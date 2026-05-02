@@ -172,7 +172,8 @@ export class SearchMixesOrchestrator {
             rawAssets.length > 0 ? firestoreAssetsToCompactSeeds(rawAssets, postId, 12) : [];
           const compactAsset = toCompactSeedAsset(row as Record<string, unknown>);
           const primary = compactFromFirestore[0];
-          const mediaType = primary?.type ?? compactAsset.type;
+          const mediaType: "image" | "video" =
+            primary?.type === "video" ? "video" : compactAsset.type;
           const posterUrl =
             cleanString(primary?.posterUrl) ?? compactAsset.posterUrl ?? "";
           return toSearchMixPreviewDTO({

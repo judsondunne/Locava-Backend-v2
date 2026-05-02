@@ -2208,7 +2208,7 @@ export class AchievementsRepository {
     if (cachedUserDoc !== undefined && cachedStateDoc !== undefined) {
       return {
         userDoc: cachedUserDoc,
-        stateDoc: cachedStateDoc
+        stateDoc: cachedStateDoc ?? {}
       };
     }
     const db = this.requireDb();

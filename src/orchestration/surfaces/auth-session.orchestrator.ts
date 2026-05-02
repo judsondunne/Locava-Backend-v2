@@ -15,6 +15,122 @@ import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/
 import { scheduleBackgroundWork } from "../../lib/background-work.js";
 
 type ViewerSummaryWire = Awaited<ReturnType<AuthBootstrapService["loadViewerSummary"]>>;
+type AuthSessionBaseWire = Awaited<ReturnType<AuthBootstrapService["loadSession"]>>;
+
+const AUTH_SESSION_CACHE_TTL_MS = 5_000;
+
+function toFallbackViewerSummary(viewerId: string): ViewerSummaryWire {
+  return {
+    uid: viewerId,
+    canonicalUserId: viewerId,
+    viewerReady: false,
+    profileHydrationStatus: "minimal_fallback",
+    email: null,
+    handle: "",
+    name: null,
+    profilePic: null,
+    profilePicSmallPath: null,
+    profilePicMediumPath: null,
+    profilePicLargePath: null,
+    badge: "standard",
+    onboardingComplete: null
+  };
+}
+
+function buildAuthSessionResponse(input: {
+  base: AuthSessionBaseWire;
+  viewerSummary: ViewerSummaryWire | null;
+  fallbacks: string[];
+}): AuthSessionResponse {
+  const fallbackReason = input.fallbacks.find((f) => f === "viewer_summary_timeout") ?? null;
+  const effectiveSummary =
+    input.viewerSummary ??
+    (input.base.authenticated ? toFallbackViewerSummary(input.base.viewerId) : null);
+  const summaryReady = effectiveSummary?.viewerReady === true;
+  const profileHydrationStatus = summaryReady ? "ready" : input.base.authenticated ? "minimal_fallback" : "ready";
+  return {
+    routeName: "auth.session.get",
+    firstRender: {
+      authenticated: input.base.authenticated,
+      viewer: {
+        id: input.base.viewerId,
+        uid: effectiveSummary?.uid ?? input.base.viewerId,
+        canonicalUserId: effectiveSummary?.canonicalUserId ?? input.base.viewerId,
+        role: input.base.role,
+        email: effectiveSummary?.email ?? null,
+        handle: effectiveSummary?.handle || null,
+        name: effectiveSummary?.name ?? null,
+        photoUrl: effectiveSummary?.profilePic ?? null,
+        profilePicSmallPath: effectiveSummary?.profilePicSmallPath ?? null,
+        profilePicMediumPath: effectiveSummary?.profilePicMediumPath ?? null,
+        profilePicLargePath: effectiveSummary?.profilePicLargePath ?? null
+      },
+      session: {
+        state: input.base.authenticated ? "active" : "anonymous",
+        issuedAt: input.base.issuedAt,
+        expiresAt: input.base.expiresAt
+      },
+      account: {
+        status:
+          !input.base.authenticated
+            ? null
+            : !summaryReady
+              ? null
+              : effectiveSummary?.onboardingComplete === false
+                ? "existing_incomplete"
+                : "existing_complete",
+        onboardingComplete: effectiveSummary?.onboardingComplete ?? (input.base.authenticated ? null : true),
+        viewerReady: summaryReady || !input.base.authenticated,
+        profileHydrationStatus,
+        retryAfterMs: profileHydrationStatus === "minimal_fallback" ? 250 : null,
+        reason: profileHydrationStatus === "minimal_fallback" ? fallbackReason ?? "viewer_summary_timeout" : null
+      }
+    },
+    deferred: {
+      viewerSummary: effectiveSummary
+    },
+    background: {
+      cacheWarmScheduled: true
+    },
+    degraded: input.fallbacks.some((f) => f !== "viewer_summary_timeout"),
+    fallbacks: input.fallbacks
+  };
+}
+
+export async function primeAuthSessionCacheFromSignin(input: {
+  viewerId: string;
+  provider: "google" | "apple" | "email_password";
+  viewerSummary: ViewerSummaryWire;
+}): Promise<void> {
+  const cacheKey = buildCacheKey("entity", ["session-v1", input.viewerId]);
+  const now = new Date().toISOString();
+  const primed = buildAuthSessionResponse({
+    base: {
+      viewerId: input.viewerId,
+      role: "member",
+      authenticated: true,
+      issuedAt: now,
+      expiresAt: now
+    },
+    viewerSummary: input.viewerSummary,
+    fallbacks: []
+  });
+  await globalCache.set(cacheKey, primed, AUTH_SESSION_CACHE_TTL_MS);
+  console.log(
+    JSON.stringify({
+      event: "AUTH_SESSION_PRIMED_FROM_SIGNIN",
+      ts: Date.now(),
+      viewerId: input.viewerId,
+      canonicalUserId: input.viewerSummary.canonicalUserId,
+      provider: input.provider,
+      profilePicPresent: Boolean(input.viewerSummary.profilePic),
+      handlePresent: Boolean(input.viewerSummary.handle),
+      emailPresent: Boolean(input.viewerSummary.email),
+      cacheKey,
+      ttlMs: AUTH_SESSION_CACHE_TTL_MS
+    })
+  );
+}
 
 export class AuthSessionOrchestrator {
   private readonly feedService = new FeedService(new FeedRepository());
@@ -65,7 +181,7 @@ export class AuthSessionOrchestrator {
     try {
       viewerSummary = await withTimeout(
         this.service.loadViewerSummary(viewer.viewerId, debugSlowDeferredMs),
-        debugSlowDeferredMs > 0 ? 280 : 140,
+        debugSlowDeferredMs > 0 ? 900 : 650,
         "auth.session.viewer_summary"
       );
     } catch (error) {
@@ -97,51 +213,30 @@ export class AuthSessionOrchestrator {
     }
 
     const client = viewer.clientProfile;
-    const response: AuthSessionResponse = {
-      routeName: "auth.session.get",
-      firstRender: {
-        authenticated: base.authenticated,
-        viewer: {
-          id: base.viewerId,
-          uid: viewerSummary?.uid ?? base.viewerId,
-          canonicalUserId: viewerSummary?.canonicalUserId ?? base.viewerId,
-          role: base.role,
-          email: viewerSummary?.email ?? client?.email ?? null,
-          handle: viewerSummary?.handle || client?.handle || null,
-          name: viewerSummary?.name ?? client?.name ?? null,
-          photoUrl: viewerSummary?.profilePic ?? client?.photoUrl ?? null,
-          profilePicSmallPath: viewerSummary?.profilePicSmallPath ?? null,
-          profilePicMediumPath: viewerSummary?.profilePicMediumPath ?? null,
-          profilePicLargePath: viewerSummary?.profilePicLargePath ?? null
-        },
-        session: {
-          state: base.authenticated ? "active" : "anonymous",
-          issuedAt: base.issuedAt,
-          expiresAt: base.expiresAt
-        },
-        account: {
-          status:
-            !base.authenticated
-              ? null
-              : viewerSummary?.viewerReady !== true
-                ? null
-                : viewerSummary?.onboardingComplete === false
-                ? "existing_incomplete"
-                : "existing_complete",
-          onboardingComplete: viewerSummary?.onboardingComplete ?? (base.authenticated ? null : true),
-          viewerReady: viewerSummary?.viewerReady ?? !base.authenticated,
-          profileHydrationStatus: viewerSummary?.profileHydrationStatus ?? (base.authenticated ? "minimal_fallback" : "ready")
+    if (!viewerSummary && base.authenticated) {
+      try {
+        const direct = await this.service.loadViewerSummary(viewer.viewerId, 0);
+        if (direct.viewerReady) {
+          viewerSummary = direct;
         }
-      },
-      deferred: {
-        viewerSummary
-      },
-      background: {
-        cacheWarmScheduled: true
-      },
-      degraded: fallbacks.some((f) => f !== "viewer_summary_timeout"),
+      } catch {
+        // last-resort fallback below
+      }
+    }
+
+    const response = buildAuthSessionResponse({
+      base,
+      viewerSummary: viewerSummary
+        ? {
+            ...viewerSummary,
+            email: viewerSummary.email ?? client?.email ?? null,
+            handle: viewerSummary.handle || client?.handle || "",
+            name: viewerSummary.name ?? client?.name ?? null,
+            profilePic: viewerSummary.profilePic ?? client?.photoUrl ?? null
+          }
+        : null,
       fallbacks
-    };
+    });
     console.log(
       JSON.stringify({
         event: "AUTH_SESSION_VIEWER_HYDRATION",
@@ -164,7 +259,7 @@ export class AuthSessionOrchestrator {
     );
     const canCache = Boolean(response.deferred.viewerSummary?.viewerReady);
     if (canCache) {
-      await globalCache.set(cacheKey, response, 5000);
+      await globalCache.set(cacheKey, response, AUTH_SESSION_CACHE_TTL_MS);
     } else {
       console.log(
         JSON.stringify({

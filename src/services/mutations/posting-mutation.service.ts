@@ -13,6 +13,7 @@ import { achievementsRepository } from "../../repositories/surfaces/achievements
 import { AuthBootstrapFirestoreAdapter } from "../../repositories/source-of-truth/auth-bootstrap-firestore.adapter.js";
 import { encodeGeohash } from "../../lib/latlng-geohash.js";
 import { buildCityRegionId, buildStateRegionId } from "../../lib/search-query-intent.js";
+import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { readWasabiConfigFromEnv } from "../storage/wasabi-config.js";
 import { buildFinalizedSessionAssetPlan } from "../storage/wasabi-presign.service.js";
 import { assemblePostAssetsFromStagedItems } from "../posting/assemblePostAssets.js";
@@ -160,6 +161,12 @@ export class PostingMutationService {
           }
         }
         this.scheduleCompletionInvalidation(input.viewerId, result.operation.operationId);
+        await this.primeLegendPostResult({
+          postId: result.operation.postId,
+          userId: (input.userId?.trim() || input.viewerId).trim(),
+          stageId: input.legendStageId?.trim() || null,
+          reason: "idempotent_completed",
+        });
         this.scheduleLegendsCommit({
           stageId: input.legendStageId,
           postId: result.operation.postId,
@@ -208,6 +215,12 @@ export class PostingMutationService {
           operationId: completed.operationId
         });
         this.scheduleCompletionInvalidation(input.viewerId, completed.operationId);
+        await this.primeLegendPostResult({
+          postId,
+          userId: (input.userId?.trim() || input.viewerId).trim(),
+          stageId: input.legendStageId?.trim() || null,
+          reason: "finalize_completed",
+        });
         this.scheduleLegendsCommit({
           stageId: input.legendStageId,
           postId,
@@ -248,21 +261,56 @@ export class PostingMutationService {
   private scheduleLegendsCommit(input: { stageId?: string; postId: string; userId: string }): void {
     const stageId = input.stageId?.trim();
     if (!input.postId || !input.userId) return;
+    console.info("[posting.legends] schedule", {
+      postId: input.postId,
+      userId: input.userId,
+      stageId: stageId ?? null
+    });
     scheduleBackgroundWork(async () => {
       try {
+        console.info("[posting.legends] worker_start", {
+          postId: input.postId,
+          userId: input.userId,
+          stageId: stageId ?? null
+        });
         if (stageId) {
+          console.info("[posting.legends] commit_staged_start", {
+            postId: input.postId,
+            userId: input.userId,
+            stageId
+          });
           await legendService.commitStagedPostLegend({
             stageId,
             post: { postId: input.postId, userId: input.userId }
           });
+          console.info("[posting.legends] commit_staged_done", {
+            postId: input.postId,
+            userId: input.userId,
+            stageId
+          });
           await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
+          console.info("[posting.legends] badges_sync_done", {
+            postId: input.postId,
+            userId: input.userId,
+            stageId
+          });
           return;
         }
         // Fallback: derive scopes from canonical post doc (single bounded read).
         const db = getFirestoreSourceClient();
         if (!db) return;
+        console.info("[posting.legends] fallback_lookup_start", {
+          postId: input.postId,
+          userId: input.userId
+        });
         const postSnap = await db.collection("posts").doc(input.postId).get();
-        if (!postSnap.exists) return;
+        if (!postSnap.exists) {
+          console.warn("[posting.legends] fallback_post_missing", {
+            postId: input.postId,
+            userId: input.userId
+          });
+          return;
+        }
         const data = postSnap.data() as Record<string, unknown> | undefined;
         const geoData = data?.geoData && typeof data.geoData === "object" ? (data.geoData as Record<string, unknown>) : null;
         const geohash = typeof data?.geohash === "string" ? data.geohash : null;
@@ -286,6 +334,16 @@ export class PostingMutationService {
               ? geoData.country
               : null;
         const region = typeof data?.region === "string" ? data.region : null;
+        console.info("[posting.legends] fallback_input_prepared", {
+          postId: input.postId,
+          userId: input.userId,
+          geohash,
+          activityCount: activities.length,
+          city,
+          state,
+          country,
+          region
+        });
         await legendService.processPostCreated({
           postId: input.postId,
           userId: input.userId,
@@ -296,7 +354,15 @@ export class PostingMutationService {
           country,
           region
         });
+        console.info("[posting.legends] fallback_process_done", {
+          postId: input.postId,
+          userId: input.userId
+        });
         await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
+        console.info("[posting.legends] fallback_badges_sync_done", {
+          postId: input.postId,
+          userId: input.userId
+        });
       } catch (error) {
         console.warn("[posting.legends] commit failed", {
           postId: input.postId,
@@ -322,6 +388,37 @@ export class PostingMutationService {
         }
       }
     });
+  }
+
+  private async primeLegendPostResult(input: {
+    postId: string;
+    userId: string;
+    stageId: string | null;
+    reason: string;
+  }): Promise<void> {
+    try {
+      const db = getFirestoreSourceClient();
+      if (!db) return;
+      await db.collection("legendPostResults").doc(input.postId).set(
+        {
+          postId: input.postId,
+          userId: input.userId,
+          stageId: input.stageId,
+          status: "processing",
+          awards: [],
+          awardIds: [],
+          primeReason: input.reason,
+          updatedAt: FieldValue.serverTimestamp()
+        },
+        { merge: true }
+      );
+      console.info("[posting.legends] prime_post_result_done", input);
+    } catch (error) {
+      console.warn("[posting.legends] prime_post_result_failed", {
+        ...input,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   private async buildFinalizeAchievementDelta(
@@ -840,6 +937,32 @@ export class PostingMutationService {
     const geohash = lat === 0 && lng === 0 ? "" : encodeGeohash(lat, lng, 9);
     const match =
       lat !== 0 || lng !== 0 ? searchPlacesIndexService.reverseLookup(lat, lng) : null;
+    const normalized = normalizeCanonicalPostLocation({
+      latitude: lat,
+      longitude: lng,
+      addressDisplayName: address,
+      city: match?.text ?? null,
+      region: match?.stateName ?? null,
+      country: match?.countryCode ?? null,
+      source: "manual",
+      reverseGeocodeMatched: Boolean(match)
+    });
+    console.info("[posting.finalize.geo] resolved_input", {
+      lat,
+      lng,
+      inputAddress: address || null,
+      geohash,
+      matchedByIndex: Boolean(match),
+      matchCity: match?.text ?? null,
+      matchState: match?.stateName ?? null,
+      matchCountry: match?.countryCode ?? null,
+      normalizedAddress: normalized.addressDisplayName,
+      normalizedCity: normalized.city,
+      normalizedRegion: normalized.region,
+      normalizedCountry: normalized.country,
+      fallbackPrecision: normalized.fallbackPrecision,
+      reverseGeocodeStatus: normalized.reverseGeocodeStatus
+    });
     if (match) {
       const gLat = match.lat ?? lat;
       const gLng = match.lng ?? lng;
@@ -849,26 +972,34 @@ export class PostingMutationService {
         countryRegionId: match.countryCode,
         geohash: geohash || encodeGeohash(gLat, gLng, 9),
         geoData: {
-          country: "United States",
-          state: match.stateName,
-          city: match.text
-        }
+          country: normalized.country,
+          state: normalized.region,
+          city: normalized.city
+        },
+        addressDisplayName: normalized.addressDisplayName ?? "Unknown location",
+        locationDisplayName: normalized.locationDisplayName ?? "Unknown location",
+        fallbackPrecision: normalized.fallbackPrecision,
+        reverseGeocodeStatus: normalized.reverseGeocodeStatus,
+        source: normalized.source
       };
     }
     const parts = address.split(",").map((s) => s.trim()).filter(Boolean);
-    const city = parts[0] || "Unknown";
-    const state = parts[1] || "Unknown";
-    const country = parts[2] || "United States";
-    const normalizedCountry = String(country).trim();
-    const countryCode = /^[A-Za-z]{2}$/.test(normalizedCountry)
-      ? normalizedCountry.toUpperCase()
-      : normalizedCountry || "US";
+    const city = normalized.city ?? parts[0] ?? null;
+    const state = normalized.region ?? parts[1] ?? null;
+    const country = normalized.country ?? parts[2] ?? null;
+    const normalizedCountry = String(country ?? "").trim();
+    const countryCode = /^[A-Za-z]{2}$/.test(normalizedCountry) ? normalizedCountry.toUpperCase() : null;
     return {
-      cityRegionId: buildCityRegionId(countryCode, state, city),
-      stateRegionId: buildStateRegionId(countryCode, state),
+      cityRegionId: countryCode && state && city ? buildCityRegionId(countryCode, state, city) : null,
+      stateRegionId: countryCode && state ? buildStateRegionId(countryCode, state) : null,
       countryRegionId: countryCode,
       geohash,
-      geoData: { country, state, city }
+      geoData: { country, state, city },
+      addressDisplayName: normalized.addressDisplayName ?? "Unknown location",
+      locationDisplayName: normalized.locationDisplayName ?? "Unknown location",
+      fallbackPrecision: normalized.fallbackPrecision,
+      reverseGeocodeStatus: normalized.reverseGeocodeStatus,
+      source: normalized.source
     };
   }
 

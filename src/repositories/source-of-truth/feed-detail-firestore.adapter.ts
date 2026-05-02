@@ -1,4 +1,5 @@
 import { getFirestoreSourceClient } from "./firestore-client.js";
+import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { readMaybeMillis } from "./post-firestore-projection.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 
@@ -258,6 +259,11 @@ type PostDataShape = {
   content?: string;
   title?: string;
   description?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  locationSource?: string;
+  reverseGeocodeStatus?: string;
   activities?: unknown[];
   address?: string;
   lat?: number;
@@ -626,8 +632,7 @@ function normalizeLocation(post: PostDataShape): {
   const coordinates = (post.coordinates ?? {}) as Record<string, unknown>;
   const geo = (post.geo ?? post.geoData ?? {}) as Record<string, unknown>;
   const geoPoint = readGeoPoint((geo as { geopoint?: unknown }).geopoint);
-  return {
-    lat: firstFiniteNumber(
+  const lat = firstFiniteNumber(
       post.lat,
       post.latitude,
       location.lat,
@@ -635,8 +640,8 @@ function normalizeLocation(post: PostDataShape): {
       coordinates.lat,
       coordinates.latitude,
       geoPoint?.latitude,
-    ),
-    lng: firstFiniteNumber(
+    );
+  const lng = firstFiniteNumber(
       post.long,
       post.lng,
       post.longitude,
@@ -647,11 +652,24 @@ function normalizeLocation(post: PostDataShape): {
       coordinates.lng,
       coordinates.longitude,
       geoPoint?.longitude,
-    ),
-    address:
+    );
+  const normalized = normalizeCanonicalPostLocation({
+    latitude: lat,
+    longitude: lng,
+    addressDisplayName:
       normalizeNullable(post.address) ??
       normalizeNullable(location.address) ??
       normalizeNullable((geo as { address?: unknown }).address),
+    city: normalizeNullable((geo as { city?: unknown }).city) ?? normalizeNullable((post as Record<string, unknown>).city),
+    region: normalizeNullable((geo as { state?: unknown }).state) ?? normalizeNullable((post as Record<string, unknown>).state),
+    country: normalizeNullable((geo as { country?: unknown }).country) ?? normalizeNullable((post as Record<string, unknown>).country),
+    source: post.locationSource ?? "unknown",
+    reverseGeocodeMatched: post.reverseGeocodeStatus === "resolved"
+  });
+  return {
+    lat: normalized.latitude,
+    lng: normalized.longitude,
+    address: normalized.addressDisplayName ?? "Unknown location"
   };
 }
 

@@ -102,6 +102,53 @@ describe("v2 legends after-post", () => {
     expect(res.json().data.awards.length).toBe(1);
     expect(res.json().data.awards[0].awardId).toBe("a1");
     expect(res.json().data.pollAfterMs).toBe(0);
+    expect(res.json().data.reasonIfEmpty).toBeNull();
+  });
+
+  it("is idempotent for repeated after-post calls and exposes legend status", async () => {
+    const { getFirestoreSourceClient } = await import("../../repositories/source-of-truth/firestore-client.js");
+    (getFirestoreSourceClient as any).mockImplementation(() =>
+      buildDbWithDoc({
+        "legendPostResults/post_repeat": {
+          postId: "post_repeat",
+          userId: "internal-viewer",
+          status: "complete",
+          awards: [
+            {
+              awardId: "post_repeat_place:state:PA_new_leader",
+              awardType: "new_leader",
+              scopeId: "placeActivity:state:PA:surfing",
+              scopeType: "placeActivity",
+              title: "New #1: Surfing Legend",
+              subtitle: "Pennsylvania",
+              postId: "post_repeat",
+              previousRank: 2,
+              newRank: 1,
+              userCount: 3,
+              leaderCount: 3,
+              deltaToLeader: 0
+            }
+          ]
+        }
+      })
+    );
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const first = await app.inject({
+      method: "GET",
+      url: "/v2/legends/after-post/post_repeat",
+      headers: viewerHeaders
+    });
+    const second = await app.inject({
+      method: "GET",
+      url: "/v2/legends/after-post/post_repeat",
+      headers: viewerHeaders
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(first.json().data.awards).toEqual(second.json().data.awards);
+    expect(first.json().data.legendStatus.activityKey).toBe("surfing");
+    expect(first.json().data.legendStatus.scopeKey).toBe("placeActivity:state:PA");
+    expect(first.json().data.legendStatus.becameLegend).toBe(true);
   });
 
   it("returns xp settled payload + celebration from achievements award doc", async () => {

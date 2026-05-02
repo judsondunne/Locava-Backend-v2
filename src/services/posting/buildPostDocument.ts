@@ -2,11 +2,16 @@ import { Timestamp } from "firebase-admin/firestore";
 import type { AssembledPostAssets } from "./assemblePostAssets.js";
 
 export type NativePostGeoBlock = {
-  cityRegionId: string;
-  stateRegionId: string;
-  countryRegionId: string;
+  cityRegionId: string | null;
+  stateRegionId: string | null;
+  countryRegionId: string | null;
   geohash: string;
-  geoData: { country: string; state: string; city: string };
+  geoData: { country: string | null; state: string | null; city: string | null };
+  addressDisplayName: string;
+  locationDisplayName: string;
+  fallbackPrecision: "address" | "city" | "region" | "country" | "coordinates";
+  reverseGeocodeStatus: "resolved" | "partial" | "fallback" | "failed";
+  source: "exif" | "manual" | "user_selected" | "unknown";
 };
 
 export type NativePostUserSnapshot = {
@@ -72,7 +77,14 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
     lat: input.lat,
     long: input.lng,
     lng: input.lng,
-    address: input.address,
+    address: input.geo.addressDisplayName,
+    locationLabel: input.geo.locationDisplayName,
+    placeName: input.geo.locationDisplayName,
+    addressDisplayName: input.geo.addressDisplayName,
+    locationDisplayName: input.geo.locationDisplayName,
+    fallbackPrecision: input.geo.fallbackPrecision,
+    reverseGeocodeStatus: input.geo.reverseGeocodeStatus,
+    locationSource: input.geo.source,
     privacy: input.privacy,
     settingType: settingTypeFromActivities(activities),
     mediaType: input.assembled.mediaType,
@@ -120,7 +132,10 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
     stateRegionId: input.geo.stateRegionId,
     countryRegionId: input.geo.countryRegionId,
     geohash: input.geo.geohash,
-    geoData: input.geo.geoData,
+    geoData: {
+      ...input.geo.geoData,
+      address: input.geo.addressDisplayName
+    },
     carouselFitWidth: true,
     letterboxGradients: [{ top: "#1f2937", bottom: "#111827" }]
   };

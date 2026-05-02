@@ -1067,12 +1067,16 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     });
   });
 
-  // Chat thread header presence: legacy native clients call this endpoint directly.
-  app.get<{ Params: { userId: string } }>("/api/users/:userId/last-active", async (request, reply) => {
-    const userId = String(request.params.userId ?? "").trim();
+  async function handleLegacyLastActiveRoute(userIdRaw: unknown, reply: FastifyReply): Promise<void> {
+    const userId = String(userIdRaw ?? "").trim();
     if (!userId) return reply.status(400).send({ success: false, error: "userId required" });
     const lastActiveMs = await userActivityService.getLastActiveMs({ userId });
     return reply.status(200).send({ success: true, lastActiveMs });
+  }
+
+  // Chat thread header presence: some clients still call legacy path variants directly.
+  app.get<{ Params: { userId: string } }>("/api/users/:userId/last-active", async (request, reply) => {
+    return handleLegacyLastActiveRoute(request.params.userId, reply);
   });
 
   app.get<{ Params: { userId: string }; Querystring: { compact?: string } }>(

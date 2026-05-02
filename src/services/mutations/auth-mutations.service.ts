@@ -5,6 +5,10 @@ import { getFirestoreSourceClient } from "../../repositories/source-of-truth/fir
 import { mergeUserDocumentWritePayload } from "../../repositories/source-of-truth/user-document-firestore.adapter.js";
 import { getFirebaseAuthClient } from "../../repositories/source-of-truth/firebase-auth.client.js";
 import { resolveProfilePicture } from "../../repositories/source-of-truth/profile-firestore.adapter.js";
+import {
+  buildCanonicalNewUserDocument,
+  normalizeCanonicalUserDocument,
+} from "../../domains/users/canonical-user-document.js";
 import { AuthBranchAttributionService } from "./auth-branch-attribution.service.js";
 
 type AuthRuntimeState = {
@@ -338,7 +342,51 @@ export class AuthMutationsService {
           userDocFound: false
         };
       }
-      const data = (doc.data() as Record<string, unknown> | undefined) ?? {};
+      const rawData = ((doc.data() as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
+      if (Array.isArray(rawData.activityProfile)) {
+        console.warn("USER_DOC_SHAPE_INVALID", {
+          userId: canonicalUserId,
+          rawActivityProfileType: "array",
+        });
+      }
+      const data = normalizeCanonicalUserDocument(rawData);
+      const shouldRepairShape =
+        Array.isArray(rawData.activityProfile) ||
+        typeof rawData.settings !== "object" ||
+        rawData.settings == null ||
+        typeof rawData.onboardingComplete !== "boolean" ||
+        typeof rawData.profileComplete !== "boolean" ||
+        typeof rawData.searchHandle !== "string" ||
+        typeof rawData.searchName !== "string";
+      if (shouldRepairShape) {
+        await this.db.collection("users").doc(canonicalUserId).set(
+          {
+            activityProfile: data.activityProfile,
+            searchHandle: typeof data.searchHandle === "string" ? data.searchHandle : data.handle,
+            searchName: typeof data.searchName === "string" ? data.searchName : String(data.name ?? "").toLowerCase(),
+            settings: data.settings && typeof data.settings === "object" ? data.settings : {},
+            onboardingComplete: data.onboardingComplete !== false,
+            profileComplete: data.profileComplete !== false,
+            profilePic: typeof data.profilePic === "string" ? data.profilePic : "",
+            profilePicture: typeof data.profilePicture === "string" ? data.profilePicture : "",
+            photoURL: typeof data.photoURL === "string" ? data.photoURL : "",
+            avatarUrl: typeof data.avatarUrl === "string" ? data.avatarUrl : "",
+            updatedAt: Date.now()
+          },
+          { merge: true }
+        ).catch(() => undefined);
+        console.log(
+          JSON.stringify({
+            event: "USER_DOC_SHAPE_REPAIRED_ON_LOGIN",
+            ts: Date.now(),
+            userId: canonicalUserId,
+            repairedActivityProfileArray: Array.isArray(rawData.activityProfile),
+            repairedSettings: !(rawData.settings && typeof rawData.settings === "object"),
+            repairedBooleans:
+              typeof rawData.onboardingComplete !== "boolean" || typeof rawData.profileComplete !== "boolean"
+          })
+        );
+      }
       const picture = resolveProfilePicture({
         profilePicPath: typeof data.profilePicPath === "string" ? data.profilePicPath : undefined,
         profilePicLargePath: typeof data.profilePicLargePath === "string" ? data.profilePicLargePath : undefined,
@@ -589,7 +637,8 @@ export class AuthMutationsService {
     name: string;
     age: number;
     explorerLevel?: string;
-    activityProfile?: string[];
+    activityProfile?: string[] | Record<string, number>;
+    selectedActivities?: string[];
     profilePicture?: string;
     phoneNumber?: string;
     school?: string;
@@ -628,45 +677,41 @@ export class AuthMutationsService {
         : "";
     const attributionFields = this.branchAttributionService.buildCreateProfileFields(input.branchData ?? null);
     const payload = mergeUserDocumentWritePayload({
-      ...(rawEmail.length > 0 ? { email: rawEmail.toLowerCase() } : {}),
-      uid: input.userId,
-      name: input.name,
-      handle: normalizedHandle,
-      age: input.age,
-      explorerLevel: input.explorerLevel ?? "",
-      activityProfile: input.activityProfile ?? [],
-      profilePic: input.profilePicture,
-      phoneNumber: input.phoneNumber ?? "",
-      number: input.phoneNumber ?? "",
-      school: input.school ?? "",
-      relationshipRef: input.relationshipRef ?? null,
-      profileComplete: true,
-      onboardingComplete: true,
-      notifications: [],
-      savedPosts: [],
+      ...buildCanonicalNewUserDocument({
+        uid: input.userId,
+        email: rawEmail,
+        name: input.name,
+        handle: normalizedHandle,
+        age: input.age,
+        explorerLevel: input.explorerLevel ?? "",
+        selectedActivities: input.selectedActivities ?? input.activityProfile ?? [],
+        profilePic: input.profilePicture,
+        phoneNumber: input.phoneNumber ?? "",
+        relationshipRef: input.relationshipRef ?? null,
+        branchData: input.branchData ?? null,
+        school: input.school ?? "",
+        oauthInfo: input.oauthInfo ?? null,
+        nowMs,
+      }),
       topUsers: [],
-      notifUnread: 0,
-      notificationUnreadCount: 0,
       unreadNotificationCount: 0,
       unreadCount: 0,
-      numFollowers: 0,
-      followersCount: 0,
-      numFollowing: 0,
-      followingCount: 0,
-      numPosts: 0,
-      postCount: 0,
-      postsCount: 0,
       postCountVerifiedValue: 0,
       postCountVerifiedAtMs: nowMs,
-      settings: {},
-      branchData: input.branchData ?? null,
       ...(expoPushToken ? { expoPushToken } : {}),
       ...(pushToken ? { pushToken } : {}),
       ...(pushTokenPlatform ? { pushTokenPlatform } : {}),
       ...(pushToken ? { pushTokenUpdatedAt: nowMs } : {}),
-      oauthInfo: input.oauthInfo ?? null,
-      updatedAt: nowMs,
-      createdAt: nowMs
+    });
+    console.info("USER_CREATE_CANONICAL_SHAPE", {
+      userId: input.userId,
+      hasEmail: rawEmail.length > 0,
+      hasOauthInfo: Boolean(input.oauthInfo),
+    });
+    console.info("USER_CREATE_ACTIVITY_PROFILE_NORMALIZED", {
+      userId: input.userId,
+      rawType: Array.isArray(input.activityProfile) ? "array" : typeof input.activityProfile,
+      normalizedCount: Object.keys((payload.activityProfile as Record<string, unknown>) ?? {}).length,
     });
     Object.assign(payload, attributionFields);
 

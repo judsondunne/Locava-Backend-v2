@@ -31,11 +31,13 @@ import { setRouteName } from "../../observability/request-context.js";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { getFirebaseAuthClient } from "../../repositories/source-of-truth/firebase-auth.client.js";
+import { getFirebaseAdminDiagnostics } from "../../lib/firebase-admin.js";
 import {
   AuthMutationsService,
   type CanonicalViewerHydration,
   type OauthAccountStatus
 } from "../../services/mutations/auth-mutations.service.js";
+import { primeAuthSessionCacheFromSignin } from "../../orchestration/surfaces/auth-session.orchestrator.js";
 
 const CheckHandleQuery = z.object({
   handle: z.string().trim().min(1).max(40)
@@ -240,7 +242,20 @@ async function signInWithIdp(params: {
 async function createCustomToken(uid: string): Promise<string> {
   const auth = getFirebaseAuthClient();
   if (!auth) throw new Error("firebase_auth_unavailable");
-  return auth.createCustomToken(uid);
+  try {
+    return await auth.createCustomToken(uid);
+  } catch (error) {
+    const diag = getFirebaseAdminDiagnostics();
+    console.error({
+      event: "firebase_custom_token_create_failure",
+      uid,
+      projectId: diag.projectId,
+      credentialSource: diag.credentialSource,
+      clientEmail: diag.clientEmail,
+      message: error instanceof Error ? error.message : String(error)
+    });
+    throw error;
+  }
 }
 
 function logAuthIdCanonicalization(
@@ -293,6 +308,149 @@ function logAuthLoginViewerHydration(
     cacheHit: false,
     cacheMiss: true
   }, "auth_login_viewer_hydration");
+}
+
+function toSessionViewerSummary(hydration: CanonicalViewerHydration) {
+  return {
+    uid: hydration.uid,
+    canonicalUserId: hydration.canonicalUserId,
+    viewerReady: hydration.viewerReady,
+    profileHydrationStatus: hydration.profileHydrationStatus,
+    email: hydration.email,
+    handle: hydration.handle ?? "",
+    name: hydration.name,
+    profilePic: hydration.profilePic,
+    profilePicSmallPath: hydration.profilePicSmallPath,
+    profilePicMediumPath: hydration.profilePicMediumPath,
+    profilePicLargePath: hydration.profilePicLargePath,
+    badge: "standard",
+    onboardingComplete: hydration.onboardingComplete
+  };
+}
+
+function buildAppReadyAuthResponse(input: {
+  routeName: string;
+  source: "login" | "google" | "apple" | "register" | "profile_create";
+  token?: string;
+  user: { uid: string; email?: string | null; displayName?: string | null };
+  viewer?: CanonicalViewerHydration | null;
+  isNewUser: boolean;
+  accountStatus: OauthAccountStatus;
+  profileCreated?: boolean;
+  extra?: Record<string, unknown>;
+}) {
+  const nativeDestinationRoute = toNativeDestinationRoute(input.accountStatus);
+  const viewerReady = input.viewer?.viewerReady === true;
+  const onboardingComplete = input.viewer?.onboardingComplete ?? (input.accountStatus === "existing_complete");
+  const profileComplete = input.viewer?.profileComplete ?? (input.accountStatus === "existing_complete");
+  return success({
+    routeName: input.routeName,
+    success: true,
+    source: input.source,
+    isNewUser: input.isNewUser,
+    accountStatus: input.accountStatus,
+    onboardingRequired: input.accountStatus !== "existing_complete",
+    nativeDestinationRoute,
+    requiresProfile: input.accountStatus !== "existing_complete",
+    profileCreated: input.profileCreated ?? false,
+    appReady: input.accountStatus === "existing_complete" && viewerReady,
+    viewerReady,
+    profileHydrationStatus: input.viewer?.profileHydrationStatus ?? "minimal_fallback",
+    onboardingComplete,
+    profileComplete,
+    canonicalUserId: input.viewer?.canonicalUserId ?? input.user.uid,
+    token: input.token,
+    user: {
+      uid: input.user.uid,
+      ...(input.user.email ? { email: input.user.email } : {}),
+      ...(input.user.displayName ? { displayName: input.user.displayName } : {})
+    },
+    ...(input.viewer ? { viewer: input.viewer } : {}),
+    ...(input.extra ?? {})
+  });
+}
+
+function collectAppReadyContractViolations(input: {
+  accountStatus: OauthAccountStatus;
+  hydration: CanonicalViewerHydration;
+}): string[] {
+  const failures: string[] = [];
+  const { hydration } = input;
+  if (hydration.viewerReady !== true) failures.push("viewer_not_ready");
+  if (hydration.profileHydrationStatus !== "ready") failures.push("profile_hydration_not_ready");
+  if (!hydration.userDocFound) failures.push("user_doc_missing");
+  if (!hydration.canonicalUserId || hydration.canonicalUserId.trim().length === 0) failures.push("canonical_user_id_missing");
+  if (!hydration.handle || hydration.handle.trim().length === 0) failures.push("handle_missing");
+  if (!hydration.name || hydration.name.trim().length === 0) failures.push("name_missing");
+  if (!hydration.profilePic || hydration.profilePic.trim().length === 0) failures.push("profile_pic_missing");
+  if (input.accountStatus === "existing_complete") {
+    if (hydration.onboardingComplete !== true) failures.push("onboarding_complete_false");
+    if (hydration.profileComplete !== true) failures.push("profile_complete_false");
+  }
+  return failures;
+}
+
+function rejectAuthWhenNotAppReady(params: {
+  routeName: string;
+  source: "email_password" | "google_existing" | "apple_existing";
+  log: FastifyInstance["log"];
+  accountStatus: OauthAccountStatus;
+  hydration: CanonicalViewerHydration;
+}): { rejected: false } | { rejected: true; response: Record<string, unknown> } {
+  const failures = collectAppReadyContractViolations({
+    accountStatus: params.accountStatus,
+    hydration: params.hydration
+  });
+  if (failures.length === 0) return { rejected: false };
+  params.log.error({
+    event: "AUTH_SIGNIN_REJECTED_NOT_FULLY_READY",
+    routeName: params.routeName,
+    source: params.source,
+    accountStatus: params.accountStatus,
+    viewerId: params.hydration.uid,
+    canonicalUserId: params.hydration.canonicalUserId,
+    failures
+  }, "auth_signin_rejected_not_fully_ready");
+  return {
+    rejected: true,
+    response: success({
+      routeName: params.routeName,
+      success: false,
+      error: "signin_not_fully_ready",
+      reason: "viewer_contract_incomplete",
+      failures,
+      viewerReady: params.hydration.viewerReady,
+      profileHydrationStatus: params.hydration.profileHydrationStatus,
+      accountStatus: params.accountStatus,
+      canonicalUserId: params.hydration.canonicalUserId
+    })
+  };
+}
+
+function logAuthAcceptedFullyReady(params: {
+  routeName: string;
+  source: "email_password" | "google_existing" | "apple_existing";
+  log: FastifyInstance["log"];
+  accountStatus: OauthAccountStatus;
+  hydration: CanonicalViewerHydration;
+}): void {
+  params.log.info({
+    event: "AUTH_SIGNIN_ACCEPTED_FULLY_READY",
+    routeName: params.routeName,
+    source: params.source,
+    accountStatus: params.accountStatus,
+    viewerId: params.hydration.uid,
+    canonicalUserId: params.hydration.canonicalUserId,
+    viewerReady: params.hydration.viewerReady,
+    profileHydrationStatus: params.hydration.profileHydrationStatus,
+    userDocFound: params.hydration.userDocFound,
+    onboardingComplete: params.hydration.onboardingComplete,
+    profileComplete: params.hydration.profileComplete,
+    handlePresent: Boolean(params.hydration.handle),
+    namePresent: Boolean(params.hydration.name),
+    profilePicPresent: Boolean(params.hydration.profilePic),
+    emailPresent: Boolean(params.hydration.email)
+  }, "auth_signin_accepted_fully_ready");
 }
 
 async function buildOauthSuccessResponse(params: {
@@ -355,8 +513,32 @@ async function buildOauthSuccessResponse(params: {
     });
   }
 
-  const token = await createCustomToken(params.resolvedUid);
   const hydratedViewer = await params.authMutationsService.getCanonicalViewerHydration(params.resolvedUid);
+  const strictReady = rejectAuthWhenNotAppReady({
+    routeName: params.routeName,
+    source: params.authProvider === "google" ? "google_existing" : "apple_existing",
+    log: params.log,
+    accountStatus: params.accountStatus,
+    hydration: hydratedViewer
+  });
+  if (strictReady.rejected) {
+    return strictReady.response;
+  }
+  logAuthAcceptedFullyReady({
+    routeName: params.routeName,
+    source: params.authProvider === "google" ? "google_existing" : "apple_existing",
+    log: params.log,
+    accountStatus: params.accountStatus,
+    hydration: hydratedViewer
+  });
+  const token = await createCustomToken(params.resolvedUid);
+  if (hydratedViewer.viewerReady) {
+    await primeAuthSessionCacheFromSignin({
+      viewerId: params.resolvedUid,
+      provider: params.authProvider,
+      viewerSummary: toSessionViewerSummary(hydratedViewer)
+    });
+  }
   logAuthIdCanonicalization(params.log, {
     routeName: params.routeName,
     viewerId: params.resolvedUid,
@@ -373,20 +555,18 @@ async function buildOauthSuccessResponse(params: {
     hydration: hydratedViewer,
     source: "oauth_existing"
   });
-  return success({
+  return buildAppReadyAuthResponse({
     routeName: params.routeName,
-    success: true,
-    isNewUser: false,
-    accountStatus: params.accountStatus,
-    onboardingRequired,
-    nativeDestinationRoute,
+    source: params.authProvider,
+    token,
     user: {
       uid: params.resolvedUid,
       ...(params.email ? { email: params.email } : {}),
-      displayName: params.displayName
+      ...(params.displayName ? { displayName: params.displayName } : {})
     },
     viewer: hydratedViewer,
-    token
+    isNewUser: false,
+    accountStatus: params.accountStatus
   });
 }
 
@@ -446,8 +626,33 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
       if (body.branchData && typeof body.branchData === "object" && Object.keys(body.branchData).length > 0) {
         await authMutationsService.mergeProfileBranch({ viewerId: signIn.uid, branchData: body.branchData }).catch(() => undefined);
       }
-      const token = await createCustomToken(signIn.uid);
       const hydratedViewer = await authMutationsService.getCanonicalViewerHydration(signIn.uid);
+      const accountStatus = hydratedViewer.onboardingComplete === false ? "existing_incomplete" : "existing_complete";
+      const strictReady = rejectAuthWhenNotAppReady({
+        routeName: authLoginContract.routeName,
+        source: "email_password",
+        log: request.log,
+        accountStatus,
+        hydration: hydratedViewer
+      });
+      if (strictReady.rejected) {
+        return strictReady.response;
+      }
+      logAuthAcceptedFullyReady({
+        routeName: authLoginContract.routeName,
+        source: "email_password",
+        log: request.log,
+        accountStatus,
+        hydration: hydratedViewer
+      });
+      const token = await createCustomToken(signIn.uid);
+      if (hydratedViewer.viewerReady) {
+        await primeAuthSessionCacheFromSignin({
+          viewerId: signIn.uid,
+          provider: "email_password",
+          viewerSummary: toSessionViewerSummary(hydratedViewer)
+        });
+      }
       logAuthIdCanonicalization(request.log, {
         routeName: authLoginContract.routeName,
         viewerId: signIn.uid,
@@ -462,12 +667,14 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         hydration: hydratedViewer,
         source: "email_password"
       });
-      return success({
+      return buildAppReadyAuthResponse({
         routeName: authLoginContract.routeName,
-        success: true,
+        source: "login",
+        token,
         user: { uid: signIn.uid, email: signIn.email, displayName: signIn.displayName },
         viewer: hydratedViewer,
-        token
+        isNewUser: false,
+        accountStatus
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "login_failed";
@@ -486,12 +693,15 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
       const user = await signUpWithPassword(body.email, body.password);
       const token = await createCustomToken(user.uid);
       const hydratedViewer = await authMutationsService.getCanonicalViewerHydration(user.uid);
-      return success({
+      return buildAppReadyAuthResponse({
         routeName: authRegisterContract.routeName,
-        success: true,
+        source: "register",
+        token,
         user: { uid: user.uid, email: user.email, displayName: user.displayName },
         viewer: hydratedViewer,
-        token
+        isNewUser: true,
+        accountStatus: hydratedViewer.onboardingComplete === false ? "new_account_required" : "existing_complete",
+        profileCreated: hydratedViewer.onboardingComplete === true
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "register_failed";
@@ -596,10 +806,31 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
       userId: resolvedCreateProfile.resolvedUid
     });
     const token = body.oauthInfo ? await createCustomToken(resolvedCreateProfile.resolvedUid) : undefined;
-    return success({
+    const hydratedViewer = await authMutationsService.getCanonicalViewerHydration(resolvedCreateProfile.resolvedUid);
+    if (hydratedViewer.viewerReady) {
+      await primeAuthSessionCacheFromSignin({
+        viewerId: resolvedCreateProfile.resolvedUid,
+        provider: body.oauthInfo?.provider === "apple" ? "apple" : body.oauthInfo?.provider === "google" ? "google" : "email_password",
+        viewerSummary: toSessionViewerSummary(hydratedViewer)
+      });
+    }
+    return buildAppReadyAuthResponse({
       routeName: authProfileCreateContract.routeName,
-      ...created,
-      token
+      source: "profile_create",
+      token,
+      user: {
+        uid: resolvedCreateProfile.resolvedUid,
+        ...(body.email ? { email: body.email } : {}),
+        displayName: body.name
+      },
+      viewer: hydratedViewer,
+      isNewUser: false,
+      accountStatus: "existing_complete",
+      profileCreated: true,
+      extra: {
+        handle: created.handle,
+        storage: created.storage
+      }
     });
   });
 

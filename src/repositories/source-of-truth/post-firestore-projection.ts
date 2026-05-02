@@ -1,4 +1,5 @@
 import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 
 /**
  * Maps legacy / normalized Backendv2 projection fields and real Locava post documents
@@ -115,6 +116,16 @@ export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
   const data = doc.data() as Record<string, unknown>;
   const proc = inferPostProcessing(data);
   const ar = readAspectRatio(data);
+  const normalizedLocation = normalizeCanonicalPostLocation({
+    latitude: data.lat ?? data.latitude,
+    longitude: data.long ?? data.lng ?? data.longitude,
+    addressDisplayName: data.address ?? data.addressDisplayName ?? data.locationDisplayName,
+    city: (data.geoData as Record<string, unknown> | undefined)?.city ?? data.city,
+    region: (data.geoData as Record<string, unknown> | undefined)?.state ?? data.state ?? data.region,
+    country: (data.geoData as Record<string, unknown> | undefined)?.country ?? data.country,
+    source: data.locationSource ?? "unknown",
+    reverseGeocodeMatched: data.reverseGeocodeStatus === "resolved"
+  });
   return {
     postId: doc.id,
     thumbUrl: readPostThumbUrl(data, doc.id),
@@ -125,7 +136,10 @@ export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
     dominantColor: readString(data.dominantColor ?? data.primaryColor ?? data.thumbDominantColor),
     dominantGradient: readStringArray(data.dominantGradient ?? data.thumbGradient),
     title: readString(data.title ?? data.captionTitle ?? data.placeName),
-    locationLabel: readString(data.locationLabel ?? data.placeName ?? data.address),
+    locationLabel:
+      readString(data.locationLabel ?? data.placeName ?? data.address) ??
+      normalizedLocation.locationDisplayName ??
+      "Unknown location",
     updatedAtMs: readPostDisplayMillis(data),
     processing: proc.processing,
     processingFailed: proc.processingFailed,

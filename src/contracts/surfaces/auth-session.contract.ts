@@ -31,7 +31,9 @@ export const AuthSessionResponseSchema = z.object({
       status: z.enum(["existing_complete", "existing_incomplete", "new_account_required"]).nullable(),
       onboardingComplete: z.boolean().nullable(),
       viewerReady: z.boolean(),
-      profileHydrationStatus: z.enum(["ready", "minimal_fallback"])
+      profileHydrationStatus: z.enum(["ready", "minimal_fallback"]),
+      retryAfterMs: z.number().int().positive().nullable().optional(),
+      reason: z.string().nullable().optional()
     })
   }),
   deferred: z.object({
