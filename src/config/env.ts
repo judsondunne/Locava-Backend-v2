@@ -112,6 +112,11 @@ function stripWrappingQuotes(value: string | undefined): string | undefined {
   return trimmed;
 }
 
+/**
+ * Prefer the first **non-empty** value for each key as files are scanned in order.
+ * A blank placeholder in Backendv2/.env must not hide a valid GOOGLE_APPLICATION_CREDENTIALS etc.
+ * defined in `../Locava Backend/.env`.
+ */
 function mergeCandidateEnvFiles(cwd: string): Record<string, string> {
   const candidates = [
     path.resolve(cwd, ".env"),
@@ -123,20 +128,35 @@ function mergeCandidateEnvFiles(cwd: string): Record<string, string> {
   for (const candidate of candidates) {
     const values = readEnvFileIfPresent(candidate);
     for (const [key, value] of Object.entries(values)) {
-      if (!(key in merged)) merged[key] = value;
+      if (Object.hasOwn(merged, key)) continue;
+      const trimmed = stripWrappingQuotes(value)?.trim() ?? "";
+      if (!trimmed.length) continue;
+      merged[key] = value;
     }
   }
   return merged;
 }
 
+/** Process env overlays file env only where the incoming value is non-empty (avoid erasing merged file keys). */
+function mergeCandidateWithProcessEnv(
+  candidateFileEnv: Record<string, string>,
+  processEnv: NodeJS.ProcessEnv
+): Record<string, string | undefined> {
+  const merged: Record<string, string | undefined> = { ...candidateFileEnv };
+  for (const [key, raw] of Object.entries(processEnv)) {
+    if (raw === undefined) continue;
+    const trimmed = stripWrappingQuotes(raw)?.trim() ?? "";
+    if (!trimmed.length) continue;
+    merged[key] = raw;
+  }
+  return merged;
+}
+
 export function loadEnv(source: Record<string, string | undefined> = process.env): AppEnv {
-  // Load local .env in this project (existing process env wins).
+  // Load local .env in this project; process env overlays only when vars are non-empty.
   loadDotEnvFile();
   const candidateFileEnv = mergeCandidateEnvFiles(process.cwd());
-  const mergedSource: Record<string, string | undefined> = {
-    ...candidateFileEnv,
-    ...source
-  };
+  const mergedSource: Record<string, string | undefined> = mergeCandidateWithProcessEnv(candidateFileEnv, source);
 
   // Native already carries this key for local auth; mirror it to Backendv2 when missing.
   if (!mergedSource.FIREBASE_WEB_API_KEY && candidateFileEnv.EXPO_PUBLIC_FIREBASE_API_KEY) {
@@ -144,8 +164,11 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   }
 
   // Allow admin SDK applicationDefault() to discover credentials without user shell exports.
-  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS && candidateFileEnv.GOOGLE_APPLICATION_CREDENTIALS) {
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = candidateFileEnv.GOOGLE_APPLICATION_CREDENTIALS;
+  if (
+    !(stripWrappingQuotes(process.env.GOOGLE_APPLICATION_CREDENTIALS)?.trim()?.length ?? 0) &&
+    mergedSource.GOOGLE_APPLICATION_CREDENTIALS
+  ) {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = mergedSource.GOOGLE_APPLICATION_CREDENTIALS;
   }
 
   if (!process.env.FIREBASE_WEB_API_KEY && mergedSource.FIREBASE_WEB_API_KEY) {

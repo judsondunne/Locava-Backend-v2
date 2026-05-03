@@ -200,7 +200,35 @@ describe("posts detail orchestrator missing author hardening", () => {
         },
       ],
     }));
-    const service = buildService({ loadPostDetail });
+    const loadPostCardSummary = vi.fn(async (_viewerId: string, postId: string) => ({
+      postId,
+      rankToken: "rank",
+      author: { userId: "", handle: "", name: null, pic: null },
+      captionPreview: "caption",
+      media: { type: "video" as const, posterUrl: "https://cdn/p.jpg", aspectRatio: 9 / 16, startupHint: "poster_then_preview" as const },
+      social: { likeCount: 1, commentCount: 2 },
+      viewer: { liked: false, saved: false },
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      assets: [
+        {
+          id: "video_1",
+          type: "video" as const,
+          posterUrl: "https://cdn/p.jpg",
+          previewUrl: "https://cdn/preview-low.mp4",
+          mp4Url: "https://cdn/main720.mp4",
+          originalUrl: "https://cdn/original.mp4",
+          streamUrl: "https://cdn/master.m3u8",
+          blurhash: null,
+          width: null,
+          height: null,
+          aspectRatio: null,
+          orientation: null,
+        },
+      ],
+      assetsReady: true,
+    }));
+    const service = buildService({ loadPostDetail, loadPostCardSummary });
     const orchestrator = new PostsDetailOrchestrator(service);
     const out = await orchestrator.runBatch({
       viewerId: "viewer-1",
@@ -298,9 +326,94 @@ describe("posts detail orchestrator missing author hardening", () => {
     const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
     expect(post.posterPresent === true || Boolean(post.thumbUrl)).toBe(true);
     expect(out.itemStatuses?.[0]?.selectedSource).toBe("post_card_cache_upgraded");
+    expect(post.playbackUrl).toBe("https://cdn/from-truth.mp4");
+  });
+
+  it("playback batch upgrades preview-only card cache using Firestore detail assets", async () => {
+    const loadPostDetail = vi.fn(async (postId: string) => ({
+      postId,
+      userId: "u1",
+      caption: "caption",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      mediaType: "video" as const,
+      thumbUrl: "https://cdn/poster.jpg",
+      assetsReady: true,
+      assets: [
+        {
+          id: "a1",
+          type: "video" as const,
+          poster: "https://cdn/poster.jpg",
+          thumbnail: "https://cdn/poster.jpg",
+          original: "https://cdn/original.mp4",
+          variants: {
+            preview360: "https://cdn/preview360.mp4",
+            main720Avc: "https://cdn/main720.mp4",
+            main1080Avc: "https://cdn/main1080.mp4",
+          },
+        },
+      ],
+    }));
+    const loadPostCardSummaryBatchLightweight = vi.fn(async () => [
+      {
+        postId: "pv1",
+        rankToken: "rank-1",
+        author: { userId: "u1", handle: "u1", name: null, pic: null },
+        captionPreview: "c",
+        media: { type: "video" as const, posterUrl: "https://cdn/poster.jpg", aspectRatio: 9 / 16, startupHint: "poster_then_preview" as const },
+        social: { likeCount: 0, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        assets: [
+          {
+            id: "a1",
+            type: "video" as const,
+            posterUrl: "https://cdn/poster.jpg",
+            previewUrl: "https://cdn/preview360.mp4",
+            mp4Url: null,
+            originalUrl: null,
+            streamUrl: null,
+            blurhash: null,
+            width: null,
+            height: null,
+            aspectRatio: null,
+            orientation: null,
+          },
+        ],
+        assetsReady: true,
+      },
+    ]);
+    const service = buildService({
+      loadPostDetail,
+      loadPostCardSummaryBatchLightweight,
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["pv1"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+    });
+    expect(loadPostDetail).toHaveBeenCalledTimes(1);
+    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
+    expect(post.playbackUrl).toBe("https://cdn/main1080.mp4");
   });
 
   it("playback cold fallback can return partial cached shells without blocking on misses", async () => {
+    const productionAsset = {
+      id: "a1",
+      type: "video" as const,
+      posterUrl: "https://cdn/poster.jpg",
+      previewUrl: "https://cdn/preview.mp4",
+      mp4Url: "https://cdn/main720.mp4",
+      originalUrl: "https://cdn/original.mp4",
+      blurhash: null,
+      width: null,
+      height: null,
+      aspectRatio: null,
+      orientation: null,
+    };
     const service = buildService({
       loadPostCardSummaryBatchLightweight: vi.fn(async () => [
         {
@@ -313,6 +426,8 @@ describe("posts detail orchestrator missing author hardening", () => {
           viewer: { liked: false, saved: false },
           createdAtMs: 1,
           updatedAtMs: 1,
+          assets: [{ ...productionAsset, posterUrl: "https://cdn/p1.jpg" }],
+          assetsReady: true,
         },
         {
           postId: "p3",
@@ -324,6 +439,8 @@ describe("posts detail orchestrator missing author hardening", () => {
           viewer: { liked: false, saved: false },
           createdAtMs: 3,
           updatedAtMs: 3,
+          assets: [{ ...productionAsset, posterUrl: "https://cdn/p3.jpg" }],
+          assetsReady: true,
         },
       ]),
       loadPostDetail: vi.fn(async () => {
@@ -343,7 +460,7 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(service.loadPostDetail).not.toHaveBeenCalled();
   });
 
-  it("detail DTO exposes processing media readiness without pretending a fresh video is ready", async () => {
+  it("detail DTO keeps mediaStatus processing but still surfaces HTTPS playback while assets churn", async () => {
     const service = buildService({
       loadPostDetail: vi.fn(async (postId: string) => ({
         postId,
@@ -381,15 +498,17 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(out.firstRender.post.mediaReadiness).toMatchObject({
       mediaStatus: "processing",
       assetsReady: false,
-      playbackReady: false,
-      playbackUrlPresent: false,
+      playbackReady: true,
+      playbackUrlPresent: true,
       posterReady: true,
       fallbackVideoUrl: "https://cdn/original.mp4",
       resizeMode: "contain",
+      processingButPlayable: true,
+      selectedVideoVariant: "original",
     });
-    expect(out.firstRender.post.playbackReady).toBe(false);
-    expect(out.firstRender.post.playbackUrlPresent).toBe(false);
-    expect(out.firstRender.post.playbackUrl).toBeUndefined();
+    expect(out.firstRender.post.playbackReady).toBe(true);
+    expect(out.firstRender.post.playbackUrlPresent).toBe(true);
+    expect(out.firstRender.post.playbackUrl).toBe("https://cdn/original.mp4");
   });
 
   it("returns degraded 200 fallback detail when source-of-truth fails but card cache exists", async () => {

@@ -82,6 +82,9 @@ export type FeedBootstrapCandidateRecord = {
     saved: boolean;
   };
   updatedAtMs: number;
+  /** When true, mp4Url / variant maps on the card are production transcodes, not a raw upload alias. */
+  assetsReady?: boolean;
+  mediaStatus?: "processing" | "ready" | "failed";
   rawPost?: Record<string, unknown> | null;
   sourcePost?: Record<string, unknown> | null;
   comments?: Array<Record<string, unknown>>;
@@ -381,10 +384,11 @@ function mergeBundleIntoFeedCard(
       id: asset.id,
       type: asset.type,
       previewUrl:
-        typeof asset.variants?.startup720FaststartAvc === "string" && asset.variants.startup720FaststartAvc.trim()
-          ? asset.variants.startup720FaststartAvc.trim()
-          : typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
-            ? asset.variants.main720Avc.trim()
+        typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
+          ? asset.variants.main720Avc.trim()
+          : typeof asset.variants?.startup720FaststartAvc === "string" &&
+              asset.variants.startup720FaststartAvc.trim()
+            ? asset.variants.startup720FaststartAvc.trim()
             : typeof asset.thumbnail === "string" && asset.thumbnail.trim()
               ? asset.thumbnail.trim()
               : null,
@@ -483,10 +487,11 @@ function buildFeedCardFromDetailBundle(
       id: asset.id,
       type: asset.type,
       previewUrl:
-        typeof asset.variants?.startup720FaststartAvc === "string" && asset.variants.startup720FaststartAvc.trim()
-          ? asset.variants.startup720FaststartAvc.trim()
-          : typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
-            ? asset.variants.main720Avc.trim()
+        typeof asset.variants?.main720Avc === "string" && asset.variants.main720Avc.trim()
+          ? asset.variants.main720Avc.trim()
+          : typeof asset.variants?.startup720FaststartAvc === "string" &&
+              asset.variants.startup720FaststartAvc.trim()
+            ? asset.variants.startup720FaststartAvc.trim()
             : typeof asset.thumbnail === "string" && asset.thumbnail.trim()
               ? asset.thumbnail.trim()
               : null,

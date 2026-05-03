@@ -395,16 +395,24 @@ describe("PostingMutationService finalize parity", () => {
     expect(firestoreUpdateMock).toHaveBeenCalledWith(
       expect.objectContaining({
         videoProcessingStatus: "processing",
-        videoProcessingProgress: { totalVideos: 1, processedVideos: 0 }
+        videoProcessingProgress: {
+          totalVideos: 1,
+          processedVideos: 0,
+          phase: "queued_worker"
+        },
+        playbackReady: true,
+        playbackUrlPresent: true,
+        playbackUrl: "https://cdn.example.com/native.mp4",
+        mediaStatus: "processing"
       })
     );
     expect(result.mediaReadiness).toMatchObject({
       mediaStatus: "processing",
       assetsReady: false,
-      playbackReady: false,
+      playbackReady: true,
       posterReady: true,
-      playbackUrlPresent: false,
-      fallbackVideoUrl: "https://cdn.example.com/native.mp4",
+      playbackUrlPresent: true,
+      playbackUrl: "https://cdn.example.com/native.mp4",
       resizeMode: "contain",
     });
   });

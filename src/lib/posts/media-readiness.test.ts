@@ -25,7 +25,7 @@ describe("buildPostMediaReadiness (video playbackReady)", () => {
     expect(r.mediaStatus).toBe("processing");
   });
 
-  it("does not mark playbackReady when only original-sized aliases exist", () => {
+  it("still exposes playable original bytes when ladder keys only alias the uploaded file", () => {
     const orig = "https://cdn.example.com/original.mp4";
     const r = buildPostMediaReadiness({
       assetsReady: true,
@@ -43,8 +43,9 @@ describe("buildPostMediaReadiness (video playbackReady)", () => {
         }
       ]
     });
-    expect(r.playbackUrlPresent).toBe(false);
-    expect(r.playbackReady).toBe(false);
+    expect(r.playbackUrlPresent).toBe(true);
+    expect(r.playbackReady).toBe(true);
+    expect(r.selectedVideoVariant).toBe("original");
   });
 
   it("marks media ready when processing completed and assets ready", () => {
@@ -66,5 +67,35 @@ describe("buildPostMediaReadiness (video playbackReady)", () => {
     });
     expect(r.mediaStatus).toBe("ready");
     expect(r.playbackReady).toBe(true);
+  });
+
+  it("treats failed encode as playable processing when originals still resolve", () => {
+    const r = buildPostMediaReadiness({
+      assetsReady: false,
+      videoProcessingStatus: "failed",
+      assets: [
+        {
+          type: "video",
+          id: "video_a",
+          original: "https://cdn.example.com/original.mp4",
+          variants: {}
+        }
+      ]
+    });
+    expect(r.mediaStatus).toBe("processing");
+    expect(r.playbackUrlPresent).toBe(true);
+    expect(r.playbackReady).toBe(true);
+    expect(r.processingButPlayable).toBe(true);
+  });
+
+  it("marks failure when ladder failed with no selectable playback url", () => {
+    const r = buildPostMediaReadiness({
+      assetsReady: false,
+      videoProcessingStatus: "failed",
+      assets: [{ type: "video", variants: {}, original: "" }]
+    });
+    expect(r.mediaStatus).toBe("failed");
+    expect(r.playbackUrlPresent).toBe(false);
+    expect(r.processingButPlayable).not.toBe(true);
   });
 });

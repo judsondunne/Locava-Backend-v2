@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildPostEnvelope } from "./post-envelope.js";
+import { selectBestVideoPlaybackAsset } from "./video-playback-selection.js";
 
 describe("buildPostEnvelope", () => {
   it("preserves playable video variants separately from poster art", () => {
@@ -75,6 +76,69 @@ describe("buildPostEnvelope", () => {
     expect(envelope.hasRawPost).toBe(false);
     expect(envelope.rawPost).toBeNull();
     expect(envelope.sourcePost).toBeNull();
+  });
+
+  it("does not let variantMetadata metadata objects clobber variants.* playback URLs", () => {
+    const envelope = buildPostEnvelope({
+      postId: "admin-migrated-video",
+      hydrationLevel: "detail",
+      seed: {
+        postId: "admin-migrated-video",
+        rankToken: "rank-admin-v",
+        author: { userId: "u1", handle: "jpro", name: "Jpro", pic: null },
+        media: {
+          type: "video",
+          posterUrl: "https://cdn.example.com/poster.jpg",
+          aspectRatio: 0.5625,
+          startupHint: "poster_then_preview",
+        },
+        social: { likeCount: 1, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 2,
+      },
+      sourcePost: {
+        postId: "admin-migrated-video",
+        userId: "u1",
+        mediaType: "video",
+        displayPhotoLink: "https://cdn.example.com/poster.jpg",
+        assets: [
+          {
+            id: "video_1776293697345_0",
+            type: "video",
+            original: "https://cdn.example.com/admin-upload.mp4",
+            poster: "https://cdn.example.com/poster.jpg",
+            variants: {
+              hls: "https://cdn.example.com/master.m3u8",
+              main1080Avc: "https://cdn.example.com/1080_avc.mp4",
+              main720Avc: "https://cdn.example.com/720_avc.mp4",
+              preview360: "https://cdn.example.com/360_avc.mp4",
+              poster: "https://cdn.example.com/poster.jpg",
+            },
+            variantMetadata: {
+              main1080Avc: { codec: "h264", height: 1080, bitrateKbps: 6000 },
+              main720Avc: { codec: "h264", height: 720, bitrateKbps: 1800 },
+              poster: { codec: "jpeg", height: 1138 },
+            },
+          },
+        ],
+      },
+      rawPost: {},
+      sourceRoute: "test.variant_metadata",
+    });
+
+    const variants = (envelope.assets as Array<Record<string, unknown>>)[0]?.variants as Record<string, unknown>;
+    expect(variants.main720Avc).toBe("https://cdn.example.com/720_avc.mp4");
+    expect(variants.main1080Avc).toBe("https://cdn.example.com/1080_avc.mp4");
+    expect(variants.poster).toBe("https://cdn.example.com/poster.jpg");
+
+    const sel = selectBestVideoPlaybackAsset(envelope as unknown as Record<string, unknown>, {
+      hydrationMode: "playback",
+      allowPreviewOnly: true,
+    });
+    expect(sel.playbackUrl).toBe("https://cdn.example.com/master.m3u8");
+    expect(sel.productionPlaybackSelected).toBe(true);
+    expect(sel.selectedVariantLabel).toBe("hls");
   });
 
   it("preserves image gradients, geo, and embedded comments on non-video posts", () => {

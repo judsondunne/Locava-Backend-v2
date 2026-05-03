@@ -36,7 +36,9 @@ export const AuthLoginResponseSchema = z.object({
     })
     .optional(),
   token: z.string().optional(),
-  error: z.string().optional()
+  error: z.string().optional(),
+  /** Machine-oriented code when success is false */
+  errorCode: z.string().optional()
 });
 
 // invalidation: login refreshes client auth state and subsequent auth/session + profile bootstrap reads.

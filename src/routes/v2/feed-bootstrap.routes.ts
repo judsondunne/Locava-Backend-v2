@@ -9,6 +9,11 @@ import { FeedBootstrapOrchestrator } from "../../orchestration/surfaces/feed-boo
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
+import {
+  buildFeedItemsMediaTracePayload,
+  isFeedItemsMediaTraceEnabled,
+  rollupFeedVideoMediaSummary
+} from "../../observability/feed-items-media-trace.js";
 
 function radiusLabelToKm(radiusLabel: string | undefined): number | undefined {
   if (!radiusLabel) return undefined;
@@ -94,6 +99,9 @@ export async function registerV2FeedBootstrapRoutes(app: FastifyInstance): Promi
         debugSlowDeferredMs: query.debugSlowDeferredMs
       });
       assertNoFakeBootstrapPayload(payload as unknown as Record<string, unknown>);
+      const items = payload.firstRender.feed.items;
+      const rollup = rollupFeedVideoMediaSummary(items);
+
       if (query.tab === "following") {
         const reqCtx = getRequestContext();
         request.log.info(
@@ -102,7 +110,7 @@ export async function registerV2FeedBootstrapRoutes(app: FastifyInstance): Promi
             requestId: request.id,
             viewerId: viewer.viewerId,
             latencyMs: Date.now() - startedAt,
-            returnedCount: payload.firstRender.feed.items.length,
+            returnedCount: items.length,
             candidateDocsFetched: payload.firstRender.feed.page.count,
             queryCountEstimate: reqCtx?.dbOps.queries ?? 0,
             readEstimate: reqCtx?.dbOps.reads ?? 0,
@@ -110,12 +118,40 @@ export async function registerV2FeedBootstrapRoutes(app: FastifyInstance): Promi
             cursorVersion: "fc:v1",
             nextCursorPresent: Boolean(payload.firstRender.feed.page.nextCursor),
             exhausted: payload.firstRender.feed.page.nextCursor == null,
-            emptyReason: payload.firstRender.feed.items.length === 0 ? "no_followed_posts_available" : null
+            emptyReason: items.length === 0 ? "no_followed_posts_available" : null,
+            ...rollup
           },
           "feed following summary"
         );
+      } else {
+        request.log.info(
+          {
+            event: "feed_bootstrap_explore_summary",
+            requestId: request.id,
+            viewerId: viewer.viewerId,
+            tab: query.tab,
+            latencyMs: Date.now() - startedAt,
+            returnedCount: items.length,
+            nextCursorPresent: Boolean(payload.firstRender.feed.page.nextCursor),
+            degraded: payload.degraded,
+            ...rollup
+          },
+          "feed bootstrap explore summary"
+        );
       }
-      const items = payload.firstRender.feed.items;
+
+      if (isFeedItemsMediaTraceEnabled()) {
+        request.log.info(
+          buildFeedItemsMediaTracePayload({
+            surface: "feed.bootstrap.get",
+            viewerId: viewer.viewerId,
+            requestId: request.id,
+            tab: query.tab,
+            items
+          }),
+          "feed items media trace (set LOCAVA_FEED_ITEMS_MEDIA_TRACE=1)"
+        );
+      }
       if (items.length === 0) {
         if (query.tab === "following") {
           return success(

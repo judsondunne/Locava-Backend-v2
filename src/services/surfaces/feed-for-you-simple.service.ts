@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { toFeedCardDTO, type FeedCardDTO } from "../../dto/compact-surface-dto.js";
+import { selectBestVideoPlaybackAsset } from "../../lib/posts/video-playback-selection.js";
 import { getRequestContext } from "../../observability/request-context.js";
 import type {
   FeedForYouSimpleRepository,
@@ -628,6 +629,87 @@ function isRasterImageUrl(value: string | null | undefined): boolean {
  * "Degraded" = video still depends on raw MP4 for grid/playback surfaces (no real image poster/preview, no HLS).
  * Note: `normalizeAssets` may set `previewUrl` to the same URL as `original`/`mp4`; that is still degraded.
  */
+function inferLabeledMp4FromUrl(url: string | null | undefined): Record<string, string> {
+  if (!url || typeof url !== "string") return {};
+  const u = url.trim();
+  if (!/^https?:\/\//i.test(u)) return {};
+  if (/1080.*avc|_1080_avc|1080_avc/i.test(u)) return { main1080Avc: u };
+  if (/\/[^/]*1080[^/]*hevc|_1080_hevc|main1080_hevc/i.test(u)) return { main1080: u };
+  if (/720.*avc|_720_avc|720_avc/i.test(u)) return { main720Avc: u };
+  if (/\/[^/]*720[^/]*hevc|_720_hevc/i.test(u)) return { main720: u };
+  return { main720Avc: u };
+}
+
+function hasMainishVariant(variants: Record<string, string>): boolean {
+  return Boolean(
+    variants.main1080Avc ||
+      variants.main1080 ||
+      variants.main720Avc ||
+      variants.main720 ||
+      variants.hls ||
+      variants.startup1080FaststartAvc ||
+      variants.startup720FaststartAvc
+  );
+}
+
+function simpleCandidateVideoVariants(a0: SimpleFeedCandidate["assets"][number]): Record<string, string> {
+  const v: Record<string, string> = { ...(a0.playbackVariantUrls ?? {}) };
+  if (a0.streamUrl?.trim()) v.hls = a0.streamUrl.trim();
+  const inferred = inferLabeledMp4FromUrl(a0.mp4Url);
+  if (!hasMainishVariant(v)) {
+    Object.assign(v, inferred);
+  } else {
+    for (const [k, val] of Object.entries(inferred)) {
+      if (v[k] == null) v[k] = val;
+    }
+  }
+  return v;
+}
+
+function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
+  playbackUrl?: string;
+  playbackUrlPresent?: boolean;
+  fallbackVideoUrl?: string;
+  mediaStatus?: "processing" | "ready" | "failed";
+  assetsReady?: boolean;
+  playbackReady?: boolean;
+  posterReady?: boolean;
+  hasVideo?: boolean;
+} {
+  if (candidate.mediaType !== "video") return {};
+  const a0 = candidate.assets[0];
+  if (!a0) return { hasVideo: true };
+  const variants = simpleCandidateVideoVariants(a0);
+  const postLike: Record<string, unknown> = {
+    mediaType: "video",
+    assetsReady: candidate.assetsReady === true,
+    instantPlaybackReady: candidate.instantPlaybackReady === true,
+    ...(candidate.videoProcessingStatus ? { videoProcessingStatus: candidate.videoProcessingStatus } : {}),
+    assets: [
+      {
+        type: "video",
+        id: a0.id,
+        original: a0.originalUrl,
+        ...(Object.keys(variants).length > 0 ? { variants } : {}),
+      },
+    ],
+  };
+  const sel = selectBestVideoPlaybackAsset(postLike, { hydrationMode: "playback", allowPreviewOnly: true });
+  const posterOk = Boolean(candidate.posterUrl?.trim() || a0.posterUrl?.trim());
+  const mediaStatus: "processing" | "ready" | "failed" =
+    sel.mediaStatusHint === "failed" ? "failed" : sel.mediaStatusHint === "ready" ? "ready" : "processing";
+  return {
+    ...(sel.playbackUrl ? { playbackUrl: sel.playbackUrl } : {}),
+    playbackUrlPresent: Boolean(sel.playbackUrl),
+    ...(sel.fallbackVideoUrl ? { fallbackVideoUrl: sel.fallbackVideoUrl } : {}),
+    mediaStatus,
+    ...(candidate.assetsReady === true ? { assetsReady: true } : {}),
+    playbackReady: Boolean(sel.playbackUrl) || candidate.instantPlaybackReady === true,
+    posterReady: posterOk,
+    hasVideo: true,
+  };
+}
+
 function updateMediaDiagnostics(candidate: SimpleFeedCandidate, diag: FeedForYouSimplePageDebug): void {
   const a = candidate.assets[0];
   if (candidate.mediaType !== "video" || !a) {
@@ -690,7 +772,8 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
       saved: false
     },
     createdAtMs: candidate.createdAtMs,
-    updatedAtMs: candidate.updatedAtMs
+    updatedAtMs: candidate.updatedAtMs,
+    ...augmentSimpleFeedVideoPlayback(candidate)
   });
 }
 

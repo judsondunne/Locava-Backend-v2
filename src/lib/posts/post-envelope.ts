@@ -259,6 +259,16 @@ function extractVariantUrl(value: unknown): string | undefined {
   return pickString(record.webp, record.jpg, record.url, record.uri, record.src, record.value);
 }
 
+function isLikelyRemoteUrlString(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const t = value.trim();
+  return /^https?:\/\//i.test(t);
+}
+
+/**
+ * Combines variant URL maps without letting `variantMetadata` blobs (bitrate/codec/size objects)
+ * clobber real `variants.{main720Avc,...}` URLs — matches Firestore admin/native video shapes.
+ */
 function mergeVariantMaps(...sources: Array<PostRecord | null | undefined>): PostRecord | undefined {
   const merged: PostRecord = {};
   for (const source of sources) {
@@ -268,6 +278,10 @@ function mergeVariantMaps(...sources: Array<PostRecord | null | undefined>): Pos
       if (typeof value === "string") {
         const trimmed = value.trim();
         if (trimmed) merged[key] = trimmed;
+        continue;
+      }
+      const prev = merged[key];
+      if (isLikelyRemoteUrlString(prev)) {
         continue;
       }
       merged[key] = value;

@@ -14,6 +14,8 @@ export type VideoAssetJob = { id: string; original: string };
 
 export type EncodedVideoAssetResult = {
   assetId: string;
+  /** `videos-lab/{postId}/{assetId}` — verify lab MP4s with authenticated S3, not anonymous HTTP. */
+  videosLabKeyPrefix: string;
   variants: Record<string, string>;
   variantMetadata: Record<string, unknown>;
   playbackLabGenerated: Record<string, string>;
@@ -31,10 +33,29 @@ function labKeyPrefix(postId: string, assetId: string): string {
   return `videos-lab/${safePost}/${safeAsset}`;
 }
 
-function buildScaleFilter(width: number, height: number, targetHLandscape: number, targetWPortrait: number): string {
+/** Object key suffixes under `videosLabKeyPrefix` (must match uploadOne calls). Used by worker S3 verification. */
+export const LAB_ARTIFACT_KEYS = {
+  preview360Avc: "preview360_avc.mp4",
+  main720Avc: "main720_avc.mp4",
+  main720Hevc: "main720_hevc.mp4",
+  startup540FaststartAvc: "startup540_faststart_avc.mp4",
+  startup720FaststartAvc: "startup720_faststart_avc.mp4",
+  startup1080FaststartAvc: "startup1080_faststart_avc.mp4",
+  upgrade1080FaststartAvc: "upgrade1080_faststart_avc.mp4",
+  posterHigh: "poster_high.jpg"
+} as const;
+
+/** Pure string builder; verified by unit test (ffmpeg is picky about `w:h` syntax). */
+export function buildPlaybackLabScaleFilter(
+  width: number,
+  height: number,
+  targetHLandscape: number,
+  targetWPortrait: number
+): string {
   const landscape = width >= height;
   if (landscape) return `scale=-2:${targetHLandscape}:flags=lanczos,format=yuv420p`;
-  return `scale=${targetWPortrait}=-2:flags=lanczos,format=yuv420p`;
+  // ffmpeg scale takes w:h — must be a single colon before -2, not `360=-2` (that breaks parsing).
+  return `scale=${targetWPortrait}:-2:flags=lanczos,format=yuv420p`;
 }
 
 async function downloadToFile(url: string, dest: string): Promise<void> {
@@ -198,10 +219,10 @@ export async function encodeAndUploadVideoAsset(input: {
   const generationMetadata: Record<string, Record<string, unknown>> = {};
   const lastVerifyResults: Array<Record<string, unknown>> = [];
 
-  const vf360 = buildScaleFilter(w, h, 360, 360);
-  const vf540 = buildScaleFilter(w, h, 540, 540);
-  const vf720 = buildScaleFilter(w, h, 720, 720);
-  const vf1080 = buildScaleFilter(w, h, 1080, 1080);
+  const vf360 = buildPlaybackLabScaleFilter(w, h, 360, 360);
+  const vf540 = buildPlaybackLabScaleFilter(w, h, 540, 540);
+  const vf720 = buildPlaybackLabScaleFilter(w, h, 720, 720);
+  const vf1080 = buildPlaybackLabScaleFilter(w, h, 1080, 1080);
 
   const outPreview = path.join(input.workDir, "out_preview360_avc.mp4");
   const outMain720Avc = path.join(input.workDir, "out_main720_avc.mp4");
@@ -282,7 +303,7 @@ export async function encodeAndUploadVideoAsset(input: {
     inputPath: localIn,
     outputPath: outPosterHigh,
     videoAbsIndex: video.index,
-    vf: buildScaleFilter(w, h, 1080, 1080)
+    vf: buildPlaybackLabScaleFilter(w, h, 1080, 1080)
   });
 
   let hevcOk = false;
@@ -439,6 +460,7 @@ export async function encodeAndUploadVideoAsset(input: {
 
   return {
     assetId: input.asset.id,
+    videosLabKeyPrefix: prefix,
     variants,
     variantMetadata,
     playbackLabGenerated: lab,

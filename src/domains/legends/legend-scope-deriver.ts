@@ -6,6 +6,7 @@ import {
   normalizeLegendActivityId,
   type LegendScopeId
 } from "./legends.types.js";
+import { normalizeLowerLocationKey, normalizeUpperLocationKey } from "./legend-location-keys.js";
 
 export class LegendScopeDeriver {
   constructor(
@@ -54,15 +55,12 @@ export class LegendScopeDeriver {
     }
 
     if (enablePlace) {
-      const country = normalizeUpperLocationKey(input.country);
       const state = normalizeUpperLocationKey(input.state);
       const cityRaw = typeof input.city === "string" ? input.city.trim() : "";
       const city = cityRaw ? normalizeLowerLocationKey(cityRaw) : "";
-      if (country) {
-        scopes.push(buildLegendScopeId(["place", "country", country]));
-        for (const activityId of activityIds) {
-          scopes.push(buildLegendScopeId(["placeActivity", "country", country, activityId]));
-        }
+      const hadCountryInput = Boolean(normalizeUpperLocationKey(input.country));
+      if (hadCountryInput) {
+        reasons.push("country_scopes_disabled_states_and_cities_only");
       }
       if (state) {
         scopes.push(buildLegendScopeId(["place", "state", state]));
@@ -90,29 +88,5 @@ export class LegendScopeDeriver {
       reasons
     };
   }
-}
-
-function normalizeUpperLocationKey(value: unknown): string {
-  if (typeof value !== "string") return "";
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  return trimmed
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 64);
-}
-
-function normalizeLowerLocationKey(value: string): string {
-  return value
-    .trim()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 64);
 }
 

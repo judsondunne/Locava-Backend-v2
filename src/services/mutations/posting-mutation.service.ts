@@ -161,22 +161,29 @@ export class PostingMutationService {
           }
         }
         this.scheduleCompletionInvalidation(input.viewerId, result.operation.operationId);
-        await this.primeLegendPostResult({
-          postId: result.operation.postId,
-          userId: (input.userId?.trim() || input.viewerId).trim(),
-          stageId: input.legendStageId?.trim() || null,
-          reason: "idempotent_completed",
-        });
+        scheduleBackgroundWork(
+          () => this.primeLegendPostResult({
+            postId: result.operation.postId,
+            userId: (input.userId?.trim() || input.viewerId).trim(),
+            stageId: input.legendStageId?.trim() || null,
+            reason: "idempotent_completed"
+          }),
+          0,
+          { label: "posting.primeLegendPostResult" }
+        );
         this.scheduleLegendsCommit({
           stageId: input.legendStageId,
           postId: result.operation.postId,
           userId: (input.userId?.trim() || input.viewerId).trim()
         });
-        const mediaReadiness = await this.loadCanonicalPostMediaReadiness(result.operation.postId);
+        const [mediaReadiness, achievementDelta] = await Promise.all([
+          this.loadCanonicalPostMediaReadiness(result.operation.postId),
+          this.resolveFinalizeAchievementDelta(input, result.operation.postId)
+        ]);
         return {
           ...result,
           canonicalCreated: true,
-          achievementDelta: await this.resolveFinalizeAchievementDelta(input, result.operation.postId),
+          achievementDelta,
           ...(mediaReadiness ? { mediaReadiness } : {})
         };
       }
@@ -215,24 +222,32 @@ export class PostingMutationService {
           operationId: completed.operationId
         });
         this.scheduleCompletionInvalidation(input.viewerId, completed.operationId);
-        await this.primeLegendPostResult({
-          postId,
-          userId: (input.userId?.trim() || input.viewerId).trim(),
-          stageId: input.legendStageId?.trim() || null,
-          reason: "finalize_completed",
-        });
+        scheduleBackgroundWork(
+          () =>
+            this.primeLegendPostResult({
+              postId,
+              userId: (input.userId?.trim() || input.viewerId).trim(),
+              stageId: input.legendStageId?.trim() || null,
+              reason: "finalize_completed"
+            }),
+          0,
+          { label: "posting.primeLegendPostResult" }
+        );
         this.scheduleLegendsCommit({
           stageId: input.legendStageId,
           postId,
           userId: (input.userId?.trim() || input.viewerId).trim()
         });
-        const mediaReadiness = await this.loadCanonicalPostMediaReadiness(postId);
+        const [mediaReadiness, achievementDelta] = await Promise.all([
+          this.loadCanonicalPostMediaReadiness(postId),
+          this.resolveFinalizeAchievementDelta(input, postId)
+        ]);
         return {
           session: result.session,
           operation: completed,
           idempotent: result.idempotent,
           canonicalCreated: true,
-          achievementDelta: await this.resolveFinalizeAchievementDelta(input, postId),
+          achievementDelta,
           ...(mediaReadiness ? { mediaReadiness } : {})
         };
       } catch (error) {
@@ -279,14 +294,19 @@ export class PostingMutationService {
             userId: input.userId,
             stageId
           });
-          await legendService.commitStagedPostLegend({
+          const stagedResult = await legendService.commitStagedPostLegend({
             stageId,
             post: { postId: input.postId, userId: input.userId }
           });
           console.info("[posting.legends] commit_staged_done", {
             postId: input.postId,
             userId: input.userId,
-            stageId
+            stageId,
+            committed: stagedResult.committed,
+            alreadyProcessed: stagedResult.alreadyProcessed,
+            awardsCreated: stagedResult.awardsCreated,
+            derivedScopeCount: stagedResult.derivedScopes?.length ?? 0,
+            derivedScopes: stagedResult.derivedScopes ?? []
           });
           await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
           console.info("[posting.legends] badges_sync_done", {
@@ -344,7 +364,7 @@ export class PostingMutationService {
           country,
           region
         });
-        await legendService.processPostCreated({
+        const fallbackResult = await legendService.processPostCreated({
           postId: input.postId,
           userId: input.userId,
           geohash,
@@ -356,7 +376,12 @@ export class PostingMutationService {
         });
         console.info("[posting.legends] fallback_process_done", {
           postId: input.postId,
-          userId: input.userId
+          userId: input.userId,
+          committed: fallbackResult.committed,
+          alreadyProcessed: fallbackResult.alreadyProcessed,
+          awardsCreated: fallbackResult.awardsCreated,
+          derivedScopeCount: fallbackResult.derivedScopes?.length ?? 0,
+          derivedScopes: fallbackResult.derivedScopes ?? []
         });
         await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
         console.info("[posting.legends] fallback_badges_sync_done", {
@@ -526,8 +551,11 @@ export class PostingMutationService {
 
   private shouldUseSynchronousFinalizeAchievements(): boolean {
     if (process.env.NODE_ENV === "test" || process.env.VITEST === "true") return true;
-    // Default: award XP in the finalize response so clients show correct toast/onboarding.
-    // Set POSTING_FINALIZE_ASYNC_ACHIEVEMENTS=1 to defer awards (lower finalize latency at scale).
+    // Production: defer by default — faster finalize; client polls / consumes pending celebrations.
+    if (process.env.NODE_ENV === "production") {
+      return process.env.POSTING_FINALIZE_SYNC_ACHIEVEMENTS === "1";
+    }
+    // Non-prod: keep sync unless explicitly async (developer convenience).
     return process.env.POSTING_FINALIZE_ASYNC_ACHIEVEMENTS !== "1";
   }
 
@@ -1103,7 +1131,7 @@ export class PostingMutationService {
           original?: string;
         }
       | undefined;
-    const playbackUrlPresent = Boolean(
+    const ladderVariantUrlsPresent = Boolean(
       firstVideo &&
         (String(firstVideo.variants?.preview360Avc ?? "").trim() ||
           String(firstVideo.variants?.main720 ?? "").trim() ||
@@ -1127,11 +1155,19 @@ export class PostingMutationService {
     }
 
     if (createdNewPost) {
-      await this.postingAudioService.recordUsageForPublishedPost({
-        recordings: enrichedRecordings,
-        activities,
-        postId
-      });
+      const usagePostId = postId;
+      const usageRecordings = enrichedRecordings;
+      const usageActivities = activities;
+      scheduleBackgroundWork(
+        () =>
+          this.postingAudioService.recordUsageForPublishedPost({
+            recordings: usageRecordings,
+            activities: usageActivities,
+            postId: usagePostId
+          }),
+        0,
+        { label: "posting.recordAudioUsage" }
+      );
     }
 
     let videoTaskEnqueued = false;
@@ -1174,43 +1210,46 @@ export class PostingMutationService {
           if (taskResult.ok) {
             videoTaskEnqueued = true;
             const readiness = buildPostMediaReadiness({
-              assets: postDoc.assets,
+              ...(postDoc as Record<string, unknown>),
               assetsReady: false,
               videoProcessingStatus: "processing",
               instantPlaybackReady: false
             });
             await postRef.update({
-              mediaStatus: "processing",
+              mediaStatus: readiness.mediaStatus,
               videoProcessingStatus: "processing",
               instantPlaybackReady: false,
               assetsReady: false,
-              playbackReady: false,
-              playbackUrlPresent: false,
+              playbackReady: readiness.playbackReady,
+              playbackUrlPresent: readiness.playbackUrlPresent,
+              ...(readiness.playbackUrl ? { playbackUrl: readiness.playbackUrl } : {}),
               ...(readiness.fallbackVideoUrl ? { fallbackVideoUrl: readiness.fallbackVideoUrl } : {}),
               posterReady: readiness.posterReady,
               posterPresent: readiness.posterPresent,
               ...(readiness.posterUrl ? { posterUrl: readiness.posterUrl } : {}),
               videoProcessingProgress: {
                 totalVideos: videoAssets.length,
-                processedVideos: 0
+                processedVideos: 0,
+                phase: "queued_worker"
               }
             });
             this.scheduleInstantPlaybackReadyMonitor(postId);
           } else {
             videoTaskReason = taskResult.reason;
             const readiness = buildPostMediaReadiness({
-              assets: postDoc.assets,
+              ...(postDoc as Record<string, unknown>),
               assetsReady: false,
               videoProcessingStatus: "failed",
               instantPlaybackReady: false
             });
             await postRef.update({
-              mediaStatus: "failed",
+              mediaStatus: readiness.mediaStatus,
               videoProcessingStatus: "failed",
               instantPlaybackReady: false,
               assetsReady: false,
-              playbackReady: false,
-              playbackUrlPresent: false,
+              playbackReady: readiness.playbackReady,
+              playbackUrlPresent: readiness.playbackUrlPresent,
+              ...(readiness.playbackUrl ? { playbackUrl: readiness.playbackUrl } : {}),
               ...(readiness.fallbackVideoUrl ? { fallbackVideoUrl: readiness.fallbackVideoUrl } : {}),
               posterReady: readiness.posterReady,
               posterPresent: readiness.posterPresent,
@@ -1220,16 +1259,30 @@ export class PostingMutationService {
             console.warn("[video.processing.failed]", {
               postId,
               reason: taskResult.reason,
+              failureCode: "failureCode" in taskResult ? taskResult.failureCode : undefined,
               phase: "enqueue"
             });
             console.warn("[posting.finalize] video_processing_task_not_enqueued", {
               postId,
-              reason: taskResult.reason
+              reason: taskResult.reason,
+              failureCode: "failureCode" in taskResult ? taskResult.failureCode : undefined
             });
           }
         }
       }
     }
+
+    const finalizeReadiness = buildPostMediaReadiness({
+      ...(postDoc as Record<string, unknown>),
+      assetsReady: instantPlaybackReady ? true : Boolean(postDoc.assetsReady),
+      videoProcessingStatus:
+        instantPlaybackReady
+          ? "completed"
+          : videoTaskEnqueued
+            ? "processing"
+            : String(postDoc.videoProcessingStatus ?? "pending"),
+      instantPlaybackReady
+    });
 
     console.info("[posting.finalize]", {
       event: "native_canonical_post",
@@ -1241,7 +1294,9 @@ export class PostingMutationService {
       assetsReady: postDoc.assetsReady,
       variantCount: assembled.variantUrlCount,
       posterPresent,
-      playbackUrlPresent,
+      ladderVariantUrlsPresent,
+      playbackUrlPresent: finalizeReadiness.playbackUrlPresent,
+      canonicalPlaybackReady: finalizeReadiness.playbackReady,
       syncFaststartAttempted,
       instantPlaybackReady,
       videoTaskEnqueued,

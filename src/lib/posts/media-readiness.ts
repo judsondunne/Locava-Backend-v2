@@ -1,3 +1,5 @@
+import { selectBestVideoPlaybackAsset, type SelectedCanonicalVideoVariant } from "./video-playback-selection.js";
+
 type PostRecord = Record<string, unknown>;
 
 export type MediaStatus = "processing" | "ready" | "failed";
@@ -24,6 +26,15 @@ export type PostMediaReadiness = {
   letterboxGradients?: Array<{ top: string; bottom: string }>;
   updatedAtMs?: number | null;
   mediaUpdatedAtMs?: number | null;
+  /** When true, visible playback is still preview-tier only (no ladder encode yet). */
+  usedPreviewFallback?: boolean;
+  /** Distinct ladder / HLS / startup encode is selected (not original-only / preview). */
+  productionPlaybackSelected?: boolean;
+  selectedVideoVariant?: SelectedCanonicalVideoVariant;
+  selectedVideoQualityRank?: number;
+  isDegradedVideo?: boolean;
+  /** Processing pipeline not finished yet, but HTTPS playback bytes are usable now. */
+  processingButPlayable?: boolean;
 };
 
 function asRecord(value: unknown): PostRecord | null {
@@ -128,116 +139,92 @@ function resolveResizeMode(post: PostRecord): "cover" | "contain" {
   return "cover";
 }
 
-function isRemoteHttpUrl(value: unknown): value is string {
-  return typeof value === "string" && /^https?:\/\//i.test(value.trim());
-}
-
-function pickProcessedPlaybackUrl(asset: PostRecord | null): string | undefined {
-  const variants = asRecord(asset?.variants) ?? {};
-  const generated = asRecord(asset?.generated) ?? {};
-  const playbackLab = asRecord(asset?.playbackLab);
-  const playbackGenerated = asRecord(playbackLab?.generated);
-  const sourceSnapshot = asRecord(playbackLab?.sourceSnapshot);
-  const candidate = pickString(
-    generated.startup540FaststartAvc,
-    generated.startup540Faststart,
-    generated.startup720FaststartAvc,
-    generated.startup720Faststart,
-    generated.startup1080FaststartAvc,
-    generated.startup1080Faststart,
-    playbackGenerated?.startup540FaststartAvc,
-    playbackGenerated?.startup540Faststart,
-    playbackGenerated?.startup720FaststartAvc,
-    playbackGenerated?.startup720Faststart,
-    playbackGenerated?.startup1080FaststartAvc,
-    playbackGenerated?.startup1080Faststart,
-    variants.startup540FaststartAvc,
-    variants.startup540Faststart,
-    variants.startup720FaststartAvc,
-    variants.startup720Faststart,
-    variants.startup1080FaststartAvc,
-    variants.startup1080Faststart,
-    variants.main720Avc,
-    variants.main720,
-    variants.main1080Avc,
-    variants.main1080,
-    variants.hls,
-    variants.preview360Avc,
-    variants.preview360,
-  );
-  const original = pickString(asset?.original, sourceSnapshot?.original);
-  if (!candidate) return undefined;
-  if (!isRemoteHttpUrl(candidate)) return undefined;
-  if (original && candidate === original) return undefined;
-  return candidate;
-}
-
-function pickFallbackVideoUrl(asset: PostRecord | null, playbackUrl?: string): string | undefined {
-  const original = pickString(asset?.original);
-  if (!original || !isRemoteHttpUrl(original)) return undefined;
-  if (playbackUrl && original === playbackUrl) return undefined;
-  return original;
-}
-
 export function buildPostMediaReadiness(
   postLike: Record<string, unknown> | null | undefined,
+  opts?: { hydrationMode?: "card" | "playback" | "detail" | "open" | "full"; preferHlsFirst?: boolean },
 ): PostMediaReadiness {
   const post = asRecord(postLike) ?? {};
   const assets = Array.isArray(post.assets) ? (post.assets as PostRecord[]) : [];
   const firstVideo = assets.find((asset) => pickString(asset?.type, asset?.mediaType) === "video") ?? null;
-  const hasVideo = firstVideo != null;
+  const hasVideo = firstVideo != null || pickString(post.mediaType) === "video";
   const posterUrl = pickString(firstVideo?.poster, firstVideo?.thumbnail, asRecord(firstVideo?.variants)?.poster);
-  const mediaRoot = asRecord(post.media);
-  const postLevelPlayback = pickString(post.playbackUrl, post.videoUrl, mediaRoot?.playbackUrl);
-  const postLevelFallback = pickString(post.fallbackVideoUrl);
-  const processedPlayback =
-    pickProcessedPlaybackUrl(firstVideo) ??
-    (postLevelPlayback && isRemoteHttpUrl(postLevelPlayback) ? postLevelPlayback : undefined);
-  const assetsReady = pickBoolean(post.assetsReady) === true;
+
+  if (!hasVideo) {
+    const gradients = normalizeLetterboxGradients(post);
+    return {
+      mediaStatus: "ready",
+      assetsReady: pickBoolean(post.assetsReady) === true,
+      posterReady: Boolean(posterUrl),
+      posterPresent: Boolean(posterUrl),
+      ...(posterUrl ? { posterUrl } : {}),
+      playbackReady: false,
+      playbackUrlPresent: false,
+      instantPlaybackReady: false,
+      hasVideo: false,
+      aspectRatio: pickNumber(assets[0]?.aspectRatio) ?? null,
+      width: pickNumber(assets[0]?.width) ?? null,
+      height: pickNumber(assets[0]?.height) ?? null,
+      resizeMode: resolveResizeMode(post),
+      ...(gradients.gradientTop ? { gradientTop: gradients.gradientTop } : {}),
+      ...(gradients.gradientBottom ? { gradientBottom: gradients.gradientBottom } : {}),
+      ...(gradients.letterboxGradients ? { letterboxGradients: gradients.letterboxGradients } : {}),
+      updatedAtMs:
+        readMaybeMillis(post.updatedAtMs ?? post.lastUpdated ?? post.updatedAt ?? post.time) ?? null,
+      mediaUpdatedAtMs:
+        readMaybeMillis(post.playbackLabUpdatedAt ?? post.updatedAtMs ?? post.lastUpdated ?? post.updatedAt) ?? null,
+    };
+  }
+
   const instantPlaybackReady = pickBoolean(post.instantPlaybackReady, firstVideo?.instantPlaybackReady) === true;
   const videoProcessingStatus = pickString(post.videoProcessingStatus);
-  let fallbackVideoUrl = pickFallbackVideoUrl(firstVideo, processedPlayback) ?? postLevelFallback;
-  const allowFallbackAsCanonicalPlayback =
-    assetsReady ||
-    instantPlaybackReady ||
-    videoProcessingStatus === "completed" ||
-    videoProcessingStatus == null ||
-    videoProcessingStatus === "";
-  let effectivePlayback = processedPlayback;
-  if (!effectivePlayback && allowFallbackAsCanonicalPlayback && fallbackVideoUrl && isRemoteHttpUrl(fallbackVideoUrl)) {
-    effectivePlayback = fallbackVideoUrl;
-  }
-  const playbackUrl = effectivePlayback;
-  const playbackReady =
-    hasVideo === false
-      ? false
-      : Boolean(processedPlayback) || instantPlaybackReady === true;
+  const assetsReady = pickBoolean(post.assetsReady) === true;
+
+  const selection = selectBestVideoPlaybackAsset(postLike, {
+    hydrationMode: opts?.hydrationMode ?? "detail",
+    allowPreviewOnly: true,
+    ...(opts?.preferHlsFirst != null ? { preferHlsFirst: opts.preferHlsFirst } : {}),
+  });
+
+  const playbackUrl = selection.playbackUrl;
+  const fallbackVideoUrl = selection.fallbackVideoUrl;
+  const productionPlaybackSelected = selection.productionPlaybackSelected;
+  /** Any selectable HTTPS playable URL counts (preview360 included when it is literally all we have). */
+  const playbackUrlPresent = Boolean(playbackUrl);
+  const playbackReady = playbackUrlPresent || instantPlaybackReady;
+
   let mediaStatus: MediaStatus = "ready";
-  if (hasVideo) {
-    if (videoProcessingStatus === "failed") {
-      mediaStatus = "failed";
-    } else if (videoProcessingStatus === "completed" && assetsReady) {
-      mediaStatus = "ready";
-    } else if (playbackReady) {
-      mediaStatus = "processing";
-    } else {
-      mediaStatus = "processing";
-    }
+  const encodePipelineFailed = videoProcessingStatus === "failed";
+  if (encodePipelineFailed && playbackReady) {
+    /** Ladder/transcode died, but originals or other HTTPS playback remain valid. */
+    mediaStatus = "processing";
+  } else if (encodePipelineFailed) {
+    mediaStatus = "failed";
+  } else if (videoProcessingStatus === "completed" && assetsReady) {
+    mediaStatus = "ready";
+  } else if (playbackReady) {
+    mediaStatus = "processing";
+  } else {
+    mediaStatus = "processing";
   }
+
   const gradients = normalizeLetterboxGradients(post);
+  const usedPreviewFallback = selection.isPreviewOnly && Boolean(playbackUrl);
+  /** True whenever we have selectable HTTPS playback and the asset is not a hard playback failure. */
+  const processingButPlayable = playbackUrlPresent && mediaStatus !== "failed";
+
   return {
     mediaStatus,
     assetsReady,
     ...(videoProcessingStatus ? { videoProcessingStatus } : {}),
-    posterReady: Boolean(posterUrl),
-    posterPresent: Boolean(posterUrl),
-    ...(posterUrl ? { posterUrl } : {}),
+    posterReady: Boolean(selection.posterUrl ?? posterUrl),
+    posterPresent: Boolean(selection.posterUrl ?? posterUrl),
+    ...((selection.posterUrl ?? posterUrl) ? { posterUrl: selection.posterUrl ?? posterUrl } : {}),
     playbackReady,
-    playbackUrlPresent: Boolean(processedPlayback),
+    playbackUrlPresent,
     ...(playbackUrl ? { playbackUrl } : {}),
     ...(fallbackVideoUrl ? { fallbackVideoUrl } : {}),
     instantPlaybackReady,
-    hasVideo,
+    hasVideo: true,
     aspectRatio: pickNumber(firstVideo?.aspectRatio, assets[0]?.aspectRatio) ?? null,
     width: pickNumber(firstVideo?.width, assets[0]?.width) ?? null,
     height: pickNumber(firstVideo?.height, assets[0]?.height) ?? null,
@@ -249,5 +236,11 @@ export function buildPostMediaReadiness(
       readMaybeMillis(post.updatedAtMs ?? post.lastUpdated ?? post.updatedAt ?? post.time) ?? null,
     mediaUpdatedAtMs:
       readMaybeMillis(post.playbackLabUpdatedAt ?? post.updatedAtMs ?? post.lastUpdated ?? post.updatedAt) ?? null,
+    ...(usedPreviewFallback ? { usedPreviewFallback: true } : {}),
+    productionPlaybackSelected,
+    selectedVideoVariant: selection.selectedVideoVariant,
+    selectedVideoQualityRank: selection.selectedVideoQualityRank,
+    isDegradedVideo: selection.isDegradedVideo,
+    ...(processingButPlayable ? { processingButPlayable: true } : {}),
   };
 }

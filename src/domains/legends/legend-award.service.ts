@@ -6,6 +6,7 @@ import type {
   LegendScopeType,
   LegendTopUserRow
 } from "./legends.types.js";
+import { humanizeLegendPlace } from "./legend-place-humanize.js";
 
 function titleCaseActivity(activityId: string): string {
   const parts = String(activityId ?? "")
@@ -14,68 +15,6 @@ function titleCaseActivity(activityId: string): string {
     .filter(Boolean);
   if (parts.length === 0) return String(activityId ?? "");
   return parts.map((p) => `${p.slice(0, 1).toUpperCase()}${p.slice(1)}`).join(" ");
-}
-
-const US_STATE_NAMES: Record<string, string> = {
-  AL: "Alabama",
-  AK: "Alaska",
-  AZ: "Arizona",
-  AR: "Arkansas",
-  CA: "California",
-  CO: "Colorado",
-  CT: "Connecticut",
-  DE: "Delaware",
-  FL: "Florida",
-  GA: "Georgia",
-  HI: "Hawaii",
-  ID: "Idaho",
-  IL: "Illinois",
-  IN: "Indiana",
-  IA: "Iowa",
-  KS: "Kansas",
-  KY: "Kentucky",
-  LA: "Louisiana",
-  ME: "Maine",
-  MD: "Maryland",
-  MA: "Massachusetts",
-  MI: "Michigan",
-  MN: "Minnesota",
-  MS: "Mississippi",
-  MO: "Missouri",
-  MT: "Montana",
-  NE: "Nebraska",
-  NV: "Nevada",
-  NH: "New Hampshire",
-  NJ: "New Jersey",
-  NM: "New Mexico",
-  NY: "New York",
-  NC: "North Carolina",
-  ND: "North Dakota",
-  OH: "Ohio",
-  OK: "Oklahoma",
-  OR: "Oregon",
-  PA: "Pennsylvania",
-  RI: "Rhode Island",
-  SC: "South Carolina",
-  SD: "South Dakota",
-  TN: "Tennessee",
-  TX: "Texas",
-  UT: "Utah",
-  VT: "Vermont",
-  VA: "Virginia",
-  WA: "Washington",
-  WV: "West Virginia",
-  WI: "Wisconsin",
-  WY: "Wyoming"
-};
-
-function humanizePlace(placeType: string | null, placeId: string | null): string {
-  if (!placeId) return placeType ? placeType : "your area";
-  if (placeType === "state") {
-    const key = placeId.trim().toUpperCase();
-    return US_STATE_NAMES[key] ?? placeId;
-  }
-  return placeId;
 }
 
 function parseScopeId(scopeId: LegendScopeId): {
@@ -100,25 +39,59 @@ function buildAwardDisplay(params: {
   scopeType: LegendScopeType;
   scopeTitle: string;
   scopeSubtitle: string;
+  geoAnchorLine?: string | null;
 }): { title: string; subtitle: string } {
   const parsed = parseScopeId(params.scopeId);
   const activity = parsed.activityId ? titleCaseActivity(parsed.activityId) : null;
-  const place = humanizePlace(parsed.placeType, parsed.placeId);
+  const place = humanizeLegendPlace(parsed.placeType, parsed.placeId);
+  const anchor = typeof params.geoAnchorLine === "string" ? params.geoAnchorLine.trim() : "";
 
   if (params.awardType === "first_finder") {
-    // Place-based: "First Poster of North Dakota"
-    if (params.scopeType === "place" || params.scopeType === "placeActivity") {
-      return { title: `First Poster of ${place}`, subtitle: activity ? `${activity} • Territory claimed` : "Territory claimed" };
+    if (params.scopeType === "place") {
+      return {
+        title: `First explorer in ${place}`,
+        subtitle: "You posted here before anyone else recorded this place on Locava."
+      };
     }
-    return { title: "First Finder", subtitle: params.scopeSubtitle || "Territory claimed" };
+    if (params.scopeType === "placeActivity") {
+      return {
+        title: activity ? `First ${activity} explorer in ${place}` : `First explorer in ${place}`,
+        subtitle: "Original activity + place claim — nobody posted this combo before you."
+      };
+    }
+    if (params.scopeType === "cell") {
+      const where = anchor ? `near ${anchor}` : "this hyperlocal map cell";
+      return {
+        title: `First explorer ${where}`,
+        subtitle: anchor
+          ? "You mapped this tiny zone before anyone else here."
+          : "First post ever in this hyperlocal leaderboard cell."
+      };
+    }
+    return { title: "First Finder", subtitle: params.scopeSubtitle || params.scopeTitle || "Territory claimed" };
   }
   if (params.awardType === "first_activity_finder") {
-    // "First Surfer of North Dakota" (or "First Surfer Here" for cellActivity)
     if (activity && (params.scopeType === "placeActivity" || params.scopeType === "place")) {
-      return { title: `First ${activity} of ${place}`, subtitle: "You started the map here" };
+      return {
+        title: `First ${activity} poster in ${place}`,
+        subtitle: "Nobody had more (or any) qualifying posts here before your run."
+      };
     }
-    if (activity) return { title: `First ${activity} Finder`, subtitle: params.scopeSubtitle || "You started the map here" };
-    return { title: "First Activity Finder", subtitle: params.scopeSubtitle || "You started the map here" };
+    if (activity && params.scopeType === "cellActivity") {
+      const where = anchor ? `near ${anchor}` : "this hyperlocal cell";
+      return {
+        title: `First ${activity} poster ${where}`,
+        subtitle: "Original claim for this activity in this hyperlocal zone."
+      };
+    }
+    if (activity && params.scopeType === "activity") {
+      return {
+        title: `First ${activity} legend on Locava`,
+        subtitle: "You unlocked the global leaderboard for this activity."
+      };
+    }
+    if (activity) return { title: `First ${activity} Finder`, subtitle: params.scopeSubtitle || "You started this lane on Locava." };
+    return { title: "First Activity Finder", subtitle: params.scopeSubtitle || params.scopeTitle || "You opened this leaderboard." };
   }
   if (params.awardType === "new_leader") {
     return { title: `New #1: ${params.scopeTitle}`, subtitle: params.scopeSubtitle || "Crown claimed" };
@@ -173,6 +146,8 @@ export class LegendAwardService {
     userId: string;
     prevUserCount: number;
     nextUserCount: number;
+    /** Post city/state formatted for hyperlocal legends (cells). */
+    geoAnchorLine?: string | null;
   }): { award: LegendAwardDoc | null; kind: LegendAwardType | null; previousRank: number | null; newRank: number | null } {
     const closeThreshold = Math.max(1, Math.min(this.config.closeToLeaderThreshold ?? 2, 3));
 
@@ -190,15 +165,14 @@ export class LegendAwardService {
 
     let awardType: LegendAwardType | null = null;
     if (params.scopeWasCreated) {
-      if (params.scopeType === "cell" || params.scopeType === "place") {
-        awardType = "first_finder";
-      }
       if (
         params.scopeType === "cellActivity" ||
         params.scopeType === "activity" ||
         params.scopeType === "placeActivity"
       ) {
         awardType = "first_activity_finder";
+      } else if (params.scopeType === "cell" || params.scopeType === "place") {
+        awardType = "first_finder";
       }
     }
 
@@ -235,7 +209,8 @@ export class LegendAwardService {
         scopeId: params.scopeId,
         scopeType: params.scopeType,
         scopeTitle: params.nextScope.title,
-        scopeSubtitle: params.nextScope.subtitle
+        scopeSubtitle: params.nextScope.subtitle,
+        geoAnchorLine: params.geoAnchorLine ?? null
       }),
       postId: params.postId,
       previousRank,

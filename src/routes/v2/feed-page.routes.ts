@@ -9,6 +9,11 @@ import { getRequestContext } from "../../observability/request-context.js";
 import { FeedPageOrchestrator } from "../../orchestration/surfaces/feed-page.orchestrator.js";
 import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
+import {
+  buildFeedItemsMediaTracePayload,
+  isFeedItemsMediaTraceEnabled,
+  rollupFeedVideoMediaSummary
+} from "../../observability/feed-items-media-trace.js";
 
 function radiusLabelToKm(radiusLabel: string | undefined): number | undefined {
   if (!radiusLabel) return undefined;
@@ -92,6 +97,9 @@ export async function registerV2FeedPageRoutes(app: FastifyInstance): Promise<vo
         radiusKm: query.radiusKm ?? radiusLabelToKm(query.radiusLabel)
       });
       assertNoFakePagePayload(payload as unknown as Record<string, unknown>);
+      const pageItems = payload.items;
+      const pageRollup = rollupFeedVideoMediaSummary(pageItems);
+
       if (query.tab === "following") {
         const reqCtx = getRequestContext();
         request.log.info(
@@ -100,7 +108,7 @@ export async function registerV2FeedPageRoutes(app: FastifyInstance): Promise<vo
             requestId: request.id,
             viewerId: viewer.viewerId,
             latencyMs: Date.now() - startedAt,
-            returnedCount: payload.items.length,
+            returnedCount: pageItems.length,
             candidateDocsFetched: payload.page.count,
             queryCountEstimate: reqCtx?.dbOps.queries ?? 0,
             readEstimate: reqCtx?.dbOps.reads ?? 0,
@@ -108,11 +116,41 @@ export async function registerV2FeedPageRoutes(app: FastifyInstance): Promise<vo
             cursorVersion: "fc:v1",
             nextCursorPresent: Boolean(payload.page.nextCursor),
             exhausted: payload.page.nextCursor == null,
-            emptyReason: payload.items.length === 0 ? "no_followed_posts_available" : null
+            emptyReason: pageItems.length === 0 ? "no_followed_posts_available" : null,
+            ...pageRollup
           },
           "feed following summary"
         );
+      } else {
+        request.log.info(
+          {
+            event: "feed_page_explore_summary",
+            requestId: request.id,
+            viewerId: viewer.viewerId,
+            tab: query.tab,
+            latencyMs: Date.now() - startedAt,
+            returnedCount: pageItems.length,
+            nextCursorPresent: Boolean(payload.page.nextCursor),
+            degraded: payload.degraded,
+            ...pageRollup
+          },
+          "feed page explore summary"
+        );
       }
+
+      if (isFeedItemsMediaTraceEnabled()) {
+        request.log.info(
+          buildFeedItemsMediaTracePayload({
+            surface: "feed.page.get",
+            viewerId: viewer.viewerId,
+            requestId: request.id,
+            tab: query.tab,
+            items: pageItems
+          }),
+          "feed items media trace (set LOCAVA_FEED_ITEMS_MEDIA_TRACE=1)"
+        );
+      }
+
       if (payload.items.length === 0) {
         if (query.tab === "following") {
           return success(

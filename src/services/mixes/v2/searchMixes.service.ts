@@ -94,22 +94,8 @@ function toFiniteNumber(value: unknown): number | null {
 }
 
 async function geoPrefixesAroundCenter(input: { lat: number; lng: number; precision: number }): Promise<string[]> {
-  const { latLngToGeohash } = await import("../../../lib/latlng-geohash.js");
-  // Precision=5 ~= 2.4km tiles; sample a small 3x3 grid around center.
-  const step = 0.06; // ~4 miles latitude; coarse but bounded
-  const deltas = [
-    [0, 0],
-    [step, 0],
-    [-step, 0],
-    [0, step],
-    [0, -step],
-    [step, step],
-    [step, -step],
-    [-step, step],
-    [-step, -step],
-  ] as const;
-  const prefixes = deltas.map(([dLat, dLng]) => latLngToGeohash(input.lat + dLat, input.lng + dLng, input.precision));
-  return uniq(prefixes);
+  const { geoPrefixesAroundCenter: shared } = await import("../../../lib/geo-prefixes-around-center.js");
+  return shared(input);
 }
 
 function postId(row: Record<string, unknown>): string {

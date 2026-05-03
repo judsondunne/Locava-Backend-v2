@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
+import { geoPrefixesAroundCenter } from "../../lib/geo-prefixes-around-center.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { endFullWarmerPass, evaluateFullWarmerGate } from "../../runtime/warmer-traffic-gate.js";
 
@@ -51,14 +52,31 @@ function parseNearMeCursor(cursor: unknown): number {
   return Math.floor(offset);
 }
 
+type NearMeExhaustPhase = "geohash" | "recent";
+
+type NearMeExhaustWire = {
+  phase: NearMeExhaustPhase;
+  prefixes?: string[];
+  prefixIdx?: number;
+  ghCursor?: { lastGeohash: string | null; lastTime: number | null; lastId: string | null } | null;
+  geoFinished?: boolean;
+  recentCursor?: { lastTime: number | null; lastId: string | null } | null;
+  recentFinished?: boolean;
+};
+
 type NearMeCursorV2 = {
   v: 2;
+  /** pool = warm-pool slice; exhaust = geohash + recent Firestore scans */
+  mode?: "pool" | "exhaust";
   offset: number;
   radiusMiles: number;
   latE5: number;
   lngE5: number;
   lastPostId: string | null;
   poolLoadedAtMs: number;
+  /** Dedupe ring buffer (recent tail) emitted across pages */
+  seen?: string[];
+  exhaust?: NearMeExhaustWire | null;
 };
 
 type ParsedNearMeCursor =
@@ -76,7 +94,7 @@ export function parseNearMeCursorAny(cursor: unknown): ParsedNearMeCursor {
   if (raw.startsWith(NEAR_ME_CURSOR_PREFIX)) {
     try {
       const payload = Buffer.from(raw.slice(NEAR_ME_CURSOR_PREFIX.length), "base64url").toString("utf8");
-      const parsed = JSON.parse(payload) as Partial<NearMeCursorV2>;
+      const parsed = JSON.parse(payload) as Partial<NearMeCursorV2> & { exhaust?: NearMeExhaustWire | null };
       const offset = Number(parsed.offset);
       const radiusMiles = Number(parsed.radiusMiles);
       const latE5 = Number(parsed.latE5);
@@ -93,16 +111,22 @@ export function parseNearMeCursorAny(cursor: unknown): ParsedNearMeCursor {
       ) {
         return { kind: "invalid" };
       }
+      const mode: "pool" | "exhaust" = parsed.mode === "exhaust" ? "exhaust" : "pool";
+      const seenRaw = Array.isArray(parsed.seen) ? parsed.seen.filter((x): x is string => typeof x === "string" && x.trim().length > 0) : [];
+      const seen = seenRaw.slice(-420);
       return {
         kind: "v2",
         value: {
           v: 2,
+          mode,
           offset: Math.floor(offset),
           radiusMiles,
           latE5: Math.floor(latE5),
           lngE5: Math.floor(lngE5),
           lastPostId: typeof parsed.lastPostId === "string" && parsed.lastPostId.trim() ? parsed.lastPostId.trim() : null,
-          poolLoadedAtMs: Math.floor(poolLoadedAtMs)
+          poolLoadedAtMs: Math.floor(poolLoadedAtMs),
+          seen: seen.length > 0 ? seen : undefined,
+          exhaust: parsed.exhaust && typeof parsed.exhaust === "object" ? (parsed.exhaust as NearMeExhaustWire) : null
         }
       };
     } catch {
@@ -113,13 +137,19 @@ export function parseNearMeCursorAny(cursor: unknown): ParsedNearMeCursor {
 }
 
 export function encodeNearMeCursorV2(input: Omit<NearMeCursorV2, "v">): string {
-  return `${NEAR_ME_CURSOR_PREFIX}${Buffer.from(
-    JSON.stringify({
-      v: 2,
-      ...input
-    }),
-    "utf8"
-  ).toString("base64url")}`;
+  const payload: Record<string, unknown> = {
+    v: 2,
+    mode: input.mode ?? "pool",
+    offset: input.offset,
+    radiusMiles: input.radiusMiles,
+    latE5: input.latE5,
+    lngE5: input.lngE5,
+    lastPostId: input.lastPostId,
+    poolLoadedAtMs: input.poolLoadedAtMs
+  };
+  if (input.seen && input.seen.length > 0) payload.seen = input.seen.slice(-420);
+  if (input.exhaust) payload.exhaust = input.exhaust;
+  return `${NEAR_ME_CURSOR_PREFIX}${Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")}`;
 }
 
 function clampLimit(value: unknown): number {
@@ -517,6 +547,10 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
   return pool.inFlight;
 }
 
+function distanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  return computeDistanceKm(lat1, lng1, lat2, lng2) / MILES_TO_KM;
+}
+
 function getFilteredCandidates(lat: number, lng: number, radiusMiles: number): NearMePost[] {
   const radiusKm = radiusMiles * MILES_TO_KM;
   return pool.posts
@@ -527,9 +561,13 @@ function getFilteredCandidates(lat: number, lng: number, radiusMiles: number): N
       return computeDistanceKm(lat, lng, coords.lat, coords.lng) <= radiusKm;
     })
     .sort((a, b) => {
-      const dt = postTimeMs(b) - postTimeMs(a);
-      if (dt !== 0) return dt;
-      return b.id.localeCompare(a.id);
+      const ca = getPostLatLng(a);
+      const cb = getPostLatLng(b);
+      if (!ca || !cb) return 0;
+      const da = distanceMiles(lat, lng, ca.lat, ca.lng);
+      const db = distanceMiles(lat, lng, cb.lat, cb.lng);
+      if (da !== db) return da - db;
+      return a.id.localeCompare(b.id);
     });
 }
 
@@ -547,7 +585,15 @@ export function resolveNearMePaginationStart(input: {
   recoveredByLastPost: boolean;
 } {
   const { parsedCursor, radiusMiles, latE5, lngE5, currentPoolLoadedAtMs, candidateIds, limit } = input;
-  let offset = parsedCursor.kind === "legacy" ? parsedCursor.offset : parsedCursor.value.offset;
+  if (parsedCursor.kind === "v2" && parsedCursor.value.mode === "exhaust") {
+    return { offset: 0, cursorResetReason: null, recoveredByLastPost: false };
+  }
+  let offset =
+    parsedCursor.kind === "legacy"
+      ? parsedCursor.offset
+      : parsedCursor.kind === "v2"
+        ? parsedCursor.value.offset
+        : 0;
   let cursorResetReason: string | null = null;
   let recoveredByLastPost = false;
 
@@ -575,6 +621,253 @@ export function resolveNearMePaginationStart(input: {
   }
 
   return { offset, cursorResetReason, recoveredByLastPost };
+}
+
+type NormalizedExhaust = {
+  phase: NearMeExhaustPhase;
+  prefixes: string[];
+  prefixIdx: number;
+  gh: { lastGeohash: string; lastTime: number; lastId: string } | null;
+  geoFinished: boolean;
+  recent: { lastTime: number; lastId: string } | null;
+  recentFinished: boolean;
+};
+
+async function normalizeExhaustState(
+  incoming: NearMeExhaustWire | null | undefined,
+  lat: number,
+  lng: number
+): Promise<NormalizedExhaust> {
+  const prefixes =
+    incoming && Array.isArray(incoming.prefixes) && incoming.prefixes.length > 0
+      ? incoming.prefixes
+      : await geoPrefixesAroundCenter({ lat, lng, precision: 5 });
+  const geoFinished = incoming?.geoFinished === true;
+  const recentFinished = incoming?.recentFinished === true;
+  const phase: NearMeExhaustPhase = geoFinished || incoming?.phase === "recent" ? "recent" : "geohash";
+  const ghIn = incoming?.ghCursor;
+  const gh =
+    ghIn && ghIn.lastGeohash && ghIn.lastTime != null && ghIn.lastId
+      ? { lastGeohash: String(ghIn.lastGeohash), lastTime: Number(ghIn.lastTime), lastId: String(ghIn.lastId) }
+      : null;
+  const recentIn = incoming?.recentCursor;
+  const recent =
+    recentIn && recentIn.lastTime != null && recentIn.lastId
+      ? { lastTime: Number(recentIn.lastTime), lastId: String(recentIn.lastId) }
+      : null;
+  return {
+    phase,
+    prefixes,
+    prefixIdx: Math.max(0, Math.min(prefixes.length, Math.floor(Number(incoming?.prefixIdx) || 0))),
+    gh: geoFinished ? null : gh,
+    geoFinished,
+    recent,
+    recentFinished
+  };
+}
+
+function exhaustHasMore(e: NormalizedExhaust): boolean {
+  return !(e.geoFinished && e.recentFinished);
+}
+
+function exhaustToWire(n: NormalizedExhaust): NearMeExhaustWire {
+  return {
+    phase: n.geoFinished ? "recent" : "geohash",
+    prefixes: n.prefixes,
+    prefixIdx: n.prefixIdx,
+    ghCursor: n.gh ? { lastGeohash: n.gh.lastGeohash, lastTime: n.gh.lastTime, lastId: n.gh.lastId } : null,
+    geoFinished: n.geoFinished,
+    recentCursor: n.recent ? { lastTime: n.recent.lastTime, lastId: n.recent.lastId } : null,
+    recentFinished: n.recentFinished
+  };
+}
+
+async function collectExhaustiveNearMePosts(input: {
+  lat: number;
+  lng: number;
+  radiusMiles: number;
+  limit: number;
+  seen: Set<string>;
+  incoming: NearMeExhaustWire | null | undefined;
+}): Promise<{
+  items: NearMePost[];
+  exhaust: NormalizedExhaust;
+  firestorePagesScanned: number;
+  firestoreFallbackUsed: boolean;
+  candidateSources: string[];
+  duplicatesSuppressed: number;
+  candidatesWithinRadius: number;
+  invalidCursorRecovered: boolean;
+}> {
+  const [{ NearbyMixRepository }, { MixPostsRepository }] = await Promise.all([
+    import("../../repositories/nearbyMix.repository.js"),
+    import("../../repositories/mixPosts.repository.js"),
+  ]);
+  const nearbyMixRepo = new NearbyMixRepository();
+  const mixPostsRepo = new MixPostsRepository();
+
+  const radiusKm = input.radiusMiles * MILES_TO_KM;
+  const out: NearMePost[] = [];
+  let state = await normalizeExhaustState(input.incoming, input.lat, input.lng);
+  let firestorePagesScanned = 0;
+  let firestoreFallbackUsed = false;
+  const candidateSources: string[] = [];
+  let duplicatesSuppressed = 0;
+  let candidatesWithinRadius = 0;
+  let invalidCursorRecovered = false;
+  let safety = 24;
+
+  const pushEligible = (post: NearMePost) => {
+    if (!filterReelEligible(post)) return false;
+    const coords = getPostLatLng(post);
+    if (!coords) return false;
+    const km = computeDistanceKm(input.lat, input.lng, coords.lat, coords.lng);
+    if (km > radiusKm) return false;
+    candidatesWithinRadius += 1;
+    if (input.seen.has(post.id)) {
+      duplicatesSuppressed += 1;
+      return false;
+    }
+    input.seen.add(post.id);
+    out.push(post);
+    return true;
+  };
+
+  while (out.length < input.limit && safety-- > 0) {
+    if (!state.geoFinished && state.phase !== "recent") {
+      const prefix = state.prefixes[state.prefixIdx];
+      if (!prefix) {
+        state.geoFinished = true;
+        state.phase = "recent";
+        state.gh = null;
+        continue;
+      }
+      firestoreFallbackUsed = true;
+      let batch: {
+        items: Array<Record<string, unknown>>;
+        nextCursor: { lastGeohash: string; lastTime: number; lastId: string } | null;
+        hasMore: boolean;
+      };
+      try {
+        batch = await nearbyMixRepo.pageByGeohashPrefix({
+          prefix,
+          limit: Math.max(36, input.limit * 6),
+          cursor: state.gh
+        });
+      } catch {
+        batch = { items: [], nextCursor: null, hasMore: false };
+      }
+      if (batch.items.length === 0 && state.gh) {
+        invalidCursorRecovered = true;
+        state.gh = null;
+        try {
+          batch = await nearbyMixRepo.pageByGeohashPrefix({
+            prefix,
+            limit: Math.max(36, input.limit * 6),
+            cursor: null
+          });
+        } catch {
+          batch = { items: [], nextCursor: null, hasMore: false };
+        }
+      }
+      firestorePagesScanned += 1;
+      candidateSources.push(`geohash:${prefix}`);
+
+      const ranked: NearMePost[] = [];
+      for (const row of batch.items) {
+        const id = String((row as { id?: string }).id ?? (row as { postId?: string }).postId ?? "").trim();
+        if (!id) continue;
+        ranked.push({ id, ...(row as Record<string, unknown>) } as NearMePost);
+      }
+      ranked.sort((a, b) => {
+        const ca = getPostLatLng(a);
+        const cb = getPostLatLng(b);
+        if (!ca || !cb) return 0;
+        const da = distanceMiles(input.lat, input.lng, ca.lat, ca.lng);
+        const db = distanceMiles(input.lat, input.lng, cb.lat, cb.lng);
+        if (da !== db) return da - db;
+        return a.id.localeCompare(b.id);
+      });
+      for (const post of ranked) {
+        pushEligible(post);
+        if (out.length >= input.limit) break;
+      }
+      if (out.length >= input.limit) break;
+
+      if (batch.hasMore && batch.nextCursor) {
+        state.gh = batch.nextCursor;
+      } else {
+        state.prefixIdx += 1;
+        state.gh = null;
+        if (state.prefixIdx >= state.prefixes.length) {
+          state.geoFinished = true;
+          state.phase = "recent";
+        }
+      }
+      continue;
+    }
+
+    firestoreFallbackUsed = true;
+    candidateSources.push("recent:time_desc");
+    let recentPage: {
+      items: Array<Record<string, unknown> & { id: string }>;
+      nextCursor: { lastTime: number; lastId: string } | null;
+      hasMore: boolean;
+    };
+    try {
+      recentPage = await mixPostsRepo.pageRecent({
+        limit: Math.max(12, input.limit * 3),
+        cursor: state.recent
+      });
+    } catch {
+      recentPage = { items: [], nextCursor: null, hasMore: false };
+    }
+    if (recentPage.items.length === 0 && state.recent) {
+      invalidCursorRecovered = true;
+      state.recent = null;
+      try {
+        recentPage = await mixPostsRepo.pageRecent({
+          limit: Math.max(12, input.limit * 3),
+          cursor: null
+        });
+      } catch {
+        recentPage = { items: [], nextCursor: null, hasMore: false };
+      }
+    }
+    firestorePagesScanned += 1;
+
+    const ranked: NearMePost[] = recentPage.items.map((row) => ({ id: row.id, ...(row as Record<string, unknown>) } as NearMePost));
+    ranked.sort((a, b) => {
+      const ca = getPostLatLng(a);
+      const cb = getPostLatLng(b);
+      if (!ca || !cb) return 0;
+      const da = distanceMiles(input.lat, input.lng, ca.lat, ca.lng);
+      const db = distanceMiles(input.lat, input.lng, cb.lat, cb.lng);
+      if (da !== db) return da - db;
+      return a.id.localeCompare(b.id);
+    });
+    for (const post of ranked) {
+      pushEligible(post);
+      if (out.length >= input.limit) break;
+    }
+    state.recent = recentPage.nextCursor;
+    if (!recentPage.hasMore) {
+      state.recentFinished = true;
+      break;
+    }
+    if (out.length >= input.limit) break;
+  }
+
+  return {
+    items: out,
+    exhaust: state,
+    firestorePagesScanned,
+    firestoreFallbackUsed,
+    candidateSources,
+    duplicatesSuppressed,
+    candidatesWithinRadius,
+    invalidCursorRecovered
+  };
 }
 
 export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Promise<void> {
@@ -629,35 +922,112 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     const candidates = getFilteredCandidates(lat, lng, radiusMiles);
     const latE5 = roundCoordE5(lat);
     const lngE5 = roundCoordE5(lng);
+    const debugFlag = query.debug === "1" || query.debug === true || query.debug === "true";
 
-    const paginationStart = resolveNearMePaginationStart({
-      parsedCursor,
-      radiusMiles,
-      latE5,
-      lngE5,
-      currentPoolLoadedAtMs: pool.loadedAtMs,
-      candidateIds: candidates.map((post) => post.id),
-      limit
-    });
-    const offset = paginationStart.offset;
-    const cursorResetReason = paginationStart.cursorResetReason;
-    const recoveredByLastPost = paginationStart.recoveredByLastPost;
+    const emittedSeen = new Set<string>();
+    if (parsedCursor.kind === "v2" && Array.isArray(parsedCursor.value.seen)) {
+      for (const id of parsedCursor.value.seen) {
+        if (typeof id === "string" && id.trim()) emittedSeen.add(id.trim());
+      }
+    }
 
-    const pageRows = candidates.slice(offset, offset + limit);
+    let pageRows: NearMePost[] = [];
+    let cursorResetReason: string | null = null;
+    let recoveredByLastPost = false;
+    let poolOffset = 0;
+    let nextPoolOffset = 0;
+    let scanMode: "pool" | "pool_plus_exhaust" | "exhaust" = "pool";
+    let exhaustive: Awaited<ReturnType<typeof collectExhaustiveNearMePosts>> | null = null;
+
+    const isExhaustCursor = parsedCursor.kind === "v2" && parsedCursor.value.mode === "exhaust";
+
+    if (isExhaustCursor) {
+      scanMode = "exhaust";
+      exhaustive = await collectExhaustiveNearMePosts({
+        lat,
+        lng,
+        radiusMiles,
+        limit,
+        seen: emittedSeen,
+        incoming: parsedCursor.value.exhaust ?? null
+      });
+      pageRows = exhaustive.items;
+      for (const p of pageRows) emittedSeen.add(p.id);
+    } else {
+      const paginationStart = resolveNearMePaginationStart({
+        parsedCursor,
+        radiusMiles,
+        latE5,
+        lngE5,
+        currentPoolLoadedAtMs: pool.loadedAtMs,
+        candidateIds: candidates.map((post) => post.id),
+        limit
+      });
+      poolOffset = paginationStart.offset;
+      cursorResetReason = paginationStart.cursorResetReason;
+      recoveredByLastPost = paginationStart.recoveredByLastPost;
+
+      const poolSlice = candidates.slice(poolOffset, poolOffset + limit);
+      pageRows = [...poolSlice];
+      for (const p of poolSlice) emittedSeen.add(p.id);
+      nextPoolOffset = poolOffset + poolSlice.length;
+
+      const need = limit - pageRows.length;
+      const poolDepleted = nextPoolOffset >= candidates.length;
+      if (need > 0 && poolDepleted) {
+        scanMode = candidates.length === 0 && poolOffset === 0 ? "exhaust" : "pool_plus_exhaust";
+        exhaustive = await collectExhaustiveNearMePosts({
+          lat,
+          lng,
+          radiusMiles,
+          limit: need,
+          seen: emittedSeen,
+          incoming: null
+        });
+        pageRows.push(...exhaustive.items);
+      }
+    }
+
     const items = pageRows.map(mapLegacyReelsItem);
-    const nextOffset = offset + items.length;
-    const hasMore = nextOffset < candidates.length;
-    const nextCursor =
-      hasMore && pageRows.length > 0
-        ? encodeNearMeCursorV2({
-            offset: nextOffset,
-            radiusMiles,
-            latE5,
-            lngE5,
-            lastPostId: pageRows[pageRows.length - 1]?.id ?? null,
-            poolLoadedAtMs: pool.loadedAtMs
-          })
-        : null;
+    const poolHasMore = !isExhaustCursor && nextPoolOffset < candidates.length;
+    const exhaustHasMoreFlag = exhaustive ? exhaustHasMore(exhaustive.exhaust) : false;
+    let hasMore = poolHasMore || exhaustHasMoreFlag;
+    let exhaustedReason: string | null = hasMore ? null : "radius_scan_exhausted";
+
+    const seenOutbound = [...emittedSeen].slice(-380);
+
+    let nextCursor: string | null = null;
+    const lastPostIdWire = pageRows.length > 0 ? (pageRows[pageRows.length - 1]?.id ?? null) : null;
+
+    if (poolHasMore) {
+      nextCursor = encodeNearMeCursorV2({
+        mode: "pool",
+        offset: nextPoolOffset,
+        radiusMiles,
+        latE5,
+        lngE5,
+        lastPostId: lastPostIdWire,
+        poolLoadedAtMs: pool.loadedAtMs,
+        seen: seenOutbound
+      });
+    } else if (exhaustHasMoreFlag && exhaustive) {
+      nextCursor = encodeNearMeCursorV2({
+        mode: "exhaust",
+        offset: candidates.length,
+        radiusMiles,
+        latE5,
+        lngE5,
+        lastPostId: lastPostIdWire,
+        poolLoadedAtMs: pool.loadedAtMs,
+        seen: seenOutbound,
+        exhaust: exhaustToWire(exhaustive.exhaust)
+      });
+    }
+
+    if (hasMore && !nextCursor) {
+      hasMore = false;
+      exhaustedReason = exhaustedReason ?? "radius_invalid_has_more_no_cursor";
+    }
 
     const diagnostics = {
       prefix: "RADIUS_FEED_PAGE",
@@ -666,19 +1036,41 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
       pageSizeRequested: limit,
       postsReturned: items.length,
       candidatesScanned: candidates.length,
+      candidatesWithinRadius: exhaustive?.candidatesWithinRadius ?? null,
+      candidatesRejectedOutsideRadius: null,
+      duplicatesSuppressed: exhaustive?.duplicatesSuppressed ?? 0,
       cursorReceived: typeof query.cursor === "string" ? query.cursor : null,
       cursorMode: parsedCursor.kind,
+      nearMeMode: isExhaustCursor ? "exhaust" : "pool",
       cursorResetReason,
       cursorRecoveredByLastPost: recoveredByLastPost,
       nextCursorEmitted: nextCursor,
+      nextCursorPresent: Boolean(nextCursor),
       hasMore,
-      exhaustedReason: hasMore ? null : "radius_candidates_exhausted",
-      poolLoadedAtMs: pool.loadedAtMs
+      exhaustedReason,
+      poolLoadedAtMs: pool.loadedAtMs,
+      poolCount: pool.posts.length,
+      scanMode,
+      poolOffset,
+      poolExhausted: nextPoolOffset >= candidates.length,
+      firestoreFallbackUsed: exhaustive?.firestoreFallbackUsed ?? false,
+      firestorePagesScanned: exhaustive?.firestorePagesScanned ?? 0,
+      candidateSources: exhaustive?.candidateSources ?? [],
+      withinRadiusTotalKnownOrScanned: candidates.length + (exhaustive?.candidatesWithinRadius ?? 0),
+      invalidCursorRecovered: exhaustive?.invalidCursorRecovered ?? false,
+      lastPostId: lastPostIdWire
     };
 
     reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=60");
     request.log.info({ event: "radius_feed_page", ...diagnostics }, "[RADIUS_FEED_PAGE]");
-    return reply.send({ feedId: FEED_ID, items, nextCursor, hasMore, debug: diagnostics });
+    return reply.send({
+      feedId: FEED_ID,
+      items,
+      nextCursor,
+      hasMore,
+      debug: diagnostics,
+      ...(debugFlag ? { radiusFeedDebug: diagnostics } : {})
+    });
   });
 
   app.get(`${REELS_PREFIX}/near-me/count`, async (request, reply) => {

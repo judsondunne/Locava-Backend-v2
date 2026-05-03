@@ -30,6 +30,12 @@ export const routeContracts: RouteContract[] = [
   },
   { method: "GET", path: "/internal/health-dashboard", description: "Internal HTML health dashboard", tags: ["internal", "observability"] },
   { method: "GET", path: "/internal/health-dashboard/data", description: "Internal JSON health dashboard data", tags: ["internal", "observability"] },
+  {
+    method: "GET",
+    path: "/internal/health-dashboard/cloud-tasks-video",
+    description: "Probe video Cloud Tasks queue config (metadata only; no task enqueued)",
+    tags: ["internal", "observability"]
+  },
   { method: "GET", path: "/test/ping", description: "Basic ping", tags: ["test"] },
   { method: "POST", path: "/test/echo", description: "Echo payload", tags: ["test"], bodySchema: { message: "string", payload: "unknown optional" } },
   { method: "GET", path: "/test/error", description: "Forced error", tags: ["test"] },

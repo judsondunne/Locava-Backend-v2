@@ -6,6 +6,11 @@ import { failure, success } from "../../lib/response.js";
 import { FeedForYouRepository } from "../../repositories/surfaces/feed-for-you.repository.js";
 import { FeedForYouService } from "../../services/surfaces/feed-for-you.service.js";
 import { FeedForYouOrchestrator } from "../../orchestration/surfaces/feed-for-you.orchestrator.js";
+import {
+  buildFeedItemsMediaTracePayload,
+  isFeedItemsMediaTraceEnabled,
+  rollupFeedVideoMediaSummary
+} from "../../observability/feed-items-media-trace.js";
 
 export async function registerV2FeedForYouRoutes(app: FastifyInstance): Promise<void> {
   const repository = new FeedForYouRepository();
@@ -55,10 +60,24 @@ export async function registerV2FeedForYouRoutes(app: FastifyInstance): Promise<
           postIdsReturned: payload.debug?.postIdsReturned ?? [],
           reads: dbOps.reads,
           writes: dbOps.writes,
-          queries: dbOps.queries
+          queries: dbOps.queries,
+          ...rollupFeedVideoMediaSummary(payload.items)
         },
         "feed for-you summary"
       );
+
+      if (isFeedItemsMediaTraceEnabled()) {
+        request.log.info(
+          buildFeedItemsMediaTracePayload({
+            surface: "feed.for_you.get",
+            viewerId,
+            requestId: payload.requestId,
+            items: payload.items
+          }),
+          "feed items media trace (set LOCAVA_FEED_ITEMS_MEDIA_TRACE=1)"
+        );
+      }
+
       return success(payload);
     } catch (error) {
       if (!repository.isEnabled()) {

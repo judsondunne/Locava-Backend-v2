@@ -39,7 +39,7 @@ describe("LegendScopeDeriver", () => {
     expect(out.scopes.some((s) => s === "placeActivity:city:VT_burlington:waterfall")).toBe(true);
   });
 
-  it("normalizes full-name state and country scopes", () => {
+  it("normalizes full-name state + city scopes (country inputs do not mint country scopes)", () => {
     const deriver = new LegendScopeDeriver({ enablePlaceScopes: true, maxScopesPerPost: 24, maxActivitiesPerPost: 2 });
     const out = deriver.deriveFromPost({
       geohash: "drtju1m3b",
@@ -48,10 +48,11 @@ describe("LegendScopeDeriver", () => {
       country: "US",
       city: "Concord"
     });
-    expect(out.scopes).toContain("place:country:US");
+    expect(out.reasons).toContain("country_scopes_disabled_states_and_cities_only");
+    expect(out.scopes.some((s) => s.startsWith("place:country:"))).toBe(false);
+    expect(out.scopes.some((s) => s.startsWith("placeActivity:country:"))).toBe(false);
     expect(out.scopes).toContain("place:state:NEW_HAMPSHIRE");
     expect(out.scopes).toContain("place:city:NEW_HAMPSHIRE_concord");
-    expect(out.scopes).toContain("placeActivity:country:US:restaurants");
     expect(out.scopes).toContain("placeActivity:state:NEW_HAMPSHIRE:restaurants");
   });
 });

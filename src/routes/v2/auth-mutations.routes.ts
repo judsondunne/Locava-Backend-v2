@@ -38,6 +38,13 @@ import {
   type OauthAccountStatus
 } from "../../services/mutations/auth-mutations.service.js";
 import { primeAuthSessionCacheFromSignin } from "../../orchestration/surfaces/auth-session.orchestrator.js";
+import {
+  decodeJwtPayloadUnverified,
+  extractIdpProviderUserId,
+  normalizeOAuthSignInFailure,
+  normalizePasswordLoginFailure,
+  normalizeRegisterFailure
+} from "../../lib/auth-provider-resolution.js";
 
 const CheckHandleQuery = z.object({
   handle: z.string().trim().min(1).max(40)
@@ -171,27 +178,38 @@ async function checkUserExistsWithFallbacks(
 ): Promise<{ exists: boolean; signInMethods: string[] }> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return { exists: false, signInMethods: [] };
-
+  const direct = await checkUserExistsByEmail(normalizedEmail).catch(() => ({ exists: false, signInMethods: [] }));
+  const adminMethods = await authMutationsService.authSignInMethodsByEmail(normalizedEmail);
   const [userDocExists, authUserExists] = await Promise.all([
     authMutationsService.userDocExistsByEmail(normalizedEmail),
     authMutationsService.authUserExistsByEmail(normalizedEmail)
   ]);
-  if (userDocExists || authUserExists) {
-    return { exists: true, signInMethods: [] };
-  }
-  return checkUserExistsByEmail(normalizedEmail);
+  return {
+    exists: direct.exists || userDocExists || authUserExists || adminMethods.length > 0,
+    signInMethods: [...new Set([...(direct.signInMethods ?? []), ...adminMethods])]
+  };
 }
 
 async function signInWithIdp(params: {
   provider: "google.com" | "apple.com";
   accessToken?: string;
   idToken?: string;
+  /** Raw (unhashed) nonce for Apple — must match the value hashed into the Apple authorization request */
+  appleRawNonce?: string;
 }): Promise<{ uid: string; providerId: string; email: string | null; displayName?: string; isNewUser: boolean | null }> {
   const apiKey = process.env.FIREBASE_WEB_API_KEY;
   if (!apiKey) throw new Error("firebase_web_api_key_missing");
   const postBodyBits: string[] = [`providerId=${params.provider}`];
-  if (params.accessToken) postBodyBits.push(`access_token=${encodeURIComponent(params.accessToken)}`);
   if (params.idToken) postBodyBits.push(`id_token=${encodeURIComponent(params.idToken)}`);
+  if (params.accessToken) postBodyBits.push(`access_token=${encodeURIComponent(params.accessToken)}`);
+  if (params.provider === "apple.com") {
+    const rawNonce =
+      typeof params.appleRawNonce === "string" && params.appleRawNonce.trim().length > 0 ? params.appleRawNonce.trim() : "";
+    if (rawNonce.length > 0) {
+      postBodyBits.push(`nonce=${encodeURIComponent(rawNonce)}`);
+    }
+  }
+
   const res = await fetch(
     `https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${encodeURIComponent(apiKey)}`,
     {
@@ -207,6 +225,7 @@ async function signInWithIdp(params: {
   );
   const json = (await res.json()) as {
     localId?: string;
+    federatedId?: string;
     isNewUser?: boolean;
     email?: string;
     displayName?: string;
@@ -216,14 +235,20 @@ async function signInWithIdp(params: {
   if (!res.ok) {
     throw new Error(json.error?.message ?? "idp_sign_in_failed");
   }
-  const raw = (() => {
-    try {
-      return json.rawUserInfo ? (JSON.parse(json.rawUserInfo) as Record<string, unknown>) : {};
-    } catch {
-      return {};
-    }
-  })();
-  const providerId = String(raw.sub ?? raw.user_id ?? raw.id ?? "").trim();
+
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = json.rawUserInfo ? (JSON.parse(json.rawUserInfo) as Record<string, unknown>) : {};
+  } catch {
+    raw = {};
+  }
+
+  const providerId = extractIdpProviderUserId({
+    federatedId: json.federatedId,
+    rawUserInfo: json.rawUserInfo,
+    idTokenJwt: params.idToken
+  })?.trim() ?? "";
+
   if (!providerId) throw new Error("provider_id_missing");
   const uid = String(json.localId ?? "").trim();
   if (!uid) throw new Error("firebase_uid_missing");
@@ -677,8 +702,39 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         accountStatus
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "login_failed";
-      return success({ routeName: authLoginContract.routeName, success: false, error: message });
+      const rawMessage = error instanceof Error ? error.message : "login_failed";
+      let userMessage = rawMessage;
+      let errorCode = rawMessage;
+      try {
+        const normalizedEmail = body.email.trim().toLowerCase();
+        const existsResult = await checkUserExistsWithFallbacks(authMutationsService, normalizedEmail);
+        const norm = normalizePasswordLoginFailure(rawMessage, existsResult.signInMethods, existsResult.exists);
+        userMessage = norm.userMessage;
+        errorCode = norm.errorCode;
+        request.log.info(
+          {
+            event: "auth_login_failure_normalized",
+            routeName: authLoginContract.routeName,
+            attemptedProvider: "password",
+            errorCode,
+            hasEmail: true,
+            normalizedProviderHint: norm.normalizedProviderHint ?? null
+          },
+          "auth_login_failure"
+        );
+      } catch {
+        request.log.info(
+          {
+            event: "auth_login_failure_uncategorized",
+            routeName: authLoginContract.routeName,
+            attemptedProvider: "password",
+            errorCode: rawMessage,
+            hasEmail: true
+          },
+          "auth_login_failure"
+        );
+      }
+      return success({ routeName: authLoginContract.routeName, success: false, error: userMessage, errorCode });
     }
   });
 
@@ -704,8 +760,38 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         profileCreated: hydratedViewer.onboardingComplete === true
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "register_failed";
-      return success({ routeName: authRegisterContract.routeName, success: false, error: message });
+      const rawMessage = error instanceof Error ? error.message : "register_failed";
+      let userMessage = rawMessage;
+      let errorCode = rawMessage;
+      try {
+        const normalizedEmail = body.email.trim().toLowerCase();
+        const { signInMethods } = await checkUserExistsWithFallbacks(authMutationsService, normalizedEmail);
+        const norm = normalizeRegisterFailure(rawMessage, signInMethods);
+        userMessage = norm.userMessage;
+        errorCode = norm.errorCode;
+        request.log.info(
+          {
+            event: "auth_register_failure_normalized",
+            routeName: authRegisterContract.routeName,
+            attemptedProvider: "password_register",
+            errorCode,
+            hasEmail: true
+          },
+          "auth_register_failure"
+        );
+      } catch {
+        request.log.info(
+          {
+            event: "auth_register_failure_uncategorized",
+            routeName: authRegisterContract.routeName,
+            attemptedProvider: "password_register",
+            errorCode: rawMessage,
+            hasEmail: true
+          },
+          "auth_register_failure"
+        );
+      }
+      return success({ routeName: authRegisterContract.routeName, success: false, error: userMessage, errorCode });
     }
   });
 
@@ -717,7 +803,17 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     const body = AuthSigninGoogleBodySchema.parse(request.body);
     setRouteName(authSigninGoogleContract.routeName);
     try {
-      const idp = await signInWithIdp({ provider: "google.com", accessToken: body.accessToken });
+      const trimmedId = typeof body.idToken === "string" ? body.idToken.trim() : "";
+      const trimmedAccess = typeof body.accessToken === "string" ? body.accessToken.trim() : "";
+      const idp = await signInWithIdp(
+        trimmedId
+          ? { provider: "google.com", idToken: trimmedId }
+          : trimmedAccess
+            ? { provider: "google.com", accessToken: trimmedAccess }
+            : (() => {
+                throw new Error("MISSING_GOOGLE_OAUTH_TOKEN");
+              })()
+      );
       const resolution = await authMutationsService.resolveOauthAccount({
         provider: "google",
         providerId: idp.providerId,
@@ -739,8 +835,54 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         matchedExistingLocavaUser: resolution.matchedUser != null
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "google_sign_in_failed";
-      return success({ routeName: authSigninGoogleContract.routeName, success: false, error: message });
+      const rawMessage = error instanceof Error ? error.message : "google_sign_in_failed";
+      let userMessage = rawMessage;
+      let errorCode = rawMessage;
+      try {
+        const token = typeof body.idToken === "string" ? body.idToken.trim() : "";
+        const payload = decodeJwtPayloadUnverified(token.length > 0 ? token : null);
+        let email =
+          typeof payload?.email === "string" && payload.email.includes("@") ? payload.email.trim().toLowerCase() : "";
+        if (!email) {
+          const norm = normalizeOAuthSignInFailure({
+            attemptedProvider: "google",
+            firebaseErrorMessage: rawMessage,
+            signInMethods: []
+          });
+          userMessage = norm.userMessage;
+          errorCode = norm.errorCode;
+        } else {
+          const { signInMethods } = await checkUserExistsWithFallbacks(authMutationsService, email);
+          const norm = normalizeOAuthSignInFailure({
+            attemptedProvider: "google",
+            firebaseErrorMessage: rawMessage,
+            signInMethods
+          });
+          userMessage = norm.userMessage;
+          errorCode = norm.errorCode;
+        }
+        request.log.info(
+          {
+            event: "auth_google_failure_normalized",
+            routeName: authSigninGoogleContract.routeName,
+            attemptedProvider: "google",
+            errorCode,
+            hasEmailHint: typeof body.idToken === "string" && body.idToken.trim().length > 0
+          },
+          "oauth_failure"
+        );
+      } catch {
+        request.log.info(
+          {
+            event: "auth_google_failure_uncategorized",
+            routeName: authSigninGoogleContract.routeName,
+            attemptedProvider: "google",
+            errorCode: rawMessage
+          },
+          "oauth_failure"
+        );
+      }
+      return success({ routeName: authSigninGoogleContract.routeName, success: false, error: userMessage, errorCode });
     }
   });
 
@@ -752,7 +894,12 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     const body = AuthSigninAppleBodySchema.parse(request.body);
     setRouteName(authSigninAppleContract.routeName);
     try {
-      const idp = await signInWithIdp({ provider: "apple.com", idToken: body.identityToken });
+      const rawNonce = typeof body.rawNonce === "string" ? body.rawNonce.trim() : "";
+      const idp = await signInWithIdp({
+        provider: "apple.com",
+        idToken: body.identityToken,
+        ...(rawNonce.length > 0 ? { appleRawNonce: rawNonce } : {})
+      });
       const resolution = await authMutationsService.resolveOauthAccount({
         provider: "apple",
         providerId: idp.providerId,
@@ -774,8 +921,46 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         matchedExistingLocavaUser: resolution.matchedUser != null
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "apple_sign_in_failed";
-      return success({ routeName: authSigninAppleContract.routeName, success: false, error: message });
+      const rawMessage = error instanceof Error ? error.message : "apple_sign_in_failed";
+      let userMessage = rawMessage;
+      let errorCode = rawMessage;
+      try {
+        const payload = decodeJwtPayloadUnverified(body.identityToken);
+        const jwtEmail =
+          typeof payload?.email === "string" && payload.email.includes("@") ? payload.email.trim().toLowerCase() : "";
+        const bodyEmail =
+          typeof body.email === "string" && body.email.includes("@") ? body.email.trim().toLowerCase() : "";
+        const email = jwtEmail || bodyEmail;
+        const norm = normalizeOAuthSignInFailure({
+          attemptedProvider: "apple",
+          firebaseErrorMessage: rawMessage,
+          signInMethods: email ? (await checkUserExistsWithFallbacks(authMutationsService, email)).signInMethods : []
+        });
+        userMessage = norm.userMessage;
+        errorCode = norm.errorCode;
+        request.log.info(
+          {
+            event: "auth_apple_failure_normalized",
+            routeName: authSigninAppleContract.routeName,
+            attemptedProvider: "apple",
+            errorCode,
+            hasEmail: Boolean(email),
+            nonceProvided: typeof body.rawNonce === "string" && body.rawNonce.trim().length > 0
+          },
+          "oauth_failure"
+        );
+      } catch {
+        request.log.info(
+          {
+            event: "auth_apple_failure_uncategorized",
+            routeName: authSigninAppleContract.routeName,
+            attemptedProvider: "apple",
+            errorCode: rawMessage
+          },
+          "oauth_failure"
+        );
+      }
+      return success({ routeName: authSigninAppleContract.routeName, success: false, error: userMessage, errorCode });
     }
   });
 

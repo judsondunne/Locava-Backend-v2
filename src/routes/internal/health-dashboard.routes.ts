@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { failure, success } from "../../lib/response.js";
 import { healthDashboardService } from "../../services/internal/health-dashboard.service.js";
 import { setRouteName } from "../../observability/request-context.js";
+import { probeVideoProcessingCloudTasksQueue } from "../../services/posting/video-processing-cloud-tasks.diagnostics.js";
 
 type DashboardQuery = {
   token?: string;
@@ -63,6 +64,15 @@ export async function registerInternalHealthDashboardRoutes(app: FastifyInstance
       env: app.config,
       authWarning: auth.authWarning
     });
+    return success(payload);
+  });
+
+  app.get("/internal/health-dashboard/cloud-tasks-video", async (request, reply) => {
+    setRouteName("internal.health_dashboard.cloud_tasks_video");
+    const auth = authorizeDashboardRequest(app, request, reply);
+    if (!auth.allowed) return reply;
+
+    const payload = await probeVideoProcessingCloudTasksQueue();
     return success(payload);
   });
 

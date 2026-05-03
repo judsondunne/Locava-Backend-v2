@@ -361,6 +361,21 @@ export class AuthMutationsService {
     }
   }
 
+  async authSignInMethodsByEmail(email: string): Promise<string[]> {
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !this.auth) return [];
+    try {
+      const user = await this.auth.getUserByEmail(normalizedEmail);
+      const providerIds = (Array.isArray(user.providerData) ? user.providerData : [])
+        .map((p) => String(p?.providerId ?? "").trim())
+        .filter((p) => p.length > 0);
+      return [...new Set(providerIds)];
+    } catch (error) {
+      if (isFirebaseAuthUserMissing(error)) return [];
+      return [];
+    }
+  }
+
   private makeOauthUid(provider: "google" | "apple", providerId: string): string {
     return `${provider}_${providerId}`;
   }

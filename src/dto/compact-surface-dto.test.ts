@@ -62,6 +62,7 @@ function buildFeedCard() {
     viewer: { liked: false, saved: false },
     createdAtMs: 1_700_000_000_000,
     updatedAtMs: 1_700_000_001_000,
+    assetsReady: true,
   } as never);
 }
 
@@ -94,6 +95,7 @@ describe("compact surface dto mappers", () => {
             "width": 720,
           },
         ],
+        "assetsReady": true,
         "author": {
           "avatarUrl": "https://cdn.locava.test/u1.jpg",
           "displayName": "User One",
@@ -263,6 +265,7 @@ describe("compact surface dto mappers", () => {
               "width": 720,
             },
           ],
+          "assetsReady": true,
           "author": {
             "avatarUrl": "https://cdn.locava.test/u1.jpg",
             "displayName": "User One",

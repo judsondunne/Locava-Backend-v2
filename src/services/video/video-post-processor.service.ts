@@ -2,12 +2,17 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type DocumentReference } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { readWasabiConfigFromEnv } from "../storage/wasabi-config.js";
 import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
-import { encodeAndUploadVideoAsset, type VideoAssetJob } from "./video-post-encoding.pipeline.js";
+import {
+  encodeAndUploadVideoAsset,
+  LAB_ARTIFACT_KEYS,
+  type VideoAssetJob,
+} from "./video-post-encoding.pipeline.js";
 import { verifyRemoteMp4Faststart } from "./remote-url-verify.js";
+import { verifyS3ObjectMp4Faststart } from "./s3-mp4-verify.js";
 import { shouldGenerate1080Ladder } from "./video-source-policy.js";
 
 export type VideoProcessorPayload = {
@@ -18,6 +23,55 @@ export type VideoProcessorPayload = {
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+}
+
+async function emitAsyncPipelinePhase(
+  postRef: DocumentReference,
+  asyncExtras: Record<string, unknown>,
+  progressExtras?: Record<string, unknown>,
+): Promise<void> {
+  const snap = await postRef.get();
+  const doc = (snap.data() ?? {}) as Record<string, unknown>;
+  const prevLab = asRecord(doc.playbackLab) ?? {};
+  const prevPipe = asRecord(prevLab.asyncPipeline) ?? {};
+  const stamp = Date.now();
+  const patch: Record<string, unknown> = {
+    playbackLabUpdatedAt: Timestamp.fromMillis(stamp),
+    playbackLab: {
+      ...prevLab,
+      asyncPipeline: {
+        ...prevPipe,
+        ...asyncExtras,
+        phaseUpdatedAtMs: stamp
+      }
+    }
+  };
+  if (progressExtras) {
+    const prevProg = asRecord(doc.videoProcessingProgress) ?? {};
+    patch.videoProcessingProgress = { ...prevProg, ...progressExtras };
+  }
+  await postRef.set(patch, { merge: true });
+}
+
+function labArtifactSuffixForVerifyLabel(label: string): string | null {
+  switch (label) {
+    case "preview360Avc":
+      return LAB_ARTIFACT_KEYS.preview360Avc;
+    case "main720Avc":
+      return LAB_ARTIFACT_KEYS.main720Avc;
+    case "main720":
+      return LAB_ARTIFACT_KEYS.main720Hevc;
+    case "startup540":
+      return LAB_ARTIFACT_KEYS.startup540FaststartAvc;
+    case "startup720":
+      return LAB_ARTIFACT_KEYS.startup720FaststartAvc;
+    case "startup1080":
+      return LAB_ARTIFACT_KEYS.startup1080FaststartAvc;
+    case "upgrade1080":
+      return LAB_ARTIFACT_KEYS.upgrade1080FaststartAvc;
+    default:
+      return null;
+  }
 }
 
 export async function processVideoPostJob(payload: VideoProcessorPayload): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -33,6 +87,16 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
   const assets = Array.isArray(post.assets) ? [...(post.assets as Record<string, unknown>[])] : [];
   const nowMs = Date.now();
   const nowTs = Timestamp.fromMillis(nowMs);
+
+  const videoProc = String(post.videoProcessingStatus ?? "").toLowerCase();
+  const prevLabSt = String(asRecord(post.playbackLab)?.status ?? "").toLowerCase();
+  if (post.assetsReady === true && videoProc === "completed") {
+    return { ok: true };
+  }
+  /** Cloud Tasks retries after a permanent verify failure were merging `processing` atop `lastError`. */
+  if (videoProc === "failed" || prevLabSt === "failed") {
+    return { ok: true };
+  }
 
   await postRef.set(
     {
@@ -55,6 +119,12 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
     { merge: true },
   );
 
+  await emitAsyncPipelinePhase(
+    postRef,
+    { status: "processing", phase: "worker_started" },
+    { phase: "encode", totalVideos: payload.videoAssets.length, processedVideos: 0 },
+  ).catch(() => {});
+
   const workRoot = path.join(os.tmpdir(), `locava-v2-video-${payload.postId}-${randomUUID()}`);
   await fs.mkdir(workRoot, { recursive: true });
 
@@ -62,6 +132,7 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
     ...asRecord(asRecord(post.playbackLab)?.assets)
   };
   const generateErrors: string[] = [];
+  let assetsEncodedAndVerified = 0;
 
   try {
     for (const job of payload.videoAssets) {
@@ -80,6 +151,11 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
         String((asRecord(assetRow.variants)?.poster as string | undefined) ?? "").trim();
       const workDir = path.join(workRoot, job.id.replace(/[^\w-]+/g, "_"));
       await fs.mkdir(workDir, { recursive: true });
+      await emitAsyncPipelinePhase(
+        postRef,
+        { status: "processing", phase: "encode_transcode", encodeAssetId: job.id },
+        { phase: "encode_transcode", currentAssetId: job.id },
+      ).catch(() => {});
       const encoded = await encodeAndUploadVideoAsset({
         cfg,
         postId: payload.postId,
@@ -100,10 +176,52 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
       }
       if (!mergedVariants.poster) delete mergedVariants.poster;
 
+      await emitAsyncPipelinePhase(
+        postRef,
+        { status: "processing", phase: "verify_lab_outputs", encodeAssetId: job.id },
+        { phase: "verify", currentAssetId: job.id },
+      ).catch(() => {});
+
       const remoteChecks: Array<Record<string, unknown>> = [];
+      const prefix = String(encoded.videosLabKeyPrefix ?? "").trim();
       const check = async (label: string, url: string) => {
-        const r = await verifyRemoteMp4Faststart(url, original, { requireMoovBeforeMdat: true });
-        remoteChecks.push({ label, ...r });
+        const u = String(url ?? "").trim();
+        if (process.env.VIDEO_SKIP_REMOTE_UPLOAD_VERIFY === "1") {
+          remoteChecks.push({
+            label,
+            verifyMode: "skipped_env",
+            ok: true,
+            skipped: true,
+            reason: "VIDEO_SKIP_REMOTE_UPLOAD_VERIFY"
+          } as Record<string, unknown>);
+          return;
+        }
+        const suffix = labArtifactSuffixForVerifyLabel(label);
+        const useS3Lab = Boolean(prefix && suffix);
+        const variantHintForDedup =
+          u || `https://videos-lab.internal/${encodeURIComponent(payload.postId)}/${suffix}`;
+        let verifyMode: "s3_lab" | "remote" | "s3_lab_then_https" | "skipped_env" = useS3Lab ? "s3_lab" : "remote";
+        const moovOpts = { requireMoovBeforeMdat: true as const };
+
+        let r: Awaited<ReturnType<typeof verifyRemoteMp4Faststart>>;
+        if (useS3Lab) {
+          r = await verifyS3ObjectMp4Faststart(cfg, `${prefix}/${suffix}`, original, variantHintForDedup, moovOpts);
+          /** Lab objects are reachable at public CDN URLs — anonymous Range GET succeeds where SigV4 ranged GetObject fails. */
+          if (!r.ok && /^https?:\/\//i.test(u)) {
+            const rHttp = await verifyRemoteMp4Faststart(u, original, moovOpts);
+            if (rHttp.ok) {
+              r = rHttp;
+              verifyMode = "s3_lab_then_https";
+            }
+          }
+        } else {
+          r = await verifyRemoteMp4Faststart(u, original, moovOpts);
+        }
+        remoteChecks.push({
+          label,
+          verifyMode,
+          ...r,
+        });
         if (!r.ok) throw new Error(`remote_verify_failed:${label}:${"reason" in r ? r.reason : "unknown"}`);
       };
       await check("preview360Avc", String(mergedVariants.preview360Avc ?? ""));
@@ -152,6 +270,22 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
 
       const idx = assets.findIndex((a) => String(a.id ?? "") === job.id.trim());
       if (idx >= 0) assets[idx] = mergedAsset;
+
+      assetsEncodedAndVerified += 1;
+      await emitAsyncPipelinePhase(
+        postRef,
+        {
+          status: "processing",
+          phase: "asset_encoded_verified",
+          encodeAssetId: job.id,
+        },
+        {
+          phase: "asset_encoded_verified",
+          processedVideos: assetsEncodedAndVerified,
+          totalVideos: payload.videoAssets.length,
+          lastCompletedAssetId: job.id,
+        },
+      ).catch(() => {});
     }
 
     if (generateErrors.length > 0) {
@@ -227,36 +361,54 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
+    const refreshed = await postRef.get();
+    const latest = (refreshed.data() ?? {}) as Record<string, unknown>;
+    const playbackReadinessFromDoc = buildPostMediaReadiness({
+      ...latest,
+      videoProcessingStatus: "failed",
+      assetsReady: false,
+      instantPlaybackReady: false,
+    });
+
     await postRef.set(
       {
         playbackLabUpdatedAt: nowTs,
         playbackLabStatus: "failed",
         playbackLab: {
-          ...(asRecord(post.playbackLab) ?? {}),
+          ...(asRecord(latest.playbackLab) ?? asRecord(post.playbackLab) ?? {}),
           status: "failed",
           lastVerifyAllOk: false,
           lastError: msg.slice(0, 1500),
           lastGenerateErrors: [msg.slice(0, 500)],
           assets: playbackLabAssets,
           asyncPipeline: {
+            ...(asRecord(asRecord(latest.playbackLab)?.asyncPipeline) ?? {}),
             status: "failed",
             source: "native_v2_finalize",
             lastGenerateSuccess: false,
             lastVerifyAllOk: false,
             lastException: msg.slice(0, 1500),
-            lastGenerateErrors: generateErrors.length > 0 ? generateErrors : [msg.slice(0, 500)]
-          }
+            lastGenerateErrors: generateErrors.length > 0 ? generateErrors : [msg.slice(0, 500)],
+            phase: "failed",
+          },
         },
         videoProcessingStatus: "failed",
         videoProcessingFailureReason: msg.slice(0, 500),
-        mediaStatus: "processing",
+        mediaStatus: playbackReadinessFromDoc.mediaStatus,
         assetsReady: false,
-        playbackReady: false,
-        playbackUrlPresent: false,
+        playbackReady: playbackReadinessFromDoc.playbackReady,
+        playbackUrlPresent: playbackReadinessFromDoc.playbackUrlPresent,
+        ...(playbackReadinessFromDoc.playbackUrl ? { playbackUrl: playbackReadinessFromDoc.playbackUrl } : {}),
+        ...(playbackReadinessFromDoc.fallbackVideoUrl
+          ? { fallbackVideoUrl: playbackReadinessFromDoc.fallbackVideoUrl }
+          : {}),
+        posterReady: playbackReadinessFromDoc.posterReady,
+        posterPresent: playbackReadinessFromDoc.posterPresent,
+        ...(playbackReadinessFromDoc.posterUrl ? { posterUrl: playbackReadinessFromDoc.posterUrl } : {}),
         instantPlaybackReady: false,
         updatedAtMs: nowMs,
         lastUpdated: nowTs,
-        updatedAt: nowTs
+        updatedAt: nowTs,
       },
       { merge: true },
     );

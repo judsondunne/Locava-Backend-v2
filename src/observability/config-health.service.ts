@@ -2,6 +2,7 @@ import type { AppEnv } from "../config/env.js";
 import { readWasabiConfigFromEnv } from "../services/storage/wasabi-config.js";
 import { BigQueryAnalyticsPublisher } from "../repositories/analytics/analytics-publisher.js";
 import { getCoherenceStatus } from "../runtime/coherence.js";
+import { resolveVideoProcessingCloudTasksConfig } from "../services/posting/video-processing-cloud-tasks.diagnostics.js";
 
 export type ConfigHealthCheck = {
   key: string;
@@ -25,6 +26,8 @@ export function getConfigHealthSnapshot(env: AppEnv): ConfigHealthSnapshot {
   const wasabiConfigured = readWasabiConfigFromEnv() !== null;
   const analyticsConfigured = new BigQueryAnalyticsPublisher(env).getDestination().enabled;
   const pushConfigured = firebaseConfigured && env.FIRESTORE_SOURCE_ENABLED;
+  const videoTasks = resolveVideoProcessingCloudTasksConfig();
+  const videoWorkerConfigured = Boolean(videoTasks.workerTargetUrl);
 
   const checks: ConfigHealthCheck[] = [
     {
@@ -72,6 +75,15 @@ export function getConfigHealthSnapshot(env: AppEnv): ConfigHealthSnapshot {
         : env.NODE_ENV === "production"
           ? "Missing INTERNAL_DASHBOARD_TOKEN in production."
           : "Local mode currently allows dashboard access without a token."
+    },
+    {
+      key: "video_cloud_tasks",
+      label: "Video processing Cloud Tasks (resolved)",
+      configured: Boolean(videoTasks.gcpProjectId && videoWorkerConfigured),
+      detail: videoTasks.gcpProjectId
+        ? `Queue ${videoTasks.queueName} @ ${videoTasks.cloudTasksLocation}; worker ${videoTasks.workerUrlSource}; ` +
+          `VIDEO_PROCESSOR_FUNCTION_URL ${env.VIDEO_PROCESSOR_FUNCTION_URL ? "set" : "unset (default CF URL if project known)"}.`
+        : "GCP project id missing — cannot resolve Cloud Tasks worker URL defaults."
     }
   ];
 

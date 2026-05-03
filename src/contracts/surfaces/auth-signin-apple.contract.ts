@@ -3,6 +3,11 @@ import { defineContract } from "../conventions.js";
 
 export const AuthSigninAppleBodySchema = z.object({
   identityToken: z.string().min(1),
+  /**
+   * Raw (unhashed) Sign in with Apple nonce. Must match what was SHA256-hashed and passed to `AppleAuthentication.signInAsync({ nonce })`.
+   * Required for Firebase REST verification when the Apple ID token includes a nonce claim.
+   */
+  rawNonce: z.string().trim().min(8).max(256).optional(),
   authorizationCode: z.string().optional(),
   email: z.string().trim().email().optional(),
   fullName: z.union([z.string(), z.object({ givenName: z.string().optional(), familyName: z.string().optional() })]).optional(),
@@ -56,7 +61,8 @@ export const AuthSigninAppleResponseSchema = z.object({
   viewer: AuthViewerSchema.optional(),
   token: z.string().optional(),
   oauthInfo: AuthAppleOauthInfoSchema.optional(),
-  error: z.string().optional()
+  error: z.string().optional(),
+  errorCode: z.string().optional()
 });
 
 // invalidation: Apple sign-in changes auth session state and may branch into profile bootstrap/onboarding.

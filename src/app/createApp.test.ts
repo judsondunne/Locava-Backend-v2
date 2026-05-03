@@ -19,6 +19,18 @@ describe("backend foundation routes", () => {
     expect(body.data.status).toBe("ok");
   });
 
+  it("returns auth capabilities health (non-secret)", async () => {
+    const res = await app.inject({ method: "GET", url: "/health/auth-capabilities" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      ok?: boolean;
+      data?: { firebaseWebApiKeyConfigured?: boolean; appleNoncePostBodySupported?: boolean };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.data?.appleNoncePostBodySupported).toBe(true);
+    expect(body.data?.firebaseWebApiKeyConfigured).toBeTypeOf("boolean");
+  });
+
   it("validates echo payload", async () => {
     const res = await app.inject({ method: "POST", url: "/test/echo", payload: {} });
     expect(res.statusCode).toBe(400);
@@ -266,6 +278,17 @@ describe("backend foundation routes", () => {
     expect(htmlRes.statusCode).toBe(200);
     expect(htmlRes.headers["content-type"]).toContain("text/html");
     expect(htmlRes.body).toContain("Locava Backendv2 Health Dashboard");
+  });
+
+  it("cloud tasks video probe returns config without enqueuing (local)", async () => {
+    const res = await app.inject({ method: "GET", url: "/internal/health-dashboard/cloud-tasks-video" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.config.queueName).toBe("video-processing-queue");
+    expect(body.data.config.cloudTasksLocation).toBe("us-central1");
+    expect(body.data.queueGet).toBeTruthy();
+    expect(Array.isArray(body.data.hints)).toBe(true);
   });
 
   it("dashboard rejects the wrong token when INTERNAL_DASHBOARD_TOKEN is set", async () => {

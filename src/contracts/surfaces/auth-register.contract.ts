@@ -35,7 +35,8 @@ export const AuthRegisterResponseSchema = z.object({
     })
     .optional(),
   token: z.string().optional(),
-  error: z.string().optional()
+  error: z.string().optional(),
+  errorCode: z.string().optional()
 });
 
 // invalidation: register creates a new auth session and changes downstream bootstrap state.

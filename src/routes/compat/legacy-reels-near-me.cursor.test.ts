@@ -26,9 +26,39 @@ describe("legacy near-me cursor", () => {
     const parsed = parseNearMeCursorAny(cursor);
     expect(parsed.kind).toBe("v2");
     if (parsed.kind === "v2") {
+      expect(parsed.value.mode).toBe("pool");
       expect(parsed.value.offset).toBe(8);
       expect(parsed.value.lastPostId).toBe("post-008");
       expect(parsed.value.radiusMiles).toBe(25);
+    }
+  });
+
+  it("round-trips v2 exhaust snapshot cursor", () => {
+    const cursor = encodeNearMeCursorV2({
+      mode: "exhaust",
+      offset: 40,
+      radiusMiles: 10,
+      latE5: 400000,
+      lngE5: -750000,
+      lastPostId: "post-z",
+      poolLoadedAtMs: 2000,
+      seen: ["a", "b"],
+      exhaust: {
+        phase: "geohash",
+        prefixes: ["abc", "def"],
+        prefixIdx: 1,
+        ghCursor: { lastGeohash: "gk", lastTime: 99, lastId: "p1" },
+        geoFinished: false,
+        recentCursor: null,
+        recentFinished: false
+      }
+    });
+    const parsed = parseNearMeCursorAny(cursor);
+    expect(parsed.kind).toBe("v2");
+    if (parsed.kind === "v2") {
+      expect(parsed.value.mode).toBe("exhaust");
+      expect(parsed.value.seen?.length).toBe(2);
+      expect(parsed.value.exhaust?.prefixIdx).toBe(1);
     }
   });
 

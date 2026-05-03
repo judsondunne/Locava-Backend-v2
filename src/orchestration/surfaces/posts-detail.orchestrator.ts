@@ -1,7 +1,15 @@
 import { PostsDetailResponseSchema } from "../../contracts/surfaces/posts-detail.contract.js";
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
-import { toFeedCardDTO, toPlaybackPostShellDTO } from "../../dto/compact-surface-dto.js";
+import {
+  toFeedCardDTO,
+  toPlaybackPostShellDTO,
+  type PlaybackPostShellDTO,
+} from "../../dto/compact-surface-dto.js";
 import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
+import {
+  playbackBatchShouldFetchFirestoreDetail,
+  selectBestVideoPlaybackAsset,
+} from "../../lib/posts/video-playback-selection.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import type { FeedBootstrapCandidateRecord, FeedDetailRecord } from "../../repositories/surfaces/feed.repository.js";
@@ -13,8 +21,20 @@ type DeferredCommentPreview = NonNullable<PostsDetailResponse["deferred"]["comme
 type DeferredCommentPreviewItem = DeferredCommentPreview[number];
 type BatchItemStatus = "ready" | "partial_cached" | "processing" | "missing";
 
-function postMediaSummaryForLog(post: Record<string, unknown>) {
-  const mediaReadiness = buildPostMediaReadiness(post);
+function postMediaSummaryForLog(
+  post: Record<string, unknown>,
+  opts?: { hydrationMode?: "card" | "playback" | "detail" | "open" | "full" },
+) {
+  const hydrationMode = opts?.hydrationMode ?? "detail";
+  const mediaReadiness = buildPostMediaReadiness(post, { hydrationMode });
+  const compactDiag =
+    process.env.NODE_ENV !== "production"
+      ? {
+          selectedVideoVariant: mediaReadiness.selectedVideoVariant,
+          isDegradedVideo: Boolean(mediaReadiness.isDegradedVideo),
+          processingButPlayable: Boolean(mediaReadiness.processingButPlayable),
+        }
+      : {};
   return {
     hasVideo: mediaReadiness.hasVideo,
     mediaStatus: mediaReadiness.mediaStatus,
@@ -22,14 +42,75 @@ function postMediaSummaryForLog(post: Record<string, unknown>) {
     playbackUrlPresent: mediaReadiness.playbackUrlPresent,
     fallbackVideoUrlPresent: Boolean(mediaReadiness.fallbackVideoUrl),
     posterPresent: mediaReadiness.posterPresent,
+    ...compactDiag,
   };
 }
 
-function playbackNeedsSourceTruth(media: ReturnType<typeof buildPostMediaReadiness>): boolean {
-  return !media.posterPresent && !media.playbackUrlPresent && !media.fallbackVideoUrl;
+function videoPlaybackDebugEnabled(): boolean {
+  return process.env.LOCAVA_VIDEO_MEDIA_DEBUG === "1";
+}
+
+function mergePlaybackShellFromDetailRecord(detail: FeedDetailRecord, card: SafeCardSummary): PlaybackPostShellDTO {
+  const base = toPlaybackPostShellDTO({
+    userId: card.author.userId,
+    card: toCompactPlaybackCard(card),
+  });
+  if (detail.mediaType !== "video") {
+    return {
+      ...base,
+      userId: detail.userId,
+      thumbUrl: detail.thumbUrl || base.thumbUrl,
+      caption: detail.caption ?? base.caption,
+      mediaType: detail.mediaType,
+      assetsReady: detail.assetsReady ?? base.assetsReady,
+    };
+  }
+  if (!Array.isArray(detail.assets) || detail.assets.length === 0) {
+    return {
+      ...base,
+      userId: detail.userId,
+      thumbUrl: detail.thumbUrl || base.thumbUrl,
+      caption: detail.caption ?? base.caption,
+      assetsReady: detail.assetsReady ?? base.assetsReady,
+    };
+  }
+  const shellAssets: PlaybackPostShellDTO["assets"] = detail.assets.map((row, index) => ({
+    id: row.id ?? `${detail.postId}-asset-${index + 1}`,
+    type: row.type,
+    original: row.original ?? null,
+    poster: row.poster ?? null,
+    thumbnail: row.thumbnail ?? null,
+    aspectRatio: row.aspectRatio ?? undefined,
+    width: row.width ?? undefined,
+    height: row.height ?? undefined,
+    orientation: row.orientation ?? undefined,
+    variants: row.variants && typeof row.variants === "object" ? { ...(row.variants as Record<string, unknown>) } : {},
+  }));
+  return {
+    ...base,
+    userId: detail.userId,
+    caption: detail.caption ?? base.caption,
+    thumbUrl: detail.thumbUrl || base.thumbUrl,
+    mediaType: detail.mediaType,
+    assetsReady: detail.assetsReady ?? false,
+    updatedAtMs: (detail as { updatedAtMs?: number }).updatedAtMs ?? card.updatedAtMs,
+    assets: shellAssets,
+    cardSummary: toCompactPlaybackCard(card),
+  };
 }
 
 function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFeedCardDTO> {
+  const sx = summary as SafeCardSummary & {
+    assetsReady?: boolean;
+    mediaStatus?: "processing" | "ready" | "failed";
+    posterReady?: boolean;
+    playbackReady?: boolean;
+    playbackUrlPresent?: boolean;
+    playbackUrl?: string | null;
+    fallbackVideoUrl?: string | null;
+    posterUrl?: string | null;
+    hasVideo?: boolean;
+  };
   return toFeedCardDTO({
     postId: summary.postId,
     rankToken: summary.rankToken,
@@ -58,6 +139,15 @@ function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFe
     letterboxGradientTop: summary.letterboxGradientTop ?? null,
     letterboxGradientBottom: summary.letterboxGradientBottom ?? null,
     letterboxGradients: summary.letterboxGradients ?? null,
+    ...(typeof sx.mediaStatus === "string" ? { mediaStatus: sx.mediaStatus } : {}),
+    ...(typeof sx.assetsReady === "boolean" ? { assetsReady: sx.assetsReady } : {}),
+    ...(typeof sx.posterReady === "boolean" ? { posterReady: sx.posterReady } : {}),
+    ...(typeof sx.playbackReady === "boolean" ? { playbackReady: sx.playbackReady } : {}),
+    ...(typeof sx.playbackUrlPresent === "boolean" ? { playbackUrlPresent: sx.playbackUrlPresent } : {}),
+    ...(typeof sx.playbackUrl === "string" ? { playbackUrl: sx.playbackUrl } : {}),
+    ...(typeof sx.fallbackVideoUrl === "string" ? { fallbackVideoUrl: sx.fallbackVideoUrl } : {}),
+    ...(typeof sx.posterUrl === "string" ? { posterUrl: sx.posterUrl } : {}),
+    ...(typeof sx.hasVideo === "boolean" ? { hasVideo: sx.hasVideo } : {}),
   });
 }
 
@@ -109,7 +199,7 @@ export class PostsDetailOrchestrator {
       userId: input.card.author.userId,
       card: toCompactPlaybackCard(input.card),
     }) as Record<string, unknown>;
-    const mediaReadiness = buildPostMediaReadiness(playbackShell);
+    const mediaReadiness = buildPostMediaReadiness(playbackShell, { hydrationMode: "playback" });
     const post = {
       ...playbackShell,
       mediaReadiness,
@@ -190,12 +280,16 @@ export class PostsDetailOrchestrator {
             postId,
             source: cachedProjection.source,
             statusCode: 200,
-            ...postMediaSummaryForLog(fallbackDetail.firstRender.post as Record<string, unknown>),
+            ...postMediaSummaryForLog(fallbackDetail.firstRender.post as Record<string, unknown>, {
+              hydrationMode: "playback",
+            }),
           });
           this.logEvent("post.detail.media_resolution_summary", {
             postId,
             source: "fallback_cached_projection",
-            ...postMediaSummaryForLog(fallbackDetail.firstRender.post as Record<string, unknown>),
+            ...postMediaSummaryForLog(fallbackDetail.firstRender.post as Record<string, unknown>, {
+              hydrationMode: "playback",
+            }),
             statusCode: 200,
           });
           return fallbackDetail;
@@ -218,17 +312,33 @@ export class PostsDetailOrchestrator {
       Array.isArray(post.commentsPreview)
         ? normalizeCommentsPreview(post.commentsPreview)
         : await this.service.loadCommentsPreview(postId, 0).catch(() => null);
-    const mediaReadiness = buildPostMediaReadiness(post as Record<string, unknown>);
+    const mediaReadiness = buildPostMediaReadiness(post as Record<string, unknown>, { hydrationMode: "detail" });
+    const resolutionSummary =
+      typeof process.env.NODE_ENV === "string" && process.env.NODE_ENV !== "production"
+        ? {
+            ...mediaReadiness,
+            selectedPlaybackUrlPresent: Boolean(mediaReadiness.playbackUrl),
+            processingButPlayable: Boolean(mediaReadiness.processingButPlayable),
+          }
+        : mediaReadiness;
     console.info("[post.detail.media_readiness]", {
       surface: "posts.detail",
       postId,
-      ...mediaReadiness
+      ...resolutionSummary,
     });
     this.logEvent("post.detail.media_resolution_summary", {
       postId,
       source: usedFallbackProjection ? "fallback_cached_projection" : "source_of_truth_detail",
       fallbackSource: usedFallbackProjection ? fallbackSource : undefined,
-      ...postMediaSummaryForLog(post as Record<string, unknown>),
+      ...(process.env.NODE_ENV !== "production"
+        ? {
+            ...postMediaSummaryForLog(post as Record<string, unknown>, { hydrationMode: "detail" }),
+            selectedPlaybackUrlPresent: Boolean(mediaReadiness.playbackUrl),
+            fallbackVideoUrlPresent: Boolean(mediaReadiness.fallbackVideoUrl),
+            productionPlaybackSelected: Boolean(mediaReadiness.productionPlaybackSelected),
+            processingButPlayable: Boolean(mediaReadiness.processingButPlayable),
+          }
+        : postMediaSummaryForLog(post as Record<string, unknown>, { hydrationMode: "detail" })),
       statusCode: 200,
     });
     return {
@@ -463,7 +573,9 @@ export class PostsDetailOrchestrator {
       hydrationMode: input.hydrationMode,
       statuses: itemStatuses,
       mediaSummary: found.map((row) => {
-        const summary = postMediaSummaryForLog(row.detail.firstRender.post as Record<string, unknown>);
+        const summary = postMediaSummaryForLog(row.detail.firstRender.post as Record<string, unknown>, {
+          hydrationMode: input.hydrationMode === "playback" ? "playback" : "detail",
+        });
         return {
           postId: row.postId,
           status:
@@ -543,6 +655,11 @@ export class PostsDetailOrchestrator {
               )
             )
           ).filter((row): row is FeedBootstrapCandidateRecord => row !== null);
+    const readCapParsed = Number(process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP ?? "3");
+    const playbackFirestoreReadCap =
+      Number.isFinite(readCapParsed) ? Math.min(32, Math.max(0, Math.floor(readCapParsed))) : 3;
+    let playbackFirestoreReadsPerformed = 0;
+
     const byId = new Map(cards.map((card) => [card.postId, this.ensureSafeCardSummary(card, card.postId)] as const));
     const found: Array<{ postId: string; detail: PostsDetailResponse }> = [];
     for (const postId of cappedIds) {
@@ -552,23 +669,35 @@ export class PostsDetailOrchestrator {
         userId: card.author.userId,
         card: toCompactPlaybackCard(card),
       });
-      let mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>);
+      let mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>, {
+        hydrationMode: "playback",
+      });
       let degraded = false;
       let fallbacks: string[] = [];
       let debugHydrationSource: "cache" | "mixed" = "cache";
-      if (input.hydrationMode === "playback" && playbackNeedsSourceTruth(mediaReadiness)) {
+      let debugReadsForPost = 0;
+      const wantsPlaybackFirestoreUpgrade =
+        input.hydrationMode === "playback" &&
+        playbackBatchShouldFetchFirestoreDetail(playbackShell as Record<string, unknown>);
+      const fetchAllowed =
+        wantsPlaybackFirestoreUpgrade &&
+        playbackFirestoreReadCap > 0 &&
+        playbackFirestoreReadsPerformed < playbackFirestoreReadCap;
+      if (wantsPlaybackFirestoreUpgrade && fetchAllowed) {
         try {
+          playbackFirestoreReadsPerformed += 1;
+          debugReadsForPost = 1;
           const detail = await this.service.loadPostDetail(postId, input.viewerId);
           const cardSummaryRaw =
             (detail as { cardSummary?: FeedBootstrapCandidateRecord }).cardSummary ??
             (await this.service.loadPostCardSummary(input.viewerId, postId));
           const safeCard = this.ensureSafeCardSummary(cardSummaryRaw, postId, detail);
-          playbackShell = toPlaybackPostShellDTO({
-            userId: safeCard.author.userId,
-            card: toCompactPlaybackCard(safeCard),
+          playbackShell = mergePlaybackShellFromDetailRecord(detail, safeCard);
+          mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>, {
+            hydrationMode: "playback",
           });
-          mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>);
-          degraded = playbackNeedsSourceTruth(mediaReadiness);
+          const stillStale = playbackBatchShouldFetchFirestoreDetail(playbackShell as Record<string, unknown>);
+          degraded = stillStale;
           if (degraded) {
             fallbacks = ["post_card_cache_incomplete", "source_truth_still_missing_media"];
             if (process.env.NODE_ENV !== "production") {
@@ -579,9 +708,21 @@ export class PostsDetailOrchestrator {
             debugHydrationSource = "mixed";
           }
         } catch {
-          // Keep lightweight cache projection; client may retry open hydration.
+          degraded = true;
+          fallbacks = ["post_card_cache_incomplete"];
         }
+      } else if (wantsPlaybackFirestoreUpgrade && !fetchAllowed) {
+        degraded = true;
+        fallbacks = ["playback_firestore_read_cap"];
       }
+      const videoPlaybackDebug =
+        videoPlaybackDebugEnabled() && input.hydrationMode === "playback"
+          ? selectBestVideoPlaybackAsset(playbackShell as Record<string, unknown>, {
+              hydrationMode: "playback",
+              allowPreviewOnly: true,
+              includeDiagnostics: true,
+            })
+          : null;
       found.push({
         postId: card.postId,
         detail: {
@@ -603,6 +744,20 @@ export class PostsDetailOrchestrator {
               width: mediaReadiness.width ?? null,
               height: mediaReadiness.height ?? null,
               resizeMode: mediaReadiness.resizeMode,
+              ...(videoPlaybackDebug
+                ? {
+                    selectedVariantLabel: videoPlaybackDebug.selectedVariantLabel,
+                    selectedVariantHeight: videoPlaybackDebug.selectedVariantHeight,
+                    selectedVariantCodec: videoPlaybackDebug.selectedVariantCodec,
+                    selectedVideoSource: videoPlaybackDebug.selectedVariantSource,
+                    usedPreviewFallback: videoPlaybackDebug.isPreviewOnly,
+                    productionVariantAvailable: videoPlaybackDebug.isProductionPlayback,
+                    productionVariantSelected: videoPlaybackDebug.productionPlaybackSelected,
+                    selectedVideoVariant: videoPlaybackDebug.selectedVideoVariant,
+                    cacheMediaUpgraded: debugHydrationSource === "mixed",
+                    videoPlaybackDiagnostics: videoPlaybackDebug.diagnostics,
+                  }
+                : {}),
             } as PostsDetailResponse["firstRender"]["post"],
             author: card.author,
             social: card.social,
@@ -612,7 +767,7 @@ export class PostsDetailOrchestrator {
           degraded,
           fallbacks,
           debugHydrationSource,
-          debugReads: 0,
+          debugReads: debugReadsForPost,
           debugPostIds: [card.postId],
           debugMissingIds: [],
           debugDurationMs: 0,
@@ -638,8 +793,12 @@ export class PostsDetailOrchestrator {
     this.logEvent("posts.batch.media_resolution_summary", {
       hydrationMode: input.hydrationMode,
       statuses: itemStatuses,
+      playbackFirestoreReadsPerformed,
+      playbackFirestoreReadCap,
       mediaSummary: found.map((row) => {
-        const summary = postMediaSummaryForLog(row.detail.firstRender.post as Record<string, unknown>);
+        const summary = postMediaSummaryForLog(row.detail.firstRender.post as Record<string, unknown>, {
+          hydrationMode: input.hydrationMode === "playback" ? "playback" : "card",
+        });
         const upgraded = row.detail.debugHydrationSource === "mixed";
         return {
           postId: row.postId,
@@ -648,6 +807,23 @@ export class PostsDetailOrchestrator {
           playbackUrlPresent: summary.playbackUrlPresent,
           fallbackVideoUrlPresent: summary.fallbackVideoUrlPresent,
           posterPresent: summary.posterPresent,
+          ...(process.env.NODE_ENV !== "production"
+            ? {
+                selectedVideoVariant:
+                  typeof (summary as { selectedVideoVariant?: string }).selectedVideoVariant === "string"
+                    ? (summary as { selectedVideoVariant?: string }).selectedVideoVariant
+                    : undefined,
+                isDegradedVideo:
+                  typeof (summary as { isDegradedVideo?: boolean }).isDegradedVideo === "boolean"
+                    ? (summary as { isDegradedVideo?: boolean }).isDegradedVideo
+                    : undefined,
+                repairedCachedVideoMedia:
+                  input.hydrationMode === "playback" &&
+                  Boolean(summary.playbackUrlPresent && summary.hasVideo) &&
+                  !upgraded,
+                sourceUpgradeUsed: upgraded,
+              }
+            : {}),
         };
       }),
     });
@@ -659,7 +835,7 @@ export class PostsDetailOrchestrator {
       missing,
       forbidden: [],
       debugHydrationSource: "cache",
-      debugReads: 0,
+      debugReads: playbackFirestoreReadsPerformed,
       debugEntityConstructionCount: found.length,
       debugPayloadCategory: classifyPayloadCategory(found.length, input.hydrationMode),
       debugPayloadBytes: payloadBytes,

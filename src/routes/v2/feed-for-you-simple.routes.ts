@@ -5,6 +5,11 @@ import { failure, success } from "../../lib/response.js";
 import { getRequestContext, setRouteName } from "../../observability/request-context.js";
 import { FeedForYouSimpleRepository } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { FeedForYouSimpleService } from "../../services/surfaces/feed-for-you-simple.service.js";
+import {
+  buildFeedItemsMediaTracePayload,
+  isFeedItemsMediaTraceEnabled,
+  rollupFeedVideoMediaSummary
+} from "../../observability/feed-items-media-trace.js";
 
 export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Promise<void> {
   const repository = new FeedForYouSimpleRepository();
@@ -72,10 +77,23 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         repeatedFromRecentCount: payload.debug.repeatedFromRecentCount ?? 0,
         firstPaintCardReadyCount: payload.debug.firstPaintCardReadyCount ?? payload.items.length,
         detailBatchRequiredForFirstPaint: payload.debug.detailBatchRequiredForFirstPaint ?? false,
-        durableServedWriteStatus: payload.debug.durableServedWriteStatus ?? "skipped"
+        durableServedWriteStatus: payload.debug.durableServedWriteStatus ?? "skipped",
+        ...rollupFeedVideoMediaSummary(payload.items)
       };
 
       request.log.info(summaryPayload, "feed for-you simple summary");
+
+      if (isFeedItemsMediaTraceEnabled()) {
+        request.log.info(
+          buildFeedItemsMediaTracePayload({
+            surface: "feed.for_you_simple.get",
+            viewerId,
+            requestId: request.id,
+            items: payload.items
+          }),
+          "feed items media trace (set LOCAVA_FEED_ITEMS_MEDIA_TRACE=1)"
+        );
+      }
 
       if (payload.emergencyFallbackUsed) {
         request.log.warn({ event: "feed_for_you_simple_emergency_fallback_used", viewerId, returnedCount: payload.items.length }, "feed for-you simple emergency fallback");

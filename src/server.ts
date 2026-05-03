@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { createApp } from "./app/createApp.js";
 import { collectDevHttpBaseUrls, printDevListenUrlBanner } from "./boot/printDevListenUrls.js";
+import { logVideoProcessingCloudTasksStartup } from "./services/posting/video-processing-cloud-tasks.diagnostics.js";
 
 const app = createApp();
 
@@ -24,6 +25,7 @@ const start = async (): Promise<void> => {
       },
       "server started"
     );
+    logVideoProcessingCloudTasksStartup(app.log);
 
     printDevListenUrlBanner(app.config.PORT, app.config.NODE_ENV, app.config.LEGACY_MONOLITH_PROXY_BASE_URL);
     if (app.config.NODE_ENV !== "production") {

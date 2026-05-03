@@ -49,7 +49,12 @@ export type SimpleFeedCandidate = {
     height: number | null;
     aspectRatio: number | null;
     orientation: string | null;
+    /** Plain https variant URLs from Firestore (no metadata blobs) — used for ladder selection on cards. */
+    playbackVariantUrls?: Record<string, string>;
   }>;
+  assetsReady?: boolean;
+  instantPlaybackReady?: boolean;
+  videoProcessingStatus?: string | null;
   carouselFitWidth?: boolean;
   layoutLetterbox?: boolean;
   letterboxGradientTop?: string | null;
@@ -129,6 +134,9 @@ const SIMPLE_FEED_SELECT_FIELDS = [
   "likeCount",
   "commentCount",
   "commentsCount",
+  "assetsReady",
+  "instantPlaybackReady",
+  "videoProcessingStatus",
   "deleted",
   "isDeleted",
   "archived",
@@ -549,7 +557,12 @@ export class FeedForYouSimpleRepository {
       assets: item.assets,
       randomKey: typeof item.sortValue === "number" ? item.sortValue : null,
       likeCount: item.likeCount,
-      commentCount: item.commentCount
+      commentCount: item.commentCount,
+      ...(item.assetsReady === true ? { assetsReady: true } : {}),
+      ...(item.instantPlaybackReady === true ? { instantPlaybackReady: true } : {}),
+      ...(item.videoProcessingStatus?.trim()
+        ? { videoProcessingStatus: item.videoProcessingStatus.trim() }
+        : {})
     }));
     await this.db
       .collection(READY_DECK_COLLECTION)
@@ -655,7 +668,10 @@ function tryMapSimpleFeedCandidate(
       layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
       ...normalizeLetterboxHints(data),
       likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
-      commentCount: Math.max(0, Math.floor(num(data.commentCount, data.commentsCount) ?? 0))
+      commentCount: Math.max(0, Math.floor(num(data.commentCount, data.commentsCount) ?? 0)),
+      assetsReady: data.assetsReady === true ? true : undefined,
+      instantPlaybackReady: data.instantPlaybackReady === true ? true : undefined,
+      videoProcessingStatus: pickString(data.videoProcessingStatus)
     };
     return { candidate };
   } catch {
@@ -750,6 +766,16 @@ function normalizeLetterboxHints(data: Record<string, unknown>): {
   return out;
 }
 
+function collectHttpVariantStrings(variants: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, val] of Object.entries(variants)) {
+    if (typeof val !== "string") continue;
+    const t = val.trim();
+    if (/^https?:\/\//i.test(t)) out[key] = t;
+  }
+  return out;
+}
+
 function normalizeAssets(value: unknown): SimpleFeedCandidate["assets"] {
   if (!Array.isArray(value)) return [];
   const out: SimpleFeedCandidate["assets"] = [];
@@ -757,10 +783,38 @@ function normalizeAssets(value: unknown): SimpleFeedCandidate["assets"] {
     const raw = value[i] as Record<string, unknown> | null;
     if (!raw || typeof raw !== "object") continue;
     const variants = (raw.variants as Record<string, unknown> | undefined) ?? {};
+    const playbackVariantUrls: Record<string, string> = { ...collectHttpVariantStrings(variants) };
+    const persistedMap = raw.playbackVariantUrls;
+    if (persistedMap && typeof persistedMap === "object") {
+      for (const [key, val] of Object.entries(persistedMap as Record<string, unknown>)) {
+        if (typeof val !== "string") continue;
+        const t = val.trim();
+        if (/^https?:\/\//i.test(t)) playbackVariantUrls[key] = t;
+      }
+    }
     const sm = (variants.sm as Record<string, unknown> | undefined) ?? {};
     const md = (variants.md as Record<string, unknown> | undefined) ?? {};
     const lg = (variants.lg as Record<string, unknown> | undefined) ?? {};
     const thumb = (variants.thumb as Record<string, unknown> | undefined) ?? {};
+    /** Deck persistence stores compact URLs on the asset (`streamUrl` / `mp4Url`) — re-read paths must keep them when `variants.*` is absent. */
+    const streamUrl = pickString(raw.streamUrl, typeof variants.hls === "string" ? variants.hls : null);
+    const mp4Url = pickString(
+      variants.main1080Avc,
+      variants.main1080,
+      variants.main720Avc,
+      variants.main720,
+      variants.startup1080FaststartAvc,
+      variants.startup1080Faststart,
+      variants.startup720FaststartAvc,
+      variants.startup720Faststart,
+      variants.startup540FaststartAvc,
+      variants.startup540Faststart,
+      raw.mp4Url,
+      raw.original,
+      raw.downloadURL,
+      raw.url
+    );
+    if (streamUrl && !playbackVariantUrls.hls) playbackVariantUrls.hls = streamUrl;
     out.push({
       id: pickString(raw.id) ?? `asset-${i + 1}`,
       type: String(raw.type ?? "").toLowerCase() === "video" ? "video" : "image",
@@ -778,13 +832,14 @@ function normalizeAssets(value: unknown): SimpleFeedCandidate["assets"] {
       ),
       posterUrl: pickString(raw.posterUrl, raw.poster, variants.poster, thumb.webp, raw.thumbnail, raw.original, raw.downloadURL, raw.url),
       originalUrl: pickString(raw.original, raw.downloadURL, raw.url),
-      streamUrl: pickString(variants.hls),
-      mp4Url: pickString(variants.main720Avc, variants.main720, raw.original, raw.downloadURL, raw.url),
+      streamUrl,
+      mp4Url,
       blurhash: pickString(raw.blurhash),
       width: num(raw.width),
       height: num(raw.height),
       aspectRatio: num(raw.aspectRatio),
-      orientation: pickString(raw.orientation)
+      orientation: pickString(raw.orientation),
+      ...(Object.keys(playbackVariantUrls).length > 0 ? { playbackVariantUrls } : {})
     });
   }
   return out;

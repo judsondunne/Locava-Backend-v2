@@ -1,17 +1,18 @@
 import { CloudTasksClient } from "@google-cloud/tasks";
+import {
+  classifyCloudTasksEnqueueError,
+  resolveVideoProcessingCloudTasksConfig
+} from "./video-processing-cloud-tasks.diagnostics.js";
 
 export type VideoProcessingAssetPayload = { id: string; original: string };
 
-function resolveVideoProcessorFunctionUrl(projectId: string): string {
-  return (
-    process.env.VIDEO_PROCESSOR_FUNCTION_URL?.trim() ||
-    `https://us-central1-${projectId}.cloudfunctions.net/video-processor`
-  );
-}
+export type EnqueueVideoProcessingCloudTaskResult =
+  | { ok: true; taskName: string }
+  | { ok: false; reason: string; failureCode?: string };
 
 /**
  * Enqueues the same Cloud Task payload the classic monolith uses: HTTP POST to the
- * `video-processor` Cloud Function with `{ postId, videoAssets, userId }`.
+ * `video-processor` worker with `{ postId, videoAssets, userId }`.
  * Requires GCP credentials with `cloudtasks.tasks.create` on the target queue.
  */
 export async function enqueueVideoProcessingCloudTask(input: {
@@ -19,22 +20,21 @@ export async function enqueueVideoProcessingCloudTask(input: {
   userId: string;
   videoAssets: VideoProcessingAssetPayload[];
   correlationId?: string;
-}): Promise<{ ok: true; taskName: string } | { ok: false; reason: string }> {
-  const projectId =
-    process.env.GCP_PROJECT_ID?.trim() ||
-    process.env.GCLOUD_PROJECT?.trim() ||
-    process.env.FIREBASE_PROJECT_ID?.trim() ||
-    "";
-  if (!projectId) {
-    return { ok: false, reason: "missing_gcp_project_id" };
+}): Promise<EnqueueVideoProcessingCloudTaskResult> {
+  const cfg = resolveVideoProcessingCloudTasksConfig();
+  if (!cfg.gcpProjectId) {
+    return { ok: false, reason: "missing_gcp_project_id", failureCode: "missing_gcp_project_id" };
   }
   if (!input.videoAssets.length) {
-    return { ok: false, reason: "empty_video_assets" };
+    return { ok: false, reason: "empty_video_assets", failureCode: "empty_video_assets" };
   }
-
-  const location = process.env.VIDEO_PROCESSING_CLOUD_TASKS_LOCATION?.trim() || "us-central1";
-  const queueName = process.env.VIDEO_PROCESSING_CLOUD_TASKS_QUEUE?.trim() || "video-processing-queue";
-  const functionUrl = resolveVideoProcessorFunctionUrl(projectId);
+  if (!cfg.workerTargetUrl) {
+    return {
+      ok: false,
+      reason: "missing_video_processor_url",
+      failureCode: "cloud_tasks_unknown_error"
+    };
+  }
 
   const taskPayload = {
     postId: input.postId,
@@ -47,8 +47,8 @@ export async function enqueueVideoProcessingCloudTask(input: {
   };
 
   try {
-    const client = new CloudTasksClient({ projectId });
-    const parent = client.queuePath(projectId, location, queueName);
+    const client = new CloudTasksClient({ projectId: cfg.gcpProjectId });
+    const parent = client.queuePath(cfg.gcpProjectId, cfg.cloudTasksLocation, cfg.queueName);
     const headers: Record<string, string> = {
       "Content-Type": "application/json"
     };
@@ -60,16 +60,21 @@ export async function enqueueVideoProcessingCloudTask(input: {
       dispatchDeadline: { seconds: 1800 },
       httpRequest: {
         httpMethod: "POST" as const,
-        url: functionUrl,
+        url: cfg.workerTargetUrl,
         headers,
         body: Buffer.from(JSON.stringify(taskPayload)).toString("base64")
       }
     };
     const [response] = await client.createTask({ parent, task });
     return { ok: true, taskName: response.name ?? "" };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, reason: message.slice(0, 500) };
+  } catch (raw) {
+    const rawMessage = raw instanceof Error ? raw.message : String(raw);
+    const { failureCode, reasonForFirestore } = classifyCloudTasksEnqueueError(raw, rawMessage, {
+      queueName: cfg.queueName,
+      location: cfg.cloudTasksLocation,
+      projectId: cfg.gcpProjectId
+    });
+    return { ok: false, reason: reasonForFirestore, failureCode };
   }
 }
 
@@ -80,14 +85,10 @@ export async function triggerVideoProcessingSynchronously(input: {
   correlationId?: string;
   timeoutMs?: number;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
-  const projectId =
-    process.env.GCP_PROJECT_ID?.trim() ||
-    process.env.GCLOUD_PROJECT?.trim() ||
-    process.env.FIREBASE_PROJECT_ID?.trim() ||
-    "";
-  if (!projectId) return { ok: false, reason: "missing_gcp_project_id" };
+  const cfg = resolveVideoProcessingCloudTasksConfig();
+  if (!cfg.gcpProjectId) return { ok: false, reason: "missing_gcp_project_id" };
   if (!input.videoAssets.length) return { ok: false, reason: "empty_video_assets" };
-  const url = resolveVideoProcessorFunctionUrl(projectId);
+  if (!cfg.workerTargetUrl) return { ok: false, reason: "missing_video_processor_url" };
   const timeoutMs = input.timeoutMs ?? 45_000;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -97,7 +98,7 @@ export async function triggerVideoProcessingSynchronously(input: {
     if (taskSecret) {
       headers["x-locava-video-processor-secret"] = taskSecret;
     }
-    const response = await fetch(url, {
+    const response = await fetch(cfg.workerTargetUrl, {
       method: "POST",
       headers,
       body: JSON.stringify({

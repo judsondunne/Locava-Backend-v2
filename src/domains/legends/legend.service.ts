@@ -3,6 +3,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { incrementDbOps, recordSurfaceTimings } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { LegendAwardService, capTopUsers, findRank } from "./legend-award.service.js";
+import { formatLegendAnchorPreferState, humanizeLegendPlace } from "./legend-place-humanize.js";
 import { LegendScopeDeriver } from "./legend-scope-deriver.js";
 import { LegendRepository, legendRepository } from "./legend.repository.js";
 import {
@@ -112,29 +113,52 @@ function titleCaseActivity(activityId: string): string {
   return parts.map((p) => `${p.slice(0, 1).toUpperCase()}${p.slice(1)}`).join(" ");
 }
 
-function buildScopeTitles(scopeId: LegendScopeId): { title: string; subtitle: string } {
+function buildScopeTitles(
+  scopeId: LegendScopeId,
+  /** From post.city + post.state; same tiny map zone as hyperlocal legends. */
+  postAnchorDisplay: string | null
+): { title: string; subtitle: string } {
   const parsed = parseScopeId(scopeId);
+  const anchor = postAnchorDisplay?.trim() || null;
+
   if (parsed.scopeType === "cell") {
-    return { title: "Local Legend", subtitle: parsed.geohash6 ? `Cell ${parsed.geohash6}` : "Local area" };
+    return {
+      title: "Local Legend",
+      subtitle: anchor ? `Hyperlocal zone tied to posts near ${anchor}` : "Hyperlocal map cell (~same few blocks everywhere)"
+    };
   }
   if (parsed.scopeType === "activity") {
     const act = parsed.activityId ? titleCaseActivity(parsed.activityId) : "Activity";
-    return { title: `${act} Legend`, subtitle: "Across Locava" };
+    return {
+      title: `${act} Legend`,
+      subtitle: `Whoever has the most ${act}-tagged posts wins — counted across all of Locava.`
+    };
   }
   if (parsed.scopeType === "cellActivity") {
     const act = parsed.activityId ? titleCaseActivity(parsed.activityId) : "Activity";
-    return { title: `${act} Local Legend`, subtitle: parsed.geohash6 ? `Cell ${parsed.geohash6}` : "Local area" };
+    return {
+      title: `${act} Local Legend`,
+      subtitle: anchor
+        ? `${act} leaderboard in the same hyperlocal zone as posts near ${anchor}`
+        : `${act} leaderboard for this hyperlocal map cell (~same few blocks)`
+    };
   }
   if (parsed.scopeType === "place") {
     const placeType = parsed.placeType ?? "place";
     const placeId = parsed.placeId ?? "";
-    return { title: "Local Legend", subtitle: placeId ? `${placeType.toUpperCase()} ${placeId}` : placeType };
+    return {
+      title: "Local Legend",
+      subtitle: humanizeLegendPlace(placeType, placeId.trim() ? placeId : null)
+    };
   }
   if (parsed.scopeType === "placeActivity") {
     const act = parsed.activityId ? titleCaseActivity(parsed.activityId) : "Activity";
     const placeType = parsed.placeType ?? "place";
     const placeId = parsed.placeId ?? "";
-    return { title: `${act} Legend`, subtitle: placeId ? `${placeType.toUpperCase()} ${placeId}` : placeType };
+    return {
+      title: `${act} Legend`,
+      subtitle: humanizeLegendPlace(placeType, placeId.trim() ? placeId : null)
+    };
   }
   return { title: "Local Legend", subtitle: scopeId };
 }
@@ -220,6 +244,8 @@ export class LegendService {
       [...scopeSnaps, ...statSnaps].reduce((sum, snap) => sum + (snap.exists ? 1 : 0), 0)
     );
 
+    const geoAnchorPreview = formatLegendAnchorPreferState({ city: input.city ?? null, state: input.state ?? null });
+
     const previewCards: LegendPreviewCard[] = [];
     for (let i = 0; i < derived.scopes.length; i += 1) {
       const scopeId = derived.scopes[i]!;
@@ -234,7 +260,7 @@ export class LegendService {
       const userCount = Math.max(0, Number(asObject(statData).count ?? 0) || 0);
       const nextUserCount = userCount + 1;
 
-      const titles = buildScopeTitles(scopeId);
+      const titles = buildScopeTitles(scopeId, geoAnchorPreview);
       if (!scopeExists) {
         if (parsed.scopeType === "cell") {
           previewCards.push({
@@ -286,6 +312,13 @@ export class LegendService {
     });
 
     recordSurfaceTimings({ legendStageMs: Date.now() - startedAt });
+    console.info("[legend.stage_post] done", {
+      stageId,
+      userId: input.userId,
+      reasons: derived.reasons,
+      scopeCount: derived.scopes.length,
+      scopes: derived.scopes.slice(0, 12)
+    });
     return { stageId, derivedScopes: derived.scopes, previewCards: previewCards.slice(0, 8) };
   }
 
@@ -299,10 +332,15 @@ export class LegendService {
     derivedScopes: LegendScopeId[];
   }> {
     const startedAt = Date.now();
+    const legendPost = await this.hydrateLegendPostEnvelope(params.post);
     console.info("[legend.commit] start", {
       stageId: params.stageId,
-      postId: params.post.postId,
-      userId: params.post.userId
+      postId: legendPost.postId,
+      userId: legendPost.userId,
+      city: legendPost.city ?? null,
+      state: legendPost.state ?? null,
+      geohash: legendPost.geohash ?? null,
+      activityCount: (legendPost.activities ?? []).length
     });
     const db = this.repo.scopeRef("__probe__").firestore;
     const stageRef = this.repo.stageRef(params.stageId);
@@ -357,11 +395,16 @@ export class LegendService {
         throw new Error("legend_stage_expired");
       }
       const derivedScopes = (stage.derivedScopes ?? []).filter(Boolean).slice(0, 8);
+      const geoAnchorLine = formatLegendAnchorPreferState({
+        city: legendPost.city ?? null,
+        state: legendPost.state ?? null
+      });
       console.info("[legend.commit] derived_scopes_loaded", {
         stageId: params.stageId,
         postId: params.post.postId,
         derivedScopeCount: derivedScopes.length,
-        derivedScopes
+        derivedScopes,
+        geoAnchorLine
       });
 
       const scopeRefs = derivedScopes.map((scopeId) => this.repo.scopeRef(scopeId));
@@ -420,7 +463,7 @@ export class LegendService {
       for (let i = 0; i < derivedScopes.length; i += 1) {
         const scopeId = derivedScopes[i]!;
         const parsed = parseScopeId(scopeId);
-        const { title, subtitle } = buildScopeTitles(scopeId);
+        const { title, subtitle } = buildScopeTitles(scopeId, geoAnchorLine);
 
         const scopeSnap = scopeSnaps[i]!;
         const statSnap = statSnaps[i]!;
@@ -573,7 +616,8 @@ export class LegendService {
           },
           userId: params.post.userId,
           prevUserCount: prevUser.count,
-          nextUserCount
+          nextUserCount,
+          geoAnchorLine
         });
 
         const scopeRef = scopeRefs[i]!;
@@ -619,6 +663,12 @@ export class LegendService {
             locationParsed.locationScope && locationParsed.locationKey && activityKey
               ? `${locationParsed.locationScope}:${locationParsed.locationKey}:activity:${activityKey}`
               : null;
+          const locationHumanLabel =
+            locationParsed.locationScope && locationParsed.locationKey
+              ? humanizeLegendPlace(locationParsed.locationScope, locationParsed.locationKey)
+              : parsed.scopeType === "cell" || parsed.scopeType === "cellActivity"
+                ? geoAnchorLine
+                : null;
           const awardPayload: LegendAwardDoc = this.repo.buildAwardDoc({
             awardId,
             awardType: kind,
@@ -629,7 +679,7 @@ export class LegendService {
             activityKey,
             activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
             locationKey: locationParsed.locationKey,
-            locationLabel: locationParsed.locationKey,
+            locationLabel: locationHumanLabel,
             comboKey,
             rank: newRank ?? null,
             isPermanent: canonical.family === "first",
@@ -667,7 +717,7 @@ export class LegendService {
             activityKey,
             activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
             locationKey: locationParsed.locationKey,
-            locationLabel: locationParsed.locationKey,
+            locationLabel: locationHumanLabel,
             comboKey,
             rank: newRank ?? null,
             isPermanent: canonical.family === "first",
@@ -710,7 +760,7 @@ export class LegendService {
                   dimension: canonical.dimension,
                   locationScope: locationParsed.locationScope,
                   locationKey: locationParsed.locationKey,
-                  locationLabel: locationParsed.locationKey,
+                  locationLabel: locationHumanLabel,
                   activityKey,
                   activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
                   comboKey,
@@ -745,7 +795,7 @@ export class LegendService {
                   postId: params.post.postId,
                   locationScope: locationParsed.locationScope,
                   locationKey: locationParsed.locationKey,
-                  locationLabel: locationParsed.locationKey,
+                  locationLabel: locationHumanLabel,
                   activityKey,
                   activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
                   comboKey,
@@ -771,7 +821,7 @@ export class LegendService {
             activityKey,
             activityLabel: activityKey ? titleCaseActivity(activityKey) : null,
             locationKey: locationParsed.locationKey,
-            locationLabel: locationParsed.locationKey,
+            locationLabel: locationHumanLabel,
             comboKey,
             rank: newRank ?? null,
             isPermanent: canonical.family === "first",
@@ -820,6 +870,28 @@ export class LegendService {
           tx.create(read.claim.claimRef, read.claim.payload);
         }
       }
+
+      console.info("[legend.commit] transaction_payload", {
+        postId: params.post.postId,
+        userId: params.post.userId,
+        stageId: params.stageId,
+        geoAnchorLine,
+        scopesTouched: derivedScopes,
+        awardsWritten: awardSummaries.map((a) => ({
+          awardId: a.awardId,
+          awardType: a.awardType,
+          scopeId: a.scopeId,
+          kind: a.kind ?? null,
+          title: a.title,
+          subtitle: a.subtitle
+        })),
+        activeScopeIdsAfter: [...new Set(activeScopeIdsThisCommit)],
+        closeScopeIdsAfter: [...new Set(closeScopeIdsThisCommit)],
+        firstClaims: [...claimReadsByPath.values()].map((r) => ({
+          claimKey: r.claim.claimKey,
+          skippedAlreadyExists: r.exists
+        }))
+      });
 
       const existingState = userStateSnap.exists ? (userStateSnap.data() as FirestoreMap | undefined) ?? {} : {};
       const existingActive = Array.isArray(existingState.activeScopeIds)
@@ -931,6 +1003,13 @@ export class LegendService {
       country: post.country ?? null,
       region: post.region ?? null
     });
+    console.info("[legend.process_post_created] scopes_derived", {
+      postId: post.postId,
+      userId: post.userId,
+      reasons: derived.reasons,
+      scopeCount: derived.scopes.length,
+      scopes: derived.scopes
+    });
     const stageId = `legdirect_${post.postId}`;
     // Create a lightweight stage doc so we have a consistent audit trail; commit uses derived scopes directly.
     await this.repo.createStage({
@@ -953,6 +1032,72 @@ export class LegendService {
       elapsedMs: Date.now() - startedAt
     });
     return committed;
+  }
+
+  /** Minimal read so staged commits inherit city/state/geo from the canonical post doc. */
+  private async hydrateLegendPostEnvelope(post: LegendPostCreatedInput): Promise<LegendPostCreatedInput> {
+    const cityOk = typeof post.city === "string" && post.city.trim().length > 0;
+    const stateOk = typeof post.state === "string" && post.state.trim().length > 0;
+    if (cityOk && stateOk) {
+      return post;
+    }
+    try {
+      const db = getFirestoreSourceClient();
+      if (!db) return post;
+      const snap = await db.collection("posts").doc(post.postId).get();
+      if (!snap.exists) return post;
+      const data = snap.data() as Record<string, unknown> | undefined;
+      if (!data) return post;
+      const geoData = data.geoData && typeof data.geoData === "object" ? (data.geoData as Record<string, unknown>) : null;
+      const city =
+        typeof post.city === "string" && post.city.trim()
+          ? post.city
+          : typeof data.city === "string"
+            ? data.city
+            : geoData && typeof geoData.city === "string"
+              ? geoData.city
+              : null;
+      const state =
+        typeof post.state === "string" && post.state.trim()
+          ? post.state
+          : typeof data.state === "string"
+            ? data.state
+            : geoData && typeof geoData.state === "string"
+              ? geoData.state
+              : null;
+      const geohash =
+        typeof post.geohash === "string" && post.geohash.trim()
+          ? post.geohash
+          : typeof data.geohash === "string"
+            ? data.geohash
+            : null;
+      const activities =
+        Array.isArray(post.activities) && post.activities.length > 0
+          ? post.activities
+          : Array.isArray(data.activities)
+            ? data.activities.map((v) => String(v ?? "")).filter(Boolean)
+            : [];
+      const country =
+        typeof post.country === "string" && post.country.trim()
+          ? post.country
+          : typeof data.countryRegionId === "string"
+            ? data.countryRegionId
+            : geoData && typeof geoData.country === "string"
+              ? geoData.country
+              : null;
+      const region = typeof post.region === "string" && post.region.trim() ? post.region : (typeof data.region === "string" ? data.region : null);
+      return {
+        ...post,
+        geohash: geohash ?? post.geohash ?? null,
+        activities,
+        city,
+        state,
+        country,
+        region
+      };
+    } catch {
+      return post;
+    }
   }
 }
 

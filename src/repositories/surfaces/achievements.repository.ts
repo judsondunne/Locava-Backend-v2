@@ -952,6 +952,23 @@ export class AchievementsRepository {
         }))
         .filter((a) => Boolean(a.awardId));
 
+      const legendsDebug = {
+        viewerId,
+        activeScopeIds,
+        closeScopeIds,
+        recentAwardIds,
+        activeLegendsWire: activeScopeIds.map(mapScopeSummary),
+        closeLegendsWire: closeScopeIds.map(mapScopeSummary),
+        recentAwardsWire: recentAwards.map((a) => ({
+          awardId: a.awardId,
+          awardType: a.awardType,
+          scopeId: a.scopeId,
+          title: a.title,
+          subtitle: a.subtitle
+        }))
+      };
+      console.info("[achievements.bootstrap] legends_slice", legendsDebug);
+
       return {
         activeLegends: activeScopeIds.map(mapScopeSummary),
         closeToLegends: closeScopeIds.map(mapScopeSummary),

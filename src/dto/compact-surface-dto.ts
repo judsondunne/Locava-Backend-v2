@@ -356,9 +356,13 @@ export function firestoreAssetsToCompactSeeds(
       poster;
     const streamUrl = cleanString(typeof variants.hls === "string" ? variants.hls : null);
     const mp4Url =
+      cleanString(typeof variants.main1080Avc === "string" ? variants.main1080Avc : null) ??
+      cleanString(typeof variants.main1080 === "string" ? variants.main1080 : null) ??
       cleanString(typeof variants.main720Avc === "string" ? variants.main720Avc : null) ??
       cleanString(typeof variants.main720 === "string" ? variants.main720 : null) ??
-      cleanString(typeof variants.main1080Avc === "string" ? variants.main1080Avc : null) ??
+      cleanString(typeof variants.startup1080FaststartAvc === "string" ? variants.startup1080FaststartAvc : null) ??
+      cleanString(typeof variants.startup720FaststartAvc === "string" ? variants.startup720FaststartAvc : null) ??
+      cleanString(typeof variants.startup540FaststartAvc === "string" ? variants.startup540FaststartAvc : null) ??
       (type === "video" ? original : null);
     const id =
       cleanString(typeof asset.id === "string" ? asset.id : null) ?? `${postId}-asset-${index + 1}`;
@@ -484,6 +488,8 @@ export function toPlaybackPostShellDTO(seed: {
 }): PlaybackPostShellDTO {
   const firstAsset = seed.card.assets?.[0];
   const posterUrl = seed.card.media.posterUrl || firstAsset?.posterUrl || "";
+  /** When false, mp4/firstAssetUrl may be the raw upload — do not pretend it is ladder main720. */
+  const cardClaimsTranscodesReady = seed.card.assetsReady === true;
   const shellAssets: PlaybackPostShellDTO["assets"] =
     seed.card.assets && seed.card.assets.length > 0
       ? seed.card.assets.map((asset) => {
@@ -510,7 +516,14 @@ export function toPlaybackPostShellDTO(seed: {
                 ? { preview360: asset.previewUrl, preview360Avc: asset.previewUrl }
                 : {}),
               ...(asset.streamUrl ? { hls: asset.streamUrl } : {}),
-              ...(asset.mp4Url ? { main720Avc: asset.mp4Url, main720: asset.mp4Url } : {}),
+              ...(cardClaimsTranscodesReady &&
+              asset.mp4Url &&
+              asset.previewUrl &&
+              cleanString(asset.mp4Url) === cleanString(asset.previewUrl)
+                ? {}
+                : cardClaimsTranscodesReady && asset.mp4Url
+                  ? { main720Avc: asset.mp4Url, main720: asset.mp4Url }
+                  : {}),
             },
           };
         })
@@ -534,7 +547,14 @@ export function toPlaybackPostShellDTO(seed: {
                 ? { preview360: firstAsset.previewUrl, preview360Avc: firstAsset.previewUrl }
                 : {}),
               ...(firstAsset?.streamUrl ? { hls: firstAsset.streamUrl } : {}),
-              ...(firstAsset?.mp4Url ? { main720Avc: firstAsset.mp4Url, main720: firstAsset.mp4Url } : {}),
+              ...(cardClaimsTranscodesReady &&
+              firstAsset?.mp4Url &&
+              firstAsset?.previewUrl &&
+              cleanString(firstAsset.mp4Url) === cleanString(firstAsset.previewUrl)
+                ? {}
+                : cardClaimsTranscodesReady && firstAsset?.mp4Url
+                  ? { main720Avc: firstAsset.mp4Url, main720: firstAsset.mp4Url }
+                  : {}),
             },
           },
         ];
@@ -551,7 +571,7 @@ export function toPlaybackPostShellDTO(seed: {
     thumbUrl: posterUrl,
     createdAtMs: seed.card.createdAtMs,
     updatedAtMs: seed.card.updatedAtMs,
-    assetsReady: true,
+    assetsReady: seed.card.assetsReady === true,
     assets: shellAssets,
     cardSummary: seed.card,
   };
