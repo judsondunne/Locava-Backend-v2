@@ -20,6 +20,14 @@ export const routeContracts: RouteContract[] = [
     tags: ["public", "notifications"],
     bodySchema: { to: "ExponentPushToken[...] required", title: "string optional", body: "string required", data: "object optional" }
   },
+  {
+    method: "POST",
+    path: "/video-processor",
+    description:
+      "Video worker (Cloud Tasks): downloads originals, encodes faststart AVC/HEVC ladder, uploads to Wasabi videos-lab, updates Firestore. Optional header x-locava-video-processor-secret when VIDEO_PROCESSOR_TASK_SECRET is set.",
+    tags: ["internal", "media", "posting"],
+    bodySchema: { postId: "string", userId: "string", videoAssets: "Array<{ id, original }>" }
+  },
   { method: "GET", path: "/internal/health-dashboard", description: "Internal HTML health dashboard", tags: ["internal", "observability"] },
   { method: "GET", path: "/internal/health-dashboard/data", description: "Internal JSON health dashboard data", tags: ["internal", "observability"] },
   { method: "GET", path: "/test/ping", description: "Basic ping", tags: ["test"] },
@@ -77,6 +85,17 @@ export const routeContracts: RouteContract[] = [
       handle: "string optional",
       expoPushToken: "ExponentPushToken[...] optional",
       pushToken: "string optional",
+      pushTokenPlatform: "ios|android optional"
+    }
+  },
+  {
+    method: "POST",
+    path: "/v2/auth/push-token",
+    description: "V2 register device Expo/FCM push token for the signed-in viewer (exclusive per device token)",
+    tags: ["v2", "auth", "notifications"],
+    bodySchema: {
+      expoPushToken: "ExponentPushToken[...] optional",
+      pushToken: "string optional (defaults to expoPushToken)",
       pushTokenPlatform: "ios|android optional"
     }
   },

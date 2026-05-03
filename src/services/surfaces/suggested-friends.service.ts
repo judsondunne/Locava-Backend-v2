@@ -10,7 +10,7 @@ import {
 } from "../../repositories/surfaces/suggested-friends.repository.js";
 import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 
-const TTL_MS = 30_000;
+const TTL_MS = 10 * 60_000;
 
 export class SuggestedFriendsService {
   constructor(private readonly repository: SuggestedFriendsRepository = new SuggestedFriendsRepository()) {}
@@ -76,9 +76,11 @@ export class SuggestedFriendsService {
     ];
     const keys: string[] = [];
     for (const surface of surfaces) {
-      keys.push(buildSuggestedFriendsCacheKey(viewerId, surface, 20));
-      keys.push(buildSuggestedFriendsCacheKey(viewerId, surface, 12));
-      keys.push(buildSuggestedFriendsCacheKey(viewerId, surface, 50));
+      for (const limit of [12, 20, 50]) {
+        for (const sortBy of ["default", "postCount"] as const) {
+          keys.push(`${buildSuggestedFriendsCacheKey(viewerId, surface, limit)}:${sortBy}:static`);
+        }
+      }
     }
     await Promise.all(keys.map((key) => globalCache.del(key)));
   }

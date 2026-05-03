@@ -454,16 +454,34 @@ function resolveCaption(source: PostRecord): string | null {
   return normalizeNullableString(source.caption ?? source.content ?? source.description ?? source.text ?? source.body ?? source.message);
 }
 
+/** Drop bulky Firestore-shaped fields from assets for card/marker responses (payload budget / map bootstrap). */
+function slimEnvelopeAssetsForListHydration(assets: PostRecord[]): PostRecord[] {
+  return assets.map((asset) => {
+    const a = asset as Record<string, unknown>;
+    const {
+      variants: _variants,
+      variantMetadata: _variantMetadata,
+      playbackLab: _playbackLab,
+      codecs: _codecs,
+      generated: _generated,
+      ...rest
+    } = a;
+    return rest as PostRecord;
+  });
+}
+
 export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
   input: BuildPostEnvelopeInput<TSeed>,
 ): TSeed & PostRecord {
+  const embedFullFirestoreDocs = input.hydrationLevel === "detail";
   const rawPost: PostRecord = (input.rawPost ?? input.sourcePost ?? input.seed ?? {}) as PostRecord;
   const seed: PostRecord = (input.seed ?? {}) as PostRecord;
   const sourcePost: PostRecord = (input.sourcePost ?? rawPost) as PostRecord;
   const resolvedPostId =
     pickString(input.postId, seed.postId, seed.id, sourcePost.postId, sourcePost.id, rawPost.postId, rawPost.id) ?? "";
   const mediaType = normalizeMediaType(sourcePost);
-  const assets = resolveEnvelopeAssets(sourcePost, resolvedPostId, mediaType);
+  const resolvedAssets = resolveEnvelopeAssets(sourcePost, resolvedPostId, mediaType);
+  const assets = embedFullFirestoreDocs ? resolvedAssets : slimEnvelopeAssetsForListHydration(resolvedAssets);
   const firstAsset = assets[0] ?? null;
   const commentsPreview = normalizeCommentsPreview(sourcePost);
   const geo = resolveGeo(sourcePost);
@@ -591,9 +609,14 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
   const sourceRoute =
     input.sourceRoute ??
     pickString(seed.sourceRoute, seed.__sourceRoute, sourcePost.sourceRoute, sourcePost.__sourceRoute);
+  const firestoreDocSpread = embedFullFirestoreDocs
+    ? ({
+        ...(serializeUnknown(rawPost) as PostRecord),
+        ...(serializeUnknown(sourcePost) as PostRecord),
+      } as PostRecord)
+    : ({} as PostRecord);
   const envelope: PostRecord = {
-    ...serializeUnknown(rawPost) as PostRecord,
-    ...serializeUnknown(sourcePost) as PostRecord,
+    ...firestoreDocSpread,
     ...seed,
     ...normalizedCard,
     id: resolvedPostId,
@@ -655,7 +678,7 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
     },
     hasPlayableVideo,
     hasAssetsArray: Array.isArray(sourcePost.assets),
-    hasRawPost: input.hydrationLevel !== "marker",
+    hasRawPost: embedFullFirestoreDocs,
     hasEmbeddedComments: commentsPreview.length > 0,
     mediaResolutionSource:
       hasPlayableVideo
@@ -663,8 +686,8 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
         : posterUrl
           ? "poster_only"
           : "none",
-    rawPost: input.hydrationLevel === "marker" ? null : (serializeUnknown(rawPost) as PostRecord),
-    sourcePost: input.hydrationLevel === "marker" ? null : (serializeUnknown(sourcePost) as PostRecord),
+    rawPost: embedFullFirestoreDocs ? (serializeUnknown(rawPost) as PostRecord) : null,
+    sourcePost: embedFullFirestoreDocs ? (serializeUnknown(sourcePost) as PostRecord) : null,
   };
 
   if (geo.lat != null) envelope.lat = geo.lat;

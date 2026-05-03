@@ -1380,9 +1380,14 @@ export class CollectionsFirestoreAdapter {
     collectionId: string;
     limit: number;
     cursor: string | null;
+    /** When the caller already loaded the collection (e.g. detail GET), skip a redundant getCollection read. */
+    preloadedCollection?: FirestoreCollectionRecord | null;
   }): Promise<{ items: FirestoreCollectionPostEdge[]; nextCursor: string | null; hasMore: boolean }> {
     if (this.useSeededCollections()) {
-      const col = await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
+      const col =
+        input.preloadedCollection && input.preloadedCollection.id === input.collectionId
+          ? this.cloneCollection(input.preloadedCollection)
+          : await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
       if (!col) throw new Error("collection_not_found");
       let offset = 0;
       if (input.cursor) {
@@ -1401,7 +1406,10 @@ export class CollectionsFirestoreAdapter {
       };
     }
     const db = this.requireDb();
-    let col = await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
+    let col: FirestoreCollectionRecord | null =
+      input.preloadedCollection && input.preloadedCollection.id === input.collectionId
+        ? this.cloneCollection(input.preloadedCollection)
+        : await this.getCollection({ viewerId: input.viewerId, collectionId: input.collectionId });
     if (!col) throw new Error("collection_not_found");
     if (col.items.length === 0 && col.itemsCount > 0) {
       incrementDbOps("reads", 1);

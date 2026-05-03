@@ -243,13 +243,14 @@ export class SearchMixesServiceV2 {
     for (const activity of candidates) {
       if (generalCards.length >= limitGeneral) break;
       const best = bestByActivity.get(activity) ?? null;
+      if (!best) continue;
       generalCards.push({
         mixId: `activity:${activity}`,
         mixType: "general",
         title: `${activity.charAt(0).toUpperCase()}${activity.slice(1)}`,
         subtitle: `Top ${activity} posts`,
-        coverPostId: best?.coverPostId ?? null,
-        coverMedia: best?.coverUrl ?? null,
+        coverPostId: best.coverPostId,
+        coverMedia: best.coverUrl,
         previewPostIds: (previewsByActivity.get(activity) ?? []).slice(0, 4),
         availableCount: undefined,
         hiddenReason: null,
@@ -268,21 +269,29 @@ export class SearchMixesServiceV2 {
 
     // If the activity taxonomy is too sparse, fill remaining slots with a truthful "Recent" mix.
     if (generalCards.length < limitGeneral) {
-      const first = recentPool[0] ?? null;
-      const cover = first ? getBestPostCover(first) : { coverImageUrl: null, coverPostId: null };
-      const ids = recentPool.slice(0, 3).map((p: Record<string, unknown>) => postId(p)).filter(Boolean);
-      generalCards.push({
-        mixId: "general:recent",
-        mixType: "general",
-        title: "Recent",
-        subtitle: "Fresh posts across Locava",
-        coverPostId: cover.coverPostId,
-        coverMedia: cover.coverImageUrl,
-        previewPostIds: ids,
-        hiddenReason: null,
-        definition: { kind: "activity", activity: "__recent__" },
-        ...(input.includeDebug ? { debugMix: { source: "bootstrap_recent_pool_fallback_v1" } } : {}),
-      });
+      let recentCover: ReturnType<typeof getBestPostCover> = { coverImageUrl: null, coverPostId: null };
+      for (const row of recentPool) {
+        const cover = getBestPostCover(row);
+        if (cover.coverImageUrl && cover.coverPostId) {
+          recentCover = cover;
+          break;
+        }
+      }
+      if (recentCover.coverImageUrl && recentCover.coverPostId) {
+        const ids = recentPool.slice(0, 3).map((p: Record<string, unknown>) => postId(p)).filter(Boolean);
+        generalCards.push({
+          mixId: "general:recent",
+          mixType: "general",
+          title: "Recent",
+          subtitle: "Fresh posts across Locava",
+          coverPostId: recentCover.coverPostId,
+          coverMedia: recentCover.coverImageUrl,
+          previewPostIds: ids,
+          hiddenReason: null,
+          definition: { kind: "activity", activity: "__recent__" },
+          ...(input.includeDebug ? { debugMix: { source: "bootstrap_recent_pool_fallback_v1" } } : {}),
+        });
+      }
     }
 
     // Daily
@@ -836,9 +845,21 @@ export class SearchMixesServiceV2 {
       };
     }
     const followingSet = new Set(input.followingIds);
-    const matchingRows = followingSet.size
+    let matchingRows = followingSet.size
       ? input.recentPool.filter((row) => followingSet.has(String((row as any)?.userId ?? "").trim()))
       : [];
+    if (input.followingCount > 0 && followingSet.size > 0 && matchingRows.length === 0) {
+      const idList = [...input.followingIds].filter(Boolean);
+      const chunks = chunk(idList, 10).slice(0, 6);
+      if (chunks.length > 0) {
+        const merged = await this.postsRepo.pageByAuthorIdsMerged({
+          authorIdChunks: chunks,
+          limit: 16,
+          perChunkCursor: chunks.map(() => ({ lastTime: null, lastId: null, exhausted: false })),
+        });
+        matchingRows = merged.items as Record<string, unknown>[];
+      }
+    }
     const first = matchingRows[0] ?? null;
     const cover = getBestPostCover(first);
     const previewPostIds = matchingRows.map((p) => postId(p)).filter(Boolean).slice(0, 3);

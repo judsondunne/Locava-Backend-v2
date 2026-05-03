@@ -58,7 +58,7 @@ describe("v2 auth/session/bootstrap routes", () => {
   it("falls back when deferred session enrichment is slow", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/v2/auth/session?debugSlowDeferredMs=300",
+      url: "/v2/auth/session?debugSlowDeferredMs=950",
       headers: {
         "x-viewer-id": "slow-user",
         "x-viewer-roles": "internal"

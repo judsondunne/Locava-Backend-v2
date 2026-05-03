@@ -46,4 +46,33 @@ describe("searchPlacesIndexService", () => {
     },
     20_000
   );
+
+  it("ensureLoading singleflight does not read GeoNames JSON multiple times concurrently", async () => {
+    resetSearchPlacesIndexForTests();
+    const minimal = [
+      {
+        countryCode: "US",
+        admin1Code: "VT",
+        name: "Hartland",
+        asciiName: "Hartland",
+        population: 3000,
+        lat: 43.55,
+        lng: -72.4,
+      },
+    ];
+    let readCount = 0;
+    vi.spyOn(fs, "readFile").mockImplementation(async () => {
+      readCount += 1;
+      return JSON.stringify(minimal);
+    });
+
+    await Promise.all([
+      searchPlacesIndexService.ensureLoading(),
+      searchPlacesIndexService.ensureLoading(),
+      searchPlacesIndexService.ensureLoading(),
+    ]);
+
+    expect(readCount).toBe(1);
+    expect(searchPlacesIndexService.isLoaded()).toBe(true);
+  });
 });

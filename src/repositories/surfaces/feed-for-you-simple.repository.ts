@@ -5,6 +5,11 @@ import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js
 
 export type SimpleFeedSortMode = "randomKey" | "docId";
 export const FOR_YOU_SIMPLE_SURFACE = "for_you_simple" as const;
+const READY_DECK_COLLECTION = "feedDecks";
+const SERVED_RECENT_COLLECTION = "feedServedRecent";
+
+/** Bounded durable seen read for simple feed (avoid 500-read pages). */
+export const FOR_YOU_SIMPLE_SEEN_READ_CAP = 120;
 
 export type SimpleFeedCandidate = {
   postId: string;
@@ -52,6 +57,37 @@ export type SimpleFeedCandidate = {
   letterboxGradients?: Array<{ top: string; bottom: string }>;
   likeCount: number;
   commentCount: number;
+};
+
+export type SimpleFeedBatchSliceStats = {
+  rawDocCount: number;
+  filteredInvisible: number;
+  filteredMissingAuthor: number;
+  filteredMissingMedia: number;
+  filteredInvalidContract: number;
+  filteredInvalidSort: number;
+  playableMapped: number;
+};
+
+export type SimpleFeedBatchResult = {
+  items: SimpleFeedCandidate[];
+  rawCount: number;
+  segmentExhausted: boolean;
+  readCount: number;
+  stats: SimpleFeedBatchSliceStats;
+  /** Firestore tail (for pagination when every doc in the page is filtered out). */
+  tailRandomKey: number | null;
+  tailDocId: string | null;
+};
+
+export type SimpleReadyDeckDoc = {
+  viewerId: string;
+  surface: string;
+  generation: number;
+  updatedAtMs: number;
+  expiresAtMs: number;
+  refillReason: string | null;
+  items: SimpleFeedCandidate[];
 };
 
 const SIMPLE_FEED_SELECT_FIELDS = [
@@ -122,7 +158,7 @@ export class FeedForYouSimpleRepository {
     lastPostId?: string | null;
     limit: number;
     reelOnly?: boolean;
-  }): Promise<{ items: SimpleFeedCandidate[]; rawCount: number; segmentExhausted: boolean; readCount: number }> {
+  }): Promise<SimpleFeedBatchResult> {
     if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
     const boundedLimit = Math.max(1, Math.min(input.limit, 40));
     let query = this.db.collection("posts").select(...SIMPLE_FEED_SELECT_FIELDS);
@@ -163,14 +199,152 @@ export class FeedForYouSimpleRepository {
     incrementDbOps("queries", 1);
     const snap = await query.limit(boundedLimit).get();
     incrementDbOps("reads", snap.docs.length);
+
+    const stats: SimpleFeedBatchSliceStats = {
+      rawDocCount: snap.docs.length,
+      filteredInvisible: 0,
+      filteredMissingAuthor: 0,
+      filteredMissingMedia: 0,
+      filteredInvalidContract: 0,
+      filteredInvalidSort: 0,
+      playableMapped: 0
+    };
+    const items: SimpleFeedCandidate[] = [];
+    let tailRandomKey: number | null = null;
+    let tailDocId: string | null = null;
+    for (const doc of snap.docs) {
+      const raw = doc.data() as Record<string, unknown>;
+      tailDocId = doc.id;
+      tailRandomKey = num(raw.randomKey);
+      const mapped = tryMapSimpleFeedCandidate(input.mode, doc.id, raw);
+      if ("reject" in mapped) {
+        switch (mapped.reject) {
+          case "invisible":
+            stats.filteredInvisible += 1;
+            break;
+          case "no_author":
+            stats.filteredMissingAuthor += 1;
+            break;
+          case "no_media":
+            stats.filteredMissingMedia += 1;
+            break;
+          case "invalid_contract":
+            stats.filteredInvalidContract += 1;
+            break;
+          case "bad_sort":
+            stats.filteredInvalidSort += 1;
+            break;
+          default:
+            stats.filteredInvalidContract += 1;
+        }
+        continue;
+      }
+      stats.playableMapped += 1;
+      items.push(mapped.candidate);
+    }
+
     return {
-      items: snap.docs
-        .map((doc) => mapDoc(input.mode, doc.id, doc.data() as Record<string, unknown>))
-        .filter((row): row is SimpleFeedCandidate => row !== null),
+      items,
       rawCount: snap.docs.length,
       segmentExhausted: snap.docs.length < boundedLimit,
-      readCount: snap.docs.length
+      readCount: snap.docs.length,
+      stats,
+      tailRandomKey,
+      tailDocId
     };
+  }
+
+  /**
+   * Last-resort bounded scan: recent public posts with playable media only (same visibility rules as map).
+   */
+  async fetchEmergencyPlayableSlice(input: { limit: number }): Promise<SimpleFeedBatchResult> {
+    if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
+    const boundedLimit = Math.max(1, Math.min(input.limit, 40));
+    incrementDbOps("queries", 1);
+    let snap;
+    try {
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .orderBy("time", "desc")
+        .limit(boundedLimit)
+        .get();
+    } catch {
+      incrementDbOps("queries", 1);
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .orderBy(FieldPath.documentId(), "desc")
+        .limit(boundedLimit)
+        .get();
+    }
+    incrementDbOps("reads", snap.docs.length);
+    const stats: SimpleFeedBatchSliceStats = {
+      rawDocCount: snap.docs.length,
+      filteredInvisible: 0,
+      filteredMissingAuthor: 0,
+      filteredMissingMedia: 0,
+      filteredInvalidContract: 0,
+      filteredInvalidSort: 0,
+      playableMapped: 0
+    };
+    const items: SimpleFeedCandidate[] = [];
+    let tailRandomKey: number | null = null;
+    let tailDocId: string | null = null;
+    for (const doc of snap.docs) {
+      const raw = doc.data() as Record<string, unknown>;
+      tailDocId = doc.id;
+      tailRandomKey = num(raw.randomKey);
+      const mapped = tryMapSimpleFeedCandidate("docId", doc.id, raw);
+      if ("reject" in mapped) {
+        switch (mapped.reject) {
+          case "invisible":
+            stats.filteredInvisible += 1;
+            break;
+          case "no_author":
+            stats.filteredMissingAuthor += 1;
+            break;
+          case "no_media":
+            stats.filteredMissingMedia += 1;
+            break;
+          case "invalid_contract":
+            stats.filteredInvalidContract += 1;
+            break;
+          case "bad_sort":
+            stats.filteredInvalidSort += 1;
+            break;
+          default:
+            stats.filteredInvalidContract += 1;
+        }
+        continue;
+      }
+      stats.playableMapped += 1;
+      items.push(mapped.candidate);
+    }
+    return {
+      items,
+      rawCount: snap.docs.length,
+      segmentExhausted: true,
+      readCount: snap.docs.length,
+      stats,
+      tailRandomKey,
+      tailDocId
+    };
+  }
+
+  async loadBlockedAuthorIdsForViewer(viewerId: string): Promise<{ blocked: Set<string>; readCount: number }> {
+    if (!this.db) return { blocked: new Set(), readCount: 0 };
+    const id = viewerId.trim();
+    if (!id) return { blocked: new Set(), readCount: 0 };
+    incrementDbOps("queries", 1);
+    const doc = await this.db.collection("users").doc(id).get();
+    incrementDbOps("reads", doc.exists ? 1 : 0);
+    if (!doc.exists) return { blocked: new Set(), readCount: 1 };
+    const data = doc.data() as { blockedUsers?: unknown };
+    const blocked = new Set<string>(
+      Array.isArray(data.blockedUsers) ? data.blockedUsers.filter((v): v is string => typeof v === "string" && v.trim().length > 0) : []
+    );
+    return { blocked, readCount: 1 };
   }
 
   async listRecentSeenPostIdsForViewer(input: {
@@ -182,7 +356,7 @@ export class FeedForYouSimpleRepository {
     const viewerId = input.viewerId.trim();
     const surface = input.surface.trim();
     if (!viewerId || !surface) return { postIds: new Set(), readCount: 0 };
-    const boundedLimit = Math.max(1, Math.min(500, Math.floor(input.limit)));
+    const boundedLimit = Math.max(1, Math.min(Math.floor(input.limit), FOR_YOU_SIMPLE_SEEN_READ_CAP));
     incrementDbOps("queries", 1);
     const snap = await this.db
       .collection("feedSeen")
@@ -231,6 +405,170 @@ export class FeedForYouSimpleRepository {
     incrementDbOps("writes", uniquePostIds.length);
   }
 
+  async readServedRecentForViewer(input: {
+    viewerId: string;
+    surface: string;
+    limit: number;
+    ttlMs: number;
+  }): Promise<{ postIds: Set<string>; readCount: number }> {
+    if (!this.db) return { postIds: new Set(), readCount: 0 };
+    const viewerId = input.viewerId.trim();
+    const surface = input.surface.trim();
+    if (!viewerId || !surface) return { postIds: new Set(), readCount: 0 };
+    const docId = `${viewerId}_${surface}`;
+    incrementDbOps("queries", 1);
+    const snap = await this.db.collection(SERVED_RECENT_COLLECTION).doc(docId).get();
+    incrementDbOps("reads", snap.exists ? 1 : 0);
+    if (!snap.exists) return { postIds: new Set(), readCount: 1 };
+    const now = Date.now();
+    const data = (snap.data() ?? {}) as { entries?: unknown };
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    const keep = entries
+      .map((row) => {
+        if (!row || typeof row !== "object") return null;
+        const postId = pickString((row as { postId?: unknown }).postId);
+        const servedAtMs = num((row as { servedAtMs?: unknown }).servedAtMs) ?? 0;
+        if (!postId || servedAtMs <= 0) return null;
+        if (now - servedAtMs > input.ttlMs) return null;
+        return { postId, servedAtMs };
+      })
+      .filter((row): row is { postId: string; servedAtMs: number } => row !== null)
+      .sort((a, b) => b.servedAtMs - a.servedAtMs)
+      .slice(0, Math.max(1, Math.min(input.limit, 400)));
+    return { postIds: new Set(keep.map((row) => row.postId)), readCount: 1 };
+  }
+
+  async markPostsServedRecentForViewer(input: {
+    viewerId: string;
+    surface: string;
+    postIds: string[];
+    maxEntries: number;
+    ttlMs: number;
+  }): Promise<{ ok: boolean; writes: number }> {
+    if (!this.db) return { ok: false, writes: 0 };
+    const viewerId = input.viewerId.trim();
+    const surface = input.surface.trim();
+    if (!viewerId || !surface) return { ok: false, writes: 0 };
+    const nextPostIds = [...new Set(input.postIds.map((id) => id.trim()).filter(Boolean))];
+    if (nextPostIds.length === 0) return { ok: true, writes: 0 };
+    const docRef = this.db.collection(SERVED_RECENT_COLLECTION).doc(`${viewerId}_${surface}`);
+    const now = Date.now();
+    await this.db.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      const current = (snap.data() ?? {}) as { entries?: unknown };
+      const entries = Array.isArray(current.entries) ? current.entries : [];
+      const map = new Map<string, number>();
+      for (const row of entries) {
+        if (!row || typeof row !== "object") continue;
+        const postId = pickString((row as { postId?: unknown }).postId);
+        const servedAtMs = num((row as { servedAtMs?: unknown }).servedAtMs) ?? 0;
+        if (!postId || servedAtMs <= 0) continue;
+        if (now - servedAtMs > input.ttlMs) continue;
+        map.set(postId, Math.max(map.get(postId) ?? 0, servedAtMs));
+      }
+      for (const postId of nextPostIds) {
+        map.set(postId, now);
+      }
+      const compact = [...map.entries()]
+        .map(([postId, servedAtMs]) => ({ postId, servedAtMs }))
+        .sort((a, b) => b.servedAtMs - a.servedAtMs)
+        .slice(0, Math.max(20, Math.min(input.maxEntries, 500)));
+      tx.set(
+        docRef,
+        {
+          viewerId,
+          surface,
+          entries: compact,
+          updatedAtMs: now
+        },
+        { merge: true }
+      );
+    });
+    incrementDbOps("writes", 1);
+    return { ok: true, writes: 1 };
+  }
+
+  async readReadyDeck(viewerId: string, surface: string): Promise<SimpleReadyDeckDoc | null> {
+    if (!this.db) return null;
+    const id = viewerId.trim();
+    const s = surface.trim();
+    if (!id || !s) return null;
+    incrementDbOps("queries", 1);
+    const snap = await this.db.collection(READY_DECK_COLLECTION).doc(`${id}_${s}`).get();
+    incrementDbOps("reads", snap.exists ? 1 : 0);
+    if (!snap.exists) return null;
+    const raw = (snap.data() ?? {}) as Record<string, unknown>;
+    const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
+    const mode: SimpleFeedSortMode = "docId";
+    const items = itemsRaw
+      .map((value) => {
+        if (!value || typeof value !== "object") return null;
+        const postId = pickString((value as { postId?: unknown }).postId);
+        const sortValue = postId;
+        if (!postId) return null;
+        const mapped = tryMapSimpleFeedCandidate(mode, postId, value as Record<string, unknown>);
+        return "candidate" in mapped ? mapped.candidate : null;
+      })
+      .filter((row): row is SimpleFeedCandidate => row !== null);
+    return {
+      viewerId: pickString(raw.viewerId) ?? id,
+      surface: pickString(raw.surface) ?? s,
+      generation: Math.max(1, Math.floor(num(raw.generation) ?? 1)),
+      updatedAtMs: Math.floor(num(raw.updatedAtMs) ?? Date.now()),
+      expiresAtMs: Math.floor(num(raw.expiresAtMs) ?? Date.now()),
+      refillReason: pickString(raw.refillReason),
+      items
+    };
+  }
+
+  async writeReadyDeck(input: SimpleReadyDeckDoc): Promise<void> {
+    if (!this.db) return;
+    const viewerId = input.viewerId.trim();
+    const surface = input.surface.trim();
+    if (!viewerId || !surface) return;
+    const items = input.items.slice(0, 60).map((item) => ({
+      postId: item.postId,
+      userId: item.authorId,
+      reel: item.reel,
+      time: item.createdAtMs,
+      createdAtMs: item.createdAtMs,
+      updatedAtMs: item.updatedAtMs,
+      mediaType: item.mediaType,
+      thumbUrl: item.posterUrl,
+      displayPhotoLink: item.posterUrl,
+      title: item.title,
+      caption: item.captionPreview,
+      userHandle: item.authorHandle,
+      userName: item.authorName,
+      userPic: item.authorPic,
+      activities: item.activities,
+      address: item.address,
+      lat: item.geo.lat,
+      long: item.geo.long,
+      geoData: item.geo,
+      assets: item.assets,
+      randomKey: typeof item.sortValue === "number" ? item.sortValue : null,
+      likeCount: item.likeCount,
+      commentCount: item.commentCount
+    }));
+    await this.db
+      .collection(READY_DECK_COLLECTION)
+      .doc(`${viewerId}_${surface}`)
+      .set(
+        {
+          viewerId,
+          surface,
+          generation: input.generation,
+          updatedAtMs: input.updatedAtMs,
+          expiresAtMs: input.expiresAtMs,
+          refillReason: input.refillReason,
+          items
+        },
+        { merge: true }
+      );
+    incrementDbOps("writes", 1);
+  }
+
   private async hasRandomKeySupport(): Promise<boolean> {
     if (!this.db) return false;
     const now = Date.now();
@@ -251,57 +589,78 @@ export class FeedForYouSimpleRepository {
   }
 }
 
-function mapDoc(mode: SimpleFeedSortMode, postId: string, data: Record<string, unknown>): SimpleFeedCandidate | null {
-  if (!isVisible(data)) return null;
+type SimpleFeedRejectReason = "invisible" | "no_author" | "no_media" | "invalid_contract" | "bad_sort";
+
+function tryMapSimpleFeedCandidate(
+  mode: SimpleFeedSortMode,
+  postId: string,
+  data: Record<string, unknown>
+): { candidate: SimpleFeedCandidate } | { reject: SimpleFeedRejectReason } {
+  if (!isVisible(data)) return { reject: "invisible" };
   const authorId = pickString(data.userId);
-  if (!authorId) return null;
+  if (!authorId) return { reject: "no_author" };
   const assets = normalizeAssets(data.assets);
-  const posterUrl = pickString(data.displayPhotoLink, data.thumbUrl, assets[0]?.posterUrl, assets[0]?.previewUrl);
-  if (!posterUrl) return null;
-  if (assets.length === 0 && !posterUrl) return null;
-  const sortValue =
-    mode === "randomKey"
-      ? num(data.randomKey)
-      : postId;
-  if (sortValue == null) return null;
+  const posterUrl = pickString(
+    data.displayPhotoLink,
+    data.thumbUrl,
+    assets[0]?.posterUrl,
+    assets[0]?.previewUrl,
+    assets[0]?.originalUrl,
+    assets[0]?.mp4Url,
+    assets[0]?.streamUrl
+  );
+  if (!posterUrl) return { reject: "no_media" };
+  let sortValue: number | string;
+  if (mode === "randomKey") {
+    const rk = num(data.randomKey);
+    if (rk == null || !Number.isFinite(rk)) return { reject: "bad_sort" };
+    sortValue = rk;
+  } else {
+    sortValue = postId;
+  }
   const mediaType = String(data.mediaType ?? "").toLowerCase() === "video" ? "video" : inferFromAssets(assets);
-  return {
-    postId,
-    sortValue,
-    reel: data.reel === true,
-    authorId,
-    createdAtMs: readMaybeMillis(data.createdAtMs) ?? readMaybeMillis(data.createdAt) ?? readMaybeMillis(data.time) ?? Date.now(),
-    updatedAtMs:
-      readMaybeMillis(data.updatedAtMs) ??
-      readMaybeMillis(data.lastUpdated) ??
-      readMaybeMillis(data.updatedAt) ??
-      readMaybeMillis(data.time) ??
-      Date.now(),
-    mediaType,
-    posterUrl,
-    firstAssetUrl: assets[0]?.originalUrl ?? assets[0]?.previewUrl ?? posterUrl,
-    title: trimPreviewText(pickString(data.title), 80),
-    captionPreview: trimPreviewText(pickString(data.caption, data.text, data.description), 160),
-    authorHandle: pickString(data.userHandle) ?? `user_${authorId.slice(0, 8)}`,
-    authorName: trimPreviewText(pickString(data.userName), 48),
-    authorPic: pickString(data.userPic),
-    activities: Array.isArray(data.activities) ? data.activities.map((value) => String(value ?? "").trim()).filter(Boolean).slice(0, 4) : [],
-    address: trimPreviewText(pickString(data.address), 72),
-    geo: {
-      lat: num(data.lat, data.latitude),
-      long: num(data.long, data.lng, data.longitude),
-      city: pickString((data.geoData as Record<string, unknown> | undefined)?.city),
-      state: pickString((data.geoData as Record<string, unknown> | undefined)?.state),
-      country: pickString((data.geoData as Record<string, unknown> | undefined)?.country),
-      geohash: pickString((data.geoData as Record<string, unknown> | undefined)?.geohash)
-    },
-    assets,
-    carouselFitWidth: typeof data.carouselFitWidth === "boolean" ? data.carouselFitWidth : undefined,
-    layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
-    ...normalizeLetterboxHints(data),
-    likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
-    commentCount: Math.max(0, Math.floor(num(data.commentCount, data.commentsCount) ?? 0))
-  };
+  try {
+    const candidate: SimpleFeedCandidate = {
+      postId,
+      sortValue,
+      reel: data.reel === true,
+      authorId,
+      createdAtMs: readMaybeMillis(data.createdAtMs) ?? readMaybeMillis(data.createdAt) ?? readMaybeMillis(data.time) ?? Date.now(),
+      updatedAtMs:
+        readMaybeMillis(data.updatedAtMs) ??
+        readMaybeMillis(data.lastUpdated) ??
+        readMaybeMillis(data.updatedAt) ??
+        readMaybeMillis(data.time) ??
+        Date.now(),
+      mediaType,
+      posterUrl,
+      firstAssetUrl: assets[0]?.originalUrl ?? assets[0]?.previewUrl ?? posterUrl,
+      title: trimPreviewText(pickString(data.title), 80),
+      captionPreview: trimPreviewText(pickString(data.caption, data.text, data.description), 160),
+      authorHandle: pickString(data.userHandle) ?? `user_${authorId.slice(0, 8)}`,
+      authorName: trimPreviewText(pickString(data.userName), 48),
+      authorPic: pickString(data.userPic),
+      activities: Array.isArray(data.activities) ? data.activities.map((value) => String(value ?? "").trim()).filter(Boolean).slice(0, 4) : [],
+      address: trimPreviewText(pickString(data.address), 72),
+      geo: {
+        lat: num(data.lat, data.latitude),
+        long: num(data.long, data.lng, data.longitude),
+        city: pickString((data.geoData as Record<string, unknown> | undefined)?.city),
+        state: pickString((data.geoData as Record<string, unknown> | undefined)?.state),
+        country: pickString((data.geoData as Record<string, unknown> | undefined)?.country),
+        geohash: pickString((data.geoData as Record<string, unknown> | undefined)?.geohash)
+      },
+      assets,
+      carouselFitWidth: typeof data.carouselFitWidth === "boolean" ? data.carouselFitWidth : undefined,
+      layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
+      ...normalizeLetterboxHints(data),
+      likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
+      commentCount: Math.max(0, Math.floor(num(data.commentCount, data.commentsCount) ?? 0))
+    };
+    return { candidate };
+  } catch {
+    return { reject: "invalid_contract" };
+  }
 }
 
 function isVisible(data: Record<string, unknown>): boolean {
@@ -405,8 +764,19 @@ function normalizeAssets(value: unknown): SimpleFeedCandidate["assets"] {
     out.push({
       id: pickString(raw.id) ?? `asset-${i + 1}`,
       type: String(raw.type ?? "").toLowerCase() === "video" ? "video" : "image",
-      previewUrl: pickString(raw.previewUrl, variants.preview360, variants.preview360Avc, sm.webp, md.webp, lg.webp, raw.thumbnail),
-      posterUrl: pickString(raw.posterUrl, raw.poster, variants.poster, thumb.webp, raw.thumbnail),
+      previewUrl: pickString(
+        raw.previewUrl,
+        variants.preview360,
+        variants.preview360Avc,
+        sm.webp,
+        md.webp,
+        lg.webp,
+        raw.thumbnail,
+        raw.original,
+        raw.downloadURL,
+        raw.url
+      ),
+      posterUrl: pickString(raw.posterUrl, raw.poster, variants.poster, thumb.webp, raw.thumbnail, raw.original, raw.downloadURL, raw.url),
       originalUrl: pickString(raw.original, raw.downloadURL, raw.url),
       streamUrl: pickString(variants.hls),
       mp4Url: pickString(variants.main720Avc, variants.main720, raw.original, raw.downloadURL, raw.url),

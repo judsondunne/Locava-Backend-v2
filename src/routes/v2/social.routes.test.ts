@@ -164,4 +164,46 @@ describe("v2 social suggested friends + contacts sync", () => {
     expect(body.data.suggestions).toEqual([]);
     expect(body.data.diagnostics?.errorCode).toBe("FAILED_PRECONDITION");
   });
+
+  it("returns 200 with source diagnostics when one source fails", async () => {
+    vi.spyOn(SuggestedFriendsService.prototype, "getSuggestionsForUser").mockResolvedValueOnce({
+      users: [
+        {
+          userId: "user-1",
+          handle: "user1",
+          name: "User 1",
+          profilePic: null,
+          reason: "popular",
+          isFollowing: false,
+          score: 100,
+        },
+      ],
+      sourceBreakdown: { popular: 1 },
+      generatedAt: Date.now(),
+      etag: "source-failure-ok",
+      sourceDiagnostics: [
+        {
+          sourceName: "groups",
+          enabled: true,
+          skipped: false,
+          errorKind: "FAILED_PRECONDITION",
+          readCount: 0,
+          queryCount: 1,
+          latencyMs: 12,
+          returnedCount: 0,
+        },
+      ],
+    });
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/social/suggested-friends?surface=generic&limit=20",
+      headers,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.ok).toBe(true);
+    expect(body.data.users).toHaveLength(1);
+    expect(body.data.diagnostics?.sourceDiagnostics?.[0]?.errorKind).toBe("FAILED_PRECONDITION");
+  });
 });

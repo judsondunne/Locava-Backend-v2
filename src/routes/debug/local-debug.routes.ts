@@ -12,6 +12,11 @@ import { legacyNotificationPushPublisher } from "../../services/notifications/le
 import { chatsRepository } from "../../repositories/surfaces/chats.repository.js";
 import { ChatsService } from "../../services/surfaces/chats.service.js";
 import { ChatsSendMessageOrchestrator } from "../../orchestration/mutations/chats-send-message.orchestrator.js";
+import { entityCacheKeys } from "../../cache/entity-cache.js";
+import { globalCache } from "../../cache/global-cache.js";
+import { isCompleteProfileHeaderEntityCache } from "../../domains/profile/profile-header-cache.js";
+import { ProfileRepository } from "../../repositories/surfaces/profile.repository.js";
+import { getForYouReadyDeckDebug } from "../../services/surfaces/feed-for-you-simple.service.js";
 
 const LocalViewerQuerySchema = z.object({
   viewerId: z.string().min(1).optional(),
@@ -569,6 +574,26 @@ export async function registerLocalDebugRoutes(app: FastifyInstance): Promise<vo
     });
   });
 
+  app.get<{ Params: { userId: string } }>("/debug/local/profile-header/:userId", async (request) => {
+    const params = z.object({ userId: z.string().min(1) }).parse(request.params);
+    const repository = new ProfileRepository();
+    const header = await repository.getProfileHeader(params.userId);
+    const canonicalKey = entityCacheKeys.profileHeaderCanonical(params.userId);
+    const summaryKey = entityCacheKeys.userSummary(params.userId);
+    const rawCanonical = await globalCache.get<unknown>(canonicalKey);
+    const rawLegacySummary = await globalCache.get<unknown>(summaryKey);
+    return {
+      requestedUserId: params.userId,
+      canonicalUserId: params.userId,
+      computedHeader: header,
+      profileHeaderCacheKey: canonicalKey,
+      legacyUserSummaryKey: summaryKey,
+      profileHeaderCacheComplete: isCompleteProfileHeaderEntityCache(rawCanonical),
+      rawProfileHeaderCache: rawCanonical ?? null,
+      rawLegacyUserSummaryCache: rawLegacySummary ?? null,
+    };
+  });
+
   app.get("/debug/local/profile/grid/:userId", async (request) => {
     const params = z.object({ userId: z.string().min(1) }).parse(request.params);
     const query = LocalViewerQuerySchema.extend({ limit: z.coerce.number().int().min(1).max(24).optional(), cursor: z.string().optional() }).parse(
@@ -870,6 +895,16 @@ export async function registerLocalDebugRoutes(app: FastifyInstance): Promise<vo
       explicitViewerId: query.viewerId,
       internal: query.internal
     });
+  });
+
+  app.get("/debug/local/feed/for-you/deck", async (request) => {
+    const query = z.object({ viewerId: z.string().min(1) }).parse(request.query);
+    const deck = getForYouReadyDeckDebug(query.viewerId);
+    return {
+      ok: true,
+      viewerId: query.viewerId,
+      deck: deck ?? null
+    };
   });
 
   app.get("/debug/local/posts/detail/:postId", async (request) => {

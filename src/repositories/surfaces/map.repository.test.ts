@@ -43,18 +43,32 @@ describe("MapRepository", () => {
       limit: 120,
       maxDocs: 5000
     });
-    expect(result.markers).toEqual([
-      {
-        markerId: "p1",
-        postId: "p1",
-        lat: 40.7,
-        lng: -74,
-        thumbUrl: null,
-        mediaType: "video",
-        ts: 200,
-        activityIds: ["hike"],
-        settingType: null
-      }
-    ]);
+    expect(result.markers).toHaveLength(1);
+    const marker = result.markers[0]!;
+    expect(marker).toMatchObject({
+      markerId: "p1",
+      postId: "p1",
+      lat: 40.7,
+      lng: -74,
+      thumbUrl: null,
+      mediaType: "video",
+      ts: 200,
+      activityIds: ["hike"],
+      settingType: null
+    });
+    const envelope = marker.openPayload;
+    expect(envelope).toBeDefined();
+    expect(envelope).toMatchObject({
+      postId: "p1",
+      hydrationLevel: "marker",
+      sourceRoute: "map.bootstrap",
+      hasRawPost: false,
+      debugPostEnvelope: expect.objectContaining({
+        hydrationLevel: "marker",
+        debugSource: "MapRepository.listMarkers"
+      })
+    });
+    expect(envelope!.id).toBe("p1");
+    expect(envelope!.rankToken).toBe(`post-${envelope!.postId}`);
   });
 });

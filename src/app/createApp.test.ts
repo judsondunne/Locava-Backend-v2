@@ -4,7 +4,12 @@ import { requestMetricsCollector } from "../observability/request-metrics.collec
 import { errorRingBuffer } from "../observability/error-ring-buffer.js";
 
 describe("backend foundation routes", () => {
-  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", INTERNAL_DASHBOARD_TOKEN: undefined });
+  const app = createApp({
+    NODE_ENV: "test",
+    LOG_LEVEL: "silent",
+    INTERNAL_DASHBOARD_TOKEN: undefined,
+    ENABLE_LEGACY_COMPAT_ROUTES: true
+  });
 
   it("returns health", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
@@ -29,9 +34,10 @@ describe("backend foundation routes", () => {
   it("stubs legacy monolith paths used by native dev (no 404 spam on Backendv2)", async () => {
     const version = await app.inject({ method: "GET", url: "/api/config/version" });
     expect(version.statusCode).toBe(200);
-    const vBody = version.json() as { success?: boolean; shouldUpdate?: boolean };
-    expect(vBody.success).toBe(true);
-    expect(vBody.shouldUpdate).toBe(false);
+    const vBody = version.json() as { ok?: boolean; data?: { success?: boolean; shouldUpdate?: boolean } };
+    expect(vBody.ok).toBe(true);
+    expect(vBody.data?.success).toBe(true);
+    expect(vBody.data?.shouldUpdate).toBe(false);
 
     const analytics = await app.inject({
       method: "POST",
@@ -106,7 +112,12 @@ describe("backend foundation routes", () => {
   });
 
   it("location autocomplete returns upstream_unavailable when monolith proxy is explicitly unset", async () => {
-    const local = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", LEGACY_MONOLITH_PROXY_BASE_URL: undefined });
+    const local = createApp({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      LEGACY_MONOLITH_PROXY_BASE_URL: undefined,
+      ENABLE_LEGACY_COMPAT_ROUTES: true
+    });
     try {
       const res = await local.inject({ method: "GET", url: "/api/v1/product/location/autocomplete?q=test" });
       expect(res.statusCode).toBe(503);
@@ -185,7 +196,7 @@ describe("backend foundation routes", () => {
     expect(body.viewer.userId).toBe("firebase-user-guarded");
     expect(body.viewer.handle).not.toBe("user_fakepatch");
     expect(body.viewer.name).not.toBe("user_fakepatch");
-    expect(body.viewer.profilePic).toBe("");
+    expect(body.viewer.profilePic).toBe("https://cdn.locava.test/users/firebase-user-guarded.jpg");
   });
 
   it("session bootstrap uses resolved viewer id from x-viewer-id", async () => {
@@ -201,7 +212,12 @@ describe("backend foundation routes", () => {
   });
 
   it("compat /api/posts/:postId does not crash when Firestore is unavailable", async () => {
-    const local = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_SOURCE_ENABLED: false });
+    const local = createApp({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      FIRESTORE_SOURCE_ENABLED: false,
+      ENABLE_LEGACY_COMPAT_ROUTES: true
+    });
     try {
       const res = await local.inject({
         method: "GET",

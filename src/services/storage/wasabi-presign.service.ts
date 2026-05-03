@@ -10,6 +10,8 @@ export type StagingPresignItem = {
   assetType: "photo" | "video";
   destinationKey?: string;
   contentType?: string;
+  /** When set (staging presign / native register client key), object keys diverge from sessionId+index-only layout. */
+  clientStagingKey?: string;
 };
 
 export type StagingPresignUrlSlot = {
@@ -29,21 +31,37 @@ export type StagingPresignResult =
  * Stable asset id / object keys aligned with v1 `directPostUpload.controller.ts`
  * (`buildStableSessionAssetId`, `buildFinalizedSessionAssetPlan`).
  */
-export function buildStableSessionAssetId(sessionId: string, index: number, assetType: "photo" | "video"): string {
+export function buildStableSessionAssetId(
+  sessionId: string,
+  index: number,
+  assetType: "photo" | "video",
+  clientAssetDisambiguator?: string | null
+): string {
   const sessionHash = createHash("sha1").update(sessionId).digest("hex").slice(0, 10);
-  return `${assetType === "video" ? "video" : "image"}_${sessionHash}_${index}`;
+  const prefix = assetType === "video" ? "video" : "image";
+  const trimmed =
+    typeof clientAssetDisambiguator === "string" ? clientAssetDisambiguator.trim() : "";
+  if (!trimmed) {
+    return `${prefix}_${sessionHash}_${index}`;
+  }
+  const mixHash = createHash("sha1")
+    .update(`${trimmed}:${sessionId}:${index}:${assetType}`)
+    .digest("hex")
+    .slice(0, 10);
+  return `${prefix}_${sessionHash}_${mixHash}_${index}`;
 }
 
 export function buildFinalizedSessionAssetKeys(
   sessionId: string,
   index: number,
-  assetType: "photo" | "video"
+  assetType: "photo" | "video",
+  clientAssetDisambiguator?: string | null
 ): {
   assetId: string;
   originalKey: string;
   posterKey?: string;
 } {
-  const assetId = buildStableSessionAssetId(sessionId, index, assetType);
+  const assetId = buildStableSessionAssetId(sessionId, index, assetType, clientAssetDisambiguator);
   if (assetType === "video") {
     return {
       assetId,
@@ -61,7 +79,8 @@ export function buildFinalizedSessionAssetPlan(
   cfg: WasabiRuntimeConfig,
   sessionId: string,
   index: number,
-  assetType: "photo" | "video"
+  assetType: "photo" | "video",
+  clientAssetDisambiguator?: string | null
 ): {
   assetId: string;
   originalKey: string;
@@ -69,7 +88,7 @@ export function buildFinalizedSessionAssetPlan(
   posterKey?: string;
   posterUrl?: string;
 } {
-  const keys = buildFinalizedSessionAssetKeys(sessionId, index, assetType);
+  const keys = buildFinalizedSessionAssetKeys(sessionId, index, assetType, clientAssetDisambiguator);
   if (assetType === "video") {
     return {
       assetId: keys.assetId,
@@ -121,7 +140,14 @@ export async function presignPostSessionStagingBatch(
     const urls: StagingPresignUrlSlot[] = [];
 
     for (const item of items) {
-      const finalized = buildFinalizedSessionAssetPlan(cfg, sessionId, item.index, item.assetType);
+      const disambiguator = item.clientStagingKey?.trim() || null;
+      const finalized = buildFinalizedSessionAssetPlan(
+        cfg,
+        sessionId,
+        item.index,
+        item.assetType,
+        disambiguator
+      );
       const key = item.destinationKey ?? finalized.originalKey;
       const contentType =
         item.contentType ?? (item.assetType === "video" ? "video/mp4" : "image/jpeg");
@@ -178,12 +204,13 @@ export function enrichPresignSlotsForLegacyCompat(
   cfg: WasabiRuntimeConfig,
   sessionId: string,
   slots: StagingPresignUrlSlot[],
-  normalizedItems: Array<{ index: number; assetType: "photo" | "video" }>
+  normalizedItems: Array<{ index: number; assetType: "photo" | "video"; clientStagingKey?: string }>
 ): LegacyStagePresignRow[] {
   return slots.map((slot) => {
-    const assetType =
-      normalizedItems.find((it) => it.index === slot.index)?.assetType ?? "photo";
-    const finalized = buildFinalizedSessionAssetPlan(cfg, sessionId, slot.index, assetType);
+    const match = normalizedItems.find((it) => it.index === slot.index);
+    const assetType = match?.assetType ?? "photo";
+    const disambiguator = match?.clientStagingKey?.trim() || null;
+    const finalized = buildFinalizedSessionAssetPlan(cfg, sessionId, slot.index, assetType, disambiguator);
     return {
       ...slot,
       assetId: finalized.assetId,

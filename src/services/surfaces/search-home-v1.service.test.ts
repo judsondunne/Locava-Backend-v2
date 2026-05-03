@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { mixesRepository } from "../../repositories/mixes/mixes.repository.js";
 import { SearchHomeV1Service } from "./search-home-v1.service.js";
 
 describe("search home v1 service", () => {
@@ -32,32 +33,45 @@ describe("search home v1 service", () => {
         ],
       })),
     };
-    service.mixPoolRepo = {
-      listFromPool: vi.fn(async () => ({
-        posts: [
-          {
-            postId: "p1",
-            mediaType: "video",
-            activities: ["hiking"],
-            title: "Morning Trail",
-            address: "Bend",
-            time: 1_700_000_000_000,
-            thumbUrl: "https://cdn.example.com/p1.jpg",
-          },
-          {
-            postId: "p2",
-            mediaType: "photo",
-            activities: ["hiking"],
-            title: "Summit",
-            address: "Hood River",
-            time: 1_700_000_000_100,
-            thumbUrl: "https://cdn.example.com/p2.jpg",
-          },
-        ],
-      })),
-    };
+    const poolPosts = [
+      {
+        postId: "p1",
+        mediaType: "video",
+        activities: ["hiking"],
+        title: "Morning Trail",
+        address: "Bend",
+        time: 1_700_000_000_000,
+        thumbUrl: "https://cdn.example.com/p1.jpg",
+      },
+      {
+        postId: "p2",
+        mediaType: "photo",
+        activities: ["hiking"],
+        title: "Summit",
+        address: "Hood River",
+        time: 1_700_000_000_100,
+        thumbUrl: "https://cdn.example.com/p2.jpg",
+      },
+    ];
+    const warmWaitSpy = vi.spyOn(mixesRepository, "listFromPoolWithWarmWait").mockResolvedValue({
+      posts: poolPosts as never,
+      readCount: 0,
+      source: "test",
+      poolLimit: 600,
+      poolState: "warming",
+      poolBuiltAt: null,
+      poolBuildLatencyMs: 0,
+      poolBuildReadCount: 0,
+      servedStale: false,
+      servedEmptyWarming: true,
+    });
 
-    const result = await service.build("viewer-a");
+    let result: Awaited<ReturnType<SearchHomeV1Service["build"]>>;
+    try {
+      result = await service.build("viewer-a");
+    } finally {
+      warmWaitSpy.mockRestore();
+    }
 
     expect(result.activityMixes).toHaveLength(1);
     expect(result.activityMixes[0]?.activityKey).toBe("hiking");

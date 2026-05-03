@@ -83,7 +83,7 @@ describe("native post document (finalize parity)", () => {
     expect(asset.variants.main720).toBeUndefined();
     expect(asset.variants.main720Avc).toBeUndefined();
     expect(asset.variants.poster).toBe("https://cdn.example.com/poster.jpg");
-    expect(doc.playbackLabStatus).toBe("pending");
+    expect(doc.playbackLabStatus).toBe("queued");
   });
 
   it("rejects staging URLs in manifest", () => {

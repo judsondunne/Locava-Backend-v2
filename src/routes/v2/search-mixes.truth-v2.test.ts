@@ -20,8 +20,6 @@ describe("v2 search mixes production truth (bootstrap + feed)", () => {
     expect(body.routeName).toBe("search.mixes.bootstrap.get");
     expect(Array.isArray(body.mixes)).toBe(true);
     const mixes = body.mixes as any[];
-    // eslint-disable-next-line no-console
-    console.log("[TEST_MIX_BOOTSTRAP]", mixes.map((m) => ({ type: m.type, id: m.id, hiddenReason: m.hiddenReason, hasCover: Boolean(m.coverImageUrl) })));
 
     const general = mixes.filter((m) => m.type === "general");
     expect(general.length).toBeGreaterThanOrEqual(6);
@@ -92,7 +90,7 @@ describe("v2 search mixes production truth (bootstrap + feed)", () => {
     expect(Array.isArray(posts)).toBe(true);
     // internal-viewer follows author-24 and author-25 in deterministic seed.
     for (const p of posts) {
-      const uid = String(p.userId ?? "");
+      const uid = String((p as { author?: { userId?: string }; userId?: string }).author?.userId ?? (p as { userId?: string }).userId ?? "");
       expect(["author-24", "author-25"].includes(uid)).toBe(true);
     }
   });

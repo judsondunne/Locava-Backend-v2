@@ -1,6 +1,5 @@
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
-import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { withMutationLock } from "../../lib/mutation-lock.js";
 import type { NotificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
@@ -64,10 +63,15 @@ export class NotificationsService {
               });
             }
           }
-          await invalidateEntitiesForMutation({
+          const inv = invalidateEntitiesForMutation({
             mutationType: "notification.create",
-            viewerId: result.viewerId
+            viewerId: result.viewerId,
           });
+          if (process.env.VITEST === "true") {
+            await inv;
+          } else {
+            void inv.catch(() => undefined);
+          }
         }
       });
     };
@@ -84,14 +88,12 @@ export class NotificationsService {
       return;
     }
 
-    scheduleBackgroundWork(async () => {
-      await run().catch((error) => {
-        console.warn("[notifications] background notification creation failed", {
-          error: error instanceof Error ? error.message : String(error),
-          type: input.type,
-          actorId: input.actorId,
-          targetId: input.targetId,
-        });
+    void run().catch((error) => {
+      console.warn("[notifications] notification mutation pipeline failed", {
+        error: error instanceof Error ? error.message : String(error),
+        type: input.type,
+        actorId: input.actorId,
+        targetId: input.targetId,
       });
     });
   }

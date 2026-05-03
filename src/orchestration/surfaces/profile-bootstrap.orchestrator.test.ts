@@ -92,6 +92,49 @@ describe("profile bootstrap orchestrator", () => {
     expect(payload.firstRender.collectionsPreview.nextCursor).toBe("collections-next");
     expect(payload.firstRender.achievementsPreview.nextCursor).toBe("achievements-next");
     expect(payload.deferred.profileBadgeSummary).toBeNull();
+    expect(payload.debug?.profileHeaderRepair?.gridVsPostsInvariantViolated).toBe(false);
+  });
+
+  it("raises posts count to at least grid preview size when header posts were wrongly zero", async () => {
+    const orchestrator = new ProfileBootstrapOrchestrator({
+      loadHeader: async () => ({
+        userId: "u-grid",
+        handle: "grid_user",
+        name: "Grid User",
+        profilePic: "https://cdn.example.com/u.jpg",
+        counts: { posts: 0, followers: 4, following: 2 },
+      }),
+      loadRelationship: async () => ({
+        isSelf: false,
+        following: false,
+        followedBy: false,
+        canMessage: true,
+      }),
+      loadGridPreview: async () => ({
+        items: Array.from({ length: 12 }, (_, i) => ({
+          postId: `p${i}`,
+          thumbUrl: `https://cdn.example.com/t${i}.jpg`,
+          mediaType: "image" as const,
+          updatedAtMs: 100 + i,
+        })),
+        nextCursor: null,
+      }),
+      loadCollections: async () => ({ items: [], nextCursor: null, emptyReason: null }),
+      loadAchievements: async () => ({ items: [], nextCursor: null, emptyReason: null }),
+      loadBadgeSummary: async () => null,
+    } as never);
+
+    const payload = await orchestrator.run({
+      viewer: { viewerId: "viewer-z", roles: ["internal"] } as never,
+      userId: "u-grid",
+      gridLimit: 12,
+      debugSlowDeferredMs: 500,
+    });
+
+    expect(payload.firstRender.counts.posts).toBe(12);
+    expect(payload.summary.postCount).toBe(12);
+    expect(payload.debug?.profileHeaderRepair?.gridVsPostsInvariantViolated).toBe(true);
+    expect(payload.debug?.profileHeaderRepair?.postCountLowerBoundUsed).toBe(true);
   });
 
   it("uses safe defaults and degrades instead of throwing when profile social stats are missing", async () => {

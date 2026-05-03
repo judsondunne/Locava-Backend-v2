@@ -1,3 +1,4 @@
+import { allProfileBootstrapCacheKeys } from "./profile-follow-graph-cache.js";
 import { buildCacheKey } from "./types.js";
 import {
   deleteEntityCacheKeys,
@@ -202,6 +203,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     // to be the owner, but we still defensively invalidate by parsed owner id when available.
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
+      entityCacheKeys.profileHeaderCanonical(ownerUserId),
       ...[6, 12, 18].map((previewLimit) =>
         buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
       ),
@@ -272,6 +274,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     // Posting completion creates a new post for the owner, changing profile counts + grid.
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
+      entityCacheKeys.profileHeaderCanonical(ownerUserId),
       ...[6, 12, 18].map((previewLimit) =>
         buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
       ),
@@ -407,9 +410,11 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     entityCacheKeys.userSummary(userId),
     entityCacheKeys.userFirestoreDoc(userId),
     entityCacheKeys.userFollowCounts(userId),
+    entityCacheKeys.profileHeaderCanonical(userId),
     entityCacheKeys.userSummary(viewerId),
     entityCacheKeys.userFirestoreDoc(viewerId),
-    entityCacheKeys.userFollowCounts(viewerId)
+    entityCacheKeys.userFollowCounts(viewerId),
+    entityCacheKeys.profileHeaderCanonical(viewerId)
   ];
   const profileHeaderKeys = [
     buildCacheKey("entity", ["profile-header-v1", userId]),
@@ -432,14 +437,10 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
   const relationshipKeys = [
     buildCacheKey("entity", ["profile-relationship-v1", viewerId, userId])
   ];
-  const bootstrapKeys = [6, 12, 18].map((previewLimit) =>
-    buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, userId, String(previewLimit)])
-  );
+  const bootstrapKeys = allProfileBootstrapCacheKeys(viewerId, userId);
   // Follow/unfollow changes the viewer's own "following" count; clear self bootstrap too so profile header updates
   // even if the mutation happened while viewing another user.
-  const selfBootstrapKeys = [6, 12, 18].map((previewLimit) =>
-    buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, viewerId, String(previewLimit)])
-  );
+  const selfBootstrapKeys = allProfileBootstrapCacheKeys(viewerId, viewerId);
   const taggedProfileRouteKeys = await invalidateRouteCacheByTags([
     `route:profile.bootstrap:${userId}`,
     `route:profile.bootstrap:${viewerId}`,
@@ -537,8 +538,10 @@ function derivePostingVisibilityRouteKeys(viewerId: string): string[] {
     keys.add(buildCacheKey("list", ["feed-page-v1", viewerId, "explore", "_", "_", "_", "start", String(limit)]));
   }
 
+  for (const key of allProfileBootstrapCacheKeys(viewerId, viewerId)) {
+    keys.add(key);
+  }
   for (const previewLimit of [4, 6]) {
-    keys.add(buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, viewerId, String(previewLimit)]));
     keys.add(buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)]));
   }
 

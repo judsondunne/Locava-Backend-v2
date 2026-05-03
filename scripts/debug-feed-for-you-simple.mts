@@ -133,11 +133,42 @@ async function toReelTagged(ids: string[]): Promise<string[]> {
   return ids.map((id) => `${id}(reel=${flags.get(id) === true ? "true" : "false"})`);
 }
 
+function parseProbeArgs(): { viewerId: string | null; limit: number } {
+  let viewerId: string | null = null;
+  let limit = 5;
+  for (const a of process.argv.slice(2)) {
+    if (a.startsWith("--viewerId=")) viewerId = (a.split("=", 2)[1] ?? "").trim() || null;
+    if (a.startsWith("--limit=")) limit = Math.max(1, Math.min(12, Math.floor(Number(a.split("=", 2)[1]) || 5)));
+  }
+  return { viewerId, limit };
+}
+
 async function main(): Promise<void> {
+  const probe = parseProbeArgs();
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable");
   const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
   await app.ready();
+
+  if (probe.viewerId) {
+    const url = `/v2/feed/for-you/simple?viewerId=${encodeURIComponent(probe.viewerId)}&limit=${probe.limit}`;
+    const res = await hit(app, url);
+    const body = res.response.json() as {
+      data: {
+        items: Array<{ postId: string }>;
+        nextCursor: string | null;
+        exhausted: boolean;
+        emptyReason: string | null;
+        emergencyFallbackUsed: boolean;
+        relaxedSeenUsed: boolean;
+        debug: Record<string, unknown>;
+      };
+    };
+    console.log(`GET ${url}`);
+    console.log(JSON.stringify({ meta: { elapsedMs: res.elapsedMs }, summary: body.data.debug, posts: body.data.items.map((i) => i.postId) }, null, 2));
+    return;
+  }
+
   const seedKey = `simple-harness-${Date.now()}`;
   const viewerId = "simple-harness-viewer";
 

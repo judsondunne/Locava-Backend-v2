@@ -19,7 +19,8 @@ export const SearchSuggestResponseSchema = z.object({
   routeName: z.literal("search.suggest.get"),
   suggestions: z.array(SuggestionRowSchema),
   detectedActivity: z.string().nullable(),
-  relatedActivities: z.array(z.string())
+  relatedActivities: z.array(z.string()),
+  suggestDiagnostics: z.record(z.string(), z.unknown()).optional()
 });
 
 export const searchSuggestContract = defineContract({

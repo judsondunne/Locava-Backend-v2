@@ -4,7 +4,8 @@
  * Safety:
  * - Requires ENABLE_NOTIFICATION_PUSH_TESTS=true
  * - Disabled in production
- * - Uses explicit token (default provided by user)
+ * - Set NOTIFICATION_TEST_EXPO_TOKEN (always single-quote in shell so `[...]` is not globbed):
+ *   ENABLE_NOTIFICATION_PUSH_TESTS=true NOTIFICATION_TEST_EXPO_TOKEN='ExponentPushToken[xxxx]' npm run debug:notifications:push-test
  */
 
 const EXPO_SEND_URL = "https://exp.host/--/api/v2/push/send";
@@ -126,7 +127,7 @@ function ensureAllowed(): void {
   }
 }
 
-async function expoSend(input: NotificationTypeCase): Promise<{ ticketId: string | null; status: string; raw: unknown }> {
+async function expoSend(input: NotificationTypeCase): Promise<{ ticketId: string | null; ticketStatus: string; raw: unknown }> {
   const message: Record<string, unknown> = {
     to: TARGET_TOKEN,
     sound: "default",
@@ -159,8 +160,8 @@ async function expoSend(input: NotificationTypeCase): Promise<{ ticketId: string
     ? (payload as { data: Array<Record<string, unknown>> }).data[0]
     : ((payload as { data?: Record<string, unknown> }).data ?? {});
   const ticketId = typeof ticket?.id === "string" ? ticket.id : null;
-  const status = typeof ticket?.status === "string" ? ticket.status : "unknown";
-  return { ticketId, status, raw: payload };
+  const ticketStatus = typeof ticket?.status === "string" ? ticket.status : "unknown";
+  return { ticketId, ticketStatus, raw: payload };
 }
 
 async function fetchReceipts(ids: string[]): Promise<unknown> {

@@ -25,6 +25,7 @@ import { userActivityRepository } from "../../repositories/surfaces/user-activit
 import { UserActivityService } from "../../services/surfaces/user-activity.service.js";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { uploadGroupChatAvatar, uploadGroupChatPhoto } from "../../services/storage/wasabi-chat-photos.service.js";
+import { AuthMutationsService } from "../../services/mutations/auth-mutations.service.js";
 
 function normalizeCompatPostRow(row: Record<string, unknown>): Record<string, unknown> {
   const next = { ...row };
@@ -940,14 +941,6 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     };
   }
 
-  app.get("/api/config/version", async () => ({
-    success: true,
-    /** Higher than typical app semver so force-update modal stays off in dev. */
-    versionNumber: "999.0.0",
-    shouldUpdate: false,
-    forceUpdate: false
-  }));
-
   app.get("/api/v1/product/viewer/bootstrap", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
     const session = await callV2GetOrThrowWithRetry("/v2/auth/session", viewerId, "/api/v1/product/viewer/bootstrap", 3);
@@ -1043,6 +1036,12 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
 
     if (db) {
       try {
+        if (expoPushToken || pushToken) {
+          const authMutations = new AuthMutationsService();
+          await authMutations
+            .claimExclusivePushTokens(userId, { expoPushToken, pushToken })
+            .catch(() => undefined);
+        }
         await db.collection("users").doc(userId).set(
           {
             ...payload,
@@ -2958,9 +2957,19 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     const q = typeof (request.query as { q?: unknown } | undefined)?.q === "string"
       ? (request.query as { q?: string }).q!.trim()
       : "";
+    const rawLimit = (request.query as { limit?: unknown } | undefined)?.limit;
+    const parsedLimit =
+      typeof rawLimit === "string"
+        ? Number.parseInt(rawLimit, 10)
+        : typeof rawLimit === "number"
+          ? rawLimit
+          : NaN;
+    const limit = Number.isFinite(parsedLimit)
+      ? Math.min(80, Math.max(1, Math.floor(parsedLimit)))
+      : 30;
     try {
       const params = new URLSearchParams();
-      params.set("limit", "30");
+      params.set("limit", String(limit));
       if (q) params.set("q", q);
       const v2 = await callV2GetOrThrow(`/v2/groups?${params.toString()}`, viewerId, "/api/v1/product/groups");
       const groups = (v2Data(v2).groups as Array<Record<string, unknown>>) ?? [];

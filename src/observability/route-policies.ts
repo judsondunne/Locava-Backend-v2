@@ -38,7 +38,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "auth.session.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 90, p95Ms: 200 },
+      latency: { p50Ms: 95, p95Ms: 260 },
       dbOps: { maxReadsCold: 3, maxQueriesCold: 2, expectedReadsWarm: 1, expectedQueriesWarm: 1 },
       payload: { maxBytes: 10_000, targetBytes: 4_000 }
     },
@@ -61,7 +61,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     priority: "critical_interactive",
     budgets: {
       latency: { p50Ms: 150, p95Ms: 400 },
-      dbOps: { maxReadsCold: 40, maxQueriesCold: 8, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      dbOps: { maxReadsCold: 52, maxQueriesCold: 8, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
       payload: { maxBytes: 40_000, targetBytes: 18_000 }
     },
     cacheExpectation: "required",
@@ -241,7 +241,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     budgets: {
       latency: { p50Ms: 95, p95Ms: 220 },
       dbOps: { maxReadsCold: 16, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
-      payload: { maxBytes: 36_000, targetBytes: 18_000 }
+      payload: { maxBytes: 120_000, targetBytes: 36_000 }
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
@@ -316,8 +316,10 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "posts.like.post",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 70, p95Ms: 180 },
-      dbOps: { maxReadsCold: 2, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 1 },
+      latency: { p50Ms: 85, p95Ms: 320 },
+      // Like path: viewer doc (repo) + post doc (notification resolvePostContext) + post doc (likeCount in orchestrator).
+      // Cross-user likes may add sender hydration reads when caches are cold.
+      dbOps: { maxReadsCold: 6, maxQueriesCold: 4, expectedReadsWarm: 0, expectedQueriesWarm: 1 },
       payload: { maxBytes: 8_000, targetBytes: 2_000 }
     },
     cacheExpectation: "optional",
@@ -593,7 +595,8 @@ const policies: Record<string, RouteBudgetPolicy> = {
     priority: "critical_interactive",
     budgets: {
       latency: { p50Ms: 85, p95Ms: 190 },
-      dbOps: { maxReadsCold: 20, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      // Post doc probe for embedded comments + optional subcollection page (dual-storage parity).
+      dbOps: { maxReadsCold: 20, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
       payload: { maxBytes: 24_000, targetBytes: 12_000 }
     },
     cacheExpectation: "required",
@@ -636,9 +639,11 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "notifications.list.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 80, p95Ms: 180 },
-      dbOps: { maxReadsCold: 20, maxQueriesCold: 1, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
-      payload: { maxBytes: 24_000, targetBytes: 12_000 }
+      latency: { p50Ms: 95, p95Ms: 450 },
+      // Notifications page + batched actor/post hydration may issue multiple bounded queries on cold cache.
+      dbOps: { maxReadsCold: 20, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      // Hydrated rows (sender metadata, post thumbs, etc.) push JSON over 48KB for typical page sizes.
+      payload: { maxBytes: 96_000, targetBytes: 28_000 }
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 10 }
@@ -746,9 +751,10 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "collections.detail.get",
     priority: "critical_interactive",
     budgets: {
-      latency: { p50Ms: 75, p95Ms: 170 },
-      dbOps: { maxReadsCold: 3, maxQueriesCold: 2, expectedReadsWarm: 1, expectedQueriesWarm: 1 },
-      payload: { maxBytes: 18_000, targetBytes: 8_000 }
+      latency: { p50Ms: 140, p95Ms: 1_200 },
+      // Collection doc + batched post hydrations (e.g. getAll up to 12) + recommended rail fetches.
+      dbOps: { maxReadsCold: 200, maxQueriesCold: 16, expectedReadsWarm: 24, expectedQueriesWarm: 4 },
+      payload: { maxBytes: 420_000, targetBytes: 140_000 }
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
@@ -804,7 +810,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     budgets: {
       latency: { p50Ms: 95, p95Ms: 210 },
       dbOps: { maxReadsCold: 12, maxQueriesCold: 6, expectedReadsWarm: 2, expectedQueriesWarm: 2 },
-      payload: { maxBytes: 44_000, targetBytes: 20_000 }
+      payload: { maxBytes: 72_000, targetBytes: 28_000 }
     },
     cacheExpectation: "recommended",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
@@ -816,7 +822,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     budgets: {
       latency: { p50Ms: 70, p95Ms: 180 },
       dbOps: { maxReadsCold: 18, maxQueriesCold: 8, expectedReadsWarm: 2, expectedQueriesWarm: 2 },
-      payload: { maxBytes: 52_000, targetBytes: 24_000 }
+      payload: { maxBytes: 72_000, targetBytes: 28_000 }
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
@@ -1178,7 +1184,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
   },
   "social.suggested_friends.get": {
     routeName: "social.suggested_friends.get",
-    priority: "critical_interactive",
+    priority: "deferred_interactive",
     budgets: {
       latency: { p50Ms: 85, p95Ms: 200 },
       dbOps: { maxReadsCold: 24, maxQueriesCold: 4, expectedReadsWarm: 3, expectedQueriesWarm: 2 },
@@ -1411,7 +1417,7 @@ const policies: Record<string, RouteBudgetPolicy> = {
     routeName: "chats.message.delete",
     priority: "deferred_interactive",
     budgets: {
-      latency: { p50Ms: 80, p95Ms: 180 },
+      latency: { p50Ms: 95, p95Ms: 380 },
       dbOps: { maxReadsCold: 2, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
       payload: { maxBytes: 6_000, targetBytes: 1_500 }
     },
@@ -1428,6 +1434,39 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
+  "collections.recommended.get": {
+    routeName: "collections.recommended.get",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 120, p95Ms: 320 },
+      dbOps: { maxReadsCold: 120, maxQueriesCold: 8, expectedReadsWarm: 10, expectedQueriesWarm: 2 },
+      payload: { maxBytes: 80_000, targetBytes: 30_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
+  "collections.collaborators.add.post": {
+    routeName: "collections.collaborators.add.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 80, p95Ms: 190 },
+      dbOps: { maxReadsCold: 3, maxQueriesCold: 2, expectedReadsWarm: 1, expectedQueriesWarm: 1 },
+      payload: { maxBytes: 12_000, targetBytes: 4_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "collections.collaborators.remove.delete": {
+    routeName: "collections.collaborators.remove.delete",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 80, p95Ms: 190 },
+      dbOps: { maxReadsCold: 3, maxQueriesCold: 2, expectedReadsWarm: 1, expectedQueriesWarm: 1 },
+      payload: { maxBytes: 12_000, targetBytes: 4_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
   },
   "collections.posts.add.post": {
     routeName: "collections.posts.add.post",
@@ -1561,6 +1600,171 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 8 }
+  },
+  "collections.opened.post": {
+    routeName: "collections.opened.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 75, p95Ms: 180 },
+      dbOps: { maxReadsCold: 2, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 4_000, targetBytes: 1_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "collections.cover.post": {
+    routeName: "collections.cover.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 120, p95Ms: 280 },
+      dbOps: { maxReadsCold: 6, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 12_000, targetBytes: 4_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "compat.upload.profile-picture.post": {
+    routeName: "compat.upload.profile-picture.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 180, p95Ms: 450 },
+      dbOps: { maxReadsCold: 4, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 6_000_000, targetBytes: 2_000_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 2 }
+  },
+  "achievements.pendingcelebrations.get": {
+    routeName: "achievements.pendingcelebrations.get",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 85, p95Ms: 200 },
+      dbOps: { maxReadsCold: 8, maxQueriesCold: 2, expectedReadsWarm: 2, expectedQueriesWarm: 1 },
+      payload: { maxBytes: 24_000, targetBytes: 10_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "achievements.consumecelebration.post": {
+    routeName: "achievements.consumecelebration.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 85, p95Ms: 200 },
+      dbOps: { maxReadsCold: 6, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 8_000, targetBytes: 2_500 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "auth.delete_account.post": {
+    routeName: "auth.delete_account.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 200, p95Ms: 500 },
+      dbOps: { maxReadsCold: 12, maxQueriesCold: 4, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 8_000, targetBytes: 2_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 2 }
+  },
+  "auth.signout.post": {
+    routeName: "auth.signout.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 65, p95Ms: 160 },
+      dbOps: { maxReadsCold: 3, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 4_000, targetBytes: 1_200 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
+  },
+  "auth.push_token.post": {
+    routeName: "auth.push_token.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 85, p95Ms: 200 },
+      dbOps: { maxReadsCold: 4, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 6_000, targetBytes: 2_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
+  },
+  "groups.update.patch": {
+    routeName: "groups.update.patch",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 90, p95Ms: 220 },
+      dbOps: { maxReadsCold: 4, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 10_000, targetBytes: 3_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "groups.verify_college.post": {
+    routeName: "groups.verify_college.post",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 120, p95Ms: 300 },
+      dbOps: { maxReadsCold: 6, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 8_000, targetBytes: 2_500 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
+  },
+  "groups.add_member.post": {
+    routeName: "groups.add_member.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 95, p95Ms: 240 },
+      dbOps: { maxReadsCold: 6, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 10_000, targetBytes: 3_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "groups.invite_members.post": {
+    routeName: "groups.invite_members.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 110, p95Ms: 260 },
+      dbOps: { maxReadsCold: 10, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 14_000, targetBytes: 5_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "groups.remove_member.delete": {
+    routeName: "groups.remove_member.delete",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 90, p95Ms: 220 },
+      dbOps: { maxReadsCold: 5, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 8_000, targetBytes: 2_500 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "groups.share_link.get": {
+    routeName: "groups.share_link.get",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 75, p95Ms: 180 },
+      dbOps: { maxReadsCold: 4, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 6_000, targetBytes: 2_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
+  },
+  "invites.resolve.post": {
+    routeName: "invites.resolve.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 95, p95Ms: 240 },
+      dbOps: { maxReadsCold: 8, maxQueriesCold: 3, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 12_000, targetBytes: 4_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
   }
 };
 

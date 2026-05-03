@@ -3,6 +3,7 @@ import { parseSearchQueryIntent } from "./search-query-intent.js";
 
 describe("search query intent — hiking + near me phrasing", () => {
   const cases = [
+    "best hikes near me",
     "hiking near me",
     "hikes near me",
     "places to hike near me",

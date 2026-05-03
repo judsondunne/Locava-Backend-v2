@@ -96,6 +96,15 @@ const ProfilePreviewPageSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 
+export const ProfileSocialCountsDiagnosticsSchema = z.object({
+  profileUserId: z.string(),
+  viewerId: z.string(),
+  finalFollowerCount: z.number().int().nonnegative(),
+  finalFollowingCount: z.number().int().nonnegative(),
+  bootstrapCacheHit: z.boolean(),
+  countSource: z.enum(["bootstrap_response_cache", "fresh_assembly"]),
+});
+
 export const ProfileEndpointDebugSchema = z.object({
   timingsMs: z.record(z.number().nonnegative()),
   counts: z.object({
@@ -115,6 +124,16 @@ export const ProfileEndpointDebugSchema = z.object({
       reads: z.number().int().nonnegative(),
       writes: z.number().int().nonnegative(),
       queries: z.number().int().nonnegative(),
+    })
+    .optional(),
+  socialCountsDiagnostics: ProfileSocialCountsDiagnosticsSchema.optional(),
+  profileHeaderRepair: z
+    .object({
+      postCountRepairApplied: z.boolean(),
+      postCountLowerBoundUsed: z.boolean(),
+      gridVsPostsInvariantViolated: z.boolean(),
+      postsCountBeforeRepair: z.number().int().nonnegative(),
+      postsCountAfterRepair: z.number().int().nonnegative(),
     })
     .optional(),
 });

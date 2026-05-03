@@ -205,6 +205,116 @@ export class AuthMutationsService {
   private readonly auth = getFirebaseAuthClient();
   private readonly branchAttributionService = new AuthBranchAttributionService();
 
+  /**
+   * One physical device token should map to at most one Locava user. When `userId` registers
+   * tokens, strip those token values from every other `users/{uid}` doc (scalar + array fields).
+   */
+  async claimExclusivePushTokens(
+    userId: string,
+    tokens: { expoPushToken?: string; pushToken?: string }
+  ): Promise<void> {
+    if (!this.db || !userId || userId === "anonymous") return;
+    const raw = [tokens.expoPushToken, tokens.pushToken]
+      .map((t) => (typeof t === "string" ? t.trim() : ""))
+      .filter((t) => t.length > 0);
+    const unique = [...new Set(raw)];
+    if (unique.length === 0) return;
+
+    const candidateIds = new Set<string>();
+    const usersCol = this.db.collection("users");
+    const perQueryLimit = 40;
+
+    for (const t of unique) {
+      const [byExpoScalar, byExpoArr, byPushScalar, byPushArr] = await Promise.all([
+        usersCol.where("expoPushToken", "==", t).limit(perQueryLimit).get(),
+        usersCol.where("expoPushTokens", "array-contains", t).limit(perQueryLimit).get(),
+        usersCol.where("pushToken", "==", t).limit(perQueryLimit).get(),
+        usersCol.where("pushTokens", "array-contains", t).limit(perQueryLimit).get(),
+      ]);
+      byExpoScalar.forEach((d) => candidateIds.add(d.id));
+      byExpoArr.forEach((d) => candidateIds.add(d.id));
+      byPushScalar.forEach((d) => candidateIds.add(d.id));
+      byPushArr.forEach((d) => candidateIds.add(d.id));
+    }
+
+    candidateIds.delete(userId);
+
+    for (const otherId of candidateIds) {
+      const ref = usersCol.doc(otherId);
+      try {
+        const snap = await ref.get();
+        if (!snap.exists) continue;
+        const data = snap.data() as Record<string, unknown>;
+        const patch: Record<string, unknown> = {};
+
+        for (const t of unique) {
+          if (data.expoPushToken === t) patch.expoPushToken = null;
+          if (data.pushToken === t) patch.pushToken = null;
+        }
+
+        const expoArr = Array.isArray(data.expoPushTokens) ? (data.expoPushTokens as unknown[]) : [];
+        const toStripExpo = unique.filter((t) => expoArr.includes(t));
+        if (toStripExpo.length > 0) {
+          patch.expoPushTokens = FieldValue.arrayRemove(...toStripExpo);
+        }
+
+        const pushArr = Array.isArray(data.pushTokens) ? (data.pushTokens as unknown[]) : [];
+        const toStripPush = unique.filter((t) => pushArr.includes(t));
+        if (toStripPush.length > 0) {
+          patch.pushTokens = FieldValue.arrayRemove(...toStripPush);
+        }
+
+        if (Object.keys(patch).length === 0) continue;
+        patch.updatedAt = Date.now();
+        await ref.set(patch, { merge: true });
+      } catch {
+        // Non-fatal: token registration for the active user should still proceed.
+      }
+    }
+  }
+
+  /**
+   * Idempotent: claims tokens exclusively for `viewerId`, then sets scalar + array union fields used by push delivery.
+   */
+  async persistViewerDevicePushTokens(
+    viewerId: string,
+    input: { expoPushToken: string; pushToken: string; pushTokenPlatform?: string }
+  ): Promise<{ persisted: boolean }> {
+    if (!viewerId || viewerId === "anonymous") {
+      throw new Error("viewer_id_required");
+    }
+    const expoPushToken = input.expoPushToken.trim();
+    const pushToken = input.pushToken.trim();
+    if (!expoPushToken || !pushToken) {
+      return { persisted: false };
+    }
+    if (!this.db) {
+      throw new Error("firestore_unavailable");
+    }
+    const platform =
+      typeof input.pushTokenPlatform === "string" && input.pushTokenPlatform.trim().length > 0
+        ? input.pushTokenPlatform.trim()
+        : undefined;
+    await this.claimExclusivePushTokens(viewerId, { expoPushToken, pushToken });
+    const nowMs = Date.now();
+    const payload = mergeUserDocumentWritePayload({
+      expoPushToken,
+      pushToken,
+      ...(platform ? { pushTokenPlatform: platform } : {}),
+      pushTokenUpdatedAt: nowMs,
+      updatedAt: nowMs
+    });
+    await this.db.collection("users").doc(viewerId).set(
+      {
+        ...payload,
+        expoPushTokens: FieldValue.arrayUnion(expoPushToken),
+        pushTokens: FieldValue.arrayUnion(pushToken)
+      },
+      { merge: true }
+    );
+    return { persisted: true };
+  }
+
   async isHandleAvailable(rawHandle: string): Promise<{ available: boolean; normalizedHandle: string }> {
     const normalizedHandle = normalizeHandle(rawHandle);
     if (!this.db) {
@@ -718,6 +828,9 @@ export class AuthMutationsService {
     let storage: "firestore" | "local_state_fallback" = "local_state_fallback";
     if (this.db) {
       try {
+        if (expoPushToken || pushToken) {
+          await this.claimExclusivePushTokens(input.userId, { expoPushToken, pushToken }).catch(() => undefined);
+        }
         await this.db.collection("users").doc(input.userId).set(
           {
             ...payload,

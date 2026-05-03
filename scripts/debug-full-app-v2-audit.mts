@@ -512,7 +512,17 @@ function detectFakeFallback(envelope: Envelope, diagnostic: ReturnType<typeof fi
   const fallbackLabels = [...(diagnostic?.fallbacks ?? []), ...(((envelope.data?.fallbacks as unknown[]) ?? []).map((value) => String(value)))];
   if (fallbackLabels.some((value) => tokens.some((token) => value.toLowerCase().includes(token)))) return true;
   const leafStrings = collectLeafStrings(envelope.data ?? {});
-  return leafStrings.some((value) => tokens.some((token) => value.toLowerCase().includes(token)));
+  for (const raw of leafStrings) {
+    if (typeof raw !== "string") continue;
+    const value = raw.trim();
+    if (value.length === 0 || value.length > 280) continue;
+    if (/^https?:\/\//i.test(value)) continue;
+    const lower = value.toLowerCase();
+    if (tokens.some((token) => lower === token || lower === `${token}!` || lower === `${token}.`)) return true;
+    if (/\b(fake|stub|placeholder|synthetic|mock)\b/i.test(value)) return true;
+    if (/\bdemo\b/i.test(value) && value.length < 48) return true;
+  }
+  return false;
 }
 
 function isNearLatencyBudgetMiss(diagnostic: ReturnType<typeof findDiagnostic>): boolean {
@@ -535,7 +545,6 @@ function classify(spec: AuditSpec, envelope: Envelope | null, diagnostic: Return
     if (code === "validation_error" || code === "invalid_json" || code === "invalid_envelope") return "BROKEN_CONTRACT";
     return "BROKEN_CONTRACT";
   }
-  if (detectFakeFallback(envelope, diagnostic)) return "BROKEN_FAKE_FALLBACK";
   if (diagnostic?.budgetViolations.includes("latency_p95_exceeded") && !isNearLatencyBudgetMiss(diagnostic)) {
     return "BROKEN_LATENCY_BUDGET";
   }
@@ -543,6 +552,7 @@ function classify(spec: AuditSpec, envelope: Envelope | null, diagnostic: Return
   if (diagnostic?.budgetViolations.includes("db_reads_exceeded") || diagnostic?.budgetViolations.includes("db_queries_exceeded")) {
     return "BROKEN_READ_BUDGET";
   }
+  if (detectFakeFallback(envelope, diagnostic)) return "BROKEN_FAKE_FALLBACK";
   if (spec.expectations?.pagination && detectPagination(envelope) !== "cursor") return "BROKEN_PAGINATION";
   if (spec.expectations?.intentionalLegacyProxy) return "PASS_WITH_INTENTIONAL_LEGACY_PROXY";
   if (spec.expectations?.stagedHydration) return "PASS_WITH_STAGED_HYDRATION";
@@ -951,7 +961,7 @@ const specs: AuditSpec[] = [
     nativeRef: "Locava-Native/src/features/chats/data/newChat.api.ts",
     buildPath: (state) => (state.targetUserId ? "/v2/chats/create-group" : null),
     buildBody: (state) => ({
-      participants: state.targetUserId ? [state.targetUserId] : [],
+      participants: state.targetUserId ? [state.viewerId, state.targetUserId] : [],
       groupName: `Audit ${Date.now()}`,
     }),
     afterSuccess: (state, envelope) => {

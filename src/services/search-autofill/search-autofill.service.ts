@@ -1,6 +1,11 @@
 import { searchPlacesIndexService } from "../surfaces/search-places-index.service.js";
 import { SearchDiscoveryService } from "../surfaces/search-discovery.service.js";
-import { resolveActivityIntent, resolveActivitySuggestions } from "../../lib/search-query-intent.js";
+import {
+  normalizeSearchText,
+  resolveActivityIntent,
+  resolveActivitySuggestions,
+  type SearchQueryIntent,
+} from "../../lib/search-query-intent.js";
 import { getPrefixFrame } from "./autofill-intent.js";
 import { getSuggestionsFromLibrary, type ViewerPlaceContext } from "./autofill-library.js";
 import { rankAutofillSuggestions } from "./autofill-ranker.js";
@@ -158,6 +163,26 @@ function inferRelatedActivities(query: string, detectedActivity: string | null, 
   }
 
   return out;
+}
+
+function shouldAwaitPlacesIndexForSuggest(query: string, intent: SearchQueryIntent): boolean {
+  const n = normalizeSearchText(query);
+  if (n.length < 3) return false;
+  if (intent.activity?.canonical) return false;
+  const tokens = n.split(/\s+/).filter(Boolean);
+  if (tokens.length >= 2) return true;
+  if (intent.location) return true;
+  return n.length >= 6;
+}
+
+/** Multi-token typing that looks like "City ST" / "City State", not activity sentences. */
+function looksLikeNamedPlaceTyping(query: string): boolean {
+  const q = query.toLowerCase().trim();
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return false;
+  if (/^(best|easy|good|fun|short|family|cool)\s/.test(q)) return false;
+  if (/\b(hikes|hiking|hike|swim|swimming|walk|walking|trail|trails|coffee|restaurant)\b/.test(q)) return false;
+  return true;
 }
 
 function maybeAddFallbackTemplates(input: {
@@ -347,6 +372,8 @@ export class SearchAutofillService {
     const out: SuggestRow[] = [];
     const activity = String(input.intent?.activity?.canonical ?? "").trim().toLowerCase();
     const locationText = String(input.intent?.location?.displayText ?? "").trim();
+    const intentCityRegionId = String(input.intent?.location?.cityRegionId ?? "").trim();
+    const intentStateRegionId = String(input.intent?.location?.stateRegionId ?? "").trim();
     if (!activity) return out;
 
     const stateNameFromViewer = String(input.placeContext?.stateName ?? "").trim();
@@ -354,7 +381,7 @@ export class SearchAutofillService {
     const cityNameFromViewer = String(input.placeContext?.cityName ?? "").trim();
     const cityRegionId = String(input.placeContext?.cityRegionId ?? "").trim();
 
-    const explicitStateName = locationText && locationText.length <= 24 ? locationText : "";
+    const explicitLocationLabel = locationText;
 
     const makeMix = (args: {
       title: string;
@@ -394,16 +421,21 @@ export class SearchAutofillService {
     // - primary activity in that place
     // - up to 2 related activities in that place
     // (avoid "near you" / viewer-town mixes that would be confusing).
-    if (explicitStateName) {
+    if (explicitLocationLabel) {
       const rel = (input.relatedActivities ?? []).filter((r) => r && r !== activity).slice(0, 2);
       const activitiesForExplicit = [activity, ...rel];
+      const explicitMixPrefix = intentCityRegionId
+        ? `location_activity_city:${intentCityRegionId}`
+        : intentStateRegionId
+          ? `location_activity_state:${intentStateRegionId}`
+          : `location_activity_place:${explicitLocationLabel}`;
       for (const a of activitiesForExplicit) {
         makeMix({
-          title: `${a} in ${explicitStateName}`,
-          subtitle: `Top ${a} posts in ${explicitStateName}`,
-          heroQuery: `${a} in ${explicitStateName}`,
-          v2MixId: `location_activity:${explicitStateName}:${a}`,
-          idSuffix: `explicit_${explicitStateName}_${a}`,
+          title: `${a} in ${explicitLocationLabel}`,
+          subtitle: `Top ${a} posts in ${explicitLocationLabel}`,
+          heroQuery: `${a} in ${explicitLocationLabel}`,
+          v2MixId: `${explicitMixPrefix}:${a}`,
+          idSuffix: `explicit_${explicitLocationLabel}_${a}`,
         });
       }
       return out;
@@ -457,11 +489,19 @@ export class SearchAutofillService {
     suggestions: SuggestRow[];
     detectedActivity: string | null;
     relatedActivities: string[];
+    suggestDiagnostics?: Record<string, unknown>;
   }> {
     const query = String(input.query ?? "").trim().toLowerCase();
     const intent = this.discovery.parseIntent(query);
     const prefixFrame = getPrefixFrame(query);
     const placeContext = buildViewerPlaceContext({ lat: input.lat ?? null, lng: input.lng ?? null });
+
+    let placesIndexAwaitedMs = 0;
+    const placesIndexLoadedBeforeAwait = searchPlacesIndexService.isLoaded();
+    if (shouldAwaitPlacesIndexForSuggest(query, intent)) {
+      const r = await searchPlacesIndexService.awaitLoadedForInteractiveSuggest(1200);
+      placesIndexAwaitedMs = r.awaitedMs;
+    }
 
     const inferredDetectedRaw = inferDetectedActivity(query, intent.activity?.canonical ?? null);
     const inferredDetected = preferDetectedActivityForSuggest(query, inferredDetectedRaw);
@@ -487,7 +527,10 @@ export class SearchAutofillService {
     const [librarySuggestions, userSuggestions, locationRows] = await Promise.all([
       getSuggestionsFromLibrary({ query, placeContext }),
       shouldLoadUsers ? this.discovery.searchUsersForQuery(query, 4) : Promise.resolve([]),
-      this.discovery.loadLocationSuggestions(locationQuery, 6),
+      this.discovery.loadLocationSuggestions(locationQuery, 6, {
+        viewerLat: input.lat ?? null,
+        viewerLng: input.lng ?? null,
+      }),
     ]);
 
     const rows: SuggestRow[] = [];
@@ -558,12 +601,14 @@ export class SearchAutofillService {
 
     maybeAddFallbackTemplates({ query, detectedActivity: inferredDetected, placeContext, rows });
 
+    const prefersNamedPlaces = looksLikeNamedPlaceTyping(query);
     const ranked = rankAutofillSuggestions(rows, {
       query,
       detectedActivity: inferredDetected,
       cityName: placeContext?.cityName ?? null,
       stateName: placeContext?.stateName ?? null,
       prefixStem: prefixFrame.stem,
+      preferNamedPlaces: prefersNamedPlaces,
     });
 
     const generatedMixes = this.buildGeneratedMixSuggestions({
@@ -572,7 +617,8 @@ export class SearchAutofillService {
       placeContext,
       relatedActivities: inferredRelated,
     });
-    let merged = promoteParsedSentenceToFront(query, [...generatedMixes, ...ranked]).slice(0, 12);
+    const primaryRanked = prefersNamedPlaces ? [...ranked, ...generatedMixes] : [...generatedMixes, ...ranked];
+    let merged = promoteParsedSentenceToFront(query, primaryRanked).slice(0, 12);
 
     const viewerId = String(input.viewerId ?? "").trim();
     if (viewerId && (query.includes(" in ") || Boolean(intent.location))) {
@@ -607,11 +653,33 @@ export class SearchAutofillService {
       }
     }
 
+    const loaderAfter = searchPlacesIndexService.getLoaderDiagnostics();
+    const placesFromIndexRows = locationRows.filter((r) => String(r.cityRegionId ?? "").trim().length > 0);
+    const suggestDiagnostics: Record<string, unknown> = {
+      placesIndexLoaded: loaderAfter.loaded,
+      placesIndexLoadedBeforeAwait: placesIndexLoadedBeforeAwait,
+      placesIndexLoadInFlight: loaderAfter.loadInFlight,
+      placesIndexAwaitedMs,
+      placesCandidateCount: placesFromIndexRows.length,
+      firestoreCandidateCount: 0,
+      externalCandidateCount: 0,
+      selectedTopKinds: merged.slice(0, 5).map((r) => r.type),
+      query,
+      normalizedQuery: normalizeSearchText(query),
+      hasLatLng:
+        typeof input.lat === "number" &&
+        Number.isFinite(input.lat) &&
+        typeof input.lng === "number" &&
+        Number.isFinite(input.lng),
+      placesIndexWarming: !loaderAfter.loaded && loaderAfter.loading,
+    };
+
     return {
       routeName: "search.suggest.get",
       suggestions: merged,
       detectedActivity: inferredDetected,
       relatedActivities: inferredRelated.slice(0, 4),
+      suggestDiagnostics,
     };
   }
 }

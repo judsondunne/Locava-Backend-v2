@@ -3,7 +3,12 @@ import { createApp } from "../../app/createApp.js";
 
 describe("compat /api/reports/*", () => {
   it("POST /api/reports/post returns 201 with reportId (mock when Firestore disabled)", async () => {
-    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_SOURCE_ENABLED: false });
+    const app = createApp({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      FIRESTORE_SOURCE_ENABLED: false,
+      ENABLE_LEGACY_COMPAT_ROUTES: true
+    });
     try {
       const res = await app.inject({
         method: "POST",
@@ -26,7 +31,12 @@ describe("compat /api/reports/*", () => {
   });
 
   it("POST /api/reports/post returns 401 without viewer identity", async () => {
-    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_SOURCE_ENABLED: false });
+    const app = createApp({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      FIRESTORE_SOURCE_ENABLED: false,
+      ENABLE_LEGACY_COMPAT_ROUTES: true
+    });
     try {
       const res = await app.inject({
         method: "POST",
@@ -42,7 +52,12 @@ describe("compat /api/reports/*", () => {
   });
 
   it("POST /api/reports/post returns 400 for missing postId/reason", async () => {
-    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", FIRESTORE_SOURCE_ENABLED: false });
+    const app = createApp({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      FIRESTORE_SOURCE_ENABLED: false,
+      ENABLE_LEGACY_COMPAT_ROUTES: true
+    });
     try {
       const res = await app.inject({
         method: "POST",

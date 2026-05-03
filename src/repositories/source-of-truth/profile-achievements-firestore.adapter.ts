@@ -147,7 +147,7 @@ export class ProfileAchievementsFirestoreAdapter {
   }): Promise<FirestoreProfileAchievementPreviewPage> {
     if (!this.db) throw new Error("firestore_source_unavailable");
     const safeLimit = Math.max(1, Math.min(Math.floor(input.limit || 8), 12));
-    const queryLimit = Math.min(28, safeLimit + 1 + 10);
+    const queryLimit = Math.min(20, safeLimit + 1 + 4);
     const cursor = decodeCursor(input.cursor);
 
     let query = this.db

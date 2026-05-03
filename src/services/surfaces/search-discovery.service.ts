@@ -506,10 +506,21 @@ export class SearchDiscoveryService {
       }));
   }
 
-  async loadLocationSuggestions(query: string, limit = 6): Promise<SuggestLocationRow[]> {
+  async loadLocationSuggestions(
+    query: string,
+    limit = 6,
+    opts?: { viewerLat?: number | null; viewerLng?: number | null },
+  ): Promise<SuggestLocationRow[]> {
     const normalized = normalizeSearchText(query);
     if (normalized.length < 2) return [];
-    const cacheKey = `${normalized}:${Math.max(1, Math.min(12, limit))}`;
+    const geoKey =
+      typeof opts?.viewerLat === "number" &&
+      Number.isFinite(opts.viewerLat) &&
+      typeof opts?.viewerLng === "number" &&
+      Number.isFinite(opts.viewerLng)
+        ? `${Math.round(opts.viewerLat * 100) / 100}:${Math.round(opts.viewerLng * 100) / 100}`
+        : "no_geo";
+    const cacheKey = `${normalized}:${geoKey}:${Math.max(1, Math.min(12, limit))}`;
     const cached = SearchDiscoveryService.locationSuggestionsCache.get(cacheKey);
     if (cached && cached.expiresAtMs > Date.now()) {
       return cached.value;
@@ -528,7 +539,10 @@ export class SearchDiscoveryService {
       });
     }
 
-    const indexed = searchPlacesIndexService.search(normalized, limit + 2);
+    const indexed = searchPlacesIndexService.search(normalized, limit + 2, {
+      viewerLat: opts?.viewerLat ?? null,
+      viewerLng: opts?.viewerLng ?? null,
+    });
     for (const place of indexed) {
       rows.push({
         text: `${place.text}, ${place.stateName}`,
@@ -640,11 +654,18 @@ export class SearchDiscoveryService {
     // show ~10 generated mixes for exploration.
     const activity = intent.activity?.canonical ? String(intent.activity.canonical).trim().toLowerCase() : null;
     const locationText = intent.location?.displayText ? String(intent.location.displayText).trim() : "";
+    const locationMixPrefix = locationText
+      ? intent.location?.cityRegionId
+        ? `location_activity_city:${intent.location.cityRegionId}`
+        : intent.location?.stateRegionId
+          ? `location_activity_state:${intent.location.stateRegionId}`
+          : `location_activity_place:${locationText}`
+      : null;
     const related = (intent.activity?.relatedActivities ?? []).map((a) => String(a ?? "").trim().toLowerCase()).filter(Boolean);
     const activityList = activity ? [activity, ...related.filter((r) => r !== activity).slice(0, 9)] : [];
     const collections: Array<Record<string, unknown>> = [];
     for (const a of activityList.slice(0, 10)) {
-      const mixId = locationText ? `location_activity:${locationText}:${a}` : `activity:${a}`;
+      const mixId = locationMixPrefix ? `${locationMixPrefix}:${a}` : `activity:${a}`;
       const title = locationText ? `${a} in ${locationText}` : `${a} near you`;
       const subtitle = locationText ? `Top ${a} posts in ${locationText}` : `Top ${a} posts near you`;
       collections.push({

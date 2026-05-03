@@ -17,6 +17,13 @@ export const entityCacheKeys = {
   userSummary(userId: string): string {
     return `user:${userId}:summary`;
   },
+  /**
+   * Canonical profile header for `/v2/profiles/:id/bootstrap` — **must not** share `userSummary`,
+   * which is also used for lightweight AuthorSummary / chat participant previews.
+   */
+  profileHeaderCanonical(userId: string): string {
+    return `user:${userId}:profileHeader:v1`;
+  },
   /** Raw `users/{id}` document data; separate from `userSummary` to avoid shape collisions. */
   userFirestoreDoc(userId: string): string {
     return `user:${userId}:firestoreDoc`;

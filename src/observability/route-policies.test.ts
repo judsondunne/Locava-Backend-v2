@@ -47,4 +47,10 @@ describe("route policy governance", () => {
     const missing = collectContractRouteNames().filter((routeName) => !getRoutePolicy(routeName));
     expect(missing).toEqual([]);
   });
+
+  it("keeps suggested friends route deferred by default", () => {
+    const policy = getRoutePolicy("social.suggested_friends.get");
+    expect(policy?.priority).toBe("deferred_interactive");
+    expect(policy?.lane).toBe("P3_DEFERRED_SCREEN");
+  });
 });

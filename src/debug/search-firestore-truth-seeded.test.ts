@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../app/createApp.js";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestoreSourceClient } from "../repositories/source-of-truth/firestore-client.js";
 
 type TruthPost = {
   id: string;
@@ -34,7 +34,10 @@ function hasAnyCover(doc: Record<string, unknown>): boolean {
 }
 
 async function loadTruthPosts(): Promise<Map<string, TruthPost>> {
-  const db = getFirestore();
+  const db = getFirestoreSourceClient();
+  if (!db) {
+    throw new Error("truth_harness_requires_firestore_source");
+  }
   const snap = await db.collection("posts").get();
   const out = new Map<string, TruthPost>();
   for (const doc of snap.docs) {

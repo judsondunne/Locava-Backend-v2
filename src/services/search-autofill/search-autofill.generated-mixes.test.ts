@@ -27,7 +27,9 @@ describe("SearchAutofillService generated mixes", () => {
       const mixSpecV1 = (row as any).data?.mixSpecV1;
       expect(mixSpecV1).toBeTruthy();
       expect(String(mixSpecV1.seeds?.primaryActivityId ?? "")).toBe("hiking");
-      expect(String(mixSpecV1.v2MixId ?? "")).toMatch(/^(activity:|location_activity:|location_activity_state:|location_activity_city:)/);
+      expect(String(mixSpecV1.v2MixId ?? "")).toMatch(
+        /^(activity:|location_activity_state:|location_activity_city:|location_activity_place:)/
+      );
     }
   });
 });

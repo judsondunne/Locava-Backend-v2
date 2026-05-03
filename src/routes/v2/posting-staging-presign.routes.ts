@@ -123,6 +123,7 @@ export async function registerV2PostingStagingPresignRoutes(app: FastifyInstance
           index: it.index,
           assetType: it.assetType,
           ...(it.destinationKey ? { destinationKey: it.destinationKey } : {}),
+          ...(it.clientStagingKey?.trim() ? { clientStagingKey: it.clientStagingKey.trim() } : {})
         })),
         body.sessionId,
       );
@@ -135,7 +136,11 @@ export async function registerV2PostingStagingPresignRoutes(app: FastifyInstance
         cfg,
         body.sessionId,
         signed.urls,
-        toPresign.map((it) => ({ index: it.index, assetType: it.assetType })),
+        toPresign.map((it) => ({
+          index: it.index,
+          assetType: it.assetType,
+          ...(it.clientStagingKey?.trim() ? { clientStagingKey: it.clientStagingKey.trim() } : {})
+        })),
       );
       for (const row of signedUrls) {
         urlsByIndex.set(row.index, {

@@ -1,4 +1,4 @@
-import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { LegacyGroupsFirestoreAdapter } from "../source-of-truth/legacy-groups-firestore.adapter.js";
 
@@ -198,6 +198,24 @@ function defaultGroupAnalytics(data: Record<string, unknown>) {
 export class GroupsRepository {
   constructor(private readonly adapter = new LegacyGroupsFirestoreAdapter()) {}
 
+  private async loadMembershipGroupIds(userId: string): Promise<Set<string>> {
+    const membershipIds = new Set<string>();
+    if (!userId) return membershipIds;
+    try {
+      incrementDbOps("queries", 1);
+      const membersSnap = await this.adapter.membersCollectionGroup().where("userId", "==", userId).get();
+      incrementDbOps("reads", membersSnap.size);
+      for (const doc of membersSnap.docs) {
+        const groupId = doc.ref.parent.parent?.id ?? "";
+        if (groupId) membershipIds.add(groupId);
+      }
+      return membershipIds;
+    } catch {
+      // Do not fail groups surfaces when collection-group indexes are missing in an environment.
+      return membershipIds;
+    }
+  }
+
   private async loadUserSummary(userId: string): Promise<UserSummary> {
     const ref = this.adapter.user(userId);
     incrementDbOps("queries", 1);
@@ -242,14 +260,7 @@ export class GroupsRepository {
   async listMembershipsForProfile(userId: string): Promise<GroupMembershipSummary[]> {
     if (!userId) return [];
     const primary = await this.loadViewerPrimaryGroup(userId);
-    const membershipIds = new Set<string>();
-    incrementDbOps("queries", 1);
-    const membersSnap = await this.adapter.membersCollectionGroup().where(FieldPath.documentId(), "==", userId).get();
-    incrementDbOps("reads", membersSnap.size);
-    for (const doc of membersSnap.docs) {
-      const groupId = doc.ref.parent.parent?.id ?? "";
-      if (groupId) membershipIds.add(groupId);
-    }
+    const membershipIds = await this.loadMembershipGroupIds(userId);
     if (primary?.groupId) membershipIds.add(primary.groupId);
     const ids = [...membershipIds].slice(0, 24);
     if (ids.length === 0) return [];
@@ -279,14 +290,7 @@ export class GroupsRepository {
   async listForViewer(viewerId: string, limit: number, query?: string): Promise<GroupDirectoryRow[]> {
     const safeLimit = Math.max(1, Math.min(80, limit));
     const normalizedQuery = typeof query === "string" ? query.trim().toLowerCase() : "";
-    const membershipIds = new Set<string>();
-    incrementDbOps("queries", 1);
-    const membersSnap = await this.adapter.membersCollectionGroup().where(FieldPath.documentId(), "==", viewerId).get();
-    incrementDbOps("reads", membersSnap.size);
-    for (const doc of membersSnap.docs) {
-      const groupId = doc.ref.parent.parent?.id ?? "";
-      if (groupId) membershipIds.add(groupId);
-    }
+    const membershipIds = await this.loadMembershipGroupIds(viewerId);
     const primary = await this.loadViewerPrimaryGroup(viewerId);
     if (primary?.groupId) membershipIds.add(primary.groupId);
 

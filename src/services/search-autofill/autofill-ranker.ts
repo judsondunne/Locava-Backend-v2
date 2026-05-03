@@ -14,6 +14,8 @@ export type RankerContext = {
   cityName?: string | null;
   stateName?: string | null;
   prefixStem?: string | null;
+  /** Boost plain town/state rows when typing looks like "City State" rather than activity templates. */
+  preferNamedPlaces?: boolean;
 };
 
 const NEAR_ME_PATTERNS = /near me|nearby|near you/i;
@@ -88,6 +90,13 @@ function scoreOne(s: RankableSuggestion, ctx: RankerContext): number {
   const stem = ctx.prefixStem;
   if (stem === "places_to" && text.toLowerCase().includes("places to")) score += 1.5;
   if (stem === "hikes" && /hike|hiking|trail/.test(text.toLowerCase())) score += 1.2;
+
+  if (ctx.preferNamedPlaces && (s.type === "town" || s.type === "state")) {
+    score += 16;
+  }
+  if (ctx.preferNamedPlaces && (s.type === "activity" || s.type === "mix")) {
+    score -= 10;
+  }
 
   return score;
 }

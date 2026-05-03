@@ -1,6 +1,11 @@
 import { FieldPath, Timestamp } from "firebase-admin/firestore";
 import { entityCacheKeys, getOrSetEntityCache } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
+import {
+  isCompleteProfileHeaderEntityCache,
+  toPublicProfileHeader,
+  withProfileHeaderCacheMetadata,
+} from "../../domains/profile/profile-header-cache.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { mapPostDocToGridPreview, readMaybeMillis, readOrderMillisFromSnapshot } from "./post-firestore-projection.js";
 import type { UserDiscoveryRow } from "../../contracts/entities/user-discovery-entities.contract.js";
@@ -228,13 +233,17 @@ export class ProfileFirestoreAdapter {
 
   async getProfileHeader(userId: string): Promise<{ data: FirestoreProfileHeader; queryCount: number; readCount: number }> {
     if (!this.db) throw new Error("firestore_source_unavailable");
-    const cachedSummary = await globalCache.get<FirestoreProfileHeader>(entityCacheKeys.userSummary(userId));
-    if (cachedSummary !== undefined) {
+    const canonicalKey = entityCacheKeys.profileHeaderCanonical(userId);
+    const cachedSummary = await globalCache.get<unknown>(canonicalKey);
+    if (isCompleteProfileHeaderEntityCache(cachedSummary)) {
       return {
-        data: cachedSummary,
+        data: toPublicProfileHeader(cachedSummary),
         queryCount: 0,
         readCount: 0,
       };
+    }
+    if (cachedSummary !== undefined) {
+      void globalCache.del(canonicalKey).catch(() => undefined);
     }
     const cachedData = await globalCache.get<ProfileUserDoc>(entityCacheKeys.userFirestoreDoc(userId));
     let baseQueryCount = 0;
@@ -302,7 +311,9 @@ export class ProfileFirestoreAdapter {
         following: followCounts.followingCount
       }
     };
-    void globalCache.set(entityCacheKeys.userSummary(userId), summary, 30_000).catch(() => undefined);
+    void globalCache
+      .set(canonicalKey, withProfileHeaderCacheMetadata(summary), 30_000)
+      .catch(() => undefined);
     return {
       data: summary,
       queryCount: baseQueryCount + followCounts.queryCount + postCount.queryCount,
@@ -357,7 +368,14 @@ export class ProfileFirestoreAdapter {
       followers?: unknown[];
       following?: unknown[];
     }
-  ): Promise<{ followersCount: number; followingCount: number; source: string; queryCount: number; readCount: number }> {
+  ): Promise<{
+    followersCount: number;
+    followingCount: number;
+    source: string;
+    queryCount: number;
+    readCount: number;
+    exact: boolean;
+  }> {
     const embeddedFollowersCount = normalizeEmbeddedCount(userDocData.followersCount ?? userDocData.followerCount);
     const embeddedFollowingCount = normalizeEmbeddedCount(userDocData.followingCount);
     const followersArray = countUniqueGraphArray(userDocData.followers);
@@ -389,7 +407,8 @@ export class ProfileFirestoreAdapter {
         followingCount: Math.max(0, cached.followingCount || 0),
         source: "subcollection_count_agg",
         queryCount: 2,
-        readCount: 0
+        readCount: 0,
+        exact: true
       };
     } catch (err) {
       // Cold-start / transient count-aggregation failures can briefly surface stale embedded counts.
@@ -411,7 +430,8 @@ export class ProfileFirestoreAdapter {
           followingCount: resolvedFollowing,
           source: "subcollection_count_agg_retry",
           queryCount: 2,
-          readCount: 0
+          readCount: 0,
+          exact: true
         };
       } catch {
         // Fall through to embedded/arrays fallback.
@@ -424,7 +444,8 @@ export class ProfileFirestoreAdapter {
           followingCount: embeddedFollowingCount ?? followingArray ?? 0,
           source: hasEmbedded && hasArrays ? "embedded_counts_arrays" : hasEmbedded ? "embedded_counts" : "arrays",
           queryCount: 0,
-          readCount: 0
+          readCount: 0,
+          exact: false
         };
       }
       return {
@@ -432,9 +453,33 @@ export class ProfileFirestoreAdapter {
         followingCount: 0,
         source: "staged_missing_counts",
         queryCount: 0,
-        readCount: 0
+        readCount: 0,
+        exact: false
       };
     }
+  }
+
+  /**
+   * Canonical follower/following totals aligned with `/v2/profiles/:id/followers` and `/following`
+   * (`users/{id}/followers` + `users/{id}/following` subcollection count aggregation when available).
+   */
+  async getProfileSocialCounts(
+    userId: string,
+    userDocForFallback: {
+      followerCount?: unknown;
+      followersCount?: unknown;
+      followingCount?: unknown;
+      followers?: unknown[];
+      following?: unknown[];
+    }
+  ): Promise<{ followerCount: number; followingCount: number; source: string; exact: boolean }> {
+    const r = await this.getFollowCounts(userId, userDocForFallback);
+    return {
+      followerCount: r.followersCount,
+      followingCount: r.followingCount,
+      source: r.source,
+      exact: r.exact,
+    };
   }
 
   private async countPostsByUser(

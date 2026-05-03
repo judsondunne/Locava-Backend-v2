@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { entityCacheKeys } from "../../cache/entity-cache.js";
+import { globalCache } from "../../cache/global-cache.js";
+import { clearProcessLocalCacheForTests } from "../../runtime/coherence-provider.js";
 import { ProfileFirestoreAdapter, resolveProfilePicture } from "./profile-firestore.adapter.js";
 
 function makeUserDoc(data: Record<string, unknown>) {
@@ -92,6 +95,10 @@ function makeDb(opts: {
     }
   };
 }
+
+afterEach(async () => {
+  await clearProcessLocalCacheForTests();
+});
 
 describe("profile firestore adapter follow counts", () => {
   it("selects the first non-empty profile picture field deterministically", () => {
@@ -224,6 +231,28 @@ describe("profile firestore adapter follow counts", () => {
     expect(header.data.counts.following).toBe(7);
   });
 
+  it("getProfileSocialCounts matches subcollection aggregates when denormalized fields are zero", async () => {
+    const db = makeDb({
+      userData: {
+        handle: "user_1",
+        name: "User One",
+        followersCount: 0,
+        followingCount: 0,
+      },
+      followersCount: 0,
+      followingCount: 1,
+    });
+    const adapter = new ProfileFirestoreAdapter(db as never);
+    const counts = await adapter.getProfileSocialCounts("u-social-parity", {
+      followersCount: 0,
+      followingCount: 0,
+    });
+    expect(counts.followingCount).toBe(1);
+    expect(counts.followerCount).toBe(0);
+    expect(counts.exact).toBe(true);
+    expect(counts.source).toBe("subcollection_count_agg");
+  });
+
   it("returns zero for empty graph", async () => {
     const db = makeDb({
       userData: {
@@ -237,5 +266,34 @@ describe("profile firestore adapter follow counts", () => {
     const header = await adapter.getProfileHeader("u-empty");
     expect(header.data.counts.followers).toBe(0);
     expect(header.data.counts.following).toBe(0);
+  });
+
+  it("does not treat legacy userSummary chat preview cache as a canonical profile header", async () => {
+    await globalCache.set(
+      entityCacheKeys.userSummary("u-chat-poison"),
+      {
+        userId: "u-chat-poison",
+        handle: "from_chat",
+        name: "Chat Preview",
+        pic: "https://cdn.example.com/chat-only.jpg",
+      },
+      25_000
+    );
+    const db = makeDb({
+      userData: {
+        handle: "real_handle",
+        name: "Real Name",
+        profilePic: "https://cdn.example.com/real.jpg",
+      },
+      followersCount: 9,
+      followingCount: 4,
+      postsCount: 14,
+    });
+    const adapter = new ProfileFirestoreAdapter(db as never);
+    const header = await adapter.getProfileHeader("u-chat-poison");
+    expect(header.data.counts.followers).toBe(9);
+    expect(header.data.counts.following).toBe(4);
+    expect(header.data.counts.posts).toBe(14);
+    expect(header.data.profilePic).toContain("real.jpg");
   });
 });

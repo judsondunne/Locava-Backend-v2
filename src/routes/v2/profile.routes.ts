@@ -48,7 +48,16 @@ import { ProfileService } from "../../services/surfaces/profile.service.js";
 
 function logProfileRoute(
   request: { log: { info: (payload: Record<string, unknown>, message: string) => void } },
-  input: { routeName: string; profileUserId: string; viewerId: string; counts?: Partial<Record<"grid" | "collections" | "achievements", number>> }
+  input: {
+    routeName: string;
+    profileUserId: string;
+    viewerId: string;
+    counts?: Partial<Record<"grid" | "collections" | "achievements" | "followers" | "following", number>>;
+    socialCountsDiagnostics?: Record<string, unknown>;
+    headerCounts?: { followers: number; following: number; posts: number };
+    headerMedia?: { hasProfilePic: boolean; profilePicSource?: string | null };
+    profileHeaderRepair?: Record<string, unknown>;
+  }
 ): void {
   const ctx = getRequestContext();
   request.log.info(
@@ -62,6 +71,12 @@ function logProfileRoute(
       cacheHits: ctx?.cache.hits ?? 0,
       cacheMisses: ctx?.cache.misses ?? 0,
       counts: input.counts ?? {},
+      headerCounts: input.headerCounts,
+      headerMedia: input.headerMedia,
+      ...(input.profileHeaderRepair ? { profileHeaderRepair: input.profileHeaderRepair } : {}),
+      ...(process.env.NODE_ENV !== "production" && input.socialCountsDiagnostics
+        ? { socialCountsDiagnostics: input.socialCountsDiagnostics }
+        : {}),
       fallbacks: ctx?.fallbacks ?? [],
     },
     "profile route completed"
@@ -104,7 +119,18 @@ export async function registerV2ProfileRoutes(app: FastifyInstance): Promise<voi
         grid: payload.firstRender.gridPreview.items.length,
         collections: payload.firstRender.collectionsPreview.items.length,
         achievements: payload.firstRender.achievementsPreview.items.length,
-      }
+      },
+      headerCounts: {
+        followers: payload.firstRender.counts.followers,
+        following: payload.firstRender.counts.following,
+        posts: payload.firstRender.counts.posts,
+      },
+      headerMedia: {
+        hasProfilePic: Boolean(payload.summary.profilePic),
+        profilePicSource: payload.debug?.profilePicSource ?? null,
+      },
+      profileHeaderRepair: payload.debug?.profileHeaderRepair,
+      socialCountsDiagnostics: payload.debug?.socialCountsDiagnostics,
     });
 
     return success(payload);

@@ -18,7 +18,8 @@ import {
   enterLowPriorityStartupGateIfNeeded,
   releaseLowPriorityStartupGate
 } from "../runtime/low-priority-request-gate.js";
-import { logStartupTimeline } from "../runtime/server-boot.js";
+import { logStartupTimeline, startupGraceMs } from "../runtime/server-boot.js";
+import { searchPlacesIndexService } from "../services/surfaces/search-places-index.service.js";
 import { attachErrorBufferToLogger } from "../observability/error-ring-buffer.js";
 import { cacheMetricsCollector } from "../observability/cache-metrics.collector.js";
 import { registerAdminRoutes } from "../routes/admin.routes.js";
@@ -28,6 +29,7 @@ import { registerSystemRoutes } from "../routes/system.routes.js";
 import { registerTestRoutes } from "../routes/test.routes.js";
 import { registerV2AuthBootstrapRoutes } from "../routes/v2/auth-bootstrap.routes.js";
 import { registerV2AuthMutationRoutes } from "../routes/v2/auth-mutations.routes.js";
+import { registerV2AuthPushTokenRoutes } from "../routes/v2/auth-push-token.routes.js";
 import { registerProfilePictureUploadRoutes } from "../routes/v2/profile-picture-upload.routes.js";
 import { registerV2FeedBootstrapRoutes } from "../routes/v2/feed-bootstrap.routes.js";
 import { registerV2FeedForYouRoutes } from "../routes/v2/feed-for-you.routes.js";
@@ -51,6 +53,7 @@ import { registerV2UserFollowRoutes } from "../routes/v2/user-follow.routes.js";
 import { registerV2PostUnlikeRoutes } from "../routes/v2/post-unlike.routes.js";
 import { registerV2UserUnfollowRoutes } from "../routes/v2/user-unfollow.routes.js";
 import { registerV2PostDeleteRoutes } from "../routes/v2/post-delete.routes.js";
+import { registerV2PostsPublishRoutes } from "../routes/v2/posts-publish.routes.js";
 import { registerV2PostingStagingPresignRoutes } from "../routes/v2/posting-staging-presign.routes.js";
 import { registerV2PostingUploadSessionRoutes } from "../routes/v2/posting-upload-session.routes.js";
 import { registerV2PostingFinalizeRoutes } from "../routes/v2/posting-finalize.routes.js";
@@ -96,8 +99,10 @@ import { registerLegacyMonolithAuthProxyRoutes } from "../routes/compat/legacy-m
 import { registerLegacyMonolithUploadProxyRoutes } from "../routes/compat/legacy-monolith-upload-proxy.routes.js";
 import { registerLegacyMonolithNotificationsProxyRoutes } from "../routes/compat/legacy-monolith-notifications-proxy.routes.js";
 import { registerLegacyReelsNearMeRoutes } from "../routes/compat/legacy-reels-near-me.routes.js";
+import { registerVideoProcessorRoutes } from "../routes/compat/video-processor.routes.js";
 import { registerLegacyProductUploadRoutes } from "../routes/compat/legacy-product-upload.routes.js";
 import { registerLegacyBootstrapCompatRoutes } from "../routes/compat/legacy-bootstrap.routes.js";
+import { registerNativeEssentialCompatRoutes } from "../routes/compat/native-essential-compat.routes.js";
 import { registerCompatQrCodeRoutes } from "../routes/compat/qr-code.routes.js";
 import { registerV2CollectionsSavedRoutes } from "../routes/v2/collections-saved.routes.js";
 import { registerV2CollectionsRoutes } from "../routes/v2/collections-v2.routes.js";
@@ -486,6 +491,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerTestRoutes);
   app.register(registerV2AuthBootstrapRoutes);
   app.register(registerV2AuthMutationRoutes);
+  app.register(registerV2AuthPushTokenRoutes);
   app.register(registerV2AnalyticsEventsRoutes);
   app.register(async (instance) => {
     await registerProfilePictureUploadRoutes(instance, env);
@@ -510,6 +516,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2PostLikesRoutes);
   app.register(registerV2PostUnlikeRoutes);
   app.register(registerV2PostDeleteRoutes);
+  app.register(registerV2PostsPublishRoutes);
   app.register(registerV2UserFollowRoutes);
   app.register(registerV2UserUnfollowRoutes);
   app.register(registerV2PostingUploadSessionRoutes);
@@ -553,6 +560,8 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2InvitesRoutes);
   app.register(registerLaunchCompatRoutes);
   app.register(registerNativeProductShimRoutes);
+  app.register(registerNativeEssentialCompatRoutes);
+  app.register(registerCompatQrCodeRoutes);
   if (env.ENABLE_LEGACY_COMPAT_ROUTES) {
     app.register(async (instance) => {
       await registerLegacyProductUploadRoutes(instance, env);
@@ -567,7 +576,6 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       await registerLegacyApiStubRoutes(instance, env);
     });
     app.register(registerLegacyBootstrapCompatRoutes);
-    app.register(registerCompatQrCodeRoutes);
   }
   app.register(registerV2CollectionsSavedRoutes);
   app.register(registerV2CollectionsRoutes);
@@ -598,6 +606,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2SocialContactsSyncRoutes);
   app.register(registerV2UsersSuggestedRoutes);
   app.register(registerLegacyReelsNearMeRoutes);
+  app.register(registerVideoProcessorRoutes);
   app.register(registerInternalOpsRoutes);
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerAdminRoutes);
@@ -652,6 +661,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       });
     }
     logStartupTimeline("server_on_ready_complete", { nodeEnv: env.NODE_ENV });
+
+    // Warm GeoNames places index in the background so first /v2/search/suggest hits are not seeds-only.
+    searchPlacesIndexService.scheduleDeferredIdleLoad(Math.min(Math.max(startupGraceMs() + 500, 2000), 25_000));
   });
 
   return app;

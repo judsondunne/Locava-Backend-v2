@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+  process.env.FIRESTORE_TEST_MODE ??= "disabled";
+});
+
 import { createApp } from "../../app/createApp.js";
+import { searchPlacesIndexService } from "../../services/surfaces/search-places-index.service.js";
 
 describe("v2 search discovery routes", () => {
   const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -7,6 +13,8 @@ describe("v2 search discovery routes", () => {
     "x-viewer-id": "internal-viewer",
     "x-viewer-roles": "internal",
   };
+
+  const eastonPa = { lat: 40.68843, lng: -75.22073 };
 
   it("returns fast activity suggestions for partial queries", async () => {
     const res = await app.inject({
@@ -72,6 +80,34 @@ describe("v2 search discovery routes", () => {
     expect(texts.some((text) => text.includes("burlington, vermont"))).toBe(true);
     expect(texts.some((text) => text.includes("burlington county, new jersey"))).toBe(false);
   });
+
+  it(
+    "includes Hartland, Vermont near the top for city + state partials (places index + ranking)",
+    async () => {
+      await searchPlacesIndexService.ensureLoading();
+      expect(searchPlacesIndexService.isLoaded()).toBe(true);
+
+      const queries = ["hartland", "hartland ver", "hartland verm", "hartland vermont"];
+      for (const q of queries) {
+        const res = await app.inject({
+          method: "GET",
+          url: `/v2/search/suggest?q=${encodeURIComponent(q)}&lat=${eastonPa.lat}&lng=${eastonPa.lng}`,
+          headers,
+        });
+        expect(res.statusCode).toBe(200);
+        const body = res.json();
+        const diag = body.data.suggestDiagnostics as Record<string, unknown> | undefined;
+        expect(diag?.placesIndexLoaded === true || diag?.placesIndexAwaitedMs != null).toBe(true);
+        const texts = (body.data.suggestions as Array<{ text?: string; type?: string }>).map((row) =>
+          String(row.text ?? "").toLowerCase(),
+        );
+        const idx = texts.findIndex((t) => t.includes("hartland") && t.includes("vermont"));
+        expect(idx).toBeGreaterThanOrEqual(0);
+        expect(idx).toBeLessThan(6);
+      }
+    },
+    120_000,
+  );
 
   it("returns real bootstrap posts plus parsed summary for committed queries", async () => {
     const res = await app.inject({

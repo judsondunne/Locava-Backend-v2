@@ -184,6 +184,24 @@ function throttledSourceWarn(source: string, payload: Record<string, unknown>): 
   console.warn("[suggested-friends] source query failed (summarized)", { source, ...payload });
 }
 
+function extractFirestoreIndexUrl(message: string): string | null {
+  const match = message.match(/https:\/\/console\.firebase\.google\.com\/[^\s)]+/i);
+  return match?.[0] ?? null;
+}
+
+function summarizeFirestoreError(error: unknown): {
+  errorCode: "FAILED_PRECONDITION" | "unknown";
+  errorMessage: string;
+  indexUrl: string | null;
+} {
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  return {
+    errorCode: isFailedPreconditionError(error) ? "FAILED_PRECONDITION" : "unknown",
+    errorMessage,
+    indexUrl: extractFirestoreIndexUrl(errorMessage),
+  };
+}
+
 function snapshotDbOps(): { reads: number; queries: number } {
   const ctx = getRequestContext();
   return { reads: ctx?.dbOps.reads ?? 0, queries: ctx?.dbOps.queries ?? 0 };
@@ -690,7 +708,7 @@ export class SuggestedFriendsRepository {
     const includeMutuals = options.includeMutuals ?? true;
     const includePopular = options.includePopular ?? true;
     const includeNearby = options.includeNearby ?? false;
-    const includeGroups = options.includeGroups ?? true;
+    const includeGroups = options.includeGroups ?? false;
     const includeReferral = options.includeReferral ?? true;
     const includeAllUsersFallback = options.includeAllUsersFallback ?? true;
     const excludeFollowing = options.excludeAlreadyFollowing ?? true;
@@ -703,9 +721,17 @@ export class SuggestedFriendsRepository {
     const out = new Map<string, UserSuggestionSummary>();
     const sourceDiagnostics: SuggestedFriendsSourceDiagnostic[] = [];
     const warnSourceFailure = (source: string, error: unknown): void => {
-      const message = error instanceof Error ? error.message : String(error);
-      const code = isFailedPreconditionError(error) ? "FAILED_PRECONDITION" : "unknown";
-      throttledSourceWarn(source, { errorCode: code, surface });
+      const summary = summarizeFirestoreError(error);
+      throttledSourceWarn(source, {
+        errorCode: summary.errorCode,
+        surface,
+        ...(process.env.NODE_ENV === "production"
+          ? {}
+          : {
+              errorMessage: summary.errorMessage,
+              firestoreIndexUrl: summary.indexUrl,
+            }),
+      });
     };
     const add = (items: UserSuggestionSummary[]) => {
       for (const user of items) {
@@ -748,7 +774,7 @@ export class SuggestedFriendsRepository {
           refReturned = rows.length;
           add(rows);
         } catch (error) {
-          refErr = isFailedPreconditionError(error) ? "FAILED_PRECONDITION" : "error";
+          refErr = summarizeFirestoreError(error).errorCode;
           warnSourceFailure("referral", error);
         }
       }
@@ -959,10 +985,11 @@ export class SuggestedFriendsRepository {
             add(rows);
           }
         } catch (error) {
-          if (isFailedPreconditionError(error)) {
+          const summary = summarizeFirestoreError(error);
+          if (summary.errorCode === "FAILED_PRECONDITION") {
             groupsCollectionGroupDisabledUntilMs = Date.now() + GROUPS_SOURCE_COOLDOWN_MS;
           }
-          groupsErr = isFailedPreconditionError(error) ? "FAILED_PRECONDITION" : "error";
+          groupsErr = summary.errorCode;
           warnSourceFailure("groups", error);
         }
       }
@@ -1099,6 +1126,21 @@ export class SuggestedFriendsRepository {
         return (b.score ?? 0) - (a.score ?? 0) || a.userId.localeCompare(b.userId);
       })
       .slice(0, safeLimit);
+    if (users.length === 0) {
+      const failedSources = sourceDiagnostics.filter((row) => Boolean(row.errorKind));
+      if (failedSources.length > 0) {
+        sourceDiagnostics.push({
+          sourceName: "aggregate",
+          enabled: true,
+          skipped: false,
+          errorKind: "all_sources_failed",
+          readCount: failedSources.reduce((sum, row) => sum + row.readCount, 0),
+          queryCount: failedSources.reduce((sum, row) => sum + row.queryCount, 0),
+          latencyMs: failedSources.reduce((sum, row) => sum + row.latencyMs, 0),
+          returnedCount: 0,
+        });
+      }
+    }
     const sourceBreakdown: Record<string, number> = {};
     users.forEach((user) => {
       sourceBreakdown[user.reason] = (sourceBreakdown[user.reason] ?? 0) + 1;

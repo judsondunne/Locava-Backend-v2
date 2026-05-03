@@ -413,6 +413,7 @@ async function buildCollectionPostsPage(input: {
   collectionId: string;
   cursor: string | null;
   limit: number;
+  preloadedCollection?: FirestoreCollectionRecord | null;
 }) {
   const page = await collectionsAdapter.listCollectionPostIds(input);
   const requestedPostIds = page.items.map((edge) => edge.postId);
@@ -717,7 +718,8 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
       },
       {
         fresh: true,
-        rebuildCollaboratorInfo: true,
+        // Read path: trust persisted collaboratorInfo; avoid N+1 user reads on every open.
+        rebuildCollaboratorInfo: false,
       }
     );
     if (!item) return reply.status(404).send(failure("collection_not_found", "Collection not found"));
@@ -727,12 +729,13 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
         collectionId: params.collectionId,
         cursor: null,
         limit: 12,
+        preloadedCollection: item,
       }),
       buildCollectionRecommendedPage({
         viewerId: viewer.viewerId,
         collection: item,
         cursor: null,
-        limit: 10,
+        limit: 6,
       }),
     ]);
     const detailDebug =
@@ -771,7 +774,7 @@ export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise
       },
       {
         fresh: true,
-        rebuildCollaboratorInfo: true,
+        rebuildCollaboratorInfo: false,
       }
     );
     if (!collection) return reply.status(404).send(failure("collection_not_found", "Collection not found"));

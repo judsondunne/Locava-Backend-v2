@@ -334,7 +334,11 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
     setRouteName("search.suggest.get");
     const q = String(query.q ?? "").trim().toLowerCase();
     if (!q) return success({ routeName: "search.suggest.get", suggestions: [], detectedActivity: null, relatedActivities: [] });
-    const cacheKey = `v2_suggest:${q}`;
+    const geoKey =
+      Number.isFinite(query.lat) && Number.isFinite(query.lng)
+        ? `${Math.round(Number(query.lat) * 100) / 100}:${Math.round(Number(query.lng) * 100) / 100}`
+        : "no_geo";
+    const cacheKey = `v2_suggest:${q}:${geoKey}`;
     const cached = suggestCache.get(cacheKey);
     if (cached && cached.expiresAtMs > Date.now()) {
       return success(cached.payload);

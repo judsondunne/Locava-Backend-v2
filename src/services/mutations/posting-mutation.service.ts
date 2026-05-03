@@ -886,7 +886,8 @@ export class PostingMutationService {
           storageCfg,
           canonicalSessionId,
           item.index,
-          assetType
+          assetType,
+          mediaRow?.clientMediaKey ?? null
         );
         return {
           index: item.index,

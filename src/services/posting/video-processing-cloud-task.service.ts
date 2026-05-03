@@ -49,14 +49,19 @@ export async function enqueueVideoProcessingCloudTask(input: {
   try {
     const client = new CloudTasksClient({ projectId });
     const parent = client.queuePath(projectId, location, queueName);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json"
+    };
+    const taskSecret = process.env.VIDEO_PROCESSOR_TASK_SECRET?.trim();
+    if (taskSecret) {
+      headers["x-locava-video-processor-secret"] = taskSecret;
+    }
     const task = {
       dispatchDeadline: { seconds: 1800 },
       httpRequest: {
         httpMethod: "POST" as const,
         url: functionUrl,
-        headers: {
-          "Content-Type": "application/json"
-        },
+        headers,
         body: Buffer.from(JSON.stringify(taskPayload)).toString("base64")
       }
     };
@@ -87,9 +92,14 @@ export async function triggerVideoProcessingSynchronously(input: {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    const taskSecret = process.env.VIDEO_PROCESSOR_TASK_SECRET?.trim();
+    if (taskSecret) {
+      headers["x-locava-video-processor-secret"] = taskSecret;
+    }
     const response = await fetch(url, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify({
         postId: input.postId,
         userId: input.userId,

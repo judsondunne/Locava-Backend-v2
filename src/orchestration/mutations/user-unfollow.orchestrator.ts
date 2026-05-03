@@ -1,6 +1,5 @@
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
-import { globalCache } from "../../cache/global-cache.js";
-import { buildCacheKey } from "../../cache/types.js";
+import { evictCachesAfterFollowGraphMutation } from "../../cache/profile-follow-graph-cache.js";
 import { recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
 import type { UserMutationService } from "../../services/mutations/user-mutation.service.js";
 
@@ -17,11 +16,7 @@ export class UserUnfollowOrchestrator {
     }
 
     // Evict relationship/bootstrap caches immediately to avoid stale UI state after unfollow.
-    const relationshipKey = buildCacheKey("entity", ["profile-relationship-v1", viewerId, userId]);
-    const bootstrapKeys = [6, 12, 18].map((previewLimit) =>
-      buildCacheKey("bootstrap", ["profile-bootstrap-v1", viewerId, userId, String(previewLimit)])
-    );
-    await Promise.all([globalCache.del(relationshipKey), ...bootstrapKeys.map((key) => globalCache.del(key))]);
+    await evictCachesAfterFollowGraphMutation(viewerId, userId);
 
     const invalidation =
       mutation.changed && process.env.VITEST === "true"
@@ -40,12 +35,12 @@ export class UserUnfollowOrchestrator {
                 "profile.relationship",
                 "route.profile_bootstrap"
               ],
-              invalidatedKeys: [relationshipKey, ...bootstrapKeys]
+              invalidatedKeys: []
             }
           : {
               mutationType: "user.unfollow" as const,
               invalidationTypes: ["no_op_idempotent", "profile.relationship", "route.profile_bootstrap"],
-              invalidatedKeys: [relationshipKey, ...bootstrapKeys]
+              invalidatedKeys: []
             };
     if (mutation.changed && process.env.VITEST !== "true") {
       void invalidateEntitiesForMutation({

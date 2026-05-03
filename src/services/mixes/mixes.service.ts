@@ -37,9 +37,15 @@ function collectActivityTokens(raw: unknown, out: string[], max = MAX_TRUSTED_AC
   if (out.length >= max) return;
   if (Array.isArray(raw)) {
     for (const v of raw) {
-      const s = normalizeText(v);
-      if (!s) continue;
-      out.push(normalizeActivityToken(s));
+      if (v && typeof v === "object") {
+        const obj = v as Record<string, unknown>;
+        const fromObject = normalizeText(obj.id) ?? normalizeText(obj.name) ?? normalizeText(obj.label);
+        if (fromObject) out.push(normalizeActivityToken(fromObject));
+      } else {
+        const s = normalizeText(v);
+        if (!s) continue;
+        out.push(normalizeActivityToken(s));
+      }
       if (out.length >= max) break;
     }
     return;
@@ -52,8 +58,14 @@ function postActivityTokens(row: MixSourcePost): string[] {
   const bucket: string[] = [];
   // Prefer explicit user-picked fields first; legacy `activities` can be polluted with huge taxonomy blobs.
   collectActivityTokens(row.activity, bucket);
+  collectActivityTokens(row.primaryActivity, bucket);
+  collectActivityTokens(row.activityId, bucket);
+  collectActivityTokens(row.activityIds, bucket);
   collectActivityTokens(row.selectedActivities, bucket);
   collectActivityTokens(row.activityTypes, bucket);
+  collectActivityTokens(row.tags, bucket);
+  collectActivityTokens(row.category, bucket);
+  collectActivityTokens(row.categories, bucket);
 
   const activities = Array.isArray(row.activities) ? row.activities : [];
   const activitiesLooksPolluted = activities.length > SUSPICIOUS_ACTIVITY_TAGS;
@@ -422,7 +434,8 @@ export class MixesService {
     } = await this.repo.listFromPoolWithWarmWait({ timeoutMs: MIX_PREVIEW_WARM_WAIT_MS });
     let activityFallbackUsed = false;
     let workingPool = pool;
-    let filtered = this.filterRows(pool, filter);
+    let filteredStats = this.filterRowsWithStats(pool, filter);
+    let filtered = filteredStats.rows;
     const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
     if (filtered.length === 0 && normalizedActivity) {
       try {
@@ -436,7 +449,8 @@ export class MixesService {
           const asMix = fb.items as unknown as MixSourcePost[];
           const seen = new Set(pool.map((r) => String(r.postId)));
           workingPool = [...pool, ...asMix.filter((r) => !seen.has(String(r.postId)))];
-          filtered = this.filterRows(workingPool, filter);
+          filteredStats = this.filterRowsWithStats(workingPool, filter);
+          filtered = filteredStats.rows;
         }
       } catch {
         // Bounded fallback is best-effort; empty remains truthful.
@@ -453,6 +467,9 @@ export class MixesService {
           locationIntent: locationIntentFor(filter),
           requestedRadiusKm: requestedRadiusKm ?? filter.radiusKm,
           effectiveRadiusKm: filter.radiusKm,
+          candidateCountByStage: filteredStats.candidateCountByStage,
+          filteredOutByActivityCount: filteredStats.filteredOutByActivityCount,
+          filteredOutByMissingGeoCount: filteredStats.filteredOutByMissingGeoCount,
           radiusClamped: radiusClamped || undefined,
           droppedForMissingMediaCount,
           sourcePoolState: poolState,
@@ -542,7 +559,8 @@ export class MixesService {
     } = await this.repo.listFromPoolWithWarmWait({ timeoutMs: MIX_PREVIEW_WARM_WAIT_MS });
     let activityFallbackUsed = false;
     let workingPool = pool;
-    let filtered = this.filterRows(pool, filter);
+    let filteredStats = this.filterRowsWithStats(pool, filter);
+    let filtered = filteredStats.rows;
     const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
     if (filtered.length === 0 && normalizedActivity) {
       try {
@@ -556,7 +574,8 @@ export class MixesService {
           const asMix = fb.items as unknown as MixSourcePost[];
           const seen = new Set(pool.map((r) => String(r.postId)));
           workingPool = [...pool, ...asMix.filter((r) => !seen.has(String(r.postId)))];
-          filtered = this.filterRows(workingPool, filter);
+          filteredStats = this.filterRowsWithStats(workingPool, filter);
+          filtered = filteredStats.rows;
         }
       } catch {
         // best-effort
@@ -600,6 +619,9 @@ export class MixesService {
           locationIntent: locationIntentFor(filter),
           requestedRadiusKm: requestedRadiusKm ?? filter.radiusKm,
           effectiveRadiusKm: filter.radiusKm,
+          candidateCountByStage: filteredStats.candidateCountByStage,
+          filteredOutByActivityCount: filteredStats.filteredOutByActivityCount,
+          filteredOutByMissingGeoCount: filteredStats.filteredOutByMissingGeoCount,
           radiusClamped: radiusClamped || undefined,
           droppedForMissingMediaCount: 0,
           nextCursorPresent: Boolean(nextCursor),
@@ -653,37 +675,69 @@ export class MixesService {
   }
 
   private filterRows(rows: MixSourcePost[], filter: MixFilter): MixSourcePost[] {
+    return this.filterRowsWithStats(rows, filter).rows;
+  }
+
+  private filterRowsWithStats(
+    rows: MixSourcePost[],
+    filter: MixFilter
+  ): {
+    rows: MixSourcePost[];
+    candidateCountByStage: { input: number; afterActivity: number; afterLocation: number };
+    filteredOutByActivityCount: number;
+    filteredOutByMissingGeoCount: number;
+  } {
     const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
     const geoSort =
       filter.lat != null && filter.lng != null && filter.radiusKm != null
         ? { lat: filter.lat, lng: filter.lng }
         : null;
-    const filtered = rows.filter((row) => {
-      if (normalizedActivity) {
-        const tokens = postActivityTokens(row);
-        if (!tokens.includes(normalizedActivity)) return false;
+    let filteredOutByActivityCount = 0;
+    let filteredOutByMissingGeoCount = 0;
+    const afterActivity = rows.filter((row) => {
+      if (!normalizedActivity) return true;
+      const tokens = postActivityTokens(row);
+      const matched = tokens.includes(normalizedActivity);
+      if (!matched) filteredOutByActivityCount += 1;
+      return matched;
+    });
+    const filtered = afterActivity.filter((row) => {
+      if (!(filter.lat != null && filter.lng != null && filter.radiusKm != null)) return matchesLocation(row, filter);
+      const coords = postLatLng(row);
+      if (!coords) {
+        filteredOutByMissingGeoCount += 1;
+        return false;
       }
-      if (!matchesLocation(row, filter)) return false;
-      return true;
+      return matchesLocation(row, filter);
     });
     if (geoSort) {
-      return filtered.sort((a, b) => {
-        const ca = postLatLng(a);
-        const cb = postLatLng(b);
-        const da = ca ? computeDistanceKm(geoSort, ca) : Number.POSITIVE_INFINITY;
-        const db = cb ? computeDistanceKm(geoSort, cb) : Number.POSITIVE_INFINITY;
-        if (Math.abs(da - db) > 1e-6) return da - db;
+      return {
+        rows: filtered.sort((a, b) => {
+          const ca = postLatLng(a);
+          const cb = postLatLng(b);
+          const da = ca ? computeDistanceKm(geoSort, ca) : Number.POSITIVE_INFINITY;
+          const db = cb ? computeDistanceKm(geoSort, cb) : Number.POSITIVE_INFINITY;
+          if (Math.abs(da - db) > 1e-6) return da - db;
+          const ta = parsePostTimeMs(a);
+          const tb = parsePostTimeMs(b);
+          if (ta !== tb) return tb - ta;
+          return String(b.postId).localeCompare(String(a.postId));
+        }),
+        candidateCountByStage: { input: rows.length, afterActivity: afterActivity.length, afterLocation: filtered.length },
+        filteredOutByActivityCount,
+        filteredOutByMissingGeoCount,
+      };
+    }
+    return {
+      rows: filtered.sort((a, b) => {
         const ta = parsePostTimeMs(a);
         const tb = parsePostTimeMs(b);
         if (ta !== tb) return tb - ta;
         return String(b.postId).localeCompare(String(a.postId));
-      });
-    }
-    return filtered.sort((a, b) => {
-      const ta = parsePostTimeMs(a);
-      const tb = parsePostTimeMs(b);
-      if (ta !== tb) return tb - ta;
-      return String(b.postId).localeCompare(String(a.postId));
-    });
+      }),
+      candidateCountByStage: { input: rows.length, afterActivity: afterActivity.length, afterLocation: filtered.length },
+      filteredOutByActivityCount,
+      filteredOutByMissingGeoCount,
+    };
   }
 }

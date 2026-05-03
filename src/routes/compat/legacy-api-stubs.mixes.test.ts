@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../../app/createApp.js";
 
 describe("compat legacy mixes stubs", () => {
-  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent", ENABLE_LEGACY_COMPAT_ROUTES: true });
   const headers = {
     "x-viewer-id": "internal-viewer",
     "x-viewer-roles": "internal",

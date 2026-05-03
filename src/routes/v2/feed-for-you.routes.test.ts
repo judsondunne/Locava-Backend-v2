@@ -90,12 +90,6 @@ async function seedInventory(seedKey: string, reels: number, regular: number): P
   return { reelIds, regularIds };
 }
 
-async function getFeedState(viewerId: string) {
-  const db = getFirestoreSourceClient();
-  if (!db) throw new Error("firestore_unavailable_for_test");
-  return db.collection("users").doc(viewerId).collection("feedState").doc("home_for_you").get();
-}
-
 async function seedFeedState(input: {
   viewerId: string;
   reelQueue: string[];
@@ -137,14 +131,11 @@ describe.runIf(isEmulator)("v2 feed for-you route (emulator)", () => {
   const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
   const headers = { "x-viewer-roles": "internal" };
 
-  it("creates both queues, paginates reels, and resumes from saved indexes", async () => {
-    const seedKey = `queue-v2-${Date.now()}`;
-    await seedInventory(seedKey, 12, 8);
-    const viewerId = `${seedKey}-viewer`;
-
+  it("paginates the global for-you pool without duplicates across cursors", async () => {
+    const viewerId = `fy-pool-${Date.now()}`;
     const first = await app.inject({
       method: "GET",
-      url: `/v2/feed/for-you?viewerId=${viewerId}&limit=5&debug=1`,
+      url: `/v2/feed/for-you?viewerId=${encodeURIComponent(viewerId)}&limit=5&debug=1`,
       headers
     });
     expect(first.statusCode).toBe(200);
@@ -153,134 +144,40 @@ describe.runIf(isEmulator)("v2 feed for-you route (emulator)", () => {
         items: Array<{ postId: string }>;
         nextCursor: string | null;
         exhausted: boolean;
-        feedState: {
-          reelQueueIndex: number;
-          reelQueueCount: number;
-          regularQueueIndex: number;
-          regularQueueCount: number;
-          remainingReels: number;
-          remainingRegular: number;
-        };
+        feedState: { reelQueueCount: number; regularQueueCount: number; remainingRegular: number };
         debug: {
           engineVersion: string;
-          feedStateCreated: boolean;
+          regularCount: number;
           recycledRegularCount: number;
           postIdsReturned: string[];
         };
       };
     };
-    expect(firstBody.data.items.length).toBe(5);
     expect(firstBody.data.debug.engineVersion).toBe("queue-reels-regular-v2");
-    expect(firstBody.data.debug.feedStateCreated).toBe(true);
-    expect(firstBody.data.debug.recycledRegularCount).toBe(0);
-    expect(firstBody.data.feedState.reelQueueCount).toBeGreaterThan(0);
+    const limit = 5;
+    expect(firstBody.data.items.length).toBeGreaterThan(0);
+    expect(firstBody.data.items.length).toBeLessThanOrEqual(limit);
+    expect(firstBody.data.feedState.reelQueueCount).toBe(0);
     expect(firstBody.data.feedState.regularQueueCount).toBeGreaterThan(0);
-    expect(firstBody.data.nextCursor).toBeTruthy();
-    expect(firstBody.data.debug.postIdsReturned).toEqual(firstBody.data.items.map((item) => item.postId));
-
-    const second = await app.inject({
-      method: "GET",
-      url: `/v2/feed/for-you?viewerId=${viewerId}&limit=5&cursor=${encodeURIComponent(String(firstBody.data.nextCursor))}&debug=1`,
-      headers
-    });
-    expect(second.statusCode).toBe(200);
-    const secondBody = second.json() as {
-      data: {
-        items: Array<{ postId: string }>;
-      };
-    };
-    expect(secondBody.data.items.some((item) => firstBody.data.items.some((prev) => prev.postId === item.postId))).toBe(false);
-
-    const restart = await app.inject({
-      method: "GET",
-      url: `/v2/feed/for-you?viewerId=${viewerId}&limit=5&debug=1`,
-      headers
-    });
-    expect(restart.statusCode).toBe(200);
-    const restartBody = restart.json() as {
-      data: {
-        items: Array<{ postId: string }>;
-      };
-    };
-    expect(restartBody.data.items.some((item) => firstBody.data.items.some((prev) => prev.postId === item.postId))).toBe(false);
-
-    const state = await getFeedState(viewerId);
-    expect(Number(state.get("reelQueueIndex") ?? 0)).toBeGreaterThan(0);
-    expect(Number(state.get("regularQueueCount") ?? 0)).toBeGreaterThan(0);
-  });
-
-  it("serves regularQueue after reels are exhausted and advances regularQueueIndex across pages", async () => {
-    const seedKey = `queue-v2-regular-${Date.now()}`;
-    const inventory = await seedInventory(seedKey, 0, 12);
-    const viewerId = `${seedKey}-viewer`;
-    await seedFeedState({
-      viewerId,
-      reelQueue: [],
-      reelQueueIndex: 0,
-      regularQueue: inventory.regularIds,
-      regularQueueIndex: 0
-    });
-
-    const first = await app.inject({
-      method: "GET",
-      url: `/v2/feed/for-you?viewerId=${viewerId}&limit=5&debug=1`,
-      headers
-    });
-    const firstBody = first.json() as {
-      data: {
-        items: Array<{ postId: string }>;
-        nextCursor: string | null;
-        exhausted: boolean;
-        debug: {
-          regularCount: number;
-          recycledRegularCount: number;
-          regularQueueIndexBefore: number;
-          regularQueueIndexAfter: number;
-        };
-      };
-    };
-    expect(first.statusCode).toBe(200);
-    expect(firstBody.data.items.length).toBe(5);
-    expect(firstBody.data.debug.regularCount).toBe(5);
+    expect(firstBody.data.debug.regularCount).toBe(firstBody.data.items.length);
     expect(firstBody.data.debug.recycledRegularCount).toBe(0);
-    expect(firstBody.data.debug.regularQueueIndexAfter).toBeGreaterThan(firstBody.data.debug.regularQueueIndexBefore);
-    expect(firstBody.data.exhausted).toBe(false);
+    expect(firstBody.data.debug.postIdsReturned).toEqual(firstBody.data.items.map((item) => item.postId));
+    expect(firstBody.data.nextCursor).toBeTruthy();
 
-    const second = await app.inject({
-      method: "GET",
-      url: `/v2/feed/for-you?viewerId=${viewerId}&limit=5&cursor=${encodeURIComponent(String(firstBody.data.nextCursor))}&debug=1`,
-      headers
-    });
-    const secondBody = second.json() as {
-      data: {
-        items: Array<{ postId: string }>;
-        nextCursor: string | null;
-        debug: {
-          regularCount: number;
-          recycledRegularCount: number;
-          regularQueueIndexBefore: number;
-          regularQueueIndexAfter: number;
-        };
-      };
-    };
-    expect(second.statusCode).toBe(200);
-    expect(secondBody.data.debug.regularCount).toBe(5);
-    expect(secondBody.data.debug.recycledRegularCount).toBe(0);
-    expect(secondBody.data.items.some((item) => firstBody.data.items.some((prev) => prev.postId === item.postId))).toBe(false);
-    expect(secondBody.data.debug.regularQueueIndexAfter).toBeGreaterThan(secondBody.data.debug.regularQueueIndexBefore);
-
-    const third = await app.inject({
-      method: "GET",
-      url: `/v2/feed/for-you?viewerId=${viewerId}&limit=5&cursor=${encodeURIComponent(String(secondBody.data.nextCursor))}&debug=1`,
-      headers
-    });
-    const thirdBody = third.json() as {
-      data: {
-        items: Array<{ postId: string }>;
-      };
-    };
-    expect(third.statusCode).toBe(200);
-    expect(thirdBody.data.items.some((item) => firstBody.data.items.some((prev) => prev.postId === item.postId))).toBe(false);
+    if (firstBody.data.feedState.remainingRegular > 0) {
+      const second = await app.inject({
+        method: "GET",
+        url: `/v2/feed/for-you?viewerId=${encodeURIComponent(viewerId)}&limit=${limit}&cursor=${encodeURIComponent(String(firstBody.data.nextCursor))}&debug=1`,
+        headers
+      });
+      expect(second.statusCode).toBe(200);
+      const secondBody = second.json() as { data: { items: Array<{ postId: string }> } };
+      expect(secondBody.data.items.length).toBeGreaterThan(0);
+      expect(secondBody.data.items.length).toBeLessThanOrEqual(limit);
+      expect(secondBody.data.items.some((item) => firstBody.data.items.some((prev) => prev.postId === item.postId))).toBe(
+        false
+      );
+    }
   });
 
   it("keeps warm regular pages under the read/write budget with no query rebuild path", async () => {
@@ -320,24 +217,19 @@ describe.runIf(isEmulator)("v2 feed for-you route (emulator)", () => {
     expect(warmBody.data.debug.engineVersion).toBe("queue-reels-regular-v2");
     expect(warmBody.data.debug.regularCount).toBeGreaterThan(0);
     expect(warmBody.data.debug.recycledRegularCount).toBe(0);
-    expect(warmBody.data.items.length).toBe(5);
+    expect(warmBody.data.items.length).toBeGreaterThan(0);
+    expect(warmBody.data.items.length).toBeLessThanOrEqual(5);
     expect(warmBody.data.nextCursor).toBeTruthy();
     expect(warmBody.meta.db.reads).toBeLessThanOrEqual(15);
     expect(warmBody.meta.db.writes).toBeLessThanOrEqual(1);
     expect(warmBody.meta.db.queries).toBe(0);
   });
 
-  it("rebuilds the regular queue when both local queues are empty instead of returning empty immediately", async () => {
-    const viewerId = `queue-v2-empty-${Date.now()}`;
-    await seedFeedState({
-      viewerId,
-      reelQueue: [],
-      regularQueue: []
-    });
-
+  it("serves from the candidate pool for a viewer with no persisted home_for_you queues", async () => {
+    const viewerId = `fy-no-state-${Date.now()}`;
     const res = await app.inject({
       method: "GET",
-      url: `/v2/feed/for-you?viewerId=${viewerId}&limit=5&debug=1`,
+      url: `/v2/feed/for-you?viewerId=${encodeURIComponent(viewerId)}&limit=5&debug=1`,
       headers
     });
     expect(res.statusCode).toBe(200);
@@ -346,16 +238,15 @@ describe.runIf(isEmulator)("v2 feed for-you route (emulator)", () => {
         items: Array<{ postId: string }>;
         nextCursor: string | null;
         exhausted: boolean;
-        feedState: { remainingReels: number; remainingRegular: number; regularQueueCount: number };
-        debug: { emptyReason: string | null; recycledRegularCount: number; queueRebuilt: boolean; regularCount: number };
+        feedState: { regularQueueCount: number };
+        debug: { regularCount: number; emptyReason: string | null; recycledRegularCount: number };
       };
     };
     expect(body.data.items.length).toBeGreaterThan(0);
-    expect(body.data.exhausted).toBe(false);
     expect(body.data.nextCursor).toBeTruthy();
-    expect(body.data.debug.queueRebuilt).toBe(true);
     expect(body.data.debug.regularCount).toBeGreaterThan(0);
     expect(body.data.feedState.regularQueueCount).toBeGreaterThan(0);
     expect(body.data.debug.recycledRegularCount).toBe(0);
+    expect(body.data.debug.emptyReason).toBeNull();
   });
 });

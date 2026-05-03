@@ -1,4 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.hoisted(() => {
+  process.env.FIRESTORE_TEST_MODE ??= "disabled";
+});
+
 import { SearchAutofillService } from "./search-autofill.service.js";
 
 describe("SearchAutofillService sentence suggestions", () => {

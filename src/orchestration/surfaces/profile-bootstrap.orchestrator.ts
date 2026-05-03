@@ -1,5 +1,6 @@
 import type { ViewerContext } from "../../auth/viewer-context.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { profileBootstrapCacheKey } from "../../cache/profile-follow-graph-cache.js";
 import { registerRouteCacheKey } from "../../cache/route-cache-index.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { ProfileBootstrapResponse } from "../../contracts/surfaces/profile-bootstrap.contract.js";
@@ -21,7 +22,7 @@ const PROFILE_TABS = [
 ] as const;
 
 const COLLECTIONS_PREVIEW_LIMIT = 4;
-const ACHIEVEMENTS_PREVIEW_LIMIT = 8;
+const ACHIEVEMENTS_PREVIEW_LIMIT = 6;
 
 export class ProfileBootstrapOrchestrator {
   constructor(private readonly service: ProfileService) {}
@@ -48,13 +49,48 @@ export class ProfileBootstrapOrchestrator {
     const localFallbacks = new Set<string>();
     const previewLimit = gridLimit;
     const enableBootstrapCache = debugSlowDeferredMs === 0;
-    const bootstrapCacheKey = buildCacheKey("bootstrap", ["profile-bootstrap-v2", viewer.viewerId, userId, previewLimit]);
+    const bootstrapCacheKey = profileBootstrapCacheKey(viewer.viewerId, userId, previewLimit);
+    let bootstrapCacheHit = false;
 
     if (enableBootstrapCache) {
       const cachedBootstrap = await globalCache.get<ProfileBootstrapResponse>(bootstrapCacheKey);
       if (cachedBootstrap) {
-        recordCacheHit();
-        return cachedBootstrap;
+        const gridLen = cachedBootstrap.firstRender.gridPreview.items.length;
+        const posts =
+          cachedBootstrap.firstRender.counts.posts ?? cachedBootstrap.summary.postCount ?? 0;
+        const staleBootstrap = gridLen > 0 && posts === 0;
+        if (staleBootstrap) {
+          void globalCache.del(bootstrapCacheKey).catch(() => undefined);
+        } else {
+          recordCacheHit();
+          bootstrapCacheHit = true;
+          if (process.env.NODE_ENV === "production") {
+            return cachedBootstrap;
+          }
+          const prevDebug = cachedBootstrap.debug;
+          return {
+            ...cachedBootstrap,
+            debug: {
+              timingsMs: prevDebug?.timingsMs ?? {},
+              counts: prevDebug?.counts ?? {
+                grid: cachedBootstrap.firstRender.gridPreview.items.length,
+                collections: cachedBootstrap.firstRender.collectionsPreview.items.length,
+                achievements: cachedBootstrap.firstRender.achievementsPreview.items.length,
+              },
+              profilePicSource: prevDebug?.profilePicSource ?? null,
+              emptyReasons: prevDebug?.emptyReasons,
+              dbOps: prevDebug?.dbOps,
+              socialCountsDiagnostics: {
+                profileUserId: userId,
+                viewerId: viewer.viewerId,
+                finalFollowerCount: cachedBootstrap.summary.followerCount,
+                finalFollowingCount: cachedBootstrap.summary.followingCount,
+                bootstrapCacheHit: true,
+                countSource: "bootstrap_response_cache",
+              },
+            },
+          };
+        }
       }
     }
     recordCacheMiss();
@@ -186,6 +222,31 @@ export class ProfileBootstrapOrchestrator {
     const profilePic = header.profilePic;
     const followersCount = header.counts.followers;
     const followingCount = header.counts.following;
+    const gridPreviewItemCount = gridPreview.items.length;
+    let postsCountEffective = header.counts.posts;
+    let postCountRepairApplied = false;
+    let postCountLowerBoundUsed = false;
+    let gridVsPostsInvariantViolated = false;
+    if (gridPreviewItemCount > 0 && postsCountEffective === 0) {
+      gridVsPostsInvariantViolated = true;
+      postCountRepairApplied = true;
+      postCountLowerBoundUsed = true;
+      postsCountEffective = Math.max(postsCountEffective, gridPreviewItemCount);
+      if (process.env.NODE_ENV !== "production") {
+        console.warn(
+          JSON.stringify({
+            event: "profile_header_count_invariant_violation",
+            profileUserId: userId,
+            viewerId: viewer.viewerId,
+            gridItems: gridPreviewItemCount,
+            postsCountBefore: header.counts.posts,
+            postsCountAfter: postsCountEffective,
+            cacheStatus: bootstrapCacheHit ? "bootstrap_response_cache" : "fresh_assembly",
+            headerSources: { postsCount: "gridLowerBound" },
+          })
+        );
+      }
+    }
     const ctx = getRequestContext();
     const fallbacks = [...new Set([...(ctx?.fallbacks.slice() ?? []), ...localFallbacks])];
 
@@ -203,7 +264,7 @@ export class ProfileBootstrapOrchestrator {
         bio: header.bio ?? null,
         followerCount: followersCount,
         followingCount,
-        postCount: header.counts.posts,
+        postCount: postsCountEffective,
         isFollowingViewer: relationship.following,
         isViewer: relationship.isSelf,
         profileVersion: header.profileVersion ?? null,
@@ -223,7 +284,7 @@ export class ProfileBootstrapOrchestrator {
           isOwnProfile: relationship.isSelf,
         },
         counts: {
-          posts: header.counts.posts,
+          posts: postsCountEffective,
           followers: followersCount,
           following: followingCount,
           followersCount,
@@ -289,6 +350,21 @@ export class ProfileBootstrapOrchestrator {
                     queries: ctx.dbOps.queries,
                   }
                 : undefined,
+              socialCountsDiagnostics: {
+                profileUserId: userId,
+                viewerId: viewer.viewerId,
+                finalFollowerCount: followersCount,
+                finalFollowingCount: followingCount,
+                bootstrapCacheHit,
+                countSource: bootstrapCacheHit ? "bootstrap_response_cache" : "fresh_assembly",
+              },
+              profileHeaderRepair: {
+                postCountRepairApplied,
+                postCountLowerBoundUsed,
+                gridVsPostsInvariantViolated,
+                postsCountBeforeRepair: header.counts.posts,
+                postsCountAfterRepair: postsCountEffective,
+              },
             },
     };
 

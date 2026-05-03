@@ -140,6 +140,37 @@ describe("analytics events routes", () => {
     }
   });
 
+  it("returns 202 even when BigQuery publisher later fails", async () => {
+    const publisher = createPublisher();
+    publisher.publishMock.mockRejectedValueOnce(new Error("Access Denied"));
+    const service = new AnalyticsIngestService(buildEnv(), publisher);
+    setAnalyticsIngestServiceForTests(service);
+    const app = await buildMiniApp(buildEnv());
+
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/analytics/v2/events",
+        payload: {
+          events: [
+            {
+              eventId: "evt-bq-fail",
+              event: "app_open",
+              sessionId: "session-fail",
+              anonId: "anon-fail",
+              properties: { source: "fail-path" },
+            },
+          ],
+        },
+      });
+      expect(res.statusCode).toBe(202);
+      await service.flushNowForTests();
+      expect(service.getDebugSnapshot().queueDepth).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
   it("supports the legacy /api analytics alias and resolves userId from x-viewer-id", async () => {
     const publisher = createPublisher();
     const service = new AnalyticsIngestService(buildEnv(), publisher);

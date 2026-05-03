@@ -216,8 +216,43 @@ function pickReadAllAtMsFromUserDoc(data: Record<string, unknown> | null | undef
   return null;
 }
 
+const NOTIFICATION_METADATA_WHITELIST = [
+  "commentId",
+  "collectionId",
+  "conversationId",
+  "chatId",
+  "postId",
+  "targetId",
+  "targetUserId",
+  "postThumbUrl",
+  "postTitle",
+  "groupId",
+  "inviteId",
+  "achievementId",
+  "scopeId"
+] as const;
+
+function pickWhitelistedNotificationMetadata(meta: Record<string, unknown>): Record<string, unknown> {
+  const base: Record<string, unknown> = {};
+  for (const key of NOTIFICATION_METADATA_WHITELIST) {
+    const value = meta[key];
+    if (typeof value === "string") {
+      const t = value.trim();
+      if (t.length > 0 && t.length <= 2_000) base[key] = t;
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      base[key] = value;
+    } else if (typeof value === "boolean") {
+      base[key] = value;
+    }
+  }
+  return base;
+}
+
 function buildNotificationMetadata(row: RawNotificationDoc): Record<string, unknown> | undefined {
-  const base = row.metadata && typeof row.metadata === "object" ? { ...(row.metadata as Record<string, unknown>) } : {};
+  const base =
+    row.metadata && typeof row.metadata === "object"
+      ? pickWhitelistedNotificationMetadata(row.metadata as Record<string, unknown>)
+      : {};
   const deepLinkFields: Array<[string, unknown]> = [
     ["commentId", row.commentId],
     ["collectionId", row.collectionId],
@@ -588,6 +623,19 @@ export class NotificationsRepository {
     return nextUnread;
   }
 
+  private mergeMutationSenderMetadata(senderData: LegacySenderData, metadata: Record<string, unknown>): LegacySenderData {
+    const name = asTrimmedString(metadata.senderName);
+    const pic = sanitizeProfilePic(metadata.senderProfilePic);
+    const handleRaw =
+      asTrimmedString(metadata.senderHandle)?.replace(/^@+/, "") ??
+      asTrimmedString(metadata.senderUsername)?.replace(/^@+/, "");
+    const out: LegacySenderData = { ...senderData };
+    if (name) out.senderName = name;
+    if (pic) out.senderProfilePic = pic;
+    if (handleRaw) out.senderUsername = handleRaw;
+    return out;
+  }
+
   private extractSenderData(userId: string, userDoc: Record<string, unknown> | null | undefined): LegacySenderData {
     if (userId === "system") {
       return {
@@ -600,11 +648,20 @@ export class NotificationsRepository {
       asTrimmedString(userDoc?.handle) ??
       asTrimmedString(userDoc?.username) ??
       `user_${userId.slice(0, 8)}`;
+    const first = asTrimmedString(userDoc?.firstName);
+    const last = asTrimmedString(userDoc?.lastName);
+    const combined = [first, last].filter(Boolean).join(" ").trim();
+    let senderName: string | undefined =
+      asTrimmedString(userDoc?.name) ??
+      asTrimmedString(userDoc?.displayName) ??
+      (combined.length > 0 ? combined : undefined) ??
+      asTrimmedString(userDoc?.fullName) ??
+      handle;
+    if (isLikelyPlaceholderIdentity(senderName, userId)) {
+      senderName = undefined;
+    }
     return {
-      senderName:
-        asTrimmedString(userDoc?.name) ??
-        asTrimmedString(userDoc?.displayName) ??
-        handle,
+      senderName,
       senderProfilePic:
         asTrimmedString(userDoc?.profilePic) ??
         asTrimmedString(userDoc?.profilePicture) ??
@@ -701,8 +758,8 @@ export class NotificationsRepository {
       return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData: null };
     }
 
-    const senderData = await this.resolveSenderData(input.actorId);
     const metadata = { ...(input.metadata ?? {}) };
+    const senderData = this.mergeMutationSenderMetadata(await this.resolveSenderData(input.actorId), metadata);
     const nowField = this.useSeededNotifications() ? input.createdAtMs ?? Date.now() : FieldValue.serverTimestamp();
     const notificationData: Record<string, unknown> = {
       senderUserId: input.actorId,
@@ -800,7 +857,7 @@ export class NotificationsRepository {
     if (!input.recipientUserId || input.recipientUserId === input.actorId) {
       return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData: null };
     }
-    const senderData = await this.resolveSenderData(input.actorId);
+    const senderData = this.mergeMutationSenderMetadata(await this.resolveSenderData(input.actorId), input.metadata ?? {});
     const postTitle = postTitleForAggMessage(input.postTitle);
     if (this.useSeededNotifications()) {
       const notificationData = {

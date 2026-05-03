@@ -21,26 +21,66 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
       const payload = await service.getPage({
         viewerId,
         limit: query.limit,
-        cursor: query.cursor ?? null
+        cursor: query.cursor ?? null,
+        refresh: query.refresh === true
       });
       const ctx = getRequestContext();
       const dbReads = ctx?.dbOps.reads ?? 0;
       const dbWrites = ctx?.dbOps.writes ?? 0;
       const elapsedMs = Date.now() - startedAt;
-      request.log.info(
-        {
-          event: "feed_for_you_simple_summary",
-          viewerId,
-          requestedLimit: query.limit,
-          returnedCount: payload.items.length,
-          cursorUsed: Boolean(query.cursor),
-          nextCursorPresent: Boolean(payload.nextCursor),
-          dbReads,
-          elapsedMs,
-          anchor: payload.debug.randomSeedOrAnchor
-        },
-        "feed for-you simple summary"
-      );
+
+      const summaryPayload = {
+        event: "feed_for_you_simple_summary",
+        viewerId,
+        requestedLimit: query.limit,
+        returnedCount: payload.items.length,
+        rawReelCandidates: payload.debug.rawReelCandidates,
+        rawFallbackCandidates: payload.debug.rawFallbackCandidates,
+        filteredBySeen: payload.debug.filteredBySeen,
+        filteredByBlockedAuthor: payload.debug.filteredByBlockedAuthor,
+        filteredByMissingMedia: payload.debug.filteredByMissingMedia,
+        filteredByInvalidContract: payload.debug.filteredByInvalidContract,
+        filteredByViewerOwnPost: payload.debug.filteredByViewerOwnPost,
+        filteredByCursorWindow: payload.debug.filteredByCursorWindow,
+        filteredInvisible: payload.debug.filteredInvisible,
+        relaxedSeenUsed: payload.relaxedSeenUsed,
+        fallbackAllPostsUsed: payload.fallbackAllPostsUsed,
+        wrapAroundUsed: payload.wrapAroundUsed,
+        emergencyFallbackUsed: payload.emergencyFallbackUsed,
+        degradedFallbackUsed: payload.degradedFallbackUsed,
+        exhausted: payload.exhausted,
+        emptyReason: payload.emptyReason,
+        cursorUsed: Boolean(query.cursor) && query.refresh !== true,
+        noCursorRequest: payload.debug.noCursorRequest ?? (!query.cursor || query.refresh === true),
+        nextCursorPresent: Boolean(payload.nextCursor),
+        mediaReadyCount: payload.debug.mediaReadyCount,
+        degradedMediaCount: payload.debug.degradedMediaCount,
+        missingMediaFilteredCount: payload.debug.missingMediaFilteredCount,
+        dbReads,
+        queryCount: ctx?.dbOps.queries ?? 0,
+        elapsedMs,
+        anchor: payload.debug.randomSeedOrAnchor,
+        deckHit: payload.debug.deckHit ?? false,
+        deckSource: payload.debug.deckSource ?? "fallback",
+        deckItemsBefore: payload.debug.deckItemsBefore ?? 0,
+        deckItemsReturned: payload.debug.deckItemsReturned ?? payload.items.length,
+        deckItemsAfter: payload.debug.deckItemsAfter ?? 0,
+        deckRefillScheduled: payload.debug.deckRefillScheduled ?? false,
+        deckRefillReason: payload.debug.deckRefillReason ?? null,
+        servedRecentFiltered: payload.debug.servedRecentFiltered ?? 0,
+        duplicateSuppressed: payload.debug.duplicateSuppressed ?? 0,
+        repeatedFromRecentCount: payload.debug.repeatedFromRecentCount ?? 0,
+        firstPaintCardReadyCount: payload.debug.firstPaintCardReadyCount ?? payload.items.length,
+        detailBatchRequiredForFirstPaint: payload.debug.detailBatchRequiredForFirstPaint ?? false,
+        durableServedWriteStatus: payload.debug.durableServedWriteStatus ?? "skipped"
+      };
+
+      request.log.info(summaryPayload, "feed for-you simple summary");
+
+      if (payload.emergencyFallbackUsed) {
+        request.log.warn({ event: "feed_for_you_simple_emergency_fallback_used", viewerId, returnedCount: payload.items.length }, "feed for-you simple emergency fallback");
+      }
+
       if (payload.debug.seenWriteAttempted && !payload.debug.seenWriteSucceeded) {
         request.log.warn(
           {

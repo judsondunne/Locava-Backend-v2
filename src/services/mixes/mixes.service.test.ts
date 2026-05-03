@@ -207,6 +207,183 @@ describe("mixes service", () => {
     expect(spaced.posts.map((p: any) => p.postId)).toEqual(singular.posts.map((p: any) => p.postId));
   });
 
+  it("matches activity across activityIds/tags/category field shapes", async () => {
+    const shapeRows = [
+      {
+        postId: "a1",
+        time: 4100,
+        userId: "ua1",
+        userHandle: "shape-a1",
+        activityIds: ["hiking"],
+        thumbUrl: "https://cdn/a1.jpg",
+      },
+      {
+        postId: "a2",
+        time: 4090,
+        userId: "ua2",
+        userHandle: "shape-a2",
+        tags: ["hiking"],
+        thumbUrl: "https://cdn/a2.jpg",
+      },
+      {
+        postId: "a3",
+        time: 4080,
+        userId: "ua3",
+        userHandle: "shape-a3",
+        category: "hiking",
+        thumbUrl: "https://cdn/a3.jpg",
+      },
+    ];
+    const shapeRepo = {
+      async listFromPool() {
+        return { posts: shapeRows as any[], ...poolMeta({ readCount: 3 }) };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
+      },
+    };
+    const shapeService = new MixesService(shapeRepo as any);
+    const out = await shapeService.preview({
+      mixKey: "hiking",
+      filter: { activity: "hiking" },
+      limit: 6,
+      viewerId: "shape-activity-viewer",
+    });
+    expect(out.posts.map((p: any) => p.postId)).toEqual(["a1", "a2", "a3"]);
+  });
+
+  it("nearby pagination keeps distance-first ordering across pages", async () => {
+    const geoRows = [
+      {
+        postId: "g1",
+        time: 9000,
+        userId: "ug1",
+        userHandle: "g1",
+        activities: ["hiking"],
+        lat: 44.476,
+        lng: -73.212,
+        thumbUrl: "https://cdn/g1.jpg",
+      },
+      {
+        postId: "g2",
+        time: 8000,
+        userId: "ug2",
+        userHandle: "g2",
+        activities: ["hiking"],
+        lat: 44.49,
+        lng: -73.22,
+        thumbUrl: "https://cdn/g2.jpg",
+      },
+      {
+        postId: "g3",
+        time: 7000,
+        userId: "ug3",
+        userHandle: "g3",
+        activities: ["hiking"],
+        lat: 44.7,
+        lng: -73.35,
+        thumbUrl: "https://cdn/g3.jpg",
+      },
+    ];
+    const geoRepo = {
+      async listFromPool() {
+        return { posts: geoRows as any[], ...poolMeta({ readCount: 3 }) };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
+      },
+    };
+    const geoService = new MixesService(geoRepo as any);
+    const first = await geoService.page({
+      mixKey: "nearby",
+      filter: { lat: 44.476, lng: -73.212, radiusKm: 200 },
+      limit: 2,
+      cursor: null,
+      viewerId: null,
+    });
+    const second = await geoService.page({
+      mixKey: "nearby",
+      filter: { lat: 44.476, lng: -73.212, radiusKm: 200 },
+      limit: 2,
+      cursor: first.nextCursor,
+      viewerId: null,
+    });
+    expect(first.posts.map((p: any) => p.postId)).toEqual(["g1", "g2"]);
+    expect(second.posts.map((p: any) => p.postId)).toEqual(["g3"]);
+  });
+
+  it("activity + location pagination includes alternate activity fields with no duplicate ids across pages", async () => {
+    const altRows = [
+      {
+        postId: "al1",
+        time: 5000,
+        userId: "u1",
+        userHandle: "al1",
+        tags: ["kayak"],
+        lat: 44.476,
+        lng: -73.212,
+        thumbUrl: "https://cdn/al1.jpg",
+      },
+      {
+        postId: "al2",
+        time: 4900,
+        userId: "u2",
+        userHandle: "al2",
+        category: "kayak",
+        lat: 44.48,
+        lng: -73.215,
+        thumbUrl: "https://cdn/al2.jpg",
+      },
+      {
+        postId: "al3",
+        time: 4800,
+        userId: "u3",
+        userHandle: "al3",
+        activityIds: ["kayak"],
+        lat: 44.5,
+        lng: -73.23,
+        thumbUrl: "https://cdn/al3.jpg",
+      },
+      {
+        postId: "other",
+        time: 4700,
+        userId: "u4",
+        userHandle: "other",
+        activities: ["hiking"],
+        lat: 44.476,
+        lng: -73.212,
+        thumbUrl: "https://cdn/other.jpg",
+      },
+    ];
+    const altRepo = {
+      async listFromPool() {
+        return { posts: altRows as any[], ...poolMeta({ readCount: 4 }) };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
+      },
+    };
+    const altService = new MixesService(altRepo as any);
+    const first = await altService.page({
+      mixKey: "kayak-near",
+      filter: { activity: "kayak", lat: 44.476, lng: -73.212, radiusKm: 50 },
+      limit: 2,
+      cursor: null,
+      viewerId: "alt-activity-geo-viewer",
+    });
+    const second = await altService.page({
+      mixKey: "kayak-near",
+      filter: { activity: "kayak", lat: 44.476, lng: -73.212, radiusKm: 50 },
+      limit: 2,
+      cursor: first.nextCursor,
+      viewerId: "alt-activity-geo-viewer",
+    });
+    const allIds = [...first.posts.map((p: any) => p.postId), ...second.posts.map((p: any) => p.postId)];
+    expect(new Set(allIds).size).toBe(allIds.length);
+    expect(allIds.sort()).toEqual(["al1", "al2", "al3"].sort());
+    expect(allIds.includes("other")).toBe(false);
+  });
+
   it("keeps first page ordering and cursor stable across pool reorder", async () => {
     const mutable = [...rows];
     const unstableRepo = {

@@ -37,7 +37,7 @@ describe("v2 search results route", () => {
     expect(Array.isArray(body.data.items[0].assets)).toBe(true);
     expect(body.data.items[0].hydrationLevel).toBe("card");
     expect(body.data.items[0].hasAssetsArray).toBe(true);
-    expect(body.data.items[0].hasRawPost).toBe(true);
+    expect(body.data.items[0].hasRawPost).toBe(false);
   });
 
   it("supports cursor pagination and echoes cursorIn", async () => {

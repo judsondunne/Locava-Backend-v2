@@ -5,7 +5,14 @@ import {
   buildCityRegionId,
   buildStateRegionId,
   normalizeSearchText,
+  resolveStateNameFromAny,
 } from "../../lib/search-query-intent.js";
+
+function distanceMilesApprox(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const dx = a.lat - b.lat;
+  const dy = a.lng - b.lng;
+  return Math.sqrt(dx * dx + dy * dy) * 69;
+}
 
 type PlaceRow = {
   name?: string;
@@ -126,6 +133,8 @@ class SearchPlacesIndexService {
   private loaded = false;
   private loading = false;
   private loadScheduled = false;
+  /** Singleflight: all callers share one load; concurrent suggest requests await the same promise. */
+  private loadPromise: Promise<void> | null = null;
   private lastLoadTotalMs = 0;
   private lastIndexedWorkMs = 0;
   private prefixMap = new Map<string, SearchIndexedPlace[]>();
@@ -151,6 +160,7 @@ class SearchPlacesIndexService {
   getLoaderDiagnostics(): {
     loaded: boolean;
     loading: boolean;
+    loadInFlight: boolean;
     places: number;
     prefixes: number;
     lastLoadTotalMs: number;
@@ -160,6 +170,7 @@ class SearchPlacesIndexService {
     return {
       loaded: this.loaded,
       loading: this.loading,
+      loadInFlight: this.loading || this.loadPromise != null,
       places: this.exactMap.size,
       prefixes: this.prefixMap.size,
       lastLoadTotalMs: this.lastLoadTotalMs,
@@ -168,12 +179,46 @@ class SearchPlacesIndexService {
     };
   }
 
-  scheduleLoad(delayMs = 2_500): void {
+  /**
+   * Start loading (or join in-flight load). Safe to call repeatedly.
+   */
+  ensureLoading(): Promise<void> {
+    if (this.loaded) return Promise.resolve();
+    if (!this.loadPromise) {
+      this.loadPromise = this.executeLoad().finally(() => {
+        this.loadPromise = null;
+      });
+    }
+    return this.loadPromise;
+  }
+
+  /**
+   * Interactive suggest: wait up to `timeoutMs` for index readiness so place rows are not served
+   * from seeds-only while GeoNames is still loading.
+   */
+  async awaitLoadedForInteractiveSuggest(timeoutMs: number): Promise<{ awaitedMs: number; loaded: boolean }> {
+    const started = Date.now();
+    if (this.loaded) return { awaitedMs: 0, loaded: true };
+    const load = this.ensureLoading();
+    if (timeoutMs <= 0) {
+      return { awaitedMs: Date.now() - started, loaded: this.loaded };
+    }
+    await Promise.race([
+      load,
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    return { awaitedMs: Date.now() - started, loaded: this.loaded };
+  }
+
+  /** @deprecated Prefer ensureLoading — kept for callers that relied on delayed kick; delay default is now 0. */
+  scheduleLoad(delayMs = 0): void {
     if (this.loaded || this.loading || this.loadScheduled) return;
     this.loadScheduled = true;
     const timer = setTimeout(() => {
       this.loadScheduled = false;
-      void this.load();
+      void this.ensureLoading();
     }, Math.max(0, delayMs));
     if (typeof timer.unref === "function") {
       timer.unref();
@@ -189,7 +234,7 @@ class SearchPlacesIndexService {
     this.loadScheduled = true;
     const timer = setTimeout(() => {
       this.loadScheduled = false;
-      void new Promise<void>((r) => setImmediate(r)).then(() => this.load());
+      void new Promise<void>((r) => setImmediate(r)).then(() => this.ensureLoading());
     }, Math.max(0, totalDelayMs));
     if (typeof timer.unref === "function") {
       timer.unref();
@@ -197,7 +242,11 @@ class SearchPlacesIndexService {
   }
 
   async load(): Promise<void> {
-    if (this.loaded || this.loading) return;
+    return this.ensureLoading();
+  }
+
+  private async executeLoad(): Promise<void> {
+    if (this.loaded) return;
     this.loading = true;
     this.loadScheduled = false;
     this.loadError = null;
@@ -280,20 +329,84 @@ class SearchPlacesIndexService {
     }
   }
 
-  search(query: string, limit = 6): SearchIndexedPlace[] {
+  search(
+    query: string,
+    limit = 6,
+    opts?: { viewerLat?: number | null; viewerLng?: number | null },
+  ): SearchIndexedPlace[] {
     const q = normalizeSearchText(query);
     if (q.length < 2) return [];
     const seedMatches = this.searchSeeds(q, limit);
     if (!this.loaded) {
       const shouldSchedule = process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
-      if (shouldSchedule) this.scheduleLoad();
+      if (shouldSchedule) void this.ensureLoading();
       return seedMatches;
     }
+
+    const viewer =
+      typeof opts?.viewerLat === "number" &&
+      Number.isFinite(opts.viewerLat) &&
+      typeof opts?.viewerLng === "number" &&
+      Number.isFinite(opts.viewerLng)
+        ? { lat: opts.viewerLat, lng: opts.viewerLng }
+        : null;
+
+    const tokens = q.split(/\s+/).filter(Boolean);
+    if (tokens.length >= 2) {
+      const lastTok = tokens[tokens.length - 1] ?? "";
+      const stateName = resolveStateNameFromAny(lastTok);
+      if (stateName) {
+        const cityPart = tokens.slice(0, -1).join(" ");
+        const cityNorm = normalizeSearchText(cityPart);
+        if (cityNorm.length >= 1) {
+          const prefix = cityNorm.slice(0, 3);
+          const bucket = this.prefixMap.get(prefix) ?? [];
+          const stateNorm = normalizeSearchText(stateName);
+          const matches = bucket.filter((row) => {
+            if (normalizeSearchText(row.stateName) !== stateNorm) return false;
+            return (
+              row.searchKey.startsWith(cityNorm) ||
+              cityNorm.startsWith(row.searchKey) ||
+              row.searchKey.includes(cityNorm) ||
+              cityNorm.includes(row.searchKey)
+            );
+          });
+          const ranked = this.rankPlaceCandidates(matches, q, cityNorm, viewer);
+          return this.mergePlaces(seedMatches, ranked, limit);
+        }
+      }
+    }
+
     const bucket = this.prefixMap.get(q.slice(0, 3)) ?? [];
-    const fullMatches = bucket
-      .filter((row) => row.searchKey.includes(q))
-      .slice(0, Math.max(1, Math.min(24, limit)));
-    return this.mergePlaces(seedMatches, fullMatches, limit);
+    const fullMatches = bucket.filter((row) => row.searchKey.includes(q));
+    const rankedSingle = this.rankPlaceCandidates(fullMatches, q, q, viewer);
+    return this.mergePlaces(seedMatches, rankedSingle, limit);
+  }
+
+  private rankPlaceCandidates(
+    rows: SearchIndexedPlace[],
+    _fullQuery: string,
+    cityOrPrimaryToken: string,
+    viewer: { lat: number; lng: number } | null,
+  ): SearchIndexedPlace[] {
+    const primary = cityOrPrimaryToken;
+    const scored = rows.map((row) => {
+      let match = 0;
+      if (row.searchKey === primary) match = 1000;
+      else if (row.searchKey.startsWith(primary)) match = 700;
+      else if (primary.startsWith(row.searchKey)) match = 600;
+      else if (row.searchKey.includes(primary)) match = 400;
+      else match = 200;
+      let distBias = 0;
+      if (viewer && row.lat != null && row.lng != null) {
+        const d = distanceMilesApprox(viewer, { lat: row.lat, lng: row.lng });
+        distBias = Math.max(0, 40 - Math.min(d, 400)) * 0.08;
+      }
+      const pop = Math.log10(row.population + 1) * 12;
+      return { row, score: match + pop + distBias };
+    });
+    scored.sort((a, b) => b.score - a.score || a.row.text.localeCompare(b.row.text));
+    return scored.map((s) => s.row).slice(0, Math.max(1, Math.min(48, rows.length)));
   }
 
   searchExact(query: string): SearchIndexedPlace | null {
@@ -301,7 +414,7 @@ class SearchPlacesIndexService {
     if (normalized.length < 2) return null;
     if (!this.loaded) {
       const shouldSchedule = process.env.VITEST !== "true" && process.env.NODE_ENV !== "test";
-      if (shouldSchedule) this.scheduleLoad();
+      if (shouldSchedule) void this.ensureLoading();
       return this.seedExactMap.get(normalized) ?? null;
     }
     return this.seedExactMap.get(normalized) ?? this.exactMap.get(normalized) ?? null;
@@ -413,6 +526,7 @@ class SearchPlacesIndexService {
     this.loaded = false;
     this.loading = false;
     this.loadScheduled = false;
+    this.loadPromise = null;
     this.lastLoadTotalMs = 0;
     this.lastIndexedWorkMs = 0;
     this.loadError = null;

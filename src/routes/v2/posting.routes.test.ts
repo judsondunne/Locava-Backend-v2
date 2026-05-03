@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { createApp } from "../../app/createApp.js";
 
 describe("v2 posting/upload first slice", () => {
-  const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+  const app = createApp({
+    NODE_ENV: "test",
+    LOG_LEVEL: "silent",
+    ENABLE_LEGACY_COMPAT_ROUTES: true
+  });
   const viewerHeaders = {
     "x-viewer-id": "internal-viewer",
     "x-viewer-roles": "internal"

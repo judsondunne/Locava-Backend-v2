@@ -394,7 +394,8 @@ class PostingMutationRepository {
     const finalizedKeys = buildFinalizedSessionAssetKeys(
       input.sessionId,
       input.assetIndex,
-      input.assetType
+      input.assetType,
+      input.clientMediaKey
     );
     const media: PostingMediaRecord = {
       mediaId: `pmd_${randomUUID().slice(0, 12)}`,

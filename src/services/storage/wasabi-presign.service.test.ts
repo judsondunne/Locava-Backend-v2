@@ -20,6 +20,12 @@ describe("wasabi-presign.service", () => {
     );
     expect(buildStableSessionAssetId("sess-a", 0, "video")).toMatch(/^video_/);
     expect(buildStableSessionAssetId("sess-a", 0, "photo")).toMatch(/^image_/);
+    expect(buildStableSessionAssetId("sess-a", 0, "photo", "asset://a")).not.toBe(
+      buildStableSessionAssetId("sess-a", 0, "photo", "asset://b")
+    );
+    expect(buildStableSessionAssetId("sess-a", 0, "photo", "asset://a")).toBe(
+      buildStableSessionAssetId("sess-a", 0, "photo", "asset://a")
+    );
   });
 
   it("buildFinalizedSessionAssetPlan matches image/video key layout", () => {

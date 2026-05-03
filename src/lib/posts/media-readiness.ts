@@ -139,14 +139,20 @@ function pickProcessedPlaybackUrl(asset: PostRecord | null): string | undefined 
   const playbackGenerated = asRecord(playbackLab?.generated);
   const sourceSnapshot = asRecord(playbackLab?.sourceSnapshot);
   const candidate = pickString(
+    generated.startup540FaststartAvc,
+    generated.startup540Faststart,
     generated.startup720FaststartAvc,
     generated.startup720Faststart,
     generated.startup1080FaststartAvc,
     generated.startup1080Faststart,
+    playbackGenerated?.startup540FaststartAvc,
+    playbackGenerated?.startup540Faststart,
     playbackGenerated?.startup720FaststartAvc,
     playbackGenerated?.startup720Faststart,
     playbackGenerated?.startup1080FaststartAvc,
     playbackGenerated?.startup1080Faststart,
+    variants.startup540FaststartAvc,
+    variants.startup540Faststart,
     variants.startup720FaststartAvc,
     variants.startup720Faststart,
     variants.startup1080FaststartAvc,
@@ -205,14 +211,15 @@ export function buildPostMediaReadiness(
   const playbackReady =
     hasVideo === false
       ? false
-      : Boolean(processedPlayback) &&
-        (assetsReady || instantPlaybackReady || videoProcessingStatus === "completed");
+      : Boolean(processedPlayback) || instantPlaybackReady === true;
   let mediaStatus: MediaStatus = "ready";
   if (hasVideo) {
     if (videoProcessingStatus === "failed") {
       mediaStatus = "failed";
-    } else if (playbackReady || assetsReady) {
+    } else if (videoProcessingStatus === "completed" && assetsReady) {
       mediaStatus = "ready";
+    } else if (playbackReady) {
+      mediaStatus = "processing";
     } else {
       mediaStatus = "processing";
     }

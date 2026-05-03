@@ -36,6 +36,8 @@ export class PostMutationRepository {
 
     const postRef = db.collection("posts").doc(postId);
     const likeRef = postRef.collection("likes").doc(viewerId);
+    const userRef = db.collection("users").doc(viewerId);
+    const likedMetaRef = userRef.collection("likedPostsMeta").doc(postId);
     const now = new Date();
     const viewerDoc = await db.collection("users").doc(viewerId).get();
     incrementDbOps("reads", viewerDoc.exists ? 1 : 0);
@@ -75,7 +77,26 @@ export class PostMutationRepository {
         lastUpdated: now
       }
     );
-    incrementDbOps("writes", 2);
+    batch.set(
+      userRef,
+      {
+        likedPosts: FieldValue.arrayUnion(postId),
+        updatedAt: now
+      },
+      { merge: true }
+    );
+    batch.set(
+      likedMetaRef,
+      {
+        postId,
+        userId: viewerId,
+        likedAt: now,
+        createdAt: now,
+        updatedAt: now
+      },
+      { merge: true }
+    );
+    incrementDbOps("writes", 4);
     try {
       await batch.commit();
       mutationStateRepository.likePost(viewerId, postId);
@@ -83,6 +104,24 @@ export class PostMutationRepository {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (isAlreadyExistsError(error)) {
+        await Promise.all([
+          userRef.set(
+            {
+              likedPosts: FieldValue.arrayUnion(postId),
+              updatedAt: now
+            },
+            { merge: true }
+          ),
+          likedMetaRef.set(
+            {
+              postId,
+              userId: viewerId,
+              likedAt: now,
+              updatedAt: now
+            },
+            { merge: true }
+          )
+        ]).catch(() => undefined);
         mutationStateRepository.likePost(viewerId, postId);
         return { postId, liked: true, changed: false };
       }
@@ -109,6 +148,8 @@ export class PostMutationRepository {
 
     const postRef = db.collection("posts").doc(postId);
     const likeRef = postRef.collection("likes").doc(viewerId);
+    const userRef = db.collection("users").doc(viewerId);
+    const likedMetaRef = userRef.collection("likedPostsMeta").doc(postId);
     const knownLiked = mutationStateRepository.hasViewerLikedPost(viewerId, postId);
     if (!knownLiked) {
       const likeDoc = await likeRef.get();
@@ -131,7 +172,16 @@ export class PostMutationRepository {
       },
       { merge: true }
     );
-    incrementDbOps("writes", 2);
+    batch.set(
+      userRef,
+      {
+        likedPosts: FieldValue.arrayRemove(postId),
+        updatedAt: now
+      },
+      { merge: true }
+    );
+    batch.delete(likedMetaRef);
+    incrementDbOps("writes", 4);
     await batch.commit();
     mutationStateRepository.unlikePost(viewerId, postId);
     return { postId, liked: false, changed: true };

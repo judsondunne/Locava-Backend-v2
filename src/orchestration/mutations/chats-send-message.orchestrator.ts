@@ -77,6 +77,10 @@ export class ChatsSendMessageOrchestrator {
             : input.messageType === "post"
               ? "sent a post"
               : (input.text?.trim() || "sent a message");
+      const sender = result.message.sender;
+      const trimmedName = typeof sender.name === "string" ? sender.name.trim() : "";
+      const trimmedHandle = typeof sender.handle === "string" ? sender.handle.replace(/^@+/, "").trim() : "";
+      const senderDisplayLabel = trimmedName || (trimmedHandle ? `@${trimmedHandle}` : "");
       for (const recipientUserId of result.recipientUserIds) {
         void notificationsService.createFromMutation({
           type: "chat",
@@ -87,7 +91,9 @@ export class ChatsSendMessageOrchestrator {
           metadata: {
             ...(result.groupName ? { groupName: result.groupName, isGroupChat: true } : {}),
             ...(result.groupPhotoUrl ? { groupPhotoUrl: result.groupPhotoUrl } : {}),
-            ...(result.message.sender.pic ? { senderProfilePic: result.message.sender.pic } : {}),
+            ...(typeof sender.pic === "string" && sender.pic.trim() ? { senderProfilePic: sender.pic.trim() } : {}),
+            ...(senderDisplayLabel ? { senderName: senderDisplayLabel } : {}),
+            ...(trimmedHandle ? { senderHandle: trimmedHandle } : {}),
           },
         });
       }

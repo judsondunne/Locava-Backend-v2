@@ -24,7 +24,7 @@ describe("v2 collections saved routes", () => {
     expect(firstBody.items[0].author).toBeTruthy();
     expect(Array.isArray(firstBody.items[0].assets)).toBe(true);
     expect(firstBody.items[0].hydrationLevel).toBe("card");
-    expect(firstBody.items[0].hasRawPost).toBe(true);
+    expect(firstBody.items[0].hasRawPost).toBe(false);
 
     const second = await app.inject({
       method: "GET",

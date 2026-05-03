@@ -72,8 +72,9 @@ describe("buildPostEnvelope", () => {
       userName: "Commenter",
       userPic: "https://cdn.example.com/u2.jpg",
     });
-    expect((envelope.rawPost as Record<string, unknown>).firestoreShape).toBe(true);
-    expect((envelope.sourcePost as Record<string, unknown>).postId).toBe("video-post-1");
+    expect(envelope.hasRawPost).toBe(false);
+    expect(envelope.rawPost).toBeNull();
+    expect(envelope.sourcePost).toBeNull();
   });
 
   it("preserves image gradients, geo, and embedded comments on non-video posts", () => {

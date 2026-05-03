@@ -153,10 +153,10 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
       totalVideos: input.assembled.videoCount,
       processedVideos: 0
     };
-    base.playbackLabStatus = "pending";
+    base.playbackLabStatus = "queued";
     base.playbackLabUpdatedAt = input.nowTs;
     base.playbackLab = {
-      status: "pending",
+      status: "queued",
       version: 1,
       generatedAt: input.nowTs,
       lastVerifyAllOk: false,

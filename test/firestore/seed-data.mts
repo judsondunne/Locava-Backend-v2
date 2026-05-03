@@ -424,6 +424,13 @@ export function buildSeedDocs(): SeedDoc[] {
       updatedAtMs: BASE_MS - 11_000
     }),
     buildUserDoc({
+      userId: "firebase-user-guarded",
+      handle: "guarded.user",
+      name: "Guarded Firebase User",
+      postCount: 1,
+      updatedAtMs: BASE_MS - 11_500
+    }),
+    buildUserDoc({
       userId: "jwt-resolved-uid",
       handle: "jwt-resolved-uid",
       name: "JWT Resolved User",
@@ -436,6 +443,13 @@ export function buildSeedDocs(): SeedDoc[] {
       name: "Session User XYZ",
       postCount: 1,
       updatedAtMs: BASE_MS - 13_000
+    }),
+    buildUserDoc({
+      userId: "slow-user",
+      handle: "slow.user",
+      name: "Slow Deferred User",
+      postCount: 1,
+      updatedAtMs: BASE_MS - 13_500
     })
   );
 
@@ -827,6 +841,25 @@ export function buildSeedDocs(): SeedDoc[] {
     { path: "users/internal-viewer/following/author-24", data: { userId: "author-24", createdAt: iso(BASE_MS - 10_000), updatedAt: iso(BASE_MS - 10_000) } },
     { path: "users/internal-viewer/following/author-25", data: { userId: "author-25", createdAt: iso(BASE_MS - 9_000), updatedAt: iso(BASE_MS - 9_000) } },
   );
+
+  const genres = ["Pop", "Country", "Rap", "Rock", "Jazz", "Electronic"] as const;
+  for (let i = 1; i <= 16; i += 1) {
+    docs.push({
+      path: `audio/seed-mock-audio-${i}`,
+      data: {
+        nameOfSong: `Mock Song ${i}`,
+        Author: `Mock Artist ${i}`,
+        authorName: `Mock Artist ${i}`,
+        mediaLink: `https://cdn.locava.test/audio/mock-${i}.mp3`,
+        displayPhoto: `https://cdn.locava.test/audio/mock-${i}.jpg`,
+        userId: "mock-catalog",
+        createdAt: iso(BASE_MS - i * 60_000),
+        postsUsing: [],
+        genre: genres[i % genres.length],
+        moods: ["Chill"],
+      },
+    });
+  }
 
   return docs;
 }

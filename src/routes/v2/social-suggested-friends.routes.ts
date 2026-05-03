@@ -84,7 +84,18 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
         sourceBreakdown: {},
         generatedAt: Date.now(),
         etag: undefined,
-        sourceDiagnostics: [],
+        sourceDiagnostics: [
+          {
+            sourceName: "aggregate",
+            enabled: true,
+            skipped: false,
+            errorKind: fallbackErrorCode ?? "unknown",
+            readCount: 0,
+            queryCount: 0,
+            latencyMs: 0,
+            returnedCount: 0,
+          },
+        ],
       };
     }
     const users = data.users.slice(cursorOffset, cursorOffset + limit);

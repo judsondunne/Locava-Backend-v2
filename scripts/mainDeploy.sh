@@ -135,7 +135,8 @@ const passthroughKeys = [
   "FIREBASE_WEB_API_KEY",
   "LEGACY_MONOLITH_PROXY_BASE_URL",
   "LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN",
-  "VIDEO_PROCESSOR_FUNCTION_URL",
+  "VIDEO_PROCESSOR_TASK_SECRET",
+  "VIDEO_MAIN720_HEVC_ENABLED",
   "VIDEO_PROCESSING_CLOUD_TASKS_QUEUE",
   "VIDEO_PROCESSING_CLOUD_TASKS_LOCATION",
   "POSTING_VIDEO_SYNC_FASTSTART_ENABLED",
@@ -257,7 +258,8 @@ const preferredOrder = [
   "ENABLE_AUTO_LIKE_BOOSTER_WORKER",
   "LEGACY_MONOLITH_PROXY_BASE_URL",
   "LEGACY_MONOLITH_PUBLISH_BEARER_TOKEN",
-  "VIDEO_PROCESSOR_FUNCTION_URL",
+  "VIDEO_PROCESSOR_TASK_SECRET",
+  "VIDEO_MAIN720_HEVC_ENABLED",
   "VIDEO_PROCESSING_CLOUD_TASKS_QUEUE",
   "VIDEO_PROCESSING_CLOUD_TASKS_LOCATION",
   "POSTING_VIDEO_SYNC_FASTSTART_ENABLED",
@@ -294,6 +296,15 @@ for (const [key, value] of Object.entries(env)) {
 }
 EOF_NODE
 
+# Cloud Run replaces env from --env-vars-file each deploy; include worker URL so it is not dropped.
+# (Do not read VIDEO_PROCESSOR_FUNCTION_URL from local .env — it may be localhost.)
+PRE_SERVICE_URL="$("$GCLOUD_BIN" run services describe "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)' 2>/dev/null || true)"
+if [ -n "$PRE_SERVICE_URL" ]; then
+  export DEPLOY_ENV_FILE="$ENV_FILE"
+  export DEPLOY_VP_URL="${PRE_SERVICE_URL%/}/video-processor"
+  node -e "require('fs').appendFileSync(process.env.DEPLOY_ENV_FILE, 'VIDEO_PROCESSOR_FUNCTION_URL: ' + JSON.stringify(process.env.DEPLOY_VP_URL) + '\n');"
+fi
+
 echo "🚀 Deploying Backend v2..."
 echo "📦 Service: $SERVICE_NAME"
 echo "🗺️ Region: $REGION"
@@ -315,6 +326,51 @@ if ! "$GCLOUD_BIN" run deploy "$SERVICE_NAME" \
 fi
 
 SERVICE_URL="$("$GCLOUD_BIN" run services describe "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')"
+VIDEO_PROCESSOR_FUNCTION_URL_VALUE="${SERVICE_URL%/}/video-processor"
+
+# First deploy (no prior URL) or rare host change: env file could not include the worker URL — patch Cloud Run only then.
+if [ -z "${PRE_SERVICE_URL:-}" ] || [ "${PRE_SERVICE_URL%/}" != "${SERVICE_URL%/}" ]; then
+  echo "🎬 Setting Cloud Run VIDEO_PROCESSOR_FUNCTION_URL → $VIDEO_PROCESSOR_FUNCTION_URL_VALUE"
+  if ! "$GCLOUD_BIN" run services update "$SERVICE_NAME" \
+    --region "$REGION" \
+    --project "$PROJECT_ID" \
+    --update-env-vars="VIDEO_PROCESSOR_FUNCTION_URL=$VIDEO_PROCESSOR_FUNCTION_URL_VALUE"; then
+    echo "⚠️  Could not set VIDEO_PROCESSOR_FUNCTION_URL on Cloud Run. Set it manually to: $VIDEO_PROCESSOR_FUNCTION_URL_VALUE"
+  fi
+else
+  echo "🎬 VIDEO_PROCESSOR_FUNCTION_URL already baked into this deploy: $VIDEO_PROCESSOR_FUNCTION_URL_VALUE"
+fi
+
+export UPSERT_ENV_PATH="$PROJECT_ROOT/.env"
+export UPSERT_VIDEO_PROCESSOR_URL="$VIDEO_PROCESSOR_FUNCTION_URL_VALUE"
+node --input-type=module <<'UPSERT_ENV'
+import fs from "node:fs";
+
+const path = process.env.UPSERT_ENV_PATH ?? "";
+const url = process.env.UPSERT_VIDEO_PROCESSOR_URL ?? "";
+if (!path || !url) process.exit(0);
+if (!fs.existsSync(path)) {
+  console.warn(`Skipping .env upsert (missing file): ${path}`);
+  process.exit(0);
+}
+
+const marker = "\n############################################\n# 🎬 VIDEO WORKER (Cloud Tasks → POST)\n############################################\n";
+const line = `VIDEO_PROCESSOR_FUNCTION_URL=${url}\n`;
+const re = /^VIDEO_PROCESSOR_FUNCTION_URL=.*$/m;
+
+let text = fs.readFileSync(path, "utf8");
+if (re.test(text)) {
+  text = text.replace(re, line.trimEnd());
+} else {
+  const sep = text.endsWith("\n") || text.length === 0 ? "" : "\n";
+  text = `${text}${sep}${marker.trim()}\n${line}`;
+}
+if (!text.endsWith("\n")) text += "\n";
+fs.writeFileSync(path, text);
+UPSERT_ENV
+
+echo "📝 Locava Backendv2/.env — VIDEO_PROCESSOR_FUNCTION_URL set to this revision worker URL"
+
 DASHBOARD_TOKEN="$(
   node --input-type=module <<'EOF_NODE'
 import fs from "node:fs";

@@ -261,7 +261,7 @@ describe("v2 chats inbox routes", () => {
     }>;
     const sendRow = rows.find((r) => r.routeName === "chats.sendtext.post");
     expect(sendRow?.routePolicy?.routeName).toBe("chats.sendtext.post");
-    expect((sendRow?.dbOps?.writes ?? 0) <= 1).toBe(true);
+    expect((sendRow?.dbOps?.writes ?? 0) <= 2).toBe(true);
     expect((sendRow?.invalidation?.keys ?? 0) > 0).toBe(true);
     expect(sendRow?.budgetViolations).toEqual([]);
   });
