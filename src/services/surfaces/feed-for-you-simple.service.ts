@@ -122,6 +122,13 @@ export type FeedForYouSimplePageDebug = {
   firstPaintCardReadyCount?: number;
   detailBatchRequiredForFirstPaint?: boolean;
   durableServedWriteStatus?: "ok" | "skipped" | "error";
+  /** First two items playback-readiness tally (videos use feed-selected URLs). */
+  firstPaintPlaybackReadyCount?: number;
+  firstVisiblePlaybackUrlPresent?: boolean;
+  firstVisiblePosterPresent?: boolean;
+  /** Canonical variant bucket when first item is video; null otherwise. */
+  firstVisibleVariant?: string | null;
+  firstVisibleNeedsDetailBeforePlay?: boolean;
 };
 
 export class FeedForYouSimpleService {
@@ -373,6 +380,7 @@ export class FeedForYouSimpleService {
     diag.repeatedFromRecentCount = servedRecentFilteredCount;
     diag.firstPaintCardReadyCount = items.length;
     diag.detailBatchRequiredForFirstPaint = false;
+    applyFirstPaintPlaybackDiagnostics(items, diag);
     diag.durableServedWriteStatus = seenWriteAttempted ? (seenWriteSucceeded ? "ok" : "error") : "skipped";
     const reelCount = items.filter((item) => item.reel).length;
     diag.reelReturnedCount = reelCount;
@@ -666,6 +674,11 @@ function simpleCandidateVideoVariants(a0: SimpleFeedCandidate["assets"][number])
   return v;
 }
 
+function carouselCompactAssetCap(assetCount: number): number {
+  const n = Math.max(1, Math.floor(assetCount || 1));
+  return Math.min(12, n);
+}
+
 function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
   playbackUrl?: string;
   playbackUrlPresent?: boolean;
@@ -708,6 +721,78 @@ function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
     posterReady: posterOk,
     hasVideo: true,
   };
+}
+
+function firstVisiblePlaybackSignals(candidate: SimpleFeedCandidate | undefined): {
+  ready: boolean;
+  playbackUrlPresent: boolean;
+  posterPresent: boolean;
+  variant: string | null;
+  needsDetailBeforePlay: boolean;
+} | null {
+  if (!candidate) return null;
+  const posterOk = Boolean(candidate.posterUrl?.trim() || candidate.assets[0]?.posterUrl?.trim());
+  if (candidate.mediaType !== "video") {
+    return {
+      ready: true,
+      playbackUrlPresent: false,
+      posterPresent: posterOk,
+      variant: null,
+      needsDetailBeforePlay: false,
+    };
+  }
+  const aug = augmentSimpleFeedVideoPlayback(candidate);
+  const a0 = candidate.assets[0];
+  if (!a0) {
+    return {
+      ready: Boolean(aug.playbackReady),
+      playbackUrlPresent: Boolean(aug.playbackUrlPresent),
+      posterPresent: posterOk,
+      variant: null,
+      needsDetailBeforePlay: aug.playbackReady !== true && !aug.playbackUrlPresent,
+    };
+  }
+  const variants = simpleCandidateVideoVariants(a0);
+  const postLike: Record<string, unknown> = {
+    mediaType: "video",
+    assetsReady: candidate.assetsReady === true,
+    instantPlaybackReady: candidate.instantPlaybackReady === true,
+    ...(candidate.videoProcessingStatus ? { videoProcessingStatus: candidate.videoProcessingStatus } : {}),
+    assets: [
+      {
+        type: "video",
+        id: a0.id,
+        original: a0.originalUrl,
+        ...(Object.keys(variants).length > 0 ? { variants } : {}),
+      },
+    ],
+  };
+  const sel = selectBestVideoPlaybackAsset(postLike, { hydrationMode: "playback", allowPreviewOnly: true });
+  return {
+    ready: Boolean(aug.playbackReady ?? sel.playbackUrl),
+    playbackUrlPresent: Boolean(aug.playbackUrlPresent ?? sel.playbackUrl),
+    posterPresent: posterOk,
+    variant: sel.selectedVideoVariant ?? null,
+    needsDetailBeforePlay:
+      Boolean(candidate.instantPlaybackReady !== true && sel.isPreviewOnly && !candidate.assetsReady),
+  };
+}
+
+function applyFirstPaintPlaybackDiagnostics(candidates: SimpleFeedCandidate[], diag: FeedForYouSimplePageDebug): void {
+  const slice = candidates.slice(0, 2);
+  let readyCount = 0;
+  for (const row of slice) {
+    const sig = firstVisiblePlaybackSignals(row);
+    if (sig?.ready) readyCount += 1;
+  }
+  diag.firstPaintPlaybackReadyCount = readyCount;
+  const head = firstVisiblePlaybackSignals(candidates[0]);
+  if (head) {
+    diag.firstVisiblePlaybackUrlPresent = head.playbackUrlPresent;
+    diag.firstVisiblePosterPresent = head.posterPresent;
+    diag.firstVisibleVariant = head.variant;
+    diag.firstVisibleNeedsDetailBeforePlay = head.needsDetailBeforePlay;
+  }
 }
 
 function updateMediaDiagnostics(candidate: SimpleFeedCandidate, diag: FeedForYouSimplePageDebug): void {
@@ -754,6 +839,7 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     letterboxGradients: candidate.letterboxGradients,
     geo: candidate.geo,
     assets: candidate.assets,
+    compactAssetLimit: carouselCompactAssetCap(candidate.assets.length),
     title: candidate.title,
     captionPreview: candidate.captionPreview,
     firstAssetUrl: candidate.firstAssetUrl,

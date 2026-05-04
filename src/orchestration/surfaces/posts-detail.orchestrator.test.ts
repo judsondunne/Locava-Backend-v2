@@ -329,6 +329,323 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(post.playbackUrl).toBe("https://cdn/from-truth.mp4");
   });
 
+  it("playback batch pulls full multi-image assets from Firestore when card cache carries one row", async () => {
+    const loadPostDetail = vi.fn(async (postId: string) => ({
+      postId,
+      userId: "u1",
+      caption: "caption",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      mediaType: "image" as const,
+      thumbUrl: "https://cdn/one.jpg",
+      assets: Array.from({ length: 4 }).map((_, i) => ({
+        id: `img-${i + 1}`,
+        type: "image" as const,
+        original: `https://cdn/${i}.jpg`,
+        poster: `https://cdn/${i}.jpg`,
+        thumbnail: `https://cdn/${i}.jpg`,
+      })),
+    }));
+    const service = buildService({
+      loadPostDetail,
+      loadPostCardSummary: vi.fn(async (_viewerId: string, postId: string) => ({
+        postId,
+        rankToken: "rank-img",
+        author: { userId: "u1", handle: "u1", name: null, pic: null },
+        captionPreview: "caption",
+        media: { type: "image" as const, posterUrl: "https://cdn/one.jpg", aspectRatio: 3 / 4, startupHint: "poster_only" as const },
+        social: { likeCount: 0, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        activities: [],
+        address: null,
+        geo: { lat: null, long: null, city: null, state: null, country: null, geohash: null },
+        title: null,
+        firstAssetUrl: "https://cdn/one.jpg",
+        assetCount: 4,
+        assets: [
+          {
+            id: "img-1",
+            type: "image" as const,
+            previewUrl: null,
+            posterUrl: "https://cdn/one.jpg",
+            originalUrl: "https://cdn/one.jpg",
+            blurhash: null,
+            width: null,
+            height: null,
+            aspectRatio: null,
+            orientation: null,
+          },
+        ],
+      })),
+      loadPostCardSummaryBatchLightweight: vi.fn(async (_viewerId: string, ids: string[]) =>
+        ids.map((postId) => ({
+          postId,
+          rankToken: `rank-${postId}`,
+          author: { userId: "u1", handle: "u1", name: null, pic: null },
+          captionPreview: "caption",
+          media: { type: "image" as const, posterUrl: "https://cdn/one.jpg", aspectRatio: 3 / 4, startupHint: "poster_only" as const },
+          social: { likeCount: 0, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          activities: [],
+          address: null,
+          geo: { lat: null, long: null, city: null, state: null, country: null, geohash: null },
+          title: null,
+          firstAssetUrl: "https://cdn/one.jpg",
+          assetCount: 4,
+          assets: [
+            {
+              id: "img-1",
+              type: "image" as const,
+              previewUrl: null,
+              posterUrl: "https://cdn/one.jpg",
+              originalUrl: "https://cdn/one.jpg",
+              blurhash: null,
+              width: null,
+              height: null,
+              aspectRatio: null,
+              orientation: null,
+            },
+          ],
+        })),
+      ),
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["gallery-1"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+    });
+    expect(loadPostDetail).toHaveBeenCalledTimes(1);
+    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
+    expect(Array.isArray(post.assets)).toBe(true);
+    expect((post.assets as unknown[]).length).toBe(4);
+  });
+
+  it("playback batch upgrades slim carousel shells past index two when Firestore read cap allows", async () => {
+    const prevCap = process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP;
+    process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP = "3";
+    try {
+      const loadPostDetail = vi.fn(async (postId: string) => ({
+        postId,
+        userId: "u1",
+        caption: "caption",
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        mediaType: "image" as const,
+        thumbUrl: "https://cdn/0.jpg",
+        assets: [0, 1, 2, 3].map((i) => ({
+          id: `img-${i}`,
+          type: "image" as const,
+          original: `https://cdn/${i}.jpg`,
+          poster: `https://cdn/${i}.jpg`,
+          thumbnail: `https://cdn/${i}.jpg`,
+        })),
+      }));
+      const oneRowCard = (postId: string) => ({
+        postId,
+        rankToken: `rank-${postId}`,
+        author: { userId: "u1", handle: "u1", name: null, pic: null },
+        captionPreview: "caption",
+        media: { type: "image" as const, posterUrl: "https://cdn/0.jpg", aspectRatio: 3 / 4, startupHint: "poster_only" as const },
+        social: { likeCount: 0, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        activities: [],
+        address: null,
+        geo: { lat: null, long: null, city: null, state: null, country: null, geohash: null },
+        title: null,
+        firstAssetUrl: "https://cdn/0.jpg",
+        assetCount: 4,
+        assets: [
+          {
+            id: "img-0",
+            type: "image" as const,
+            previewUrl: null,
+            posterUrl: "https://cdn/0.jpg",
+            originalUrl: "https://cdn/0.jpg",
+            blurhash: null,
+            width: null,
+            height: null,
+            aspectRatio: null,
+            orientation: null,
+          },
+        ],
+      });
+      const ids = ["g0", "g1", "g2", "g3", "g4"];
+      const loadPostCardSummaryBatchLightweight = vi.fn(async (_v: string, batch: string[]) => batch.map((postId) => oneRowCard(postId)));
+      const service = buildService({
+        loadPostDetail,
+        loadPostCardSummary: vi.fn(async (_v: string, postId: string) => oneRowCard(postId)),
+        loadPostCardSummaryBatchLightweight,
+      });
+      const orchestrator = new PostsDetailOrchestrator(service);
+      const out = await orchestrator.runBatch({
+        viewerId: "viewer-1",
+        postIds: ids,
+        reason: "prefetch",
+        hydrationMode: "playback",
+      });
+      expect(loadPostDetail).toHaveBeenCalledTimes(3);
+      const byPost = new Map(out.found.map((row) => [row.postId, row.detail.firstRender.post as { assets: unknown[] }]));
+      expect(byPost.get("g0")?.assets.length).toBe(4);
+      expect(byPost.get("g1")?.assets.length).toBe(4);
+      expect(byPost.get("g2")?.assets.length).toBe(4);
+      expect(byPost.get("g3")?.assets.length).toBe(1);
+      expect(byPost.get("g4")?.assets.length).toBe(1);
+      expect((byPost.get("g3") as Record<string, unknown>).requiresAssetHydration).toBe(true);
+      expect((byPost.get("g3") as Record<string, unknown>).mediaCompleteness).toBe("cover_only");
+    } finally {
+      if (prevCap === undefined) delete process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP;
+      else process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP = prevCap;
+    }
+  });
+
+  it("playback batch spends read cap on visible carousel gaps before prefetch tail", async () => {
+    const prevCap = process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP;
+    const prevHead = process.env.LOCAVA_BATCH_VISIBLE_HEAD_SLOTS;
+    process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP = "1";
+    process.env.LOCAVA_BATCH_VISIBLE_HEAD_SLOTS = "3";
+    try {
+      const bundle = (postId: string) => ({
+        postId,
+        userId: "u1",
+        caption: "caption",
+        createdAtMs: 1,
+        updatedAtMs: 2,
+        mediaType: "image" as const,
+        thumbUrl: "https://cdn/0.jpg",
+        assets: ["a", "b", "c", "d"].map((l, idx) => ({
+          id: `img-${idx}`,
+          type: "image" as const,
+          original: `https://cdn/${l}.jpg`,
+          poster: `https://cdn/${l}.jpg`,
+          thumbnail: `https://cdn/${l}.jpg`,
+        })),
+      });
+      const slimCard = (postId: string) => ({
+        postId,
+        rankToken: `rank-${postId}`,
+        author: { userId: "u1", handle: "u1", name: null, pic: null },
+        captionPreview: "caption",
+        media: { type: "image" as const, posterUrl: "https://cdn/a.jpg", aspectRatio: 3 / 4, startupHint: "poster_only" as const },
+        social: { likeCount: 0, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        activities: [],
+        address: null,
+        geo: { lat: null, long: null, city: null, state: null, country: null, geohash: null },
+        title: null,
+        firstAssetUrl: "https://cdn/a.jpg",
+        assetCount: 4,
+        rawFirestoreAssetCount: 4,
+        assets: [
+          {
+            id: "img-0",
+            type: "image" as const,
+            previewUrl: null,
+            posterUrl: "https://cdn/a.jpg",
+            originalUrl: "https://cdn/a.jpg",
+            blurhash: null,
+            width: null,
+            height: null,
+            aspectRatio: null,
+            orientation: null,
+          },
+        ],
+      });
+      const loadPostDetail = vi.fn(async (pid: string) => bundle(pid));
+      const ids = ["vis-a", "vis-b", "vis-c", "pre-d"];
+      const loadPostCardSummaryBatchLightweight = vi.fn(async (_viewerId: string, batch: string[]) =>
+        batch.map((postId) => slimCard(postId)),
+      );
+      const service = buildService({
+        loadPostDetail,
+        loadPostCardSummaryBatchLightweight,
+      });
+      const orchestrator = new PostsDetailOrchestrator(service);
+      const svcOut = await orchestrator.runBatch({
+        viewerId: "viewer-1",
+        postIds: ids,
+        reason: "prefetch",
+        hydrationMode: "playback",
+      });
+      expect(loadPostDetail).toHaveBeenCalledTimes(1);
+      expect(loadPostDetail.mock.calls[0]?.[0]).toBe("vis-a");
+      const upgraded = svcOut.found.find((row) => row.postId === "vis-a")?.detail.firstRender.post as Record<string, unknown>;
+      const cappedPref = svcOut.found.find((row) => row.postId === "pre-d")?.detail.firstRender.post as Record<string, unknown>;
+      expect(Array.isArray(upgraded?.assets) && (upgraded?.assets as unknown[]).length === 4).toBe(true);
+      expect(Boolean(cappedPref?.requiresAssetHydration)).toBe(true);
+      expect(cappedPref?.mediaCompleteness).toBe("cover_only");
+    } finally {
+      if (prevCap === undefined) delete process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP;
+      else process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP = prevCap;
+      if (prevHead === undefined) delete process.env.LOCAVA_BATCH_VISIBLE_HEAD_SLOTS;
+      else process.env.LOCAVA_BATCH_VISIBLE_HEAD_SLOTS = prevHead;
+    }
+  });
+
+  it("playback batch skips Firestore reads when carousel assets already match canonical count", async () => {
+    const loadPostDetail = vi.fn(async (_postId: string) => {
+      throw new Error("should_skip_detail");
+    });
+    const service = buildService({
+      loadPostDetail,
+      loadPostCardSummaryBatchLightweight: vi.fn(async () => [
+        {
+          postId: "full-gallery",
+          rankToken: "rank-full",
+          author: { userId: "u1", handle: "u1", name: null, pic: null },
+          captionPreview: "caption",
+          media: { type: "image" as const, posterUrl: "https://cdn/0.jpg", aspectRatio: 1, startupHint: "poster_only" as const },
+          social: { likeCount: 0, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          activities: [],
+          address: null,
+          geo: { lat: null, long: null, city: null, state: null, country: null, geohash: null },
+          title: null,
+          firstAssetUrl: "https://cdn/0.jpg",
+          assetCount: 3,
+          rawFirestoreAssetCount: 3,
+          assets: ["https://cdn/0.jpg", "https://cdn/1.jpg", "https://cdn/2.jpg"].map((url, i) => ({
+            id: `img-${i}`,
+            type: "image" as const,
+            previewUrl: null,
+            posterUrl: url,
+            originalUrl: url,
+            blurhash: null,
+            width: null,
+            height: null,
+            aspectRatio: null,
+            orientation: null,
+          })),
+        },
+      ]),
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["full-gallery"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+    });
+    expect(loadPostDetail).not.toHaveBeenCalled();
+    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
+    expect((post.assets as unknown[]).length).toBe(3);
+    const originals = (post.assets as Array<{ original?: string | null; id?: string }>).map((a) =>
+      String(a.original ?? a.id ?? ""),
+    );
+    expect(new Set(originals).size).toBe(3);
+  });
+
   it("playback batch upgrades preview-only card cache using Firestore detail assets", async () => {
     const loadPostDetail = vi.fn(async (postId: string) => ({
       postId,

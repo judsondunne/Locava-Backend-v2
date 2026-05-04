@@ -74,6 +74,13 @@ async function forwardToMonolith(
       }
     }
     reply.send(text);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    reply.status(502).send({
+      success: false,
+      errorCode: "legacy_proxy_failed",
+      error: `Upstream monolith unreachable at ${trimBase(baseUrl)}: ${detail}`
+    });
   } finally {
     clearTimeout(t);
   }

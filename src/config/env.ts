@@ -23,6 +23,21 @@ const EnvSchema = z.object({
   FIREBASE_CLIENT_EMAIL: z.string().optional(),
   FIREBASE_PRIVATE_KEY: z.string().optional(),
   FIREBASE_WEB_API_KEY: z.string().optional(),
+  /**
+   * OAuth continue / request URI sent to Identity Toolkit (`createAuthUri`, `signInWithIdp`).
+   * Must use a host listed under Firebase Console → Authentication → Authorized domains.
+   * Local dev: `http://127.0.0.1:8080/auth/callback` (add `127.0.0.1` + `localhost` as authorized domains first).
+   */
+  FIREBASE_AUTH_CONTINUE_URI: z.string().url().optional(),
+  /**
+   * Public origin of this Backendv2 instance (e.g. deployed Cloud Run URL). Used only to detect
+   * accidental `LEGACY_MONOLITH_PROXY_BASE_URL` loops (Backendv2 proxying to itself).
+   */
+  BACKEND_PUBLIC_BASE_URL: z.string().url().optional(),
+  /** Apple native bundle ID label (Diagnostics + audience mismatch UX). Prefer EXPO_IOS_BUNDLE_ID from native if syncing. */
+  APPLE_IOS_BUNDLE_ID: z.string().optional(),
+  /** Apple OAuth Services ID (web) label — Firebase Apple provider often binds this audience for Identity Toolkit REST. */
+  APPLE_WEB_SERVICES_ID: z.string().optional(),
   DEBUG_VIEWER_ID: z.string().optional(),
   ENABLE_LOCAL_DEV_IDENTITY: z.string().optional().default("0"),
   ENABLE_DEV_DIAGNOSTICS: z.coerce.boolean().default(true),
@@ -113,22 +128,22 @@ function stripWrappingQuotes(value: string | undefined): string | undefined {
 }
 
 /**
- * Prefer the first **non-empty** value for each key as files are scanned in order.
- * A blank placeholder in Backendv2/.env must not hide a valid GOOGLE_APPLICATION_CREDENTIALS etc.
- * defined in `../Locava Backend/.env`.
+ * Layer monorepo env files so values **closer to Backendv2 win** over shared parents:
+ * `../Locava Backend/.env` → `../Locava-Native/.env` → `./.env` → `./.env.local`.
+ * Later non-empty assignments overwrite earlier ones so `.env.local` can replace e.g.
+ * analytics-only `GOOGLE_APPLICATION_CREDENTIALS` committed in `./.env` with a local Firebase-admin JSON path.
  */
 function mergeCandidateEnvFiles(cwd: string): Record<string, string> {
   const candidates = [
-    path.resolve(cwd, ".env"),
-    path.resolve(cwd, ".env.local"),
     path.resolve(cwd, "..", "Locava Backend", ".env"),
-    path.resolve(cwd, "..", "Locava-Native", ".env")
+    path.resolve(cwd, "..", "Locava-Native", ".env"),
+    path.resolve(cwd, ".env"),
+    path.resolve(cwd, ".env.local")
   ];
   const merged: Record<string, string> = {};
   for (const candidate of candidates) {
     const values = readEnvFileIfPresent(candidate);
     for (const [key, value] of Object.entries(values)) {
-      if (Object.hasOwn(merged, key)) continue;
       const trimmed = stripWrappingQuotes(value)?.trim() ?? "";
       if (!trimmed.length) continue;
       merged[key] = value;
@@ -157,6 +172,28 @@ export function loadEnv(source: Record<string, string | undefined> = process.env
   loadDotEnvFile();
   const candidateFileEnv = mergeCandidateEnvFiles(process.cwd());
   const mergedSource: Record<string, string | undefined> = mergeCandidateWithProcessEnv(candidateFileEnv, source);
+
+  /**
+   * Local dev ergonomics: terminals often `export GOOGLE_APPLICATION_CREDENTIALS` to an Analytics-only key.
+   * Layered dotenv (ending in `.env.local`) is the intended Firebase-admin path for Backendv2 dev.
+   * When `NODE_ENV=development`, prefer the merged file path if it exists on disk; opt out via
+   * `KEEP_SHELL_GOOGLE_APPLICATION_CREDENTIALS=1`. Production/test keep standard process precedence.
+   */
+  const keepShellGadc = stripWrappingQuotes(process.env.KEEP_SHELL_GOOGLE_APPLICATION_CREDENTIALS)?.trim() === "1";
+  if (mergedSource.NODE_ENV === "development" && !keepShellGadc) {
+    const fromFiles = stripWrappingQuotes(candidateFileEnv.GOOGLE_APPLICATION_CREDENTIALS);
+    const effective = stripWrappingQuotes(mergedSource.GOOGLE_APPLICATION_CREDENTIALS);
+    if (fromFiles && effective && fromFiles !== effective) {
+      try {
+        if (fs.existsSync(fromFiles)) {
+          mergedSource.GOOGLE_APPLICATION_CREDENTIALS = fromFiles;
+          process.env.GOOGLE_APPLICATION_CREDENTIALS = fromFiles;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 
   // Native already carries this key for local auth; mirror it to Backendv2 when missing.
   if (!mergedSource.FIREBASE_WEB_API_KEY && candidateFileEnv.EXPO_PUBLIC_FIREBASE_API_KEY) {

@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import { context, trace } from "@opentelemetry/api";
 import { ZodError } from "zod";
 import { type AppEnv, loadEnv } from "../config/env.js";
+import { legacyProxyLoopsToBackendTargets } from "../lib/firebase-identity-toolkit.js";
 import { failure } from "../lib/response.js";
 import { diagnosticsStore } from "../observability/diagnostics-store.js";
 import { requestMetricsCollector } from "../observability/request-metrics.collector.js";
@@ -659,6 +660,22 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           "firebase admin permission probe failed"
         );
       });
+    }
+
+    const legacyCollide = legacyProxyLoopsToBackendTargets({
+      legacyBaseUrl: env.LEGACY_MONOLITH_PROXY_BASE_URL,
+      backendPublicUrls: [env.BACKEND_PUBLIC_BASE_URL]
+    });
+    if (legacyCollide) {
+      app.log.error(
+        {
+          event: "legacy_monolith_proxy_target_matches_backend_public_url",
+          detail:
+            `LEGACY_MONOLITH_PROXY_BASE_URL origin matches BACKEND_PUBLIC_BASE_URL (${legacyCollide}). Misconfiguration routes classic proxy traffic back into Backendv2.`,
+          enableLegacyCompat: env.ENABLE_LEGACY_COMPAT_ROUTES
+        },
+        "legacy_proxy_target_collision"
+      );
     }
     logStartupTimeline("server_on_ready_complete", { nodeEnv: env.NODE_ENV });
 

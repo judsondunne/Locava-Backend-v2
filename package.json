@@ -38,6 +38,7 @@
     "debug:feed:v2-only": "tsx scripts/debug-backendv2-feed-native-only.mts",
     "debug:autofill:compare-v1-v2": "tsx scripts/compare-search-suggest-parity.mts",
     "debug:post:hydration": "tsx scripts/debug-post-detail-hydration.mts",
+    "debug:post-assets": "tsx scripts/debug-post-assets.mts",
     "debug:post-flow": "tsx scripts/debug-post-flow.mts",
     "debug:post-publish": "tsx scripts/debug-post-publish.mts",
     "debug:posting:canonical-finalize": "tsx scripts/debug-posting-canonical-finalize.mts",
@@ -105,6 +106,7 @@
     "fastify": "^5.3.3",
     "firebase-admin": "^13.8.0",
     "ioredis": "^5.10.1",
+    "jose": "^5.10.0",
     "pino-pretty": "^13.0.0",
     "zod": "^3.24.3"
   },

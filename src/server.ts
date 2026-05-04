@@ -27,7 +27,7 @@ const start = async (): Promise<void> => {
     );
     logVideoProcessingCloudTasksStartup(app.log);
 
-    printDevListenUrlBanner(app.config.PORT, app.config.NODE_ENV, app.config.LEGACY_MONOLITH_PROXY_BASE_URL);
+    printDevListenUrlBanner(app.config.PORT, app.config.NODE_ENV, app.config);
     if (app.config.NODE_ENV !== "production") {
       app.log.info(
         { devListenUrls: collectDevHttpBaseUrls(app.config.PORT), port: app.config.PORT },

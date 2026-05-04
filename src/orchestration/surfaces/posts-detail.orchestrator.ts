@@ -7,6 +7,7 @@ import {
 } from "../../dto/compact-surface-dto.js";
 import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
 import {
+  playbackBatchCarouselIncompleteMedia,
   playbackBatchShouldFetchFirestoreDetail,
   selectBestVideoPlaybackAsset,
 } from "../../lib/posts/video-playback-selection.js";
@@ -55,22 +56,13 @@ function mergePlaybackShellFromDetailRecord(detail: FeedDetailRecord, card: Safe
     userId: card.author.userId,
     card: toCompactPlaybackCard(card),
   });
-  if (detail.mediaType !== "video") {
-    return {
-      ...base,
-      userId: detail.userId,
-      thumbUrl: detail.thumbUrl || base.thumbUrl,
-      caption: detail.caption ?? base.caption,
-      mediaType: detail.mediaType,
-      assetsReady: detail.assetsReady ?? base.assetsReady,
-    };
-  }
   if (!Array.isArray(detail.assets) || detail.assets.length === 0) {
     return {
       ...base,
       userId: detail.userId,
       thumbUrl: detail.thumbUrl || base.thumbUrl,
       caption: detail.caption ?? base.caption,
+      mediaType: detail.mediaType,
       assetsReady: detail.assetsReady ?? base.assetsReady,
     };
   }
@@ -148,7 +140,47 @@ function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFe
     ...(typeof sx.fallbackVideoUrl === "string" ? { fallbackVideoUrl: sx.fallbackVideoUrl } : {}),
     ...(typeof sx.posterUrl === "string" ? { posterUrl: sx.posterUrl } : {}),
     ...(typeof sx.hasVideo === "boolean" ? { hasVideo: sx.hasVideo } : {}),
+    ...(typeof (summary as Record<string, unknown>).assetCount === "number"
+      ? { assetCount: (summary as Record<string, unknown>).assetCount as number }
+      : {}),
+    ...(typeof (summary as Record<string, unknown>).hasMultipleAssets === "boolean"
+      ? { hasMultipleAssets: (summary as Record<string, unknown>).hasMultipleAssets as boolean }
+      : {}),
+    ...(typeof (summary as Record<string, unknown>).photoLink === "string"
+      ? { photoLink: (summary as Record<string, unknown>).photoLink as string }
+      : {}),
+    ...(typeof (summary as Record<string, unknown>).displayPhotoLink === "string"
+      ? { displayPhotoLink: (summary as Record<string, unknown>).displayPhotoLink as string }
+      : {}),
+    ...(typeof (summary as Record<string, unknown>).rawFirestoreAssetCount === "number"
+      ? { rawFirestoreAssetCount: (summary as Record<string, unknown>).rawFirestoreAssetCount as number }
+      : {}),
+    ...((summary as Record<string, unknown>).mediaCompleteness === "cover_only"
+      ? { mediaCompleteness: "cover_only" as const }
+      : {}),
+    ...((summary as Record<string, unknown>).requiresAssetHydration === true
+      ? { requiresAssetHydration: true as const }
+      : {}),
   });
+}
+
+function enrichPlaybackShellRecordForCarouselProbe(shell: PlaybackPostShellDTO, card: SafeCardSummary): Record<string, unknown> {
+  const out = { ...(shell as Record<string, unknown>) };
+  const cardRec = card as Record<string, unknown>;
+  for (const key of [
+    "photoLink",
+    "displayPhotoLink",
+    "assetCount",
+    "hasMultipleAssets",
+    "rawFirestoreAssetCount",
+    "requiresAssetHydration",
+    "mediaCompleteness",
+    "assetLocations",
+    "legacy",
+  ] as const) {
+    if (out[key] == null && cardRec[key] != null) out[key] = cardRec[key];
+  }
+  return out;
 }
 
 function normalizeCommentsPreview(value: unknown): DeferredCommentPreview {
@@ -661,14 +693,70 @@ export class PostsDetailOrchestrator {
     let playbackFirestoreReadsPerformed = 0;
 
     const byId = new Map(cards.map((card) => [card.postId, this.ensureSafeCardSummary(card, card.postId)] as const));
+    const visibleHeadSlotsRaw = Number(process.env.LOCAVA_BATCH_VISIBLE_HEAD_SLOTS ?? "8");
+    const visibleHeadSlots = Number.isFinite(visibleHeadSlotsRaw) ? Math.min(32, Math.max(1, Math.floor(visibleHeadSlotsRaw))) : 8;
+    const visiblePlaybackHead = cappedIds.slice(0, Math.min(visibleHeadSlots, cappedIds.length));
+    const prefetchTail = cappedIds.slice(visiblePlaybackHead.length);
+    const visibleHeadSet = new Set(visiblePlaybackHead);
+    if (prefetchTail.length > 0 && visiblePlaybackHead.length > 0) {
+      this.logEvent("DETAIL_BATCH_SPLIT_VISIBLE_FROM_PREFETCH", {
+        visibleHead: visiblePlaybackHead,
+        prefetchTailPreview: prefetchTail.slice(0, 4),
+      });
+    }
+
+    type UpgradeIntent = { postId: string; batchIndex: number; carouselNeed: boolean; videoNeed: boolean };
+    const upgradeIntents: UpgradeIntent[] = [];
+    for (let batchIndex = 0; batchIndex < cappedIds.length; batchIndex += 1) {
+      const postId = cappedIds[batchIndex]!;
+      const card = byId.get(postId);
+      if (!card) continue;
+      const playbackShell = toPlaybackPostShellDTO({
+        userId: card.author.userId,
+        card: toCompactPlaybackCard(card),
+      });
+      const shellRecord = playbackShell as Record<string, unknown>;
+      const carouselProbe = enrichPlaybackShellRecordForCarouselProbe(playbackShell, card);
+      const videoNeed = input.hydrationMode === "playback" && playbackBatchShouldFetchFirestoreDetail(shellRecord);
+      const carouselNeed =
+        input.hydrationMode === "playback" && playbackBatchCarouselIncompleteMedia(carouselProbe);
+      if (carouselNeed || videoNeed) {
+        upgradeIntents.push({ postId, batchIndex, carouselNeed, videoNeed });
+      }
+    }
+    upgradeIntents.sort((a, b) => {
+      const va = visibleHeadSet.has(a.postId) ? 0 : 1;
+      const vb = visibleHeadSet.has(b.postId) ? 0 : 1;
+      if (va !== vb) return va - vb;
+      const ca = a.carouselNeed ? 0 : a.videoNeed ? 1 : 9;
+      const cb = b.carouselNeed ? 0 : b.videoNeed ? 1 : 9;
+      if (ca !== cb) return ca - cb;
+      return a.batchIndex - b.batchIndex;
+    });
+    const grantedFirestoreUpgrade = new Set<string>();
+    const playbackUpgradeSkippedReason = new Map<string, string>();
+    {
+      let reserved = 0;
+      for (const intent of upgradeIntents) {
+        if (reserved >= playbackFirestoreReadCap) {
+          playbackUpgradeSkippedReason.set(intent.postId, "playback_firestore_read_cap");
+          continue;
+        }
+        grantedFirestoreUpgrade.add(intent.postId);
+        reserved += 1;
+      }
+    }
+
     const found: Array<{ postId: string; detail: PostsDetailResponse }> = [];
-    for (const postId of cappedIds) {
+    for (let batchIndex = 0; batchIndex < cappedIds.length; batchIndex += 1) {
+      const postId = cappedIds[batchIndex]!;
       const card = byId.get(postId);
       if (!card) continue;
       let playbackShell = toPlaybackPostShellDTO({
         userId: card.author.userId,
         card: toCompactPlaybackCard(card),
       });
+      const assetCountBeforeUpgrade = Array.isArray(playbackShell.assets) ? playbackShell.assets.length : 0;
       let mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>, {
         hydrationMode: "playback",
       });
@@ -676,14 +764,18 @@ export class PostsDetailOrchestrator {
       let fallbacks: string[] = [];
       let debugHydrationSource: "cache" | "mixed" = "cache";
       let debugReadsForPost = 0;
-      const wantsPlaybackFirestoreUpgrade =
+      const shellRecord = playbackShell as Record<string, unknown>;
+      const carouselProbe = enrichPlaybackShellRecordForCarouselProbe(playbackShell, card);
+      const wantsVideoFirestoreUpgrade =
+        input.hydrationMode === "playback" && playbackBatchShouldFetchFirestoreDetail(shellRecord);
+      const wantsCarouselFirestoreUpgrade =
+        input.hydrationMode === "playback" && playbackBatchCarouselIncompleteMedia(carouselProbe);
+      const wantsFirestoreMediaUpgrade =
         input.hydrationMode === "playback" &&
-        playbackBatchShouldFetchFirestoreDetail(playbackShell as Record<string, unknown>);
+        (wantsCarouselFirestoreUpgrade || wantsVideoFirestoreUpgrade);
       const fetchAllowed =
-        wantsPlaybackFirestoreUpgrade &&
-        playbackFirestoreReadCap > 0 &&
-        playbackFirestoreReadsPerformed < playbackFirestoreReadCap;
-      if (wantsPlaybackFirestoreUpgrade && fetchAllowed) {
+        wantsFirestoreMediaUpgrade && grantedFirestoreUpgrade.has(postId) && playbackFirestoreReadCap > 0;
+      if (wantsFirestoreMediaUpgrade && fetchAllowed) {
         try {
           playbackFirestoreReadsPerformed += 1;
           debugReadsForPost = 1;
@@ -693,27 +785,67 @@ export class PostsDetailOrchestrator {
             (await this.service.loadPostCardSummary(input.viewerId, postId));
           const safeCard = this.ensureSafeCardSummary(cardSummaryRaw, postId, detail);
           playbackShell = mergePlaybackShellFromDetailRecord(detail, safeCard);
+          const assetCountAfter = Array.isArray(playbackShell.assets) ? playbackShell.assets.length : 0;
           mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>, {
             hydrationMode: "playback",
           });
-          const stillStale = playbackBatchShouldFetchFirestoreDetail(playbackShell as Record<string, unknown>);
-          degraded = stillStale;
+          let photoAssets = 0;
+          let videoAssets = 0;
+          if (Array.isArray(playbackShell.assets)) {
+            for (const a of playbackShell.assets) {
+              const t = String((a as { type?: string }).type ?? "");
+              if (t === "video") videoAssets += 1;
+              else photoAssets += 1;
+            }
+          }
+          const shellAfter = playbackShell as Record<string, unknown>;
+          const stillStaleVideo =
+            wantsVideoFirestoreUpgrade && playbackBatchShouldFetchFirestoreDetail(shellAfter);
+          degraded = wantsVideoFirestoreUpgrade ? stillStaleVideo : false;
+          if (wantsCarouselFirestoreUpgrade && assetCountAfter > assetCountBeforeUpgrade && assetCountAfter > 1) {
+            this.logEvent("POST_MEDIA_FULL_ASSETS_UPGRADED_FROM_SOURCE", {
+              postId,
+              source: "playback_batch_photo_carousel_upgrade",
+              assetCountBefore: assetCountBeforeUpgrade,
+              assetCountAfter,
+              photoAssetCount: photoAssets,
+              videoAssetCount: videoAssets,
+              selectedSource: "source_of_truth_detail",
+            });
+          } else if (wantsVideoFirestoreUpgrade && assetCountAfter > 0 && !stillStaleVideo) {
+            this.logEvent("POST_MEDIA_FULL_ASSETS_NORMALIZED", {
+              postId,
+              source: "playback_batch_video_upgrade",
+              assetCountBefore: assetCountBeforeUpgrade,
+              assetCountAfter,
+              photoAssetCount: photoAssets,
+              videoAssetCount: videoAssets,
+              selectedSource: "post_card_cache_upgraded",
+            });
+          }
+
           if (degraded) {
             fallbacks = ["post_card_cache_incomplete", "source_truth_still_missing_media"];
             if (process.env.NODE_ENV !== "production") {
               (playbackShell as Record<string, unknown>).mediaStatus = "missing_source_media";
             }
           } else {
-            fallbacks = ["post_card_cache_incomplete"];
+            fallbacks = wantsCarouselFirestoreUpgrade ? ["carousel_assets_upgraded_from_source"] : ["post_card_cache_incomplete"];
             debugHydrationSource = "mixed";
           }
         } catch {
-          degraded = true;
+          degraded = wantsVideoFirestoreUpgrade;
           fallbacks = ["post_card_cache_incomplete"];
         }
-      } else if (wantsPlaybackFirestoreUpgrade && !fetchAllowed) {
-        degraded = true;
+      } else if (wantsFirestoreMediaUpgrade && !fetchAllowed) {
+        degraded = wantsVideoFirestoreUpgrade;
         fallbacks = ["playback_firestore_read_cap"];
+        if (input.hydrationMode === "playback" && wantsCarouselFirestoreUpgrade) {
+          const shellMut = playbackShell as Record<string, unknown>;
+          shellMut.mediaCompleteness = "cover_only";
+          shellMut.requiresAssetHydration = true;
+          shellMut.carouselUpgradeDeferredReason = "playback_firestore_read_cap";
+        }
       }
       const videoPlaybackDebug =
         videoPlaybackDebugEnabled() && input.hydrationMode === "playback"
@@ -723,6 +855,77 @@ export class PostsDetailOrchestrator {
               includeDiagnostics: true,
             })
           : null;
+      if (process.env.NODE_ENV !== "production" && input.hydrationMode === "playback") {
+        const hintedRaw = carouselProbe.assetCount;
+        const hinted =
+          typeof hintedRaw === "number" && Number.isFinite(hintedRaw) ? Math.floor(hintedRaw) : null;
+        const shellLenNow = Array.isArray(playbackShell.assets) ? playbackShell.assets.length : 0;
+        const cardBrief = toCompactPlaybackCard(card);
+        const skippedReadCap = playbackUpgradeSkippedReason.get(postId);
+        const sourceUpgradeUsed = debugHydrationSource === "mixed";
+        const rawFromCardBrief =
+          typeof cardBrief.rawFirestoreAssetCount === "number" &&
+          Number.isFinite(cardBrief.rawFirestoreAssetCount)
+            ? Math.floor(cardBrief.rawFirestoreAssetCount as number)
+            : null;
+        const rawProbe =
+          typeof carouselProbe.rawFirestoreAssetCount === "number" &&
+          Number.isFinite(carouselProbe.rawFirestoreAssetCount)
+            ? Math.floor(carouselProbe.rawFirestoreAssetCount as number)
+            : null;
+        const rawAssetCountIfKnown = rawFromCardBrief ?? rawProbe ?? hinted;
+        const effectiveAssetCountHint =
+          typeof cardBrief.assetCount === "number" && Number.isFinite(cardBrief.assetCount)
+            ? Math.floor(cardBrief.assetCount as number)
+            : hinted;
+        const upgradeSkippedReason =
+          skippedReadCap ??
+          (wantsFirestoreMediaUpgrade && !fetchAllowed
+            ? "playback_firestore_read_cap"
+            : !wantsFirestoreMediaUpgrade
+              ? "playback_cache_sufficient"
+              : null);
+        const selectedSource =
+          sourceUpgradeUsed ? "post_card_cache_upgraded" : "post_card_cache";
+        this.logEvent("POST_DETAILS_BATCH_PLAYBACK_CACHE_DECISION", {
+          postId,
+          selectedSource,
+          hydrationMode: input.hydrationMode,
+          rawAssetCountIfKnown,
+          cachedAssetCount: assetCountBeforeUpgrade,
+          returnedAssetCount: shellLenNow,
+          assetCount: effectiveAssetCountHint,
+          hasMultipleAssets:
+            cardBrief.hasMultipleAssets === true ||
+            carouselProbe.hasMultipleAssets === true,
+          mediaCompleteness:
+            (playbackShell as Record<string, unknown>).mediaCompleteness ??
+            cardBrief.mediaCompleteness ??
+            (wantsCarouselFirestoreUpgrade ? "cover_only" : "full"),
+          sourceUpgradeUsed,
+          upgradeSkippedReason,
+          visibleHead: visibleHeadSet.has(postId),
+          isCoverOnlyCard: Boolean(
+            cardBrief.requiresAssetHydration === true ||
+              cardBrief.mediaCompleteness === "cover_only" ||
+              wantsCarouselFirestoreUpgrade,
+          ),
+        });
+        const effectiveHint = effectiveAssetCountHint;
+        if (
+          effectiveHint != null &&
+          effectiveHint > shellLenNow &&
+          !sourceUpgradeUsed &&
+          (upgradeSkippedReason === "playback_firestore_read_cap" || wantsCarouselFirestoreUpgrade)
+        ) {
+          console.warn("[POST_DETAILS_BATCH_PLAYBACK_CAROUSEL_PARTIAL]", {
+            postId,
+            effectiveHint,
+            shellLenNow,
+            upgradeSkippedReason,
+          });
+        }
+      }
       found.push({
         postId: card.postId,
         detail: {

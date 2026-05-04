@@ -6,6 +6,24 @@ SERVICE_NAME="locava-backend-v2"
 REGION="us-central1"
 PORT="8080"
 
+# --- Cloud Run production shape (aligned with legacy monolith idea: warm baseline + headroom, not oversized) ---
+# Memory: in-process GeoNames / caches; 2Gi avoids tight OOM during startup spikes (legacy used 4Gi for heavier GeoNames path).
+MEMORY="${MEMORY:-2Gi}"
+CPU="${CPU:-1}"
+MIN_INSTANCES="${MIN_INSTANCES:-1}"
+MAX_INSTANCES="${MAX_INSTANCES:-15}"
+CONCURRENCY="${CONCURRENCY:-24}"
+# Request timeout (gcloud duration). Video work is Cloud Tasks–offloaded.
+TIMEOUT="${TIMEOUT:-10m}"
+# Startup probe: wait for listen + early hooks; /health is the lightest liveness-style route.
+STARTUP_PROBE="${STARTUP_PROBE:-httpGet.path=/health,initialDelaySeconds=35,failureThreshold=8,timeoutSeconds=5,periodSeconds=5}"
+
+# Keep-warm Scheduler (hedge on top of min-instances; keeps TLS + instance churn smoother). Disable: WARM_PING_ENABLED=false
+WARM_PING_ENABLED="${WARM_PING_ENABLED:-true}"
+WARM_PING_JOB_NAME="${WARM_PING_JOB_NAME:-locava-backend-v2-warm-ping}"
+WARM_PING_SCHEDULE="${WARM_PING_SCHEDULE:-*/10 * * * *}"
+WARM_PING_TIMEZONE="${WARM_PING_TIMEZONE:-America/New_York}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
@@ -26,16 +44,16 @@ import fs from "node:fs";
 import path from "node:path";
 
 const cwd = process.cwd();
+/* Same layering as Backendv2 loadEnv(): parent monorepo first, Backendv2 .env, then .env.local wins */
 const envPaths = [
-  path.resolve(cwd, ".env"),
-  path.resolve(cwd, ".env.local"),
   path.resolve(cwd, "..", "Locava Backend", ".env"),
-  path.resolve(cwd, "..", "Locava-Native", ".env")
+  path.resolve(cwd, "..", "Locava-Native", ".env"),
+  path.resolve(cwd, ".env"),
+  path.resolve(cwd, ".env.local")
 ];
 
-const merged = {};
-for (const filePath of envPaths) {
-  if (!fs.existsSync(filePath)) continue;
+function parseIntoMerged(filePath, merged) {
+  if (!fs.existsSync(filePath)) return;
   const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.trim();
@@ -50,17 +68,21 @@ for (const filePath of envPaths) {
     ) {
       value = value.slice(1, -1);
     }
-    if (!(key in merged)) {
-      merged[key] = value;
-    }
+    if (!value.trim().length) continue;
+    merged[key] = value;
   }
 }
+
+const merged = {};
+for (const fp of envPaths) parseIntoMerged(fp, merged);
 
 const projectId =
   process.env.GCP_PROJECT_ID ||
   process.env.GOOGLE_CLOUD_PROJECT ||
   merged.GCP_PROJECT_ID ||
   merged.GOOGLE_CLOUD_PROJECT ||
+  merged.FIREBASE_PROJECT_ID ||
+  merged.EXPO_PUBLIC_FIREBASE_PROJECT_ID ||
   "";
 
 process.stdout.write(projectId);
@@ -82,41 +104,38 @@ import path from "node:path";
 
 const cwd = process.cwd();
 const envPaths = [
-  path.resolve(cwd, ".env"),
-  path.resolve(cwd, ".env.local"),
   path.resolve(cwd, "..", "Locava Backend", ".env"),
-  path.resolve(cwd, "..", "Locava-Native", ".env")
+  path.resolve(cwd, "..", "Locava-Native", ".env"),
+  path.resolve(cwd, ".env"),
+  path.resolve(cwd, ".env.local")
 ];
 
-function parseEnvFile(filePath) {
-  const values = {};
-  if (!fs.existsSync(filePath)) return values;
-  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIndex = trimmed.indexOf("=");
-    if (eqIndex === -1) continue;
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+function mergeEnvFilesLaydown() {
+  const merged = {};
+  for (const filePath of envPaths) {
+    if (!fs.existsSync(filePath)) continue;
+    const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const eqIndex = trimmed.indexOf("=");
+      if (eqIndex === -1) continue;
+      const key = trimmed.slice(0, eqIndex).trim();
+      let value = trimmed.slice(eqIndex + 1).trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      if (!value.trim().length) continue;
+      merged[key] = value;
     }
-    if (!(key in values)) values[key] = value;
   }
-  return values;
+  return merged;
 }
 
-const merged = {};
-for (const filePath of envPaths) {
-  const values = parseEnvFile(filePath);
-  for (const [key, value] of Object.entries(values)) {
-    if (!(key in merged)) merged[key] = value;
-  }
-}
+const merged = mergeEnvFilesLaydown();
 
 const env = {
   NODE_ENV: "production",
@@ -310,12 +329,22 @@ echo "📦 Service: $SERVICE_NAME"
 echo "🗺️ Region: $REGION"
 echo "☁️ Project: $PROJECT_ID"
 echo "🧾 Carrying over old backend env families: Wasabi, Redis, analytics, admin tokens, worker flags, Firebase creds"
+echo "⚙️  Cloud Run: memory=$MEMORY cpu=$CPU min=$MIN_INSTANCES max=$MAX_INSTANCES concurrency=$CONCURRENCY timeout=$TIMEOUT"
+echo "🩺 Startup probe: $STARTUP_PROBE"
 
 if ! "$GCLOUD_BIN" run deploy "$SERVICE_NAME" \
   --source . \
+  --platform managed \
   --region "$REGION" \
   --project "$PROJECT_ID" \
   --allow-unauthenticated \
+  --memory "$MEMORY" \
+  --cpu "$CPU" \
+  --min-instances "$MIN_INSTANCES" \
+  --max-instances "$MAX_INSTANCES" \
+  --concurrency "$CONCURRENCY" \
+  --timeout "$TIMEOUT" \
+  --startup-probe "$STARTUP_PROBE" \
   --port "$PORT" \
   --env-vars-file "$ENV_FILE"; then
   echo ""
@@ -416,4 +445,51 @@ echo "curl \"$SERVICE_URL/health\""
 if [ -n "$DASHBOARD_TOKEN" ]; then
   echo "📊 Health dashboard:"
   echo "$SERVICE_URL/internal/health-dashboard?token=$DASHBOARD_TOKEN"
+fi
+
+# ========== Keep-warm Scheduler (optional; same pattern as Locava Backend maindeploy) ==========
+if [ "$WARM_PING_ENABLED" = "true" ]; then
+  echo ""
+  echo "🧊 Configuring keep-warm Scheduler job..."
+  echo "   Job: $WARM_PING_JOB_NAME"
+  echo "   Schedule: $WARM_PING_SCHEDULE ($WARM_PING_TIMEZONE)"
+  echo "   Target: $SERVICE_URL/health"
+  echo ""
+  "$GCLOUD_BIN" services enable cloudscheduler.googleapis.com --project "$PROJECT_ID" >/dev/null 2>&1 || true
+  if "$GCLOUD_BIN" scheduler jobs describe "$WARM_PING_JOB_NAME" \
+    --location "$REGION" \
+    --project "$PROJECT_ID" >/dev/null 2>&1; then
+    "$GCLOUD_BIN" scheduler jobs update http "$WARM_PING_JOB_NAME" \
+      --location "$REGION" \
+      --project "$PROJECT_ID" \
+      --schedule "$WARM_PING_SCHEDULE" \
+      --time-zone "$WARM_PING_TIMEZONE" \
+      --http-method GET \
+      --uri "$SERVICE_URL/health" \
+      --attempt-deadline "30s" || echo "⚠️  Warm-ping job update failed (check Cloud Scheduler permissions)."
+    echo "✅ Updated existing warm-ping job"
+  else
+    "$GCLOUD_BIN" scheduler jobs create http "$WARM_PING_JOB_NAME" \
+      --location "$REGION" \
+      --project "$PROJECT_ID" \
+      --schedule "$WARM_PING_SCHEDULE" \
+      --time-zone "$WARM_PING_TIMEZONE" \
+      --http-method GET \
+      --uri "$SERVICE_URL/health" \
+      --attempt-deadline "30s" || echo "⚠️  Warm-ping job create failed (check Cloud Scheduler permissions)."
+    echo "✅ Created new warm-ping job"
+  fi
+else
+  echo ""
+  echo "ℹ️  Keep-warm Scheduler skipped (WARM_PING_ENABLED=$WARM_PING_ENABLED)"
+fi
+
+echo ""
+echo "🔎 Post-deploy smoke (HTTP status):"
+HTTP_HEALTH="$(curl -sS -o /dev/null -w "%{http_code}" "$SERVICE_URL/health" || echo "000")"
+HTTP_READY="$(curl -sS -o /dev/null -w "%{http_code}" "$SERVICE_URL/ready" || echo "000")"
+echo "   GET /health → $HTTP_HEALTH (expect 200)"
+echo "   GET /ready  → $HTTP_READY (expect 200)"
+if [ "$HTTP_HEALTH" != "200" ] || [ "$HTTP_READY" != "200" ]; then
+  echo "⚠️  Smoke check returned non-200; inspect Cloud Run logs and revision health."
 fi

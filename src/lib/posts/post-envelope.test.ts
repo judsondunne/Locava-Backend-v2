@@ -238,6 +238,43 @@ describe("buildPostEnvelope", () => {
     expect(envelope.firstAssetUrl).toBe("https://cdn.example.com/legacy.jpg");
   });
 
+  it("marker envelope preserves multi-asset gallery when Firestore-shaped sourcePost is wired", () => {
+    const envelope = buildPostEnvelope({
+      postId: "marker-rich-1",
+      hydrationLevel: "marker",
+      seed: {
+        postId: "marker-rich-1",
+        rankToken: "rank-marker-rich",
+        author: { userId: "u9", handle: "u9", name: null, pic: null },
+        media: {
+          type: "image",
+          posterUrl: "https://cdn.example.com/i0.webp",
+          aspectRatio: 1,
+          startupHint: "poster_only",
+        },
+        social: { likeCount: 0, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 1,
+      },
+      sourcePost: {
+        postId: "marker-rich-1",
+        displayPhotoLink: "https://cdn.example.com/i0.webp",
+        mediaType: "image",
+        thumbUrl: "https://cdn.example.com/i0.webp",
+        assets: [
+          { id: "i0", type: "image", variants: { lg: { webp: "https://cdn.example.com/i0.webp" } } },
+          { id: "i1", type: "image", variants: { lg: { webp: "https://cdn.example.com/i1.webp" } } },
+          { id: "i2", type: "image", variants: { lg: { webp: "https://cdn.example.com/i2.webp" } } },
+        ],
+      },
+      sourceRoute: "test.marker.rich",
+    });
+    expect((envelope.assets as unknown[]).length).toBe(3);
+    const uris = (envelope.assets as Array<{ originalUrl?: string }>).map((a) => String(a.originalUrl ?? ""));
+    expect(new Set(uris).size).toBe(3);
+  });
+
   it("keeps marker envelopes lightweight without pretending they contain raw detail", () => {
     const envelope = buildPostEnvelope({
       postId: "marker-only-1",
@@ -270,5 +307,47 @@ describe("buildPostEnvelope", () => {
     expect(envelope.rawPost).toBeNull();
     expect(envelope.sourcePost).toBeNull();
     expect((envelope.assets as Array<Record<string, unknown>>)[0]?.posterUrl).toBe("https://cdn.example.com/marker.jpg");
+  });
+
+  it("marks cover_only + requiresAssetHydration when raw Firestore gallery size exceeds normalized cards", () => {
+    const envelope = buildPostEnvelope({
+      postId: "gap-gallery",
+      hydrationLevel: "card",
+      seed: {
+        postId: "gap-gallery",
+        rankToken: "rank-gap",
+        author: { userId: "u1", handle: "gap", name: null, pic: null },
+        media: {
+          type: "image",
+          posterUrl: "https://cdn.example.com/a.jpg",
+          aspectRatio: 1,
+          startupHint: "poster_only",
+        },
+        social: { likeCount: 0, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 1,
+      },
+      sourcePost: {
+        postId: "gap-gallery",
+        mediaType: "image",
+        thumbUrl: "https://cdn.example.com/a.jpg",
+        assets: [
+          {
+            id: "ok-1",
+            type: "image",
+            original: "https://cdn.example.com/a.jpg",
+          },
+          { id: "drop-2", type: "image" },
+          { id: "drop-3", type: "image" },
+        ],
+      },
+      sourceRoute: "test.gallery_gap",
+    });
+    expect(envelope.rawFirestoreAssetCount).toBe(3);
+    expect((envelope.assets as unknown[]).length).toBe(1);
+    expect(envelope.mediaCompleteness).toBe("cover_only");
+    expect(envelope.requiresAssetHydration).toBe(true);
+    expect(typeof envelope.assetCount === "number" ? envelope.assetCount : 0).toBeGreaterThanOrEqual(3);
   });
 });

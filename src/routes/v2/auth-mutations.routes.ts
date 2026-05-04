@@ -45,6 +45,19 @@ import {
   normalizePasswordLoginFailure,
   normalizeRegisterFailure
 } from "../../lib/auth-provider-resolution.js";
+import { buildAppleJwtDiagnosticsUnverified } from "../../lib/apple-exchange-diagnostics.js";
+import {
+  FirebaseAppleIdTokenExchangeError,
+  resolveAppleSignInViaFirebaseSessionIdToken
+} from "../../lib/apple-firebase-backend-exchange.js";
+import { verifyAppleNativeIdentityJwt } from "../../lib/apple-native-jwt-verify.js";
+import {
+  type AppleToolkitClassifyContext,
+  IdentityToolkitExchangeError,
+  classifyFirebaseAuthSupportingFailure,
+  resolveAppleToolkitFailureMessaging,
+  resolveFirebaseToolkitContinueUri
+} from "../../lib/firebase-identity-toolkit.js";
 
 const CheckHandleQuery = z.object({
   handle: z.string().trim().min(1).max(40)
@@ -144,7 +157,10 @@ async function signUpWithPassword(email: string, password: string): Promise<{ ui
   return { uid: json.localId, email: json.email ?? email, displayName: json.displayName };
 }
 
-async function checkUserExistsByEmail(email: string): Promise<{ exists: boolean; signInMethods: string[] }> {
+async function checkUserExistsByEmail(
+  email: string,
+  continueUri: string
+): Promise<{ exists: boolean; signInMethods: string[] }> {
   const apiKey = process.env.FIREBASE_WEB_API_KEY;
   if (!apiKey) throw new Error("firebase_web_api_key_missing");
   const res = await fetch(
@@ -154,7 +170,7 @@ async function checkUserExistsByEmail(email: string): Promise<{ exists: boolean;
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         identifier: email,
-        continueUri: "https://locava.app/auth/callback"
+        continueUri
       })
     }
   );
@@ -174,11 +190,12 @@ async function checkUserExistsByEmail(email: string): Promise<{ exists: boolean;
 
 async function checkUserExistsWithFallbacks(
   authMutationsService: AuthMutationsService,
-  email: string
+  email: string,
+  continueUri: string
 ): Promise<{ exists: boolean; signInMethods: string[] }> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail) return { exists: false, signInMethods: [] };
-  const direct = await checkUserExistsByEmail(normalizedEmail).catch(() => ({ exists: false, signInMethods: [] }));
+  const direct = await checkUserExistsByEmail(normalizedEmail, continueUri).catch(() => ({ exists: false, signInMethods: [] }));
   const adminMethods = await authMutationsService.authSignInMethodsByEmail(normalizedEmail);
   const [userDocExists, authUserExists] = await Promise.all([
     authMutationsService.userDocExistsByEmail(normalizedEmail),
@@ -190,13 +207,16 @@ async function checkUserExistsWithFallbacks(
   };
 }
 
-async function signInWithIdp(params: {
-  provider: "google.com" | "apple.com";
-  accessToken?: string;
-  idToken?: string;
-  /** Raw (unhashed) nonce for Apple — must match the value hashed into the Apple authorization request */
-  appleRawNonce?: string;
-}): Promise<{ uid: string; providerId: string; email: string | null; displayName?: string; isNewUser: boolean | null }> {
+async function signInWithIdp(
+  params: {
+    provider: "google.com" | "apple.com";
+    accessToken?: string;
+    idToken?: string;
+    /** Raw (unhashed) nonce for Apple — must match the value hashed into the Apple authorization request */
+    appleRawNonce?: string;
+  },
+  toolkit: { continueUri: string }
+): Promise<{ uid: string; providerId: string; email: string | null; displayName?: string; isNewUser: boolean | null }> {
   const apiKey = process.env.FIREBASE_WEB_API_KEY;
   if (!apiKey) throw new Error("firebase_web_api_key_missing");
   const postBodyBits: string[] = [`providerId=${params.provider}`];
@@ -210,20 +230,23 @@ async function signInWithIdp(params: {
     }
   }
 
-  const res = await fetch(
-    `https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${encodeURIComponent(apiKey)}`,
-    {
+  let res: Response;
+  try {
+    res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        requestUri: "https://locava.app/auth/callback",
+        requestUri: toolkit.continueUri,
         returnSecureToken: true,
         returnIdpCredential: true,
         postBody: postBodyBits.join("&")
       })
-    }
-  );
-  const json = (await res.json()) as {
+    });
+  } catch (cause) {
+    throw new IdentityToolkitExchangeError("FETCH_FAILED", undefined, cause);
+  }
+
+  let json: {
     localId?: string;
     federatedId?: string;
     isNewUser?: boolean;
@@ -232,8 +255,15 @@ async function signInWithIdp(params: {
     rawUserInfo?: string;
     error?: { message?: string };
   };
+
+  try {
+    json = (await res.json()) as typeof json;
+  } catch (cause) {
+    throw new IdentityToolkitExchangeError("INVALID_JSON_RESPONSE", res.status, cause);
+  }
+
   if (!res.ok) {
-    throw new Error(json.error?.message ?? "idp_sign_in_failed");
+    throw new IdentityToolkitExchangeError(json.error?.message ?? "UNKNOWN_TOOLKIT_FAILURE", res.status);
   }
 
   let raw: Record<string, unknown> = {};
@@ -597,6 +627,7 @@ async function buildOauthSuccessResponse(params: {
 
 export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promise<void> {
   const authMutationsService = new AuthMutationsService();
+  const firebaseToolkitContinueUri = resolveFirebaseToolkitContinueUri(app.config);
 
   app.get("/v2/auth/check-handle", async (request, reply) => {
     const viewer = buildViewerContext(request);
@@ -622,7 +653,7 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     const query = CheckExistsQuery.parse(request.query);
     setRouteName("auth.check_user_exists.get");
     try {
-      const exists = await checkUserExistsWithFallbacks(authMutationsService, query.email);
+      const exists = await checkUserExistsWithFallbacks(authMutationsService, query.email, firebaseToolkitContinueUri);
       return success({
         routeName: "auth.check_user_exists.get",
         success: true,
@@ -707,7 +738,11 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
       let errorCode = rawMessage;
       try {
         const normalizedEmail = body.email.trim().toLowerCase();
-        const existsResult = await checkUserExistsWithFallbacks(authMutationsService, normalizedEmail);
+        const existsResult = await checkUserExistsWithFallbacks(
+          authMutationsService,
+          normalizedEmail,
+          firebaseToolkitContinueUri
+        );
         const norm = normalizePasswordLoginFailure(rawMessage, existsResult.signInMethods, existsResult.exists);
         userMessage = norm.userMessage;
         errorCode = norm.errorCode;
@@ -765,7 +800,11 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
       let errorCode = rawMessage;
       try {
         const normalizedEmail = body.email.trim().toLowerCase();
-        const { signInMethods } = await checkUserExistsWithFallbacks(authMutationsService, normalizedEmail);
+        const { signInMethods } = await checkUserExistsWithFallbacks(
+          authMutationsService,
+          normalizedEmail,
+          firebaseToolkitContinueUri
+        );
         const norm = normalizeRegisterFailure(rawMessage, signInMethods);
         userMessage = norm.userMessage;
         errorCode = norm.errorCode;
@@ -812,7 +851,8 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
             ? { provider: "google.com", accessToken: trimmedAccess }
             : (() => {
                 throw new Error("MISSING_GOOGLE_OAUTH_TOKEN");
-              })()
+              })(),
+        { continueUri: firebaseToolkitContinueUri }
       );
       const resolution = await authMutationsService.resolveOauthAccount({
         provider: "google",
@@ -835,7 +875,32 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         matchedExistingLocavaUser: resolution.matchedUser != null
       });
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : "google_sign_in_failed";
+      const supportive = classifyFirebaseAuthSupportingFailure(error);
+      if (supportive) {
+        request.log.warn(
+          {
+            event: "auth_google_failure_normalized",
+            routeName: authSigninGoogleContract.routeName,
+            attemptedProvider: "google",
+            errorCode: supportive.errorCode,
+            source: "supporting_service"
+          },
+          "oauth_failure"
+        );
+        return success({
+          routeName: authSigninGoogleContract.routeName,
+          success: false,
+          error: supportive.userMessage,
+          errorCode: supportive.errorCode
+        });
+      }
+
+      const rawMessage =
+        error instanceof IdentityToolkitExchangeError
+          ? error.firebaseMessage
+          : error instanceof Error
+            ? error.message
+            : "google_sign_in_failed";
       let userMessage = rawMessage;
       let errorCode = rawMessage;
       try {
@@ -852,7 +917,7 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
           userMessage = norm.userMessage;
           errorCode = norm.errorCode;
         } else {
-          const { signInMethods } = await checkUserExistsWithFallbacks(authMutationsService, email);
+          const { signInMethods } = await checkUserExistsWithFallbacks(authMutationsService, email, firebaseToolkitContinueUri);
           const norm = normalizeOAuthSignInFailure({
             attemptedProvider: "google",
             firebaseErrorMessage: rawMessage,
@@ -893,13 +958,309 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
     }
     const body = AuthSigninAppleBodySchema.parse(request.body);
     setRouteName(authSigninAppleContract.routeName);
+
+    const appleToolkitCtx: AppleToolkitClassifyContext = {
+      appleIosBundleId: app.config.APPLE_IOS_BUNDLE_ID,
+      appleWebServicesId: app.config.APPLE_WEB_SERVICES_ID
+    };
+    const bundleIdEcho =
+      typeof app.config.APPLE_IOS_BUNDLE_ID === "string" && app.config.APPLE_IOS_BUNDLE_ID.trim().length > 0
+        ? app.config.APPLE_IOS_BUNDLE_ID.trim()
+        : "com.judsondunne.locava";
+    const serviceIdEcho =
+      typeof app.config.APPLE_WEB_SERVICES_ID === "string" && app.config.APPLE_WEB_SERVICES_ID.trim().length > 0
+        ? app.config.APPLE_WEB_SERVICES_ID.trim()
+        : "com.judsondunne.locava.web";
+
+    const mode = body.oauthExchangeMode ?? "apple_identity_toolkit_rest";
+    const identityJwt = typeof body.identityToken === "string" ? body.identityToken.trim() : "";
+
+    if (mode === "firebase_apple_via_client_exchange") {
+      try {
+        const adminAuth = getFirebaseAuthClient();
+        if (!adminAuth) {
+          const fb = classifyFirebaseAuthSupportingFailure(new Error("firebase_auth_unavailable"));
+          return success({
+            routeName: authSigninAppleContract.routeName,
+            success: false,
+            error: fb?.userMessage ?? "Firebase Admin failed to initialize on the server.",
+            errorCode: fb?.errorCode ?? "firebase_admin_unavailable",
+            ...(app.config.ENABLE_DEV_DIAGNOSTICS && app.config.NODE_ENV !== "production"
+              ? {
+                  authDiagnostics: {
+                    failurePhase: "firebase_client_exchange" as const,
+                    oauthExchangeMode: mode,
+                    bundleIdEcho,
+                    serviceIdEcho,
+                    recommendedFix: "Set GOOGLE_APPLICATION_CREDENTIALS (or FIREBASE_* service account vars) matching the Firebase project used by Locava Native."
+                  }
+                }
+              : {})
+          });
+        }
+
+        const token = typeof body.firebaseIdToken === "string" ? body.firebaseIdToken.trim() : "";
+        const apid = await resolveAppleSignInViaFirebaseSessionIdToken(adminAuth, token);
+        const resolution = await authMutationsService.resolveOauthAccount({
+          provider: "apple",
+          providerId: apid.appleProviderUid,
+          firebaseUid: apid.firebaseUid,
+          email: apid.email ?? body.email ?? null,
+          idpIsNewUser: null
+        });
+        return buildOauthSuccessResponse({
+          routeName: authSigninAppleContract.routeName,
+          authProvider: "apple",
+          providerId: apid.appleProviderUid,
+          email: apid.email ?? body.email ?? null,
+          displayName: apid.displayName ?? undefined,
+          resolvedUid: resolution.resolvedUid,
+          accountStatus: resolution.accountStatus,
+          branchData: body.branchData,
+          authMutationsService,
+          log: request.log,
+          matchedExistingLocavaUser: resolution.matchedUser != null
+        });
+      } catch (error) {
+        let errorCode = "oauth_generic";
+        let userMessage = "Apple sign-in failed. Try again in a moment or use Google or email.";
+        let caughtMessage: string | undefined;
+
+        const supportive = classifyFirebaseAuthSupportingFailure(error);
+        if (supportive) {
+          errorCode = supportive.errorCode;
+          userMessage = supportive.userMessage;
+        }
+
+        caughtMessage =
+          !(error instanceof FirebaseAppleIdTokenExchangeError) && error instanceof Error
+            ? error.message.slice(0, 280)
+            : error instanceof FirebaseAppleIdTokenExchangeError
+              ? error.message.slice(0, 280)
+              : undefined;
+
+        request.log.warn(
+          {
+            event: "auth_apple_failure_normalized",
+            routeName: authSigninAppleContract.routeName,
+            attemptedProvider: "apple",
+            oauthExchangeMode: mode,
+            errorCode,
+            failurePhase: "firebase_client_exchange",
+            bundleIdEcho,
+            serviceIdEcho,
+            recommendedFix:
+              supportive && error instanceof FirebaseAppleIdTokenExchangeError
+                ? `Verify firebaseIdToken is from signInWithCredential(OAuthProvider('apple.com'), idToken=<Apple JWT>, rawNonce=<same raw nonce>). ${error.code}`
+                : undefined
+          },
+          "oauth_failure"
+        );
+
+        const diagFb =
+          app.config.ENABLE_DEV_DIAGNOSTICS && app.config.NODE_ENV !== "production"
+            ? {
+                authDiagnostics: {
+                  oauthExchangeMode: mode,
+                  failurePhase: "firebase_client_exchange" as const,
+                  bundleIdEcho,
+                  serviceIdEcho,
+                  ...(caughtMessage ? { caughtMessage } : {})
+                }
+              }
+            : {};
+        return success({
+          routeName: authSigninAppleContract.routeName,
+          success: false,
+          error: userMessage,
+          errorCode,
+          ...diagFb
+        });
+      }
+    } else if (mode === "apple_native_jwk_verified") {
+      const payloadJwPrecheck = decodeJwtPayloadUnverified(identityJwt);
+      const nonceClaimJw =
+        typeof payloadJwPrecheck?.nonce === "string" && payloadJwPrecheck.nonce.trim().length > 0
+          ? payloadJwPrecheck.nonce.trim()
+          : null;
+      const rawNonceJwTrimmed = typeof body.rawNonce === "string" ? body.rawNonce.trim() : "";
+      if (nonceClaimJw && rawNonceJwTrimmed.length < 8) {
+        request.log.warn(
+          {
+            event: "auth_apple_failure_normalized",
+            routeName: authSigninAppleContract.routeName,
+            errorCode: "missing_nonce",
+            failurePhase: "apple_jwk_verify",
+            oauthExchangeMode: mode,
+            nonceBodyLen: rawNonceJwTrimmed.length,
+            jwtHasNonceClaim: true
+          },
+          "apple_jwk_nonce_precheck_failed"
+        );
+        return success({
+          routeName: authSigninAppleContract.routeName,
+          success: false,
+          error:
+            "Apple returned a hashed nonce claim but rawNonce was not sent to Backendv2. The Locava client must forward rawNonce (length ≥ 8) with identityToken.",
+          errorCode: "missing_nonce",
+          ...(app.config.ENABLE_DEV_DIAGNOSTICS && app.config.NODE_ENV !== "production"
+            ? {
+                authDiagnostics: {
+                  failurePhase: "apple_jwk_verify" as const,
+                  oauthExchangeMode: mode,
+                  identityTokenJwtHasNonceClaim: true
+                }
+              }
+            : {})
+        });
+      }
+      let displayNameJwk: string | undefined;
+      if (body.fullName) {
+        if (typeof body.fullName === "string") displayNameJwk = body.fullName.trim() || undefined;
+        else if (body.fullName.givenName || body.fullName.familyName) {
+          displayNameJwk = [body.fullName.givenName, body.fullName.familyName].filter(Boolean).join(" ").trim() || undefined;
+        }
+      }
+      try {
+        const claims = await verifyAppleNativeIdentityJwt(identityJwt, {
+          expectedAudienceBundleId: bundleIdEcho,
+          rawNonce: rawNonceJwTrimmed.length >= 8 ? rawNonceJwTrimmed : typeof body.rawNonce === "string" ? body.rawNonce : null
+        });
+        const normalizedEmailJw = typeof body.email === "string" && body.email.includes("@") ? body.email.trim().toLowerCase() : null;
+        const emailForResolution = claims.email ?? normalizedEmailJw;
+        const legacyFirebaseUidJw = `apple_${claims.sub}`;
+        const resolution = await authMutationsService.resolveOauthAccount({
+          provider: "apple",
+          providerId: claims.sub,
+          firebaseUid: legacyFirebaseUidJw,
+          email: emailForResolution,
+          idpIsNewUser: null
+        });
+        return buildOauthSuccessResponse({
+          routeName: authSigninAppleContract.routeName,
+          authProvider: "apple",
+          providerId: claims.sub,
+          email: emailForResolution,
+          displayName: displayNameJwk,
+          resolvedUid: resolution.resolvedUid,
+          accountStatus: resolution.accountStatus,
+          branchData: body.branchData,
+          authMutationsService,
+          log: request.log,
+          matchedExistingLocavaUser: resolution.matchedUser != null
+        });
+      } catch (error) {
+        const jwtDiagJw = buildAppleJwtDiagnosticsUnverified(identityJwt);
+        const supportive = classifyFirebaseAuthSupportingFailure(error);
+        let errorCode = "oauth_generic";
+        let userMessage = "Apple sign-in failed. Try again in a moment or use Google or email.";
+        if (supportive) {
+          errorCode = supportive.errorCode;
+          userMessage = supportive.userMessage;
+        }
+        const caughtJw = error instanceof Error ? error.message.slice(0, 280) : undefined;
+        request.log.warn(
+          {
+            event: "auth_apple_failure_normalized",
+            routeName: authSigninAppleContract.routeName,
+            attemptedProvider: "apple",
+            oauthExchangeMode: mode,
+            errorCode,
+            failurePhase: "apple_jwk_verify",
+            bundleIdEcho,
+            appleTokenAudience: jwtDiagJw.appleTokenAudience ?? null,
+            expectedAppleBundleAudience: bundleIdEcho,
+            recommendedFix:
+              "apple_native_jwk_verified verifies Apple JWKS locally (matches legacy Express). No Firebase Toolkit / client OAuth audience involved. If nonce fails: ensure expo SHA256+HEX nonce matches server SHA256(hex) of rawNonce."
+          },
+          "oauth_failure"
+        );
+        return success({
+          routeName: authSigninAppleContract.routeName,
+          success: false,
+          error: userMessage,
+          errorCode,
+          ...(app.config.ENABLE_DEV_DIAGNOSTICS && app.config.NODE_ENV !== "production"
+            ? {
+                authDiagnostics: {
+                  oauthExchangeMode: mode,
+                  failurePhase: "apple_jwk_verify",
+                  ...(jwtDiagJw.appleTokenAudience ? { appleTokenAudience: jwtDiagJw.appleTokenAudience } : {}),
+                  firebaseExpectedAudienceToolkit: bundleIdEcho,
+                  bundleIdEcho,
+                  serviceIdEcho,
+                  ...(caughtJw ? { caughtMessage: caughtJw } : {})
+                }
+              }
+            : {})
+        });
+      }
+    } else {
     try {
-      const rawNonce = typeof body.rawNonce === "string" ? body.rawNonce.trim() : "";
-      const idp = await signInWithIdp({
-        provider: "apple.com",
-        idToken: body.identityToken,
-        ...(rawNonce.length > 0 ? { appleRawNonce: rawNonce } : {})
-      });
+      const payloadPrecheck = decodeJwtPayloadUnverified(identityJwt);
+      const nonceClaim =
+        typeof payloadPrecheck?.nonce === "string" && payloadPrecheck.nonce.trim().length > 0
+          ? payloadPrecheck.nonce.trim()
+          : null;
+      const rawNonceTrimmed = typeof body.rawNonce === "string" ? body.rawNonce.trim() : "";
+      if (nonceClaim && rawNonceTrimmed.length < 8) {
+        const jwtDiag = buildAppleJwtDiagnosticsUnverified(identityJwt);
+        request.log.warn(
+          {
+            event: "auth_apple_failure_normalized",
+            routeName: authSigninAppleContract.routeName,
+            errorCode: "missing_nonce",
+            failurePhase: "toolkit_precheck",
+            oauthExchangeMode: mode,
+            firebaseToolkitRawMessage: null,
+            identityTokenJwtHasNonceClaim: true,
+            nonceBodyLen: rawNonceTrimmed.length,
+            appleTokenAudience: jwtDiag.appleTokenAudience ?? null,
+            bundleIdEcho,
+            serviceIdEcho,
+            expectedFirebaseToolkitAudienceEcho: serviceIdEcho,
+            recommendedFix:
+              "Send rawNonce alongside identityToken whenever the Apple JWT includes a nonce claim (Firebase Identity Toolkit rejects missing nonce)."
+          },
+          "apple_nonce_precheck_failed"
+        );
+        const diagApple =
+          app.config.ENABLE_DEV_DIAGNOSTICS && app.config.NODE_ENV !== "production"
+            ? {
+                authDiagnostics: {
+                  failurePhase: "toolkit_precheck" as const,
+                  oauthExchangeMode: mode,
+                  firebaseToolkitRawMessage: null as string | null,
+                  identityTokenJwtHasNonceClaim: true,
+                  appleTokenAudience: jwtDiag.appleTokenAudience ?? undefined,
+                  bundleIdEcho,
+                  serviceIdEcho,
+                  firebaseExpectedAudienceToolkit: serviceIdEcho,
+                  recommendedFix:
+                    "Apple returned a hashed nonce claim but rawNonce was not sent to Backendv2; forward rawNonce when calling POST /v2/auth/signin/apple."
+                }
+              }
+            : {};
+        return success({
+          routeName: authSigninAppleContract.routeName,
+          success: false,
+          error:
+            "Apple returned a hashed nonce claim but rawNonce was not sent to Backendv2. Verify the native client forwards rawNonce with identityToken (length >= 8).",
+          errorCode: "missing_nonce",
+          ...diagApple
+        });
+      }
+
+      const rawNonce =
+        typeof body.rawNonce === "string" && body.rawNonce.trim().length >= 8 ? body.rawNonce.trim() : "";
+      const idp = await signInWithIdp(
+        {
+          provider: "apple.com",
+          idToken: identityJwt,
+          ...(rawNonce.length > 0 ? { appleRawNonce: rawNonce } : {})
+        },
+        { continueUri: firebaseToolkitContinueUri }
+      );
       const resolution = await authMutationsService.resolveOauthAccount({
         provider: "apple",
         providerId: idp.providerId,
@@ -921,46 +1282,128 @@ export async function registerV2AuthMutationRoutes(app: FastifyInstance): Promis
         matchedExistingLocavaUser: resolution.matchedUser != null
       });
     } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : "apple_sign_in_failed";
-      let userMessage = rawMessage;
-      let errorCode = rawMessage;
-      try {
-        const payload = decodeJwtPayloadUnverified(body.identityToken);
-        const jwtEmail =
-          typeof payload?.email === "string" && payload.email.includes("@") ? payload.email.trim().toLowerCase() : "";
-        const bodyEmail =
-          typeof body.email === "string" && body.email.includes("@") ? body.email.trim().toLowerCase() : "";
-        const email = jwtEmail || bodyEmail;
-        const norm = normalizeOAuthSignInFailure({
-          attemptedProvider: "apple",
-          firebaseErrorMessage: rawMessage,
-          signInMethods: email ? (await checkUserExistsWithFallbacks(authMutationsService, email)).signInMethods : []
-        });
-        userMessage = norm.userMessage;
-        errorCode = norm.errorCode;
-        request.log.info(
-          {
-            event: "auth_apple_failure_normalized",
-            routeName: authSigninAppleContract.routeName,
-            attemptedProvider: "apple",
-            errorCode,
-            hasEmail: Boolean(email),
-            nonceProvided: typeof body.rawNonce === "string" && body.rawNonce.trim().length > 0
-          },
-          "oauth_failure"
-        );
-      } catch {
-        request.log.info(
-          {
-            event: "auth_apple_failure_uncategorized",
-            routeName: authSigninAppleContract.routeName,
-            attemptedProvider: "apple",
-            errorCode: rawMessage
-          },
-          "oauth_failure"
-        );
+      let errorCode = "oauth_generic";
+      let userMessage = "Apple sign-in failed. Try again in a moment or use Google or email.";
+      let firebaseToolkitRaw: string | undefined;
+      let failurePhase: "toolkit_exchange" | "oauth_resolution" | "unknown" = "unknown";
+
+      let classifiedToolkitMeta: ReturnType<typeof resolveAppleToolkitFailureMessaging>["toolkitMeta"];
+
+      const jwtDiag = buildAppleJwtDiagnosticsUnverified(identityJwt);
+
+      if (error instanceof IdentityToolkitExchangeError) {
+        firebaseToolkitRaw = error.firebaseMessage;
+        failurePhase = "toolkit_exchange";
+        const classified = resolveAppleToolkitFailureMessaging(error.firebaseMessage, appleToolkitCtx);
+        classifiedToolkitMeta = classified.toolkitMeta;
+        errorCode = classified.errorCode;
+        userMessage = classified.userMessage;
+      } else {
+        const nonToolkit = classifyFirebaseAuthSupportingFailure(error);
+        if (nonToolkit) {
+          failurePhase = "oauth_resolution";
+          errorCode = nonToolkit.errorCode;
+          userMessage = nonToolkit.userMessage;
+        }
       }
-      return success({ routeName: authSigninAppleContract.routeName, success: false, error: userMessage, errorCode });
+
+      if (!(error instanceof IdentityToolkitExchangeError)) {
+        const rawMessage = error instanceof Error ? error.message : "apple_sign_in_failed";
+        if (firebaseToolkitRaw == null && failurePhase === "unknown") {
+          try {
+            const payload = decodeJwtPayloadUnverified(identityJwt);
+            const jwtEmail =
+              typeof payload?.email === "string" && payload.email.includes("@") ? payload.email.trim().toLowerCase() : "";
+            const bodyEmail =
+              typeof body.email === "string" && body.email.includes("@") ? body.email.trim().toLowerCase() : "";
+            const email = jwtEmail || bodyEmail;
+            const norm = normalizeOAuthSignInFailure({
+              attemptedProvider: "apple",
+              firebaseErrorMessage: rawMessage,
+              signInMethods: email
+                ? (await checkUserExistsWithFallbacks(authMutationsService, email, firebaseToolkitContinueUri)).signInMethods
+                : []
+            });
+            userMessage = norm.userMessage;
+            errorCode = norm.errorCode;
+          } catch {
+            request.log.info(
+              {
+                event: "auth_apple_failure_uncategorized",
+                routeName: authSigninAppleContract.routeName,
+                attemptedProvider: "apple",
+                errorCode: rawMessage,
+                firebaseToolkitRawMessage: firebaseToolkitRaw ?? null
+              },
+              "oauth_failure"
+            );
+          }
+        }
+      }
+
+      const toolkitHttpStatus = error instanceof IdentityToolkitExchangeError ? error.httpStatus : null;
+      request.log.warn(
+        {
+          event: "auth_apple_failure_normalized",
+          routeName: authSigninAppleContract.routeName,
+          attemptedProvider: "apple",
+          oauthExchangeMode: mode,
+          errorCode,
+          failurePhase,
+          firebaseToolkitRawMessage: firebaseToolkitRaw ?? null,
+          toolkitHttpStatus,
+          nonceProvidedLen: typeof body.rawNonce === "string" ? body.rawNonce.trim().length : 0,
+          appleTokenAudience: jwtDiag.appleTokenAudience ?? null,
+          expectedFirebaseToolkitAudience:
+            classifiedToolkitMeta?.kind === "audience_mismatch"
+              ? classifiedToolkitMeta.firebaseExpectedAudienceToolkit
+              : serviceIdEcho,
+          bundleIdEcho: classifiedToolkitMeta?.bundleIdConfigured ?? bundleIdEcho,
+          serviceIdEcho: classifiedToolkitMeta?.webServicesIdConfigured ?? serviceIdEcho,
+          recommendedFix:
+            classifiedToolkitMeta?.kind === "audience_mismatch" ? classifiedToolkitMeta.recommendedFix : undefined,
+          identityTokenJwtHasNonceClaim: jwtDiag.hasNonceClaim,
+          ...(jwtDiag.header?.kid || jwtDiag.header?.alg
+            ? { appleJwtHeaderAlg: jwtDiag.header?.alg, appleJwtHeaderKid: jwtDiag.header?.kid }
+            : {})
+        },
+        "oauth_failure"
+      );
+
+      const diagAppleFail =
+        app.config.ENABLE_DEV_DIAGNOSTICS && app.config.NODE_ENV !== "production"
+          ? {
+              authDiagnostics: {
+                oauthExchangeMode: mode,
+                failurePhase,
+                firebaseToolkitRawMessage: firebaseToolkitRaw ?? undefined,
+                identityToolkitHttpStatus: toolkitHttpStatus ?? undefined,
+                identityTokenJwtHasNonceClaim: jwtDiag.hasNonceClaim,
+                ...(jwtDiag.appleTokenAudience ? { appleTokenAudience: jwtDiag.appleTokenAudience } : {}),
+                firebaseExpectedAudienceToolkit:
+                  classifiedToolkitMeta?.kind === "audience_mismatch"
+                    ? classifiedToolkitMeta.firebaseExpectedAudienceToolkit
+                    : serviceIdEcho,
+                bundleIdEcho: classifiedToolkitMeta?.bundleIdConfigured ?? bundleIdEcho,
+                serviceIdEcho: classifiedToolkitMeta?.webServicesIdConfigured ?? serviceIdEcho,
+                ...(classifiedToolkitMeta?.kind === "audience_mismatch"
+                  ? { recommendedFix: classifiedToolkitMeta.recommendedFix }
+                  : {}),
+                ...(error instanceof Error && !(error instanceof IdentityToolkitExchangeError)
+                  ? { caughtMessage: error.message.slice(0, 280) }
+                  : {})
+              }
+            }
+          : {};
+
+      return success({
+        routeName: authSigninAppleContract.routeName,
+        success: false,
+        error: userMessage,
+        errorCode,
+        ...diagAppleFail
+      });
+    }
     }
   });
 

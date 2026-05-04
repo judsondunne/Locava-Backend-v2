@@ -263,6 +263,20 @@ export async function runFirebaseAdminPermissionProbe(): Promise<void> {
       });
     } catch (error) {
       const diag = getFirebaseAdminDiagnostics();
+      const email = diag.clientEmail ?? "";
+      if (email.includes("analytics-publisher")) {
+        console.error(
+          {
+            event: "firebase_admin_credential_requires_fix",
+            reason:
+              "GOOGLE_APPLICATION_CREDENTIALS appears to reference an Analytics/BigQuery service account instead of Firebase Admin. Apple/Google sign-in mints tokens and reads Auth/Firestore — use firebase-adminsdk-*, Firebase App Hosting default SA, or a custom SA with firebaseauth.admin",
+            credentialSource: diag.credentialSource,
+            clientEmail: diag.clientEmail,
+            credentialPathPresent: diag.hasGoogleApplicationCredentials
+          },
+          "Firebase Admin credential is likely incompatible with Auth/Firestore"
+        );
+      }
       console.error(
         `Backendv2 Firebase Admin credential cannot access project ${diag.projectId ?? "unknown"}. Set GOOGLE_APPLICATION_CREDENTIALS for local dev or configure FIREBASE_SERVICE_ACCOUNT_JSON / Cloud Run IAM for deploy.`,
         {

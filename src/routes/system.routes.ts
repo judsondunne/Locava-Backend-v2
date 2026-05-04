@@ -1,5 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { APPLE_OAUTH_EXCHANGE_MODES } from "../contracts/surfaces/auth-signin-apple.contract.js";
+import { getFirebaseAdminDiagnostics } from "../lib/firebase-admin.js";
+import { resolveFirebaseToolkitContinueUri } from "../lib/firebase-identity-toolkit.js";
 import { success } from "../lib/response.js";
 import { diagnosticsStore } from "../observability/diagnostics-store.js";
 import { listRoutePolicies } from "../observability/route-policies.js";
@@ -22,18 +25,21 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
       firebaseWebApiKeyConfigured:
         typeof app.config.FIREBASE_WEB_API_KEY === "string" && app.config.FIREBASE_WEB_API_KEY.trim().length > 0,
       firebaseAdminConfigured:
-        typeof app.config.FIREBASE_CLIENT_EMAIL === "string" &&
-        app.config.FIREBASE_CLIENT_EMAIL.trim().length > 0 &&
-        typeof app.config.FIREBASE_PRIVATE_KEY === "string" &&
-        app.config.FIREBASE_PRIVATE_KEY.trim().length > 0,
+        (typeof app.config.FIREBASE_CLIENT_EMAIL === "string" &&
+          app.config.FIREBASE_CLIENT_EMAIL.trim().length > 0 &&
+          typeof app.config.FIREBASE_PRIVATE_KEY === "string" &&
+          app.config.FIREBASE_PRIVATE_KEY.trim().length > 0) ||
+        Boolean(getFirebaseAdminDiagnostics().clientEmailPresent),
       backendAppleRouteDetected: true,
       backendGoogleRouteDetected: true,
       legacyProxyBaseConfigured:
         typeof app.config.LEGACY_MONOLITH_PROXY_BASE_URL === "string" &&
         app.config.LEGACY_MONOLITH_PROXY_BASE_URL.trim().length > 0,
-      oauthIdpContinueUriEcho: "https://locava.app/auth/callback",
+      oauthIdpContinueUriEcho: resolveFirebaseToolkitContinueUri(app.config),
       appleNoncePostBodySupported: true,
       appleConfigMode: "backend-firebase-rest" as const,
+      acceptedAppleOAuthExchangeModes: [...APPLE_OAUTH_EXCHANGE_MODES],
+      appleNativeJwtJwkRouteSupported: true,
       corsNote: "see Fastify CORS/register — not enumerated here",
       firebaseConsoleAppleProviderConfigured: null as boolean | null,
       firebaseConsoleGoogleProviderConfigured: null as boolean | null

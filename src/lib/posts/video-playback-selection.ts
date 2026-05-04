@@ -357,6 +357,170 @@ export function playbackBatchShouldFetchFirestoreDetail(postLike: Record<string,
   return false;
 }
 
+function scanCommaUrlCardinality(...values: unknown[]): number {
+  let max = 0;
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const parts = value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter((entry) => /^https?:\/\//i.test(entry));
+    max = Math.max(max, parts.length);
+  }
+  return max;
+}
+
+function rawFirestoreAssetArrayLen(record: PostRecord | null): number {
+  if (!record) return 0;
+  if (!Array.isArray(record.assets)) return 0;
+  let count = 0;
+  for (const entry of record.assets) {
+    if (entry && typeof entry === "object") count += 1;
+  }
+  return Math.min(64, count);
+}
+
+function pickEmbeddedRawFirestoreAssetLen(post: PostRecord): number {
+  let max = 0;
+  for (const blob of [post.rawPost, post.sourcePost]) {
+    max = Math.max(max, rawFirestoreAssetArrayLen(asRecord(blob)));
+  }
+  const card = asRecord(post.cardSummary);
+  if (card) {
+    for (const blob of [card.rawPost, card.sourcePost]) {
+      max = Math.max(max, rawFirestoreAssetArrayLen(asRecord(blob)));
+    }
+  }
+  /** Explicit envelope field survives cache payloads that omit nested raw blobs. */
+  const declaredFromPost = pickNumber(post.rawFirestoreAssetCount);
+  if (typeof declaredFromPost === "number" && Number.isFinite(declaredFromPost)) {
+    max = Math.max(max, Math.min(64, Math.floor(declaredFromPost)));
+  }
+  const declaredFromCard = card ? pickNumber(card.rawFirestoreAssetCount) : undefined;
+  if (typeof declaredFromCard === "number" && Number.isFinite(declaredFromCard)) {
+    max = Math.max(max, Math.min(64, Math.floor(declaredFromCard)));
+  }
+  return max;
+}
+
+function hintedCarouselCardinality(post: PostRecord): number {
+  let max = 0;
+  const bump = (raw: unknown): void => {
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return;
+    const n = Math.floor(raw);
+    if (n >= 2 && n <= 64) max = Math.max(max, n);
+  };
+  bump(post.assetCount);
+  max = Math.max(max, pickEmbeddedRawFirestoreAssetLen(post));
+  const card = asRecord(post.cardSummary);
+  if (card) {
+    bump(card.assetCount);
+    bump(card.derivedAssetCount);
+    const legacy = asRecord(card.legacy);
+    max = Math.max(
+      max,
+      scanCommaUrlCardinality(
+        card.photoLink,
+        card.displayPhotoLink,
+        legacy?.photoLink,
+        legacy?.photoLinks2,
+        legacy?.photoLinks3,
+      ),
+    );
+  }
+  const legacyTop = asRecord(post.legacy);
+  max = Math.max(
+    max,
+    scanCommaUrlCardinality(
+      post.photoLink,
+      post.displayPhotoLink,
+      legacyTop?.photoLink,
+      legacyTop?.photoLinks2,
+      legacyTop?.photoLinks3,
+    ),
+  );
+  const locs = Array.isArray(post.assetLocations) ? post.assetLocations.length : 0;
+  if (locs >= 2) max = Math.max(max, Math.min(64, locs));
+  if (pickBoolean(post.hasMultipleAssets) === true || (card && pickBoolean(card.hasMultipleAssets) === true)) {
+    max = Math.max(max, 2);
+  }
+  return max;
+}
+
+function primaryStillFingerprint(asset: PostRecord | null | undefined): string {
+  if (!asset) return "";
+  const variants = asRecord(asset.variants);
+  const canon =
+    pickString(
+      asset.original,
+      asset.poster,
+      asset.thumbnail,
+      extractVariantUrl(variants?.lg),
+      extractVariantUrl(variants?.md),
+      extractVariantUrl(variants?.webp),
+    ) ?? "";
+  if (canon) return canon;
+  const id = pickString(asset.id) ?? "";
+  return `id:${id}`;
+}
+
+/**
+ * Playback-mode batch: postcard cache often carries a slim `assets[]` for gallery posts while
+ * `photoLink` / `assetCount` still reflect the real gallery size. When true, callers should
+ * upgrade from Firestore subject to their read cap (see posts detail batch orchestrator).
+ */
+export function playbackBatchCarouselIncompleteMedia(postLike: Record<string, unknown> | null | undefined): boolean {
+  const post = asRecord(postLike) ?? {};
+  const wantsVideoFirestore = playbackBatchShouldFetchFirestoreDetail(postLike);
+  const assets = Array.isArray(post.assets) ? (post.assets as PostRecord[]) : [];
+  const hinted = hintedCarouselCardinality(post);
+  const shellLen = assets.length;
+
+  /** Client / envelope marks carousel as intentionally slim — upgrade even if playback video looks ready. */
+  if (pickBoolean(post.requiresAssetHydration) === true) return true;
+  if (pickString(post.mediaCompleteness)?.toLowerCase() === "cover_only") return true;
+
+  /** Video-only Firestore fetch does not implicitly repair multi-asset galleries; evaluate carouselNeeds separately. */
+
+  const declaredCount =
+    typeof post.assetCount === "number" && Number.isFinite(post.assetCount)
+      ? Math.floor(post.assetCount)
+      : null;
+  const rawLen = pickEmbeddedRawFirestoreAssetLen(post);
+  const expectationFloor = Math.max(
+    hinted,
+    declaredCount != null && declaredCount >= 2 && declaredCount <= 64 ? declaredCount : 0,
+    rawLen >= 2 ? rawLen : 0,
+  );
+  if (expectationFloor >= 2 && shellLen < expectationFloor) return true;
+  if (pickBoolean(post.hasMultipleAssets) === true && shellLen <= 1) return true;
+
+  if (shellLen <= 1) {
+    /** Single slot on-shell: only "complete" if no hint expects a gallery AND video does not independently need reads. */
+    if (hinted <= 1 && rawLen <= 1 && !(declaredCount != null && declaredCount >= 2) && pickBoolean(post.hasMultipleAssets) !== true) {
+      return false;
+    }
+    /** When video resolver still wants Firestore, defer to video upgrade for this row (carousel flag optional). */
+    if (wantsVideoFirestore) return false;
+    if (hinted <= 1 && rawLen <= 1 && !(declaredCount != null && declaredCount >= 2)) return false;
+    return true;
+  }
+  const prints = new Set(assets.map((a) => primaryStillFingerprint(a)));
+  if (prints.size <= 1 && shellLen >= 2) return true;
+  const ids = assets.map((a) => pickString(a.id)).filter(Boolean);
+  const uniqIds = new Set(ids);
+  if (hinted >= 2 && ids.length >= 2 && uniqIds.size === 1) return true;
+  if (hinted >= shellLen + 1 || (hinted >= 2 && shellLen !== hinted)) return true;
+  return false;
+}
+
+/** @see {@link playbackBatchCarouselIncompleteMedia} */
+export function playbackBatchNeedsPhotoCarouselFirestoreDetail(
+  postLike: Record<string, unknown> | null | undefined,
+): boolean {
+  return playbackBatchCarouselIncompleteMedia(postLike);
+}
+
 /**
  * Single entry: pick playback + fallback + poster for the first video asset.
  */

@@ -94,6 +94,20 @@ describe("compact surface dto mappers", () => {
             "type": "video",
             "width": 720,
           },
+          {
+            "aspectRatio": null,
+            "blurhash": null,
+            "height": null,
+            "id": "asset-2",
+            "mp4Url": null,
+            "orientation": null,
+            "originalUrl": null,
+            "posterUrl": null,
+            "previewUrl": "https://cdn.locava.test/post-1/preview-2.jpg",
+            "streamUrl": null,
+            "type": "video",
+            "width": null,
+          },
         ],
         "assetsReady": true,
         "author": {
@@ -106,6 +120,7 @@ describe("compact surface dto mappers", () => {
         },
         "captionPreview": "A caption preview that is intentionally verbose so the mapper has to clamp it and keep the feed card tiny.",
         "createdAtMs": 1700000000000,
+        "derivedAssetCount": 2,
         "firstAssetUrl": "https://cdn.locava.test/post-1/original.mp4",
         "geo": {
           "city": "Skamania County",
@@ -238,6 +253,21 @@ describe("compact surface dto mappers", () => {
             },
             "width": 720,
           },
+          {
+            "aspectRatio": undefined,
+            "height": undefined,
+            "id": "asset-2",
+            "orientation": undefined,
+            "original": "https://cdn.locava.test/post-1/preview-2.jpg",
+            "poster": "https://cdn.locava.test/post-1/poster.jpg",
+            "thumbnail": "https://cdn.locava.test/post-1/poster.jpg",
+            "type": "video",
+            "variants": {
+              "preview360": "https://cdn.locava.test/post-1/preview-2.jpg",
+              "preview360Avc": "https://cdn.locava.test/post-1/preview-2.jpg",
+            },
+            "width": undefined,
+          },
         ],
         "assetsReady": true,
         "caption": "A caption preview that is intentionally verbose so the mapper has to clamp it and keep the feed card tiny.",
@@ -264,6 +294,20 @@ describe("compact surface dto mappers", () => {
               "type": "video",
               "width": 720,
             },
+            {
+              "aspectRatio": null,
+              "blurhash": null,
+              "height": null,
+              "id": "asset-2",
+              "mp4Url": null,
+              "orientation": null,
+              "originalUrl": null,
+              "posterUrl": null,
+              "previewUrl": "https://cdn.locava.test/post-1/preview-2.jpg",
+              "streamUrl": null,
+              "type": "video",
+              "width": null,
+            },
           ],
           "assetsReady": true,
           "author": {
@@ -276,6 +320,7 @@ describe("compact surface dto mappers", () => {
           },
           "captionPreview": "A caption preview that is intentionally verbose so the mapper has to clamp it and keep the feed card tiny.",
           "createdAtMs": 1700000000000,
+          "derivedAssetCount": 2,
           "firstAssetUrl": "https://cdn.locava.test/post-1/original.mp4",
           "geo": {
             "city": "Skamania County",
@@ -383,5 +428,38 @@ describe("compact surface dto mappers", () => {
       "author.fullUser",
       "author.fullUser.followers",
     ]);
+  });
+
+  it("marks cover_only when rawFirestoreAssetCount exceeds serialized postcard assets", () => {
+    const dto = toFeedCardDTO({
+      postId: "p-multi",
+      rankToken: "r1",
+      author: { userId: "u1", handle: "u", name: null, pic: null },
+      activities: [],
+      assets: [
+        {
+          id: "a1",
+          type: "image",
+          previewUrl: null,
+          posterUrl: "https://cdn/1.jpg",
+          originalUrl: "https://cdn/1.jpg",
+          blurhash: null,
+          width: null,
+          height: null,
+          aspectRatio: null,
+          orientation: null,
+        },
+      ],
+      rawFirestoreAssetCount: 3,
+      assetCount: 3,
+      media: { type: "image", posterUrl: "https://cdn/1.jpg", aspectRatio: 1, startupHint: "poster_only" },
+      social: { likeCount: 0, commentCount: 0 },
+      viewer: { liked: false, saved: false },
+      createdAtMs: 1,
+      updatedAtMs: 1,
+    } as never);
+    expect(dto.rawFirestoreAssetCount).toBe(3);
+    expect(dto.mediaCompleteness).toBe("cover_only");
+    expect(dto.requiresAssetHydration).toBe(true);
   });
 });

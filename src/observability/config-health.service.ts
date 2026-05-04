@@ -1,4 +1,5 @@
 import type { AppEnv } from "../config/env.js";
+import { legacyProxyLoopsToBackendTargets } from "../lib/firebase-identity-toolkit.js";
 import { readWasabiConfigFromEnv } from "../services/storage/wasabi-config.js";
 import { BigQueryAnalyticsPublisher } from "../repositories/analytics/analytics-publisher.js";
 import { getCoherenceStatus } from "../runtime/coherence.js";
@@ -109,6 +110,15 @@ export function getConfigHealthSnapshot(env: AppEnv): ConfigHealthSnapshot {
   const coherence = getCoherenceStatus(env);
   if (coherence.warning) {
     warnings.push(coherence.warning);
+  }
+  const proxyCollide = legacyProxyLoopsToBackendTargets({
+    legacyBaseUrl: env.LEGACY_MONOLITH_PROXY_BASE_URL,
+    backendPublicUrls: [env.BACKEND_PUBLIC_BASE_URL]
+  });
+  if (proxyCollide) {
+    warnings.push(
+      `LEGACY_MONOLITH_PROXY_BASE_URL resolves to the same origin as BACKEND_PUBLIC_BASE_URL (${proxyCollide}); risk of Backendv2 proxying to itself.`
+    );
   }
 
   return { checks, warnings };

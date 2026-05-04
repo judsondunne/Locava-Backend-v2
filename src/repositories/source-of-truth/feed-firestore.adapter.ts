@@ -88,6 +88,9 @@ const FEED_CANDIDATE_SELECT_FIELDS = [
   "mediaType",
   "thumbUrl",
   "displayPhotoLink",
+  "photoLink",
+  "photoLinks2",
+  "photoLinks3",
   "title",
   "content",
   "caption",
@@ -152,7 +155,22 @@ export class FeedFirestoreAdapter {
       throw new Error("firestore_source_unavailable");
     }
     const { viewerId, tab, cursorOffset, limit, lat, lng, radiusKm } = input;
-    const cacheKey = `feed:candidates:${viewerId}:${tab}:${lat ?? "_"}:${lng ?? "_"}:${radiusKm ?? "_"}:${new Date().toISOString().slice(0, 10)}`;
+    const radiusActive =
+      typeof lat === "number" &&
+      Number.isFinite(lat) &&
+      typeof lng === "number" &&
+      Number.isFinite(lng) &&
+      typeof radiusKm === "number" &&
+      Number.isFinite(radiusKm) &&
+      radiusKm > 0 &&
+      radiusKm < Infinity;
+    const radiusRotationMsRaw = Number(process.env.FEED_RADIUS_ROTATION_BUCKET_MS ?? 300_000);
+    const radiusRotationMs =
+      Number.isFinite(radiusRotationMsRaw) && radiusRotationMsRaw >= 30_000 ? radiusRotationMsRaw : 300_000;
+    const radiusRotationBucket = radiusActive ? Math.floor(Date.now() / radiusRotationMs) : null;
+    const cacheRotationSuffix =
+      radiusRotationBucket !== null ? `rb${radiusRotationBucket}` : new Date().toISOString().slice(0, 10);
+    const cacheKey = `feed:candidates:${viewerId}:${tab}:${lat ?? "_"}:${lng ?? "_"}:${radiusKm ?? "_"}:${cacheRotationSuffix}`;
     const requiredCandidateCount = cursorOffset + limit + 1;
     const cached = await globalCache.get<{ ranked: FirestoreFeedCandidate[]; sourceExhausted: boolean }>(cacheKey);
     if (cached && (cached.sourceExhausted || cached.ranked.length >= requiredCandidateCount) && cursorOffset <= cached.ranked.length) {
@@ -165,15 +183,6 @@ export class FeedFirestoreAdapter {
         readCount: 0
       };
     }
-    const radiusActive =
-      typeof lat === "number" &&
-      Number.isFinite(lat) &&
-      typeof lng === "number" &&
-      Number.isFinite(lng) &&
-      typeof radiusKm === "number" &&
-      Number.isFinite(radiusKm) &&
-      radiusKm > 0 &&
-      radiusKm < Infinity;
     const pageBuffer = cursorOffset === 0 ? FeedFirestoreAdapter.FIRST_PAGE_BUFFER : FeedFirestoreAdapter.PAGE_BUFFER;
     const scanFloor =
       tab === "following" || radiusActive
@@ -285,10 +294,13 @@ export class FeedFirestoreAdapter {
       });
       throw error;
     }
+    const dailyExploreSeed = `${viewerId}:${new Date().toISOString().slice(0, 10)}`;
+    const exploreRotationSeed =
+      tab === "explore" && radiusActive && radiusRotationBucket !== null
+        ? `${viewerId}:geo:${(lat as number).toFixed(3)}:${(lng as number).toFixed(3)}:${Math.round((radiusKm as number) * 10)}:${radiusRotationBucket}`
+        : dailyExploreSeed;
     const ranked =
-      tab === "explore"
-        ? rotateDeterministically(rankedBase, `${viewerId}:${new Date().toISOString().slice(0, 10)}`)
-        : rankedBase;
+      tab === "explore" ? rotateDeterministically(rankedBase, exploreRotationSeed) : rankedBase;
     void globalCache.set(cacheKey, { ranked, sourceExhausted }, 6_000).catch(() => undefined);
     if (cursorOffset >= ranked.length) {
       return {

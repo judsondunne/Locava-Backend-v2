@@ -166,6 +166,14 @@ export function normalizeOAuthSignInFailure(params: {
   firebaseErrorMessage: string;
   signInMethods: string[];
 }): { userMessage: string; errorCode: string } {
+  const rawTrim = String(params.firebaseErrorMessage ?? "").trim();
+  if (rawTrim === "FETCH_FAILED" || rawTrim === "INVALID_JSON_RESPONSE") {
+    return {
+      userMessage: "Could not complete sign-in with Firebase (network or malformed Identity Toolkit response). Retry once; then verify FIREBASE_WEB_API_KEY and outbound connectivity.",
+      errorCode: "firebase_credential_exchange_failed"
+    };
+  }
+
   const code = normalizeFirebaseToolkitCode(params.firebaseErrorMessage);
   const methods = Array.isArray(params.signInMethods) ? params.signInMethods.filter((m) => typeof m === "string") : [];
 

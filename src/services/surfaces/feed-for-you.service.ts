@@ -261,6 +261,11 @@ function dedupeCandidates(rows: ForYouCandidate[]): ForYouCandidate[] {
   return out;
 }
 
+function carouselCompactAssetCap(assetCount: number): number {
+  const n = Math.max(1, Math.floor(assetCount || 1));
+  return Math.min(12, n);
+}
+
 function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string): FeedCardDTO {
   return toFeedCardDTO({
     postId: candidate.postId,
@@ -280,6 +285,7 @@ function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string):
     letterboxGradients: candidate.letterboxGradients,
     geo: candidate.geo,
     assets: candidate.assets,
+    compactAssetLimit: carouselCompactAssetCap(candidate.assets.length),
     title: candidate.title,
     captionPreview: candidate.captionPreview,
     firstAssetUrl: candidate.firstAssetUrl,

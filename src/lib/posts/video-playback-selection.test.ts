@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  playbackBatchCarouselIncompleteMedia,
+  playbackBatchNeedsPhotoCarouselFirestoreDetail,
   playbackBatchShouldFetchFirestoreDetail,
   resolveBestVideoPlaybackMedia,
   selectBestVideoPlaybackAsset,
@@ -212,6 +214,100 @@ describe("playbackBatchShouldFetchFirestoreDetail", () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe("playbackBatchNeedsPhotoCarouselFirestoreDetail / playbackBatchCarouselIncompleteMedia", () => {
+  it("returns false for a lone image postcard without multiplicity hints", () => {
+    expect(
+      playbackBatchNeedsPhotoCarouselFirestoreDetail({
+        mediaType: "image",
+        assets: [{ type: "image", id: "i1", original: "https://cdn/a.jpg" }],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns true when one slim row contradicts canonical assetCount", () => {
+    expect(
+      playbackBatchNeedsPhotoCarouselFirestoreDetail({
+        mediaType: "image",
+        assetCount: 4,
+        assets: [{ type: "image", id: "i1", original: "https://cdn/a.jpg" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns false once multiple distinct image assets exist on-shell", () => {
+    expect(
+      playbackBatchNeedsPhotoCarouselFirestoreDetail({
+        mediaType: "image",
+        assets: [
+          { type: "image", id: "i1", original: "https://cdn/a.jpg" },
+          { type: "image", id: "i2", original: "https://cdn/b.jpg" },
+        ],
+      }),
+    ).toBe(false);
+  });
+
+  it("returns true when assetCount implies a gallery larger than slim assets[]", () => {
+    expect(
+      playbackBatchCarouselIncompleteMedia({
+        mediaType: "image",
+        assetCount: 4,
+        assets: [{ type: "image", id: "i1", original: "https://cdn/a.jpg" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when rawFirestoreAssetCount exceeds on-shell assets[]", () => {
+    expect(
+      playbackBatchCarouselIncompleteMedia({
+        mediaType: "image",
+        assets: [{ type: "image", id: "i1", original: "https://cdn/a.jpg" }],
+        rawFirestoreAssetCount: 3,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when postcard marks requiresAssetHydration", () => {
+    expect(
+      playbackBatchCarouselIncompleteMedia({
+        mediaType: "image",
+        assets: [{ type: "image", id: "i1", original: "https://cdn/a.jpg" }],
+        requiresAssetHydration: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when cardSummary.photoLink lists multiple HTTPS URLs while assets holds one row", () => {
+    expect(
+      playbackBatchCarouselIncompleteMedia({
+        mediaType: "image",
+        cardSummary: {
+          photoLink:
+            "https://cdn/a.webp,https://cdn/b.webp,https://cdn/c.webp",
+        },
+        assets: [{ type: "image", id: "i1", original: "https://cdn/a.jpg" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("returns true when several rows fingerprint to the same still URL", () => {
+    expect(
+      playbackBatchCarouselIncompleteMedia({
+        mediaType: "image",
+        assets: [
+          { type: "image", id: "i1", original: "https://cdn/a.jpg", poster: "https://cdn/a.jpg" },
+          { type: "image", id: "i2", original: "https://cdn/a.jpg", poster: "https://cdn/a.jpg" },
+        ],
+      }),
+    ).toBe(true);
+  });
+
+  it("delegates carousel decision through playbackBatchNeedsPhotoCarouselFirestoreDetail", () => {
+    expect(playbackBatchNeedsPhotoCarouselFirestoreDetail({ mediaType: "image", assets: [{ type: "image", id: "x" }] })).toBe(
+      playbackBatchCarouselIncompleteMedia({ mediaType: "image", assets: [{ type: "image", id: "x" }] }),
+    );
   });
 });
 

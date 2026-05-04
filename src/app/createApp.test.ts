@@ -24,11 +24,20 @@ describe("backend foundation routes", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
       ok?: boolean;
-      data?: { firebaseWebApiKeyConfigured?: boolean; appleNoncePostBodySupported?: boolean };
+      data?: {
+        firebaseWebApiKeyConfigured?: boolean;
+        appleNoncePostBodySupported?: boolean;
+        appleNativeJwtJwkRouteSupported?: boolean;
+        acceptedAppleOAuthExchangeModes?: string[];
+      };
     };
     expect(body.ok).toBe(true);
     expect(body.data?.appleNoncePostBodySupported).toBe(true);
     expect(body.data?.firebaseWebApiKeyConfigured).toBeTypeOf("boolean");
+    expect(body.data?.appleNativeJwtJwkRouteSupported).toBe(true);
+    expect(body.data?.acceptedAppleOAuthExchangeModes).toEqual(
+      expect.arrayContaining(["apple_native_jwk_verified", "apple_identity_toolkit_rest", "firebase_apple_via_client_exchange"])
+    );
   });
 
   it("validates echo payload", async () => {

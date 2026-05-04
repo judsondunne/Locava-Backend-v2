@@ -1,4 +1,5 @@
 import os from "node:os";
+import type { AppEnv } from "../config/env.js";
 
 /**
  * Human-visible URLs for dev: physical phones / LAN Metro must use a
@@ -18,14 +19,18 @@ export function collectDevHttpBaseUrls(port: number): string[] {
   return [...new Set(out)].sort();
 }
 
-export function printDevListenUrlBanner(port: number, nodeEnv: string, legacyMonolithProxyBaseUrl?: string): void {
+export function printDevListenUrlBanner(port: number, nodeEnv: string, env: Pick<AppEnv, "LEGACY_MONOLITH_PROXY_BASE_URL" | "ENABLE_LEGACY_COMPAT_ROUTES">): void {
   if (nodeEnv === "production") return;
 
   const lan = collectDevHttpBaseUrls(port);
-  const legacyLine =
-    legacyMonolithProxyBaseUrl && legacyMonolithProxyBaseUrl.trim().length > 0
-      ? `  OAuth/email auth: proxied → ${legacyMonolithProxyBaseUrl.trim()}`
-      : "  OAuth/email auth: served natively by Backendv2 (/v2/auth/*).";
+  const legacyUrl = typeof env.LEGACY_MONOLITH_PROXY_BASE_URL === "string" ? env.LEGACY_MONOLITH_PROXY_BASE_URL.trim() : "";
+  const legacyConfigured = legacyUrl.length > 0;
+  const legacyLine = legacyConfigured
+    ? `  LEGACY_MONOLITH_PROXY_BASE_URL → ${legacyUrl}
+     (classic /api compat + upload proxies only when ENABLE_LEGACY_COMPAT_ROUTES=1; NOT used for POST /v2/auth/signin/*)`
+    : "  LEGACY_MONOLITH_PROXY_BASE_URL unset (legacy /api proxies disabled unless compat enabled + base set later).";
+  const v2AuthLine =
+    "  Apple/Google/email v2 surfaces: Backendv2 calls Firebase Identity Toolkit directly (needs FIREBASE_WEB_API_KEY matching the app's Firebase project).";
   const lines = [
     "",
     "================================================================================",
@@ -34,6 +39,7 @@ export function printDevListenUrlBanner(port: number, nodeEnv: string, legacyMon
     "",
     "  Physical phone / LAN Expo: use an http://<LAN-IP> line (NOT localhost).",
     legacyLine,
+    v2AuthLine,
     "",
     "  Optional .env:",
     "",

@@ -28,7 +28,9 @@ export async function uploadFileToWasabiKey(input: {
       Bucket: input.cfg.bucketName,
       Key: input.key.replace(/^\/+/, ""),
       Body: createReadStream(input.localPath),
-      ContentType: input.contentType
+      ContentType: input.contentType,
+      /** Matches v1 + presigned staging uploads — `wasabiPublicUrlForKey` only works if the object is world-readable. */
+      ACL: "public-read",
     }),
   );
   return { publicUrl: wasabiPublicUrlForKey(input.cfg, input.key), sizeBytes: st.size };

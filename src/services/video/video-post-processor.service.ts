@@ -89,14 +89,11 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
   const nowTs = Timestamp.fromMillis(nowMs);
 
   const videoProc = String(post.videoProcessingStatus ?? "").toLowerCase();
-  const prevLabSt = String(asRecord(post.playbackLab)?.status ?? "").toLowerCase();
   if (post.assetsReady === true && videoProc === "completed") {
     return { ok: true };
   }
-  /** Cloud Tasks retries after a permanent verify failure were merging `processing` atop `lastError`. */
-  if (videoProc === "failed" || prevLabSt === "failed") {
-    return { ok: true };
-  }
+
+  const enableRemoteUploadVerify = process.env.VIDEO_ENABLE_REMOTE_UPLOAD_VERIFY === "1";
 
   await postRef.set(
     {
@@ -186,21 +183,22 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
       const prefix = String(encoded.videosLabKeyPrefix ?? "").trim();
       const check = async (label: string, url: string) => {
         const u = String(url ?? "").trim();
-        if (process.env.VIDEO_SKIP_REMOTE_UPLOAD_VERIFY === "1") {
+        /** Default: trust local ffmpeg moov/faststart checks in the encoder (no HEAD/Range/SigV4 after PUT). Opt-in strict remote verify via env. */
+        if (!enableRemoteUploadVerify) {
           remoteChecks.push({
             label,
-            verifyMode: "skipped_env",
+            verifyMode: "trust_local_encode",
             ok: true,
             skipped: true,
-            reason: "VIDEO_SKIP_REMOTE_UPLOAD_VERIFY"
-          } as Record<string, unknown>);
+            ...(u ? { url } : {}),
+          });
           return;
         }
         const suffix = labArtifactSuffixForVerifyLabel(label);
         const useS3Lab = Boolean(prefix && suffix);
         const variantHintForDedup =
           u || `https://videos-lab.internal/${encodeURIComponent(payload.postId)}/${suffix}`;
-        let verifyMode: "s3_lab" | "remote" | "s3_lab_then_https" | "skipped_env" = useS3Lab ? "s3_lab" : "remote";
+        let verifyMode: "s3_lab" | "remote" | "s3_lab_then_https" = useS3Lab ? "s3_lab" : "remote";
         const moovOpts = { requireMoovBeforeMdat: true as const };
 
         let r: Awaited<ReturnType<typeof verifyRemoteMp4Faststart>>;

@@ -1,3 +1,6 @@
+import type { NormalizedPostAssetsResult } from "../../contracts/post-assets.contract.js";
+import { normalizePostAssets, normalizedAssetsToEnvelopeRows } from "../../contracts/post-assets.contract.js";
+
 type PostRecord = Record<string, unknown>;
 
 export type PostEnvelopeHydrationLevel = "card" | "detail" | "marker";
@@ -252,216 +255,25 @@ function normalizeCommentCount(source: PostRecord, commentsPreview: PostRecord[]
   );
 }
 
-function extractVariantUrl(value: unknown): string | undefined {
-  if (typeof value === "string") return pickString(value);
-  const record = asRecord(value);
-  if (!record) return undefined;
-  return pickString(record.webp, record.jpg, record.url, record.uri, record.src, record.value);
-}
-
-function isLikelyRemoteUrlString(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const t = value.trim();
-  return /^https?:\/\//i.test(t);
-}
-
-/**
- * Combines variant URL maps without letting `variantMetadata` blobs (bitrate/codec/size objects)
- * clobber real `variants.{main720Avc,...}` URLs — matches Firestore admin/native video shapes.
- */
-function mergeVariantMaps(...sources: Array<PostRecord | null | undefined>): PostRecord | undefined {
-  const merged: PostRecord = {};
-  for (const source of sources) {
-    if (!source) continue;
-    for (const [key, value] of Object.entries(source)) {
-      if (value == null) continue;
-      if (typeof value === "string") {
-        const trimmed = value.trim();
-        if (trimmed) merged[key] = trimmed;
-        continue;
-      }
-      const prev = merged[key];
-      if (isLikelyRemoteUrlString(prev)) {
-        continue;
-      }
-      merged[key] = value;
-    }
-  }
-  return Object.keys(merged).length > 0 ? merged : undefined;
-}
-
-function resolvePlaybackLabAssetMap(source: PostRecord): PostRecord | null {
-  return asRecord(asRecord(source.playbackLab)?.assets) ?? null;
-}
-
-function resolveAssetFromPlaybackLab(playbackAssets: PostRecord | null, assetId: string, index: number): PostRecord | null {
-  if (!playbackAssets) return null;
-  const byId = asRecord(playbackAssets[assetId]);
-  if (byId) return byId;
-  const entries = Object.values(playbackAssets).map((entry) => asRecord(entry)).filter((entry): entry is PostRecord => entry != null);
-  return entries[index] ?? entries[0] ?? null;
-}
-
-function resolveImageOriginal(variants: PostRecord | undefined, asset: PostRecord, fallback: string | null): string | null {
-  return (
-    pickString(
-      asset.original,
-      asset.url,
-      asset.downloadURL,
-      extractVariantUrl(variants?.lg),
-      extractVariantUrl(variants?.md),
-      extractVariantUrl(variants?.sm),
-      extractVariantUrl(variants?.fallbackJpg),
-      fallback,
-    ) ?? null
-  );
-}
-
-function resolveVideoUrls(variants: PostRecord | undefined, asset: PostRecord): {
-  streamUrl: string | null;
-  mp4Url: string | null;
-  originalUrl: string | null;
-  previewUrl: string | null;
-} {
-  const streamUrl = pickString(asset.streamUrl, variants?.hls) ?? null;
-  const mp4Url = pickString(asset.mp4Url, variants?.main720Avc, variants?.main720) ?? null;
-  const originalUrl =
-    pickString(asset.originalUrl, asset.original, variants?.original, asset.mp4Url, variants?.main720Avc, variants?.main720, asset.streamUrl, variants?.hls) ?? null;
-  const previewUrl = pickString(asset.previewUrl, variants?.preview360) ?? null;
-  return {
-    streamUrl,
-    mp4Url,
-    originalUrl,
-    previewUrl,
-  };
-}
-
-function buildFallbackLegacyAssets(source: PostRecord, postId: string, mediaType: "image" | "video"): PostRecord[] {
-  const photoCandidates = [
-    pickString(source.original),
-    pickString(source.photoLink),
-    firstMediaUrlFromCommaField(source.photoLinks2),
-    firstMediaUrlFromCommaField(source.photoLinks3),
-    pickString(source.displayPhotoLink),
-    pickString(source.thumbUrl),
-  ].filter((value): value is string => Boolean(value));
-  const posterUrl =
-    pickString(source.poster, source.posterUrl, source.displayPhotoLink, source.thumbUrl) ??
-    photoCandidates[0] ??
-    null;
-  if (mediaType === "video") {
-    const variants = mergeVariantMaps(asRecord(source.variants), asRecord(source.variantMetadata));
-    const videoUrls = resolveVideoUrls(variants, source);
-    return [
-      {
-        id: `${postId}-asset-1`,
-        type: "video",
-        previewUrl: videoUrls.previewUrl,
-        posterUrl,
-        originalUrl: videoUrls.originalUrl,
-        streamUrl: videoUrls.streamUrl,
-        mp4Url: videoUrls.mp4Url,
-        thumbnail: posterUrl,
-        poster: posterUrl,
-        original: videoUrls.originalUrl,
-        variants: variants ?? {},
-      },
-    ];
-  }
-  return photoCandidates.map((url, index) => ({
-    id: `${postId}-asset-${index + 1}`,
-    type: "image",
-    previewUrl: url,
-    posterUrl: index === 0 ? posterUrl : url,
-    originalUrl: url,
-    thumbnail: index === 0 ? posterUrl ?? url : url,
-    poster: index === 0 ? posterUrl ?? url : url,
-    original: url,
-  }));
-}
-
-function resolveEnvelopeAssets(source: PostRecord, postId: string, mediaType: "image" | "video"): PostRecord[] {
-  const rawAssets = Array.isArray(source.assets) ? source.assets : [];
-  const playbackAssets = resolvePlaybackLabAssetMap(source);
-  const normalized = rawAssets
-    .map<PostRecord | null>((entry, index) => {
-      const asset = asRecord(entry);
-      if (!asset) return null;
-      const assetId = pickString(asset.id, asset.assetId) ?? `${postId}-asset-${index + 1}`;
-      const labAsset = resolveAssetFromPlaybackLab(playbackAssets, assetId, index);
-      const sourceSnapshot = asRecord(labAsset?.sourceSnapshot);
-      const variants = mergeVariantMaps(
-        asRecord(asset.variants),
-        asRecord(asset.variantMetadata),
-        asRecord(asset.generated),
-        asRecord(asset.playbackLab),
-        asRecord(sourceSnapshot?.variants),
-        asRecord(labAsset?.generated),
-      );
-      const assetType = pickString(asset.type, asset.mediaType) === "video" || mediaType === "video" ? "video" : "image";
-      const posterUrl =
-        pickString(
-          asset.poster,
-          asset.posterUrl,
-          asset.thumbnail,
-          asset.thumbUrl,
-          variants?.poster,
-          sourceSnapshot?.poster,
-          source.poster,
-          source.posterUrl,
-          source.displayPhotoLink,
-          source.thumbUrl,
-        ) ?? null;
-      const base: PostRecord = {
-        ...asset,
-        id: assetId,
-        assetId,
-        type: assetType,
-        previewUrl:
-          pickString(
-            extractVariantUrl(variants?.preview360),
-            extractVariantUrl(variants?.sm),
-            extractVariantUrl(variants?.md),
-            extractVariantUrl(variants?.lg),
-            extractVariantUrl(variants?.thumb),
-          ) ?? null,
-        posterUrl,
-        thumbnail: posterUrl,
-        poster: posterUrl,
-        blurhash: normalizeNullableString(asset.blurhash),
-        width: pickNumber(asset.width) ?? null,
-        height: pickNumber(asset.height) ?? null,
-        aspectRatio: pickNumber(asset.aspectRatio) ?? null,
-        orientation: normalizeNullableString(asset.orientation),
-        durationSec: pickNumber(asset.durationSec) ?? null,
-        hasAudio: pickBoolean(asset.hasAudio),
-        codecs: asRecord(asset.codecs) ?? undefined,
-        variantMetadata: asRecord(asset.variantMetadata) ?? undefined,
-        playbackLab: asRecord(asset.playbackLab) ?? undefined,
-        generated: asRecord(asset.generated) ?? undefined,
-        variants: variants ?? {},
-      };
-      if (assetType === "video") {
-        const videoUrls = resolveVideoUrls(variants, asset);
-        return {
-          ...base,
-          originalUrl: videoUrls.originalUrl,
-          original: videoUrls.originalUrl,
-          streamUrl: videoUrls.streamUrl,
-          mp4Url: videoUrls.mp4Url,
-          previewUrl: videoUrls.previewUrl ?? base.previewUrl,
-        };
-      }
-      const originalUrl = resolveImageOriginal(variants, asset, posterUrl);
-      return {
-        ...base,
-        originalUrl,
-        original: originalUrl,
-      };
-    })
-    .filter((entry): entry is PostRecord => entry != null);
-  if (normalized.length > 0) return normalized;
-  return buildFallbackLegacyAssets(source, postId, mediaType);
+function resolveEnvelopeAssets(
+  sourcePost: PostRecord,
+  postId: string,
+  _mediaType: "image" | "video",
+  route?: string | null,
+): { assets: PostRecord[]; normalization: NormalizedPostAssetsResult } {
+  const normalization = normalizePostAssets(sourcePost, {
+    postId,
+    devDiagnostics: process.env.NODE_ENV !== "production",
+    route: route ?? null,
+  });
+  const rows = normalizedAssetsToEnvelopeRows(normalization.assets);
+  const rawAssets = Array.isArray(sourcePost.assets) ? sourcePost.assets : [];
+  const assets = rows.map((row, index) => {
+    const rawEntry = asRecord(rawAssets[index]);
+    if (!rawEntry) return row;
+    return { ...rawEntry, ...row };
+  });
+  return { assets, normalization };
 }
 
 function resolveCaption(source: PostRecord): string | null {
@@ -494,8 +306,21 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
   const resolvedPostId =
     pickString(input.postId, seed.postId, seed.id, sourcePost.postId, sourcePost.id, rawPost.postId, rawPost.id) ?? "";
   const mediaType = normalizeMediaType(sourcePost);
-  const resolvedAssets = resolveEnvelopeAssets(sourcePost, resolvedPostId, mediaType);
+  const { assets: resolvedAssets, normalization: mediaNormalization } = resolveEnvelopeAssets(
+    sourcePost,
+    resolvedPostId,
+    mediaType,
+    input.sourceRoute ?? null,
+  );
+  const rawAssetRows = Array.isArray(sourcePost.assets)
+    ? (sourcePost.assets as unknown[]).filter((entry) => entry != null && typeof entry === "object")
+    : [];
+  const rawFirestoreAssetCount = Math.min(64, rawAssetRows.length);
   const assets = embedFullFirestoreDocs ? resolvedAssets : slimEnvelopeAssetsForListHydration(resolvedAssets);
+  const normalizedLen = assets.length;
+  /** Serialized postcard carries fewer carousel rows than the Firestore `assets[]` count. */
+  const carouselHydrationIncomplete =
+    rawFirestoreAssetCount >= 2 && normalizedLen < rawFirestoreAssetCount;
   const firstAsset = assets[0] ?? null;
   const commentsPreview = normalizeCommentsPreview(sourcePost);
   const geo = resolveGeo(sourcePost);
@@ -642,9 +467,29 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
     userPic: author.pic,
     mediaType,
     thumbUrl: posterUrl,
-    displayPhotoLink: pickString(seed.displayPhotoLink, sourcePost.displayPhotoLink, posterUrl) ?? posterUrl,
-    photoLink: pickString(seed.photoLink, sourcePost.photoLink, posterUrl) ?? posterUrl,
+    displayPhotoLink:
+      pickString(
+        seed.displayPhotoLink,
+        sourcePost.displayPhotoLink,
+        mediaNormalization.displayPhotoLink ?? undefined,
+        posterUrl,
+      ) ?? posterUrl,
+    photoLink:
+      pickString(seed.photoLink, sourcePost.photoLink, mediaNormalization.photoLink ?? undefined, posterUrl) ??
+      posterUrl,
     posterUrl,
+    assetCount: carouselHydrationIncomplete
+      ? Math.max(rawFirestoreAssetCount, mediaNormalization.assetCount)
+      : mediaNormalization.assetCount,
+    hasMultipleAssets:
+      carouselHydrationIncomplete ||
+      rawFirestoreAssetCount > 1 ||
+      mediaNormalization.hasMultipleAssets ||
+      mediaNormalization.assetCount > 1,
+    /** Cheap hint for hydration / batch carousel probes — Firestore-backed `assets[]` length clamped at 64. */
+    rawFirestoreAssetCount,
+    mediaCompleteness: carouselHydrationIncomplete ? ("cover_only" as const) : ("full" as const),
+    requiresAssetHydration: carouselHydrationIncomplete,
     assets,
     caption: resolveCaption(seed) ?? resolveCaption(sourcePost),
     content: resolveCaption(seed) ?? resolveCaption(sourcePost),
@@ -726,6 +571,19 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
     pic: author.pic,
     profilePic: author.pic,
   };
+  if (mediaNormalization.diagnostics && process.env.NODE_ENV !== "production") {
+    const uniqueUri = new Set(mediaNormalization.assets.map((a) => a.displayUri).filter(Boolean)).size;
+    envelope.mediaDiagnostics = {
+      route: input.sourceRoute ?? sourceRoute ?? null,
+      postId: resolvedPostId,
+      rawAssetCount: mediaNormalization.diagnostics.rawAssetCount ?? null,
+      normalizedAssetCount: mediaNormalization.assetCount,
+      uniqueUriCount: uniqueUri,
+      source: mediaNormalization.diagnostics.source,
+      warnings: mediaNormalization.diagnostics.warnings,
+    };
+  }
+
   if (sourceRoute && process.env.NODE_ENV !== "production") {
     envelope.sourceRoute = sourceRoute;
     envelope.debugPostEnvelope = {

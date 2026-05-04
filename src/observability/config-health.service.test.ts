@@ -17,6 +17,8 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     FIREBASE_CLIENT_EMAIL: undefined,
     FIREBASE_PRIVATE_KEY: undefined,
     FIREBASE_WEB_API_KEY: undefined,
+    FIREBASE_AUTH_CONTINUE_URI: undefined,
+    BACKEND_PUBLIC_BASE_URL: undefined,
     DEBUG_VIEWER_ID: undefined,
     ENABLE_LOCAL_DEV_IDENTITY: "0",
     ENABLE_DEV_DIAGNOSTICS: true,

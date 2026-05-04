@@ -89,6 +89,16 @@ export type FeedBootstrapCandidateRecord = {
   sourcePost?: Record<string, unknown> | null;
   comments?: Array<Record<string, unknown>>;
   commentsPreview?: Array<Record<string, unknown>>;
+  /** From buildPostEnvelope — may exceed slim `assets[]` on postcards. */
+  assetCount?: number;
+  hasMultipleAssets?: boolean;
+  /** Firestore-backed `assets[]` length clamped when present (cheap hint for carousel probes). */
+  rawFirestoreAssetCount?: number;
+  mediaCompleteness?: "full" | "cover_only";
+  requiresAssetHydration?: boolean;
+  photoLink?: string | null;
+  displayPhotoLink?: string | null;
+  assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
 };
 
 export type FeedDetailRecord = {

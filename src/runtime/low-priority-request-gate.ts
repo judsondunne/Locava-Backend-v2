@@ -69,6 +69,16 @@ export async function enterLowPriorityStartupGateIfNeeded(
   }
   if (waitedMs > 0) {
     recordFallback(`startup_low_priority_gate_wait_${waitedMs}ms`);
+    try {
+      console.info("[BACKGROUND_ROUTE_DELAYED_DURING_FIRST_PLAYBACK]", {
+        waitedMs,
+        routeName: ctx?.routeName ?? null,
+        lane: ctx?.routePolicy?.lane ?? null,
+        policyPriority: policy?.priority ?? null,
+      });
+    } catch {
+      // best-effort log only
+    }
   }
   if (release) {
     releaseByRequest.set(request, release);

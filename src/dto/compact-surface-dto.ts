@@ -81,7 +81,19 @@ type CompactCardSeed = {
   width?: number | null;
   height?: number | null;
   resizeMode?: string | null;
+  /** Canonical asset count from Firestore normalizer (may exceed slim `assets[]` on cards). */
+  assetCount?: number | null;
+  hasMultipleAssets?: boolean | null;
+  /** Firestore-backed `assets[]` length clamped — pairs with canonical `assetCount` for carousel probes. */
+  rawFirestoreAssetCount?: number | null;
+  mediaCompleteness?: "full" | "cover_only" | null;
+  requiresAssetHydration?: boolean | null;
+  photoLink?: string | null;
+  displayPhotoLink?: string | null;
 };
+
+/** Default max assets serialized on carousel-capable postcards when callers omit compactAssetLimit. */
+export const DEFAULT_CARD_CAROUSEL_ASSET_CAP = 12;
 
 export type FeedCardDTO = {
   postId: string;
@@ -156,6 +168,18 @@ export type FeedCardDTO = {
   width?: number | null;
   height?: number | null;
   resizeMode?: string | null;
+  /** Canonical count: max(serialized assets[], server assetCount hint). */
+  derivedAssetCount?: number;
+  /** Firestore-normalized total assets when known (may exceed `assets[]` on slim cards). */
+  assetCount?: number;
+  hasMultipleAssets?: boolean;
+  /** Firestore-backed `assets[]` length clamped — serialized even when slim cards omit bulky `rawPost`. */
+  rawFirestoreAssetCount?: number;
+  photoLink?: string | null;
+  displayPhotoLink?: string | null;
+  /** Slim card is cover-only / first-asset slice; clients should hydrate detail for full carousel. */
+  mediaCompleteness?: "full" | "cover_only";
+  requiresAssetHydration?: boolean;
 };
 
 export type SearchMixPreviewDTO = FeedCardDTO & {
@@ -177,6 +201,15 @@ export type PlaybackPostShellDTO = {
   createdAtMs: number;
   updatedAtMs: number;
   assetsReady: boolean;
+  /** Hints merged from feed envelope for playback carousel completeness checks. */
+  assetCount?: number;
+  hasMultipleAssets?: boolean;
+  rawFirestoreAssetCount?: number;
+  photoLink?: string | null;
+  displayPhotoLink?: string | null;
+  mediaCompleteness?: "full" | "cover_only";
+  requiresAssetHydration?: boolean;
+  assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
   assets: Array<{
     id: string;
     type: "image" | "video";
@@ -403,15 +436,32 @@ function normalizeAspectRatio(value: number | null | undefined, fallback = 9 / 1
 }
 
 export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
+  const seedAssetLen = Array.isArray(seed.assets) ? seed.assets.length : 0;
+  const hintedAssetCount =
+    typeof seed.assetCount === "number" && Number.isFinite(seed.assetCount) ? Math.floor(seed.assetCount) : null;
+  const rawFireLen =
+    typeof seed.rawFirestoreAssetCount === "number" && Number.isFinite(seed.rawFirestoreAssetCount)
+      ? Math.floor(seed.rawFirestoreAssetCount)
+      : null;
   const assetCap =
     typeof seed.compactAssetLimit === "number" &&
     Number.isFinite(seed.compactAssetLimit) &&
     seed.compactAssetLimit > 0
       ? Math.min(24, Math.floor(seed.compactAssetLimit))
-      : 1;
+      : Math.min(DEFAULT_CARD_CAROUSEL_ASSET_CAP, Math.max(1, seedAssetLen));
   const assets = toCompactAssets(seed.assets, assetCap) ?? [];
   const firstAsset = assets[0];
   const posterUrl = cleanString(seed.media.posterUrl) ?? firstAsset?.posterUrl ?? "";
+  const derivedAssetCount = Math.max(
+    assets.length,
+    hintedAssetCount != null && hintedAssetCount >= 0 ? hintedAssetCount : seedAssetLen,
+    rawFireLen != null && rawFireLen >= 0 ? rawFireLen : 0,
+  );
+  const explicitHydrationIncomplete = seed.requiresAssetHydration === true || seed.mediaCompleteness === "cover_only";
+  const carouselIncomplete =
+    derivedAssetCount > assets.length ||
+    explicitHydrationIncomplete ||
+    Boolean(seed.hasMultipleAssets === true && assets.length <= 1);
   return {
     postId: seed.postId,
     rankToken: seed.rankToken,
@@ -470,6 +520,13 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     ...(cleanNumber(seed.width) != null ? { width: cleanNumber(seed.width) } : {}),
     ...(cleanNumber(seed.height) != null ? { height: cleanNumber(seed.height) } : {}),
     ...(cleanString(seed.resizeMode) != null ? { resizeMode: cleanString(seed.resizeMode) } : {}),
+    ...(hintedAssetCount != null && hintedAssetCount >= 0 ? { assetCount: hintedAssetCount } : {}),
+    ...(typeof seed.hasMultipleAssets === "boolean" ? { hasMultipleAssets: seed.hasMultipleAssets } : {}),
+    ...(rawFireLen != null && rawFireLen >= 0 ? { rawFirestoreAssetCount: rawFireLen } : {}),
+    ...(cleanString(seed.photoLink) != null ? { photoLink: cleanString(seed.photoLink) } : {}),
+    ...(cleanString(seed.displayPhotoLink) != null ? { displayPhotoLink: cleanString(seed.displayPhotoLink) } : {}),
+    derivedAssetCount,
+    ...(carouselIncomplete ? { mediaCompleteness: "cover_only" as const, requiresAssetHydration: true as const } : {}),
   };
 }
 
@@ -574,6 +631,18 @@ export function toPlaybackPostShellDTO(seed: {
     assetsReady: seed.card.assetsReady === true,
     assets: shellAssets,
     cardSummary: seed.card,
+    ...(typeof seed.card.assetCount === "number" ? { assetCount: seed.card.assetCount } : {}),
+    ...(seed.card.hasMultipleAssets === true ? { hasMultipleAssets: true } : {}),
+    ...(typeof seed.card.rawFirestoreAssetCount === "number" &&
+    Number.isFinite(seed.card.rawFirestoreAssetCount)
+      ? { rawFirestoreAssetCount: Math.floor(seed.card.rawFirestoreAssetCount) }
+      : {}),
+    ...(seed.card.mediaCompleteness === "cover_only"
+      ? { mediaCompleteness: "cover_only" as const }
+      : {}),
+    ...(seed.card.requiresAssetHydration === true ? { requiresAssetHydration: true } : {}),
+    ...(cleanString(seed.card.photoLink) != null ? { photoLink: cleanString(seed.card.photoLink) } : {}),
+    ...(cleanString(seed.card.displayPhotoLink) != null ? { displayPhotoLink: cleanString(seed.card.displayPhotoLink) } : {}),
   };
 }
 
