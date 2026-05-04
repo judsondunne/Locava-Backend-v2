@@ -63,6 +63,8 @@ const EnvSchema = z.object({
   SOURCE_OF_TRUTH_STRICT: z.coerce.boolean().default(false),
   /** TEMP local-only probe namespace that bypasses canonical auth wrappers for direct Firestore diagnostics. */
   ENABLE_PUBLIC_FIRESTORE_PROBE: z.coerce.boolean().default(false),
+  /** Enables one-post canonical rebuild preview/write/revert debug endpoints. */
+  ENABLE_POST_REBUILDER_DEBUG_ROUTES: z.coerce.boolean().default(false),
   /** When set, enables POST /internal/ops/* bearer-protected maintenance routes (e.g. search-field backfill). */
   INTERNAL_OPS_TOKEN: z.string().optional(),
   /** When set, protects the internal health dashboard endpoints. */

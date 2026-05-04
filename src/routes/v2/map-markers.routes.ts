@@ -8,9 +8,11 @@ import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { setRouteName, recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 import { mapMarkersContract, type MapMarkersResponse } from "../../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../../repositories/source-of-truth/map-markers-firestore.adapter.js";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 
 const env = loadEnv();
 const adapter = new MapMarkersFirestoreAdapter();
+let mapMarkersWarmScheduled = false;
 
 function ensureMarkerOpenPayload(marker: Record<string, unknown>): Record<string, unknown> {
   const existing = marker.openPayload;
@@ -57,6 +59,18 @@ function ensureMarkerOpenPayload(marker: Record<string, unknown>): Record<string
 }
 
 export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<void> {
+  if (!mapMarkersWarmScheduled && process.env.NODE_ENV !== "test") {
+    mapMarkersWarmScheduled = true;
+    scheduleBackgroundWork(async () => {
+      try {
+        const maxDocs = Math.min(env.MAP_MARKERS_MAX_DOCS, 10_000);
+        await adapter.fetchAll({ maxDocs, includeOpenPayload: false });
+      } catch {
+        // Best effort warmup only.
+      }
+    });
+  }
+
   app.get(mapMarkersContract.path, async (request, reply) => {
     setRouteName(mapMarkersContract.routeName);
     const viewer = buildViewerContext(request);
@@ -94,8 +108,8 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     recordCacheMiss();
     try {
       const dataset = ownerId
-        ? await adapter.fetchByOwner({ ownerId, maxDocs: limit, includeNonPublic })
-        : await adapter.fetchAll({ maxDocs: limit });
+        ? await adapter.fetchByOwner({ ownerId, maxDocs: limit, includeNonPublic, includeOpenPayload: payloadMode === "full" })
+        : await adapter.fetchAll({ maxDocs: limit, includeOpenPayload: payloadMode === "full" });
 	      const markers =
 	        payloadMode === "compact"
 	          ? dataset.markers.map((marker) =>

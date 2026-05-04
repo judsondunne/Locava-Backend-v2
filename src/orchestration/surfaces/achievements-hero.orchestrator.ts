@@ -29,12 +29,12 @@ export class AchievementsHeroOrchestrator {
       return response;
     }
     recordCacheMiss();
-    const hero = await this.service.loadHero(input.viewerId);
+    const bootstrapShell = await this.service.loadBootstrapShell(input.viewerId);
     const response: AchievementsHeroResponse = {
       routeName: "achievements.hero.get",
-      hero,
-      degraded: false,
-      fallbacks: []
+      hero: bootstrapShell.hero,
+      degraded: bootstrapShell.degraded,
+      fallbacks: bootstrapShell.fallbacks
     };
     await globalCache.set(cacheKey, response, 60_000);
     return response;

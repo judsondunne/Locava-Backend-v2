@@ -21,12 +21,12 @@ export class AchievementsSnapshotOrchestrator {
       return cachedShell;
     }
     recordCacheMiss();
-    const snapshot = await this.service.loadSnapshot(input.viewerId);
+    const bootstrapShell = await this.service.loadBootstrapShell(input.viewerId);
     const response: AchievementsSnapshotResponse = {
       routeName: "achievements.snapshot.get",
-      snapshot,
-      degraded: false,
-      fallbacks: []
+      snapshot: bootstrapShell.snapshot,
+      degraded: bootstrapShell.degraded,
+      fallbacks: bootstrapShell.fallbacks
     };
     await globalCache.set(cacheKey, response, 60_000);
     return response;

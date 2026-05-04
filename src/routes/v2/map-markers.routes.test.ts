@@ -49,7 +49,7 @@ describe("v2 map markers route", () => {
       headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" }
     });
     expect(response.statusCode).toBe(200);
-    expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 5000 });
+    expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 5000, includeOpenPayload: false });
   }, 15_000);
 
   it("uses ownerId filter to fetch markers server-side", async () => {
@@ -71,7 +71,7 @@ describe("v2 map markers route", () => {
       headers: { "x-viewer-id": "someone-else", "x-viewer-roles": "internal" }
     });
     expect(response.statusCode).toBe(200);
-    expect(fetchByOwnerMock).toHaveBeenCalledWith({ ownerId: "u1", maxDocs: 60, includeNonPublic: false });
+    expect(fetchByOwnerMock).toHaveBeenCalledWith({ ownerId: "u1", maxDocs: 60, includeNonPublic: false, includeOpenPayload: false });
   });
 
   it("includes non-public markers when requesting own ownerId", async () => {
@@ -93,7 +93,7 @@ describe("v2 map markers route", () => {
       headers: { "x-viewer-id": "u1", "x-viewer-roles": "internal" }
     });
     expect(response.statusCode).toBe(200);
-    expect(fetchByOwnerMock).toHaveBeenCalledWith({ ownerId: "u1", maxDocs: 60, includeNonPublic: true });
+    expect(fetchByOwnerMock).toHaveBeenCalledWith({ ownerId: "u1", maxDocs: 60, includeNonPublic: true, includeOpenPayload: false });
   });
 
   it("returns marker records from source docs", async () => {

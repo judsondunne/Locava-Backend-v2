@@ -135,6 +135,7 @@ import { registerV2SocialContactsSyncRoutes } from "../routes/v2/social-contacts
 import { registerV2UsersSuggestedRoutes } from "../routes/v2/users-suggested.routes.js";
 import { registerLocalDebugRoutes } from "../routes/debug/local-debug.routes.js";
 import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-firestore-probe.routes.js";
+import { registerPostRebuilderRoutes } from "../routes/debug/post-rebuilder.routes.js";
 import { registerPublicExpoPushRoutes } from "../routes/public/expo-push.routes.js";
 import { SourceOfTruthRequiredError } from "../repositories/source-of-truth/strict-mode.js";
 import {
@@ -616,6 +617,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     app.register(registerLocalDebugRoutes);
     app.register(registerPublicFirestoreProbeRoutes);
   }
+  app.register(registerPostRebuilderRoutes);
 
   app.addHook("onReady", async () => {
     const db = getFirestoreSourceClient();

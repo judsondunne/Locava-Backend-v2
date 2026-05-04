@@ -408,14 +408,32 @@ function nearMeQuickBootstrapDocs(): number {
     const n = parseInt(String(raw), 10);
     if (Number.isFinite(n) && n >= 200 && n <= 8000) return n;
   }
-  return 450;
+  return 1200;
+}
+
+function nearMeColdWaitMs(): number {
+  const raw = process.env.NEAR_ME_COLD_WAIT_MS;
+  if (raw != null && raw !== "") {
+    const n = parseInt(String(raw), 10);
+    if (Number.isFinite(n) && n >= 100 && n <= 2200) return n;
+  }
+  return 1200;
+}
+
+function nearMeExhaustiveBudgetMs(): number {
+  const raw = process.env.NEAR_ME_EXHAUSTIVE_BUDGET_MS;
+  if (raw != null && raw !== "") {
+    const n = parseInt(String(raw), 10);
+    if (Number.isFinite(n) && n >= 300 && n <= 20_000) return n;
+  }
+  return 1500;
 }
 
 /** First-page fill so near-me never waits on a 10k-doc scan on cold request paths. */
 async function rebuildPostPoolQuick(app: FastifyInstance): Promise<void> {
   if (pool.posts.length > 0) return;
   if (pool.loading && pool.inFlight) {
-    await Promise.race([pool.inFlight, new Promise<void>((resolve) => setTimeout(resolve, 2200))]);
+    await Promise.race([pool.inFlight, new Promise<void>((resolve) => setTimeout(resolve, nearMeColdWaitMs()))]);
     return;
   }
   const db = getFirestoreSourceClient();
@@ -716,6 +734,8 @@ async function collectExhaustiveNearMePosts(input: {
   let candidatesWithinRadius = 0;
   let invalidCursorRecovered = false;
   let safety = 24;
+  const startedAt = Date.now();
+  const budgetMs = nearMeExhaustiveBudgetMs();
 
   const pushEligible = (post: NearMePost) => {
     if (!filterReelEligible(post)) return false;
@@ -734,6 +754,9 @@ async function collectExhaustiveNearMePosts(input: {
   };
 
   while (out.length < input.limit && safety-- > 0) {
+    if (Date.now() - startedAt > budgetMs) {
+      break;
+    }
     if (!state.geoFinished && state.phase !== "recent") {
       const prefix = state.prefixes[state.prefixIdx];
       if (!prefix) {
@@ -874,7 +897,7 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
   let refreshTimer: NodeJS.Timeout | null = null;
 
   app.addHook("onReady", async () => {
-    const fullDelayMs = toIntEnv("NEAR_ME_FULL_REFRESH_DELAY_MS", 15_000, 2_000, 120_000);
+    const fullDelayMs = toIntEnv("NEAR_ME_FULL_REFRESH_DELAY_MS", 2_000, 2_000, 120_000);
     nearMeRefreshSerial = nearMeRefreshSerial
       .then(() => rebuildPostPoolQuick(app))
       .then(() => {
@@ -901,6 +924,7 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     const radiusMiles = clampRadiusMiles(query.radiusMiles);
     const limit = clampLimit(query.limit);
     const parsedCursor = parseNearMeCursorAny(query.cursor);
+    const debugFlag = query.debug === "1" || query.debug === true || query.debug === "true";
     if (parsedCursor.kind === "invalid") {
       return reply.status(400).send({ error: "Invalid near-me cursor" });
     }
@@ -913,8 +937,50 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     if (pool.posts.length === 0) {
       await Promise.race([
         rebuildPostPoolQuick(app),
-        new Promise<void>((resolve) => setTimeout(resolve, 2200))
+        new Promise<void>((resolve) => setTimeout(resolve, nearMeColdWaitMs()))
       ]);
+      if (pool.posts.length === 0) {
+        const diagnostics = {
+          prefix: "RADIUS_FEED_PAGE",
+          requestedRadiusMiles: radiusMiles,
+          effectiveRadiusMiles: radiusMiles,
+          pageSizeRequested: limit,
+          postsReturned: 0,
+          candidatesScanned: 0,
+          candidatesWithinRadius: 0,
+          duplicatesSuppressed: 0,
+          cursorReceived: typeof query.cursor === "string" ? query.cursor : null,
+          cursorMode: parsedCursor.kind,
+          nearMeMode: "pool",
+          cursorResetReason: "pool_warming",
+          cursorRecoveredByLastPost: false,
+          nextCursorEmitted: null,
+          nextCursorPresent: false,
+          hasMore: false,
+          exhaustedReason: "pool_warming",
+          poolLoadedAtMs: pool.loadedAtMs,
+          poolCount: pool.posts.length,
+          scanMode: "pool",
+          poolOffset: 0,
+          poolExhausted: true,
+          firestoreFallbackUsed: false,
+          firestorePagesScanned: 0,
+          candidateSources: [] as string[],
+          withinRadiusTotalKnownOrScanned: 0,
+          invalidCursorRecovered: false,
+          lastPostId: null as string | null
+        };
+        reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=60");
+        request.log.info({ event: "radius_feed_page", ...diagnostics }, "[RADIUS_FEED_PAGE]");
+        return reply.send({
+          feedId: FEED_ID,
+          items: [],
+          nextCursor: null,
+          hasMore: false,
+          debug: diagnostics,
+          ...(debugFlag ? { radiusFeedDebug: diagnostics } : {})
+        });
+      }
     } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
       nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
     }
@@ -922,7 +988,6 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     const candidates = getFilteredCandidates(lat, lng, radiusMiles);
     const latE5 = roundCoordE5(lat);
     const lngE5 = roundCoordE5(lng);
-    const debugFlag = query.debug === "1" || query.debug === true || query.debug === "true";
 
     const emittedSeen = new Set<string>();
     if (parsedCursor.kind === "v2" && Array.isArray(parsedCursor.value.seen)) {
@@ -1087,7 +1152,7 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     if (pool.posts.length === 0) {
       await Promise.race([
         rebuildPostPoolQuick(app),
-        new Promise<void>((resolve) => setTimeout(resolve, 2200))
+        new Promise<void>((resolve) => setTimeout(resolve, nearMeColdWaitMs()))
       ]);
     } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
       nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);

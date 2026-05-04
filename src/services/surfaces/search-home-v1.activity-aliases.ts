@@ -8,6 +8,7 @@
 export const NATIVE_ACTIVITY_OPTIONS = [
   "park",
   "bench",
+  "graveyards",
   "swimming",
   "bridges",
   "restaurants",
@@ -116,6 +117,9 @@ export function normalizeActivityTagForSearchHome(activity: string | null | unde
     views: "view",
     castles: "castle",
     parks: "park",
+    graveyard: "graveyards",
+    cemetery: "graveyards",
+    cemeteries: "graveyards",
     lakes: "lake",
     beaches: "beach",
     waterfalls: "waterfall",

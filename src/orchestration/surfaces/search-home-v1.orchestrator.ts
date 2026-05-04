@@ -1,5 +1,6 @@
 import { getRequestContext } from "../../observability/request-context.js";
 import { MixPostsRepository } from "../../repositories/mixPosts.repository.js";
+import { globalCache } from "../../cache/global-cache.js";
 import { SearchHomeV1Service } from "../../services/surfaces/search-home-v1.service.js";
 import {
   normalizeActivityTagForSearchHome,
@@ -78,6 +79,18 @@ export class SearchHomeV1Orchestrator {
   async homeBootstrap(input: { viewerId: string; includeDebug: boolean; bypassCache?: boolean }) {
     const started = Date.now();
     const readsBefore = getRequestContext()?.dbOps.reads ?? 0;
+    const cacheKey = `search:home-bootstrap:v1:${input.viewerId}`;
+    const cacheEnabled = !input.bypassCache;
+
+    if (cacheEnabled) {
+      const cached = await globalCache.get<HomeCore>(cacheKey);
+      if (cached) {
+        if (!input.includeDebug) return { ...cached };
+        const dbgBase = debugBlock({ cacheStatus: "hit", started, readsBefore, data: cached });
+        const debug = { ...dbgBase, payloadBytes: bytes({ ...cached, debug: dbgBase }) };
+        return { ...cached, debug };
+      }
+    }
 
     const built = await this.service.build(input.viewerId, {
       bypassSuggestedFriendsCache: Boolean(input.bypassCache),
@@ -89,10 +102,13 @@ export class SearchHomeV1Orchestrator {
       suggestedUsers: built.suggestedUsers,
       activityMixes: built.activityMixes,
     };
+    if (cacheEnabled) {
+      void globalCache.set(cacheKey, data, 30_000).catch(() => undefined);
+    }
 
     if (!input.includeDebug) return { ...data };
 
-    const dbgBase = debugBlock({ cacheStatus: "bypass", started, readsBefore, data });
+    const dbgBase = debugBlock({ cacheStatus: cacheEnabled ? "miss" : "bypass", started, readsBefore, data });
     const debug = { ...dbgBase, payloadBytes: bytes({ ...data, debug: dbgBase }) };
     return { ...data, debug };
   }

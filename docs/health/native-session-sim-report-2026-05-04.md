@@ -1,14 +1,14 @@
 # Native Session Simulator Report
 
-Generated: 2026-05-04T13:00:49.236Z
-Base URL: `https://locava-backend-v2-nboawyiasq-uc.a.run.app`
+Generated: 2026-05-04T15:09:06.548Z
+Base URL: `http://127.0.0.1:8080`
 Read only: `true`
 
 ## Session Metrics
 
-- Total duration ms: 11566
-- Time to app bootstrap ms: 69
-- Time to first feed response ms: 67
+- Total duration ms: 13026
+- Time to app bootstrap ms: 11
+- Time to first feed response ms: 13
 - Time to first playable video probe ms: 0
 - Duplicate post rate: 0
 - Duplicate asset rate: 0
@@ -19,11 +19,11 @@ Read only: `true`
 
 ```json
 {
-  "beforeOverallStatus": "critical",
+  "beforeOverallStatus": "healthy",
   "afterOverallStatus": "critical",
-  "beforeObservedRoutes": 24,
-  "afterObservedRoutes": 24,
-  "beforeObservedNonDashboardRequests": 96,
-  "afterObservedNonDashboardRequests": 97
+  "beforeObservedRoutes": 0,
+  "afterObservedRoutes": 17,
+  "beforeObservedNonDashboardRequests": 1,
+  "afterObservedNonDashboardRequests": 63
 }
 ```

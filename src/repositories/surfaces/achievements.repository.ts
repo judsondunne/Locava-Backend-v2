@@ -109,6 +109,7 @@ const ACHIEVEMENTS_BOOTSTRAP_BADGE_LIMIT = 8;
 const ACHIEVEMENTS_LEAGUES_CACHE_DOC_ID = "achievements_leagues_v2";
 const ACHIEVEMENTS_LEAGUES_CACHE_TTL_MS = 10 * 60_000;
 const ACHIEVEMENTS_SCREEN_OPENED_DEDUP_MS = 60_000;
+const ACHIEVEMENTS_LEGENDS_SLICE_TTL_MS = 60_000;
 
 export type LeaderboardReadModel = {
   scope: AchievementLeaderboardScope;
@@ -187,6 +188,10 @@ function achievementsWeeklyExplorationCacheKey(viewerId: string, maxPosts: numbe
 
 function achievementsEarnedBadgeCountCacheKey(viewerId: string): string {
   return buildCacheKey("bootstrap", ["achievements-earned-badge-count-v2", viewerId]);
+}
+
+function achievementsLegendsSliceCacheKey(viewerId: string): string {
+  return buildCacheKey("bootstrap", ["achievements-legends-slice-v2", viewerId]);
 }
 
 function getWeekIdentifier(date = new Date()): string {
@@ -860,6 +865,9 @@ export class AchievementsRepository {
   }
 
   private async loadLegendsSlice(viewerId: string): Promise<NonNullable<AchievementSnapshot["legends"]>> {
+    const legendsCacheKey = achievementsLegendsSliceCacheKey(viewerId);
+    const cached = await globalCache.get<NonNullable<AchievementSnapshot["legends"]>>(legendsCacheKey);
+    if (cached) return cached;
     let db: ReturnType<typeof getFirestoreSourceClient> | null = null;
     try {
       db = this.requireDb();
@@ -969,11 +977,13 @@ export class AchievementsRepository {
       };
       console.info("[achievements.bootstrap] legends_slice", legendsDebug);
 
-      return {
+      const payload = {
         activeLegends: activeScopeIds.map(mapScopeSummary),
         closeToLegends: closeScopeIds.map(mapScopeSummary),
         recentAwards
       };
+      void globalCache.set(legendsCacheKey, payload, ACHIEVEMENTS_LEGENDS_SLICE_TTL_MS).catch(() => undefined);
+      return payload;
     } catch {
       return { activeLegends: [], closeToLegends: [], recentAwards: [] };
     }

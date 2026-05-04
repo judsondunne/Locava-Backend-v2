@@ -43,6 +43,7 @@ type ProjectOptions = {
    * When false, only include "public"-style visibilities.
    */
   includeNonPublic: boolean;
+  includeOpenPayload: boolean;
 };
 
 export type MapMarkerBounds = {
@@ -56,10 +57,11 @@ type SharedDatasetCache = {
   dataset: MapMarkersDataset;
   expiresAt: number;
   maxDocs: number;
+  includeOpenPayload: boolean;
 };
 
 let sharedDatasetCache: SharedDatasetCache | null = null;
-let sharedDatasetPromise: { maxDocs: number; promise: Promise<MapMarkersDataset> } | null = null;
+let sharedDatasetPromise: { maxDocs: number; includeOpenPayload: boolean; promise: Promise<MapMarkersDataset> } | null = null;
 
 export class MapMarkersFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
@@ -69,29 +71,40 @@ export class MapMarkersFirestoreAdapter {
     sharedDatasetPromise = null;
   }
 
-  async fetchAll(input: { maxDocs: number }): Promise<MapMarkersDataset> {
+  async fetchAll(input: { maxDocs: number; includeOpenPayload?: boolean }): Promise<MapMarkersDataset> {
     if (!this.db) {
       throw new Error("map_markers_firestore_unavailable");
     }
+    const includeOpenPayload = input.includeOpenPayload ?? true;
     const now = Date.now();
     const cached = sharedDatasetCache;
-    if (cached && cached.expiresAt > now && cached.maxDocs >= input.maxDocs) {
+    if (
+      cached &&
+      cached.expiresAt > now &&
+      cached.maxDocs >= input.maxDocs &&
+      cached.includeOpenPayload === includeOpenPayload
+    ) {
       return sliceDataset(cached.dataset, input.maxDocs);
     }
     const inFlight = sharedDatasetPromise;
-    if (inFlight && inFlight.maxDocs >= input.maxDocs) {
+    if (
+      inFlight &&
+      inFlight.maxDocs >= input.maxDocs &&
+      inFlight.includeOpenPayload === includeOpenPayload
+    ) {
       const dataset = await inFlight.promise;
       return sliceDataset(dataset, input.maxDocs);
     }
 
-    const promise = this.fetchAllFromFirestore(input.maxDocs, { includeNonPublic: false });
-    sharedDatasetPromise = { maxDocs: input.maxDocs, promise };
+    const promise = this.fetchAllFromFirestore(input.maxDocs, { includeNonPublic: false, includeOpenPayload });
+    sharedDatasetPromise = { maxDocs: input.maxDocs, includeOpenPayload, promise };
     try {
       const dataset = await promise;
       sharedDatasetCache = {
         dataset,
         expiresAt: Date.now() + env.MAP_MARKERS_CACHE_TTL_MS,
-        maxDocs: input.maxDocs
+        maxDocs: input.maxDocs,
+        includeOpenPayload
       };
       return dataset;
     } finally {
@@ -123,7 +136,7 @@ export class MapMarkersFirestoreAdapter {
     };
   }
 
-  async fetchByOwner(input: { ownerId: string; maxDocs: number; includeNonPublic: boolean }): Promise<MapMarkersDataset> {
+  async fetchByOwner(input: { ownerId: string; maxDocs: number; includeNonPublic: boolean; includeOpenPayload?: boolean }): Promise<MapMarkersDataset> {
     if (!this.db) {
       throw new Error("map_markers_firestore_unavailable");
     }
@@ -143,7 +156,8 @@ export class MapMarkersFirestoreAdapter {
     return this.fetchByOwnerFromFirestore({
       ownerId,
       maxDocs: input.maxDocs,
-      includeNonPublic: input.includeNonPublic
+      includeNonPublic: input.includeNonPublic,
+      includeOpenPayload: input.includeOpenPayload ?? true
     });
   }
 
@@ -212,6 +226,7 @@ export class MapMarkersFirestoreAdapter {
     ownerId: string;
     maxDocs: number;
     includeNonPublic: boolean;
+    includeOpenPayload: boolean;
   }): Promise<MapMarkersDataset> {
     const db = this.db;
     if (!db) {
@@ -271,7 +286,10 @@ export class MapMarkersFirestoreAdapter {
     const dedupedDocs = new Map<string, QueryDocumentSnapshot>();
     for (const doc of userIdDocs) dedupedDocs.set(doc.id, doc);
     for (const doc of ownerIdDocs) dedupedDocs.set(doc.id, doc);
-    const projected = project([...dedupedDocs.values()], { includeNonPublic: input.includeNonPublic });
+    const projected = project([...dedupedDocs.values()], {
+      includeNonPublic: input.includeNonPublic,
+      includeOpenPayload: input.includeOpenPayload
+    });
     const limitedMarkers = projected.markers.slice(0, input.maxDocs);
     const generatedAt = Date.now();
     const etag = buildEtag(limitedMarkers);
@@ -348,30 +366,32 @@ function project(
       followedUserPic: null,
       hasPhoto: media.hasPhoto,
       hasVideo: media.hasVideo,
-      openPayload: buildPostEnvelope({
-        postId: doc.id,
-        seed: {
-          postId: doc.id,
-          id: doc.id,
-          thumbUrl: thumbnailUrl,
-          displayPhotoLink: thumbnailUrl,
-          mediaType: media.hasVideo ? "video" : "image",
-          activities,
-          activity: readActivity(data.activity),
-          lat: coords.lat,
-          long: coords.lng,
-          userId: ownerId,
-          authorId: ownerId,
-          visibility,
-          updatedAtMs: updatedAt ?? createdAt ?? Date.now(),
-          createdAtMs: createdAt ?? updatedAt ?? Date.now(),
-        },
-        rawPost: data as Record<string, unknown>,
-        sourcePost: data as Record<string, unknown>,
-        hydrationLevel: "marker",
-        sourceRoute: "map.markers",
-        debugSource: "MapMarkersFirestoreAdapter.project",
-      }),
+      openPayload: options.includeOpenPayload
+        ? buildPostEnvelope({
+            postId: doc.id,
+            seed: {
+              postId: doc.id,
+              id: doc.id,
+              thumbUrl: thumbnailUrl,
+              displayPhotoLink: thumbnailUrl,
+              mediaType: media.hasVideo ? "video" : "image",
+              activities,
+              activity: readActivity(data.activity),
+              lat: coords.lat,
+              long: coords.lng,
+              userId: ownerId,
+              authorId: ownerId,
+              visibility,
+              updatedAtMs: updatedAt ?? createdAt ?? Date.now(),
+              createdAtMs: createdAt ?? updatedAt ?? Date.now(),
+            },
+            rawPost: data as Record<string, unknown>,
+            sourcePost: data as Record<string, unknown>,
+            hydrationLevel: "marker",
+            sourceRoute: "map.markers",
+            debugSource: "MapMarkersFirestoreAdapter.project",
+          })
+        : undefined,
     });
   }
   markers.sort((a, b) => {

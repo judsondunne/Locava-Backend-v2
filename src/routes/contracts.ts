@@ -676,5 +676,29 @@ export const routeContracts: RouteContract[] = [
     description: "Dev-only local harness legacy rails inventory",
     tags: ["debug", "local", "dev"]
   },
+  {
+    method: "GET",
+    path: "/debug/post-rebuilder",
+    description: "One-post Master Post V2 rebuilder UI (env-gated)",
+    tags: ["debug", "post", "migration"]
+  },
+  {
+    method: "POST",
+    path: "/debug/post-rebuilder/:postId/preview",
+    description: "Preview one-post canonical rebuild + validation + diff",
+    tags: ["debug", "post", "migration"]
+  },
+  {
+    method: "POST",
+    path: "/debug/post-rebuilder/:postId/write",
+    description: "Additively write one-post canonical fields (hash-guarded)",
+    tags: ["debug", "post", "mutation"]
+  },
+  {
+    method: "POST",
+    path: "/debug/post-rebuilder/:postId/revert",
+    description: "Restore one post from selected canonical backup",
+    tags: ["debug", "post", "mutation"]
+  },
   { method: "GET", path: "/openapi.json", description: "OpenAPI-like contract output", tags: ["contract"] }
 ];

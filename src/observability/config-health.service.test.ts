@@ -38,6 +38,7 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     REDIS_KEY_PREFIX: "locava:v2:",
     SOURCE_OF_TRUTH_STRICT: false,
     ENABLE_PUBLIC_FIRESTORE_PROBE: false,
+    ENABLE_POST_REBUILDER_DEBUG_ROUTES: false,
     INTERNAL_OPS_TOKEN: undefined,
     INTERNAL_DASHBOARD_TOKEN: "super-secret-dashboard-token",
     MAP_MARKERS_CACHE_TTL_MS: 60000,
