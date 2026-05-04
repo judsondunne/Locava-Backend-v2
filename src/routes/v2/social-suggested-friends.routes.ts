@@ -29,6 +29,40 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
     }
     const query = SocialSuggestedFriendsQuerySchema.parse(request.query);
     const targetUserId = query.userId?.trim() || viewer.viewerId;
+    if (!targetUserId) {
+      return success({
+        routeName: socialSuggestedFriendsContract.routeName,
+        viewerId: null,
+        surface: query.surface ?? "generic",
+        users: [],
+        suggestions: [],
+        source: "fallback_empty",
+        page: {
+          limit: query.limit ?? 20,
+          count: 0,
+          hasMore: false,
+          nextCursor: null
+        },
+        sourceBreakdown: {},
+        returnedCount: 0,
+        generatedAt: Date.now(),
+        etag: undefined,
+        diagnostics: {
+          routeName: socialSuggestedFriendsContract.routeName,
+          viewerId: null,
+          surface: query.surface ?? "generic",
+          returnedCount: 0,
+          sourceBreakdown: {},
+          payloadBytes: 0,
+          dbReads: 0,
+          queryCount: 0,
+          cache: { hits: 0, misses: 0 },
+          dedupeCount: 0,
+          excludedAlreadyFollowingCount: 0,
+          reason: "missing_viewer"
+        }
+      });
+    }
     const limit = query.limit ?? 20;
     let cursorOffset = 0;
     try {

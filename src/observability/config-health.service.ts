@@ -110,6 +110,8 @@ export function getConfigHealthSnapshot(env: AppEnv): ConfigHealthSnapshot {
   const coherence = getCoherenceStatus(env);
   if (coherence.warning) {
     warnings.push(coherence.warning);
+  } else if (coherence.processLocalOnly && coherence.singleInstanceConfirmed) {
+    warnings.push("Single-instance process-local mode confirmed (Cloud Run max instances = 1).");
   }
   const proxyCollide = legacyProxyLoopsToBackendTargets({
     legacyBaseUrl: env.LEGACY_MONOLITH_PROXY_BASE_URL,

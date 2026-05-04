@@ -53,6 +53,11 @@ const EnvSchema = z.object({
   ANALYTICS_RETRY_MAX_DELAY_MS: z.coerce.number().int().min(500).max(300_000).default(30_000),
   ANALYTICS_DEBUG_RECENT_LIMIT: z.coerce.number().int().min(20).max(1_000).default(200),
   COHERENCE_MODE: z.enum(["process_local", "external_coordinator_stub", "redis"]).default("process_local"),
+  /**
+   * Optional explicit Cloud Run max instances hint for coherence checks.
+   * Set to 1 when process-local correctness assumptions are intentionally single-instance.
+   */
+  CLOUD_RUN_MAX_INSTANCES: z.coerce.number().int().positive().optional(),
   REDIS_URL: z.string().optional(),
   REDIS_KEY_PREFIX: z.string().default("locava:v2:"),
   SOURCE_OF_TRUTH_STRICT: z.coerce.boolean().default(false),

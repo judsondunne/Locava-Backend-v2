@@ -289,6 +289,15 @@ describe("backend foundation routes", () => {
     expect(htmlRes.body).toContain("Locava Backendv2 Health Dashboard");
   });
 
+  it("excludes dashboard requests from app traffic counters", async () => {
+    requestMetricsCollector.clear();
+    const dashboardDataRes = await app.inject({ method: "GET", url: "/internal/health-dashboard/data" });
+    expect(dashboardDataRes.statusCode).toBe(200);
+    const payload = dashboardDataRes.json().data;
+    expect(payload.overall.observedNonDashboardRequests).toBe(0);
+    expect(payload.overall.lastNonDashboardRequestAt).toBeNull();
+  });
+
   it("cloud tasks video probe returns config without enqueuing (local)", async () => {
     const res = await app.inject({ method: "GET", url: "/internal/health-dashboard/cloud-tasks-video" });
     expect(res.statusCode).toBe(200);

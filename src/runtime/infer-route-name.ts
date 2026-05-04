@@ -21,6 +21,10 @@ const ROUTE_INDEX: Entry[] = [
   { method: "GET", path: "/api/v1/product/reels/near-me", routeName: "compat.reels.near_me" }
 ].sort((a, b) => b.path.length - a.path.length);
 
+export function listInferredRouteIndex(): Entry[] {
+  return ROUTE_INDEX.map((row) => ({ ...row }));
+}
+
 export function inferRouteNameFromRequest(method: string, rawUrl: string): string | undefined {
   let pathname = rawUrl;
   try {

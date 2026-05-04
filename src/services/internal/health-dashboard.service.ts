@@ -6,8 +6,16 @@ import { errorRingBuffer } from "../../observability/error-ring-buffer.js";
 import { firestoreHealthService } from "../../observability/firestore-health.service.js";
 import { cacheMetricsCollector } from "../../observability/cache-metrics.collector.js";
 import { getConfigHealthSnapshot } from "../../observability/config-health.service.js";
+import { listInferredRouteIndex } from "../../runtime/infer-route-name.js";
 
 type HealthStatus = "healthy" | "degraded" | "critical" | "not_available";
+type SampleSizeStatus = "none" | "low" | "usable" | "strong";
+type CoverageClassification =
+  | "observed"
+  | "not_observed_yet"
+  | "mounted_but_no_recent_traffic"
+  | "budgeted_but_unmounted"
+  | "intentionally_inactive";
 
 type RouteDashboardRow = {
   routeName: string;
@@ -31,6 +39,8 @@ type RouteDashboardRow = {
   avgDbReads: number | null;
   avgPayloadBytes: number | null;
   errorRate: number;
+  sampleSizeStatus: SampleSizeStatus;
+  coverageClassification: CoverageClassification;
 };
 
 type SurfaceCard = {
@@ -84,6 +94,12 @@ export type HealthDashboardData = {
   recentRequests: ReturnType<typeof requestMetricsCollector.getRecentRequests>;
   config: ReturnType<typeof getConfigHealthSnapshot>;
   warnings: string[];
+  topErrorSignatures: Array<{
+    signature: string;
+    count: number;
+    routeName: string | null;
+    level: "warn" | "error";
+  }>;
 };
 
 const SURFACE_GROUPS: Array<{ surface: string; includes: string[] }> = [
@@ -178,6 +194,8 @@ export class HealthDashboardService {
       recentRequests,
       config,
       warnings
+      ,
+      topErrorSignatures: buildTopErrorSignatures(errors)
     };
   }
 
@@ -1107,6 +1125,9 @@ export class HealthDashboardService {
 
 function toRouteDashboardRow(policy: RouteBudgetPolicy, metrics?: RouteRuntimeMetrics): RouteDashboardRow {
   const status = deriveRouteStatus(policy, metrics);
+  const sampleSizeStatus = deriveSampleSizeStatus(metrics?.requestCount ?? 0);
+  const inferredMountedNames = getInferredMountedRouteNames();
+  const coverageClassification = deriveCoverageClassification(metrics?.requestCount ?? 0, inferredMountedNames.has(policy.routeName));
   return {
     routeName: policy.routeName,
     method: metrics?.method ?? null,
@@ -1128,7 +1149,9 @@ function toRouteDashboardRow(policy: RouteBudgetPolicy, metrics?: RouteRuntimeMe
     lastSeenAt: metrics?.lastSeenAt ?? null,
     avgDbReads: metrics?.avgDbReads ?? null,
     avgPayloadBytes: metrics?.avgPayloadBytes ?? null,
-    errorRate: metrics?.errorRate ?? 0
+    errorRate: metrics?.errorRate ?? 0,
+    sampleSizeStatus,
+    coverageClassification
   };
 }
 
@@ -1171,9 +1194,11 @@ function buildSurfaceCards(routeHealth: RouteDashboardRow[]): SurfaceCard[] {
 
 function deriveRouteStatus(policy: RouteBudgetPolicy, metrics?: RouteRuntimeMetrics): HealthStatus {
   if (!metrics || metrics.requestCount === 0) return "not_available";
-  if (metrics.errorRate >= 0.2 && metrics.requestCount >= 5) return "critical";
-  if ((metrics.p95LatencyMs ?? 0) > policy.budgets.latency.p95Ms * 2) return "critical";
-  if (metrics.budgetViolationRate >= 0.3 && metrics.requestCount >= 5) return "critical";
+  const sampleSizeStatus = deriveSampleSizeStatus(metrics.requestCount);
+  const sampleUsable = sampleSizeStatus === "usable" || sampleSizeStatus === "strong";
+  if (metrics.errorRate >= 0.2 && sampleUsable) return "critical";
+  if ((metrics.p95LatencyMs ?? 0) > policy.budgets.latency.p95Ms * 2 && sampleUsable) return "critical";
+  if (metrics.budgetViolationRate >= 0.3 && sampleUsable) return "critical";
   if (metrics.errorCount > 0) return "degraded";
   if ((metrics.p95LatencyMs ?? 0) > policy.budgets.latency.p95Ms) return "degraded";
   if (metrics.budgetViolationCount > 0) return "degraded";
@@ -1186,6 +1211,7 @@ function describeRouteStatus(
   status: HealthStatus
 ): string {
   if (!metrics || metrics.requestCount === 0) return "not available yet";
+  if (deriveSampleSizeStatus(metrics.requestCount) === "low") return "sample too small";
   if (status === "critical" && metrics.errorRate >= 0.2) return "high server error rate";
   if (status === "critical" && (metrics.p95LatencyMs ?? 0) > policy.budgets.latency.p95Ms * 2) return "p95 latency far above budget";
   if (status === "critical") return "budget violation rate is critical";
@@ -1200,13 +1226,20 @@ function deriveOverallStatus(
   firestore: Awaited<ReturnType<typeof firestoreHealthService.getSnapshot>>,
   warnings: string[]
 ): HealthStatus {
-  const worstRouteStatus = routeHealth.reduce<HealthStatus>((worst, route) => {
+  const significantRouteRows = routeHealth.filter(
+    (route) => route.sampleSizeStatus === "usable" || route.sampleSizeStatus === "strong"
+  );
+  const worstRouteStatus = significantRouteRows.reduce<HealthStatus>((worst, route) => {
     return severityWeight(route.status) > severityWeight(worst) ? route.status : worst;
   }, "healthy");
+  const hasCriticalFailureOnCriticalRoute = routeHealth.some(
+    (route) => route.priority === "critical_interactive" && route.recentFailures > 0
+  );
   if (!firestore.connected && firestore.configured) return "critical";
-  if (warnings.some((warning) => /production/i.test(warning))) return "critical";
+  if (warnings.some((warning) => isCriticalWarning(warning))) return "critical";
+  if (hasCriticalFailureOnCriticalRoute) return "critical";
   if (worstRouteStatus === "critical") return "critical";
-  if (!firestore.connected || warnings.length > 0 || worstRouteStatus === "degraded") return "degraded";
+  if (!firestore.connected || warnings.some((warning) => isDegradedWarning(warning)) || worstRouteStatus === "degraded") return "degraded";
   return "healthy";
 }
 
@@ -1249,6 +1282,72 @@ function severityWeight(status: HealthStatus): number {
   if (status === "degraded") return 3;
   if (status === "not_available") return 2;
   return 1;
+}
+
+function deriveSampleSizeStatus(requestCount: number): SampleSizeStatus {
+  if (requestCount <= 0) return "none";
+  if (requestCount < 5) return "low";
+  if (requestCount < 20) return "usable";
+  return "strong";
+}
+
+function deriveCoverageClassification(requestCount: number, mounted: boolean): CoverageClassification {
+  if (requestCount > 0) return "observed";
+  return mounted ? "mounted_but_no_recent_traffic" : "budgeted_but_unmounted";
+}
+
+function getInferredMountedRouteNames(): Set<string> {
+  return new Set(listInferredRouteIndex().map((row) => row.routeName));
+}
+
+function buildTopErrorSignatures(
+  errors: ReturnType<typeof errorRingBuffer.getRecent>
+): Array<{ signature: string; count: number; routeName: string | null; level: "warn" | "error" }> {
+  const grouped = new Map<string, { signature: string; count: number; routeName: string | null; level: "warn" | "error" }>();
+  for (const row of errors) {
+    const messageKey = row.message.split("\n")[0]?.slice(0, 180) ?? "unknown";
+    const stackKey = row.stack?.split("\n")[0]?.slice(0, 180) ?? "no_stack";
+    const signature = `${messageKey} :: ${stackKey}`;
+    const key = `${row.level}|${row.routeName ?? "unknown"}|${signature}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+    grouped.set(key, {
+      signature,
+      count: 1,
+      routeName: row.routeName,
+      level: row.level
+    });
+  }
+  return [...grouped.values()].sort((a, b) => b.count - a.count).slice(0, 10);
+}
+
+function isCriticalWarning(warning: string): boolean {
+  const normalized = warning.toLowerCase();
+  return (
+    normalized.includes("production is missing internal_dashboard_token") ||
+    normalized.includes("missing internal_dashboard_token in production") ||
+    normalized.includes("proxying to itself")
+  );
+}
+
+function isDegradedWarning(warning: string): boolean {
+  const normalized = warning.toLowerCase();
+  if (isCriticalWarning(warning)) return true;
+  if (normalized.includes("no non-dashboard backend traffic has been observed yet")) return false;
+  if (normalized.includes("single-instance process-local mode confirmed")) return false;
+  if (normalized.includes("enable_public_firestore_probe is enabled")) return false;
+  return (
+    normalized.includes("allow_public_posting_test is enabled") ||
+    normalized.includes("enable_local_dev_identity is enabled") ||
+    normalized.includes("firestore_source_enabled is disabled") ||
+    normalized.includes("enable_legacy_compat_routes is enabled") ||
+    normalized.includes("process-local cache/dedupe/lock/invalidation assumptions remain") ||
+    normalized.includes("redis coherence mode is enabled without redis_url") ||
+    normalized.includes("external coordinator stub mode does not provide")
+  );
 }
 
 function isDashboardRoute(routeName: string | undefined, routePath: string): boolean {
