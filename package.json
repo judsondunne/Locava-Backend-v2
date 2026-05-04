@@ -19,6 +19,7 @@
     "test:deterministic": "tsx test/firestore/run-deterministic.mts",
     "health:dashboard:check": "tsx scripts/health-dashboard-check.mts",
     "health:audit": "tsx scripts/health-audit.mts",
+    "health:native-session-sim": "tsx scripts/health-native-session-sim.mts",
     "backfill:user-search-fields": "tsx scripts/backfill-user-search-fields.mts",
     "backfill:user-phone-search-keys": "tsx scripts/backfill-user-phone-search-keys.mts",
     "repair:video-playback": "tsx scripts/repair-video-playback-faststart.mts",

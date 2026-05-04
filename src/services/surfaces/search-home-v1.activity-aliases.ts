@@ -7,6 +7,7 @@
 
 export const NATIVE_ACTIVITY_OPTIONS = [
   "park",
+  "bench",
   "swimming",
   "bridges",
   "restaurants",
@@ -72,6 +73,7 @@ export const NATIVE_ACTIVITY_OPTIONS = [
   "forest",
   "mountain",
   "pond",
+  "lake",
   "riding",
   "desert",
   "skateboarding",
@@ -114,6 +116,7 @@ export function normalizeActivityTagForSearchHome(activity: string | null | unde
     views: "view",
     castles: "castle",
     parks: "park",
+    lakes: "lake",
     beaches: "beach",
     waterfalls: "waterfall",
   };

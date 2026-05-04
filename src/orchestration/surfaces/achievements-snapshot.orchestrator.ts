@@ -28,7 +28,7 @@ export class AchievementsSnapshotOrchestrator {
       degraded: false,
       fallbacks: []
     };
-    await globalCache.set(cacheKey, response, 10_000);
+    await globalCache.set(cacheKey, response, 60_000);
     return response;
   }
 }

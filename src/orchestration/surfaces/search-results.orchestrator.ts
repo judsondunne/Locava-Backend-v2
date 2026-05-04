@@ -64,7 +64,7 @@ export class SearchResultsOrchestrator {
       fallbacks: bundle.fallbacks
     };
 
-    void globalCache.set(cacheKey, response, 8_000).catch(() => undefined);
+    void globalCache.set(cacheKey, response, 60_000).catch(() => undefined);
     return response;
   }
 }

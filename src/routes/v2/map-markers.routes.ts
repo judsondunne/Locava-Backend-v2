@@ -137,7 +137,8 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
           payloadMode
         }
       };
-      await globalCache.set(cacheKey, payload, env.MAP_MARKERS_CACHE_TTL_MS);
+      const ttlMs = Math.max(env.MAP_MARKERS_CACHE_TTL_MS, 120_000);
+      await globalCache.set(cacheKey, payload, ttlMs);
       if (ifNoneMatch && String(ifNoneMatch).trim() === payload.etag) {
         request.log.info({ routeName: "map.markers.get", cacheSource: "revalidated_304" }, "map markers immediate revalidated");
         reply.header("ETag", payload.etag);

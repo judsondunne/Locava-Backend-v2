@@ -171,7 +171,7 @@ export class FeedBootstrapOrchestrator {
     };
 
     if (enableBootstrapCache) {
-      void globalCache.set(bootstrapCacheKey, response, 3_000);
+      void globalCache.set(bootstrapCacheKey, response, 30_000);
     }
 
     return response;

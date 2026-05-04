@@ -25,7 +25,7 @@ export class AchievementsHeroOrchestrator {
         degraded: cachedBootstrap.degraded,
         fallbacks: cachedBootstrap.fallbacks
       };
-      await globalCache.set(cacheKey, response, 8_000);
+      await globalCache.set(cacheKey, response, 60_000);
       return response;
     }
     recordCacheMiss();
@@ -36,7 +36,7 @@ export class AchievementsHeroOrchestrator {
       degraded: false,
       fallbacks: []
     };
-    await globalCache.set(cacheKey, response, 8_000);
+    await globalCache.set(cacheKey, response, 60_000);
     return response;
   }
 }

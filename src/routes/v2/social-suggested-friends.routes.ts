@@ -6,6 +6,9 @@ import { setRouteName, getRequestContext } from "../../observability/request-con
 import { SocialSuggestedFriendsQuerySchema, socialSuggestedFriendsContract } from "../../contracts/surfaces/social-suggested-friends.contract.js";
 import { SuggestedFriendsService } from "../../services/surfaces/suggested-friends.service.js";
 
+const suggestedFriendsCache = new Map<string, { expiresAtMs: number; payload: Record<string, unknown> }>();
+const suggestedFriendsInFlight = new Map<string, Promise<Record<string, unknown>>>();
+
 function encodeSuggestedFriendsCursor(offset: number): string {
   return `offset:${offset}`;
 }
@@ -79,102 +82,127 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
       surface === "onboarding"
         ? limit
         : Math.min(50, Math.max(limit, cursorOffset + limit));
-    setRouteName(socialSuggestedFriendsContract.routeName);
-    let fallbackReason: string | null = null;
-    let fallbackErrorCode: string | null = null;
-    let data;
-    try {
-      data = await service.getSuggestionsForUser(targetUserId, {
-        limit: computeLimit,
-        surface,
-        includeContacts: true,
-        includeMutuals: surface !== "onboarding",
-        includePopular: surface !== "onboarding",
-        includeNearby: false,
-        includeGroups: true,
-        includeReferral: true,
-        includeAllUsersFallback: true,
-        excludeAlreadyFollowing: true,
-        excludeBlocked: true,
-        excludeUserIds,
-        sortBy: query.sortBy ?? "default",
-      });
-    } catch (error) {
-      const rawMessage = error instanceof Error ? error.message : String(error);
-      fallbackReason = "repository_failure";
-      fallbackErrorCode = rawMessage.includes("FAILED_PRECONDITION") ? "FAILED_PRECONDITION" : "unknown";
-      request.log.error(
-        {
-          routeName: socialSuggestedFriendsContract.routeName,
-          viewerId: targetUserId,
-          surface,
-          error: rawMessage,
-          errorCode: fallbackErrorCode,
-        },
-        "suggested friends fallback to empty payload"
-      );
-      data = {
-        users: [],
-        sourceBreakdown: {},
-        generatedAt: Date.now(),
-        etag: undefined,
-        sourceDiagnostics: [
-          {
-            sourceName: "aggregate",
-            enabled: true,
-            skipped: false,
-            errorKind: fallbackErrorCode ?? "unknown",
-            readCount: 0,
-            queryCount: 0,
-            latencyMs: 0,
-            returnedCount: 0,
-          },
-        ],
-      };
-    }
-    const users = data.users.slice(cursorOffset, cursorOffset + limit);
-    const nextOffset = cursorOffset + users.length;
-    const hasMore = nextOffset < data.users.length;
-    const nextCursor = hasMore ? encodeSuggestedFriendsCursor(nextOffset) : null;
-    const reqCtx = getRequestContext();
-    const excludedAlreadyFollowingCount = data.users.filter((u) => u.isFollowing).length;
-    const payload = {
-      routeName: socialSuggestedFriendsContract.routeName,
-      viewerId: targetUserId,
+    const cacheKey = [
+      targetUserId,
       surface,
-      users,
-      suggestions: users,
-      source: fallbackReason ? "fallback_empty" : "computed",
-      page: {
-        limit,
-        count: users.length,
-        hasMore,
-        nextCursor
-      },
-      sourceBreakdown: data.sourceBreakdown,
-      returnedCount: users.length,
-      generatedAt: data.generatedAt,
-      etag: data.etag,
-      diagnostics: {
+      String(limit),
+      String(cursorOffset),
+      String(query.sortBy ?? "default"),
+      excludeUserIds.join(","),
+    ].join("|");
+    const cached = suggestedFriendsCache.get(cacheKey);
+    if (cached && cached.expiresAtMs > Date.now()) {
+      return success(cached.payload);
+    }
+    const existingInFlight = suggestedFriendsInFlight.get(cacheKey);
+    if (existingInFlight) {
+      return success(await existingInFlight);
+    }
+    setRouteName(socialSuggestedFriendsContract.routeName);
+    const loadPromise = (async (): Promise<Record<string, unknown>> => {
+      let fallbackReason: string | null = null;
+      let fallbackErrorCode: string | null = null;
+      let data;
+      try {
+        data = await service.getSuggestionsForUser(targetUserId, {
+          limit: computeLimit,
+          surface,
+          includeContacts: true,
+          includeMutuals: surface !== "onboarding",
+          includePopular: surface !== "onboarding",
+          includeNearby: false,
+          includeGroups: true,
+          includeReferral: true,
+          includeAllUsersFallback: true,
+          excludeAlreadyFollowing: true,
+          excludeBlocked: true,
+          excludeUserIds,
+          sortBy: query.sortBy ?? "default",
+        });
+      } catch (error) {
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        fallbackReason = "repository_failure";
+        fallbackErrorCode = rawMessage.includes("FAILED_PRECONDITION") ? "FAILED_PRECONDITION" : "unknown";
+        request.log.error(
+          {
+            routeName: socialSuggestedFriendsContract.routeName,
+            viewerId: targetUserId,
+            surface,
+            error: rawMessage,
+            errorCode: fallbackErrorCode,
+          },
+          "suggested friends fallback to empty payload"
+        );
+        data = {
+          users: [],
+          sourceBreakdown: {},
+          generatedAt: Date.now(),
+          etag: undefined,
+          sourceDiagnostics: [
+            {
+              sourceName: "aggregate",
+              enabled: true,
+              skipped: false,
+              errorKind: fallbackErrorCode ?? "unknown",
+              readCount: 0,
+              queryCount: 0,
+              latencyMs: 0,
+              returnedCount: 0,
+            },
+          ],
+        };
+      }
+      const users = data.users.slice(cursorOffset, cursorOffset + limit);
+      const nextOffset = cursorOffset + users.length;
+      const hasMore = nextOffset < data.users.length;
+      const nextCursor = hasMore ? encodeSuggestedFriendsCursor(nextOffset) : null;
+      const reqCtx = getRequestContext();
+      const excludedAlreadyFollowingCount = data.users.filter((u) => u.isFollowing).length;
+      return {
         routeName: socialSuggestedFriendsContract.routeName,
         viewerId: targetUserId,
         surface,
-        returnedCount: users.length,
-        sourceBreakdown: data.sourceBreakdown,
-        payloadBytes: reqCtx?.payloadBytes ?? 0,
-        dbReads: reqCtx?.dbOps.reads ?? 0,
-        queryCount: reqCtx?.dbOps.queries ?? 0,
-        cache: {
-          hits: reqCtx?.cache.hits ?? 0,
-          misses: reqCtx?.cache.misses ?? 0
+        users,
+        suggestions: users,
+        source: fallbackReason ? "fallback_empty" : "computed",
+        page: {
+          limit,
+          count: users.length,
+          hasMore,
+          nextCursor
         },
-        dedupeCount: reqCtx?.dedupe.hits ?? 0,
-        excludedAlreadyFollowingCount,
-        ...(fallbackReason ? { reason: fallbackReason } : {}),
-        ...(fallbackErrorCode ? { errorCode: fallbackErrorCode } : {}),
-        sourceDiagnostics: data.sourceDiagnostics ?? [],
-      }
-    };
-    return success(payload);
+        sourceBreakdown: data.sourceBreakdown,
+        returnedCount: users.length,
+        generatedAt: data.generatedAt,
+        etag: data.etag,
+        diagnostics: {
+          routeName: socialSuggestedFriendsContract.routeName,
+          viewerId: targetUserId,
+          surface,
+          returnedCount: users.length,
+          sourceBreakdown: data.sourceBreakdown,
+          payloadBytes: reqCtx?.payloadBytes ?? 0,
+          dbReads: reqCtx?.dbOps.reads ?? 0,
+          queryCount: reqCtx?.dbOps.queries ?? 0,
+          cache: {
+            hits: reqCtx?.cache.hits ?? 0,
+            misses: reqCtx?.cache.misses ?? 0
+          },
+          dedupeCount: reqCtx?.dedupe.hits ?? 0,
+          excludedAlreadyFollowingCount,
+          ...(fallbackReason ? { reason: fallbackReason } : {}),
+          ...(fallbackErrorCode ? { errorCode: fallbackErrorCode } : {}),
+          sourceDiagnostics: data.sourceDiagnostics ?? [],
+        }
+      };
+    })();
+    suggestedFriendsInFlight.set(cacheKey, loadPromise);
+    try {
+      const payload = await loadPromise;
+      suggestedFriendsCache.set(cacheKey, { expiresAtMs: Date.now() + 60_000, payload });
+      return success(payload);
+    } finally {
+      suggestedFriendsInFlight.delete(cacheKey);
+    }
   });
 }

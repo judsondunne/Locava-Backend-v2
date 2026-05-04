@@ -59,19 +59,19 @@ export class AchievementsBootstrapOrchestrator {
     const claimablesCacheKey = buildCacheKey("bootstrap", ["achievements-claimables-v1", input.viewerId]);
     const leaguesCacheKey = buildCacheKey("bootstrap", ["achievements-leagues-v1"]);
     const statusCacheKey = buildCacheKey("bootstrap", ["achievements-status-v1", input.viewerId]);
-    const bootstrapTtlMs = payload.degraded ? 5_000 : 60_000;
+    const bootstrapTtlMs = payload.degraded ? 15_000 : 120_000;
     const leaguesTtlMs = payload.degraded ? 5_000 : 10 * 60_000;
     await Promise.all([
       globalCache.set(cacheKey, response, bootstrapTtlMs),
+      globalCache.set(shellCacheKey, snapshotShell, bootstrapTtlMs),
+      globalCache.set(statusCacheKey, statusResponse, bootstrapTtlMs),
       globalCache.set(claimablesCacheKey, claimablesShell, bootstrapTtlMs),
       globalCache.set(leaguesCacheKey, leaguesResponse, leaguesTtlMs)
     ]);
     scheduleBackgroundWork(async () => {
-      const writes: Array<Promise<void>> = [globalCache.set(shellCacheKey, snapshotShell, bootstrapTtlMs)];
       if (!payload.degraded) {
-        writes.push(globalCache.set(statusCacheKey, statusResponse, bootstrapTtlMs));
+        await globalCache.set(statusCacheKey, statusResponse, bootstrapTtlMs);
       }
-      await Promise.all(writes);
     });
     return response;
   }

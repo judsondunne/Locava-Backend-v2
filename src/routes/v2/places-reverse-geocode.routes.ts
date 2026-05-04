@@ -10,6 +10,8 @@ import { setRouteName } from "../../observability/request-context.js";
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { resolveReverseGeocodeDetails } from "../../lib/location/reverse-geocode.js";
 
+const reverseGeocodeCache = new Map<string, { expiresAtMs: number; match: Awaited<ReturnType<typeof resolveReverseGeocodeDetails>> }>();
+
 export async function registerV2PlacesReverseGeocodeRoutes(app: FastifyInstance): Promise<void> {
   app.get(placesReverseGeocodeContract.path, async (request, reply) => {
     const viewer = buildViewerContext(request);
@@ -20,14 +22,23 @@ export async function registerV2PlacesReverseGeocodeRoutes(app: FastifyInstance)
     setRouteName(placesReverseGeocodeContract.routeName);
     const lng = query.lng ?? query.lon;
     const startedAt = Date.now();
+    const roundedLat = Math.round(query.lat * 1_000) / 1_000;
+    const roundedLng = lng == null ? null : Math.round(lng * 1_000) / 1_000;
+    const cacheKey = roundedLng == null ? null : `${roundedLat}:${roundedLng}`;
+    const cached = cacheKey ? reverseGeocodeCache.get(cacheKey) : undefined;
+    const freshCached = cached && cached.expiresAtMs > Date.now() ? cached.match : null;
     const match = lng == null
       ? null
-      : await resolveReverseGeocodeDetails({
+      : freshCached ??
+        await resolveReverseGeocodeDetails({
           lat: query.lat,
           lng,
           allowNetwork: true,
-          timeoutMs: 450,
+          timeoutMs: 180,
         });
+    if (cacheKey && match) {
+      reverseGeocodeCache.set(cacheKey, { expiresAtMs: Date.now() + 5 * 60_000, match });
+    }
     const location = normalizeCanonicalPostLocation({
       latitude: query.lat,
       longitude: lng ?? null,
