@@ -62,6 +62,8 @@ export type SimpleFeedCandidate = {
   letterboxGradients?: Array<{ top: string; bottom: string }>;
   likeCount: number;
   commentCount: number;
+  /** Raw Firestore fields for AppPostV2 (`toFeedCardDTO` sourceRawPost). */
+  rawFirestore?: Record<string, unknown>;
 };
 
 export type SimpleFeedBatchSliceStats = {
@@ -671,7 +673,8 @@ function tryMapSimpleFeedCandidate(
       commentCount: Math.max(0, Math.floor(num(data.commentCount, data.commentsCount) ?? 0)),
       assetsReady: data.assetsReady === true ? true : undefined,
       instantPlaybackReady: data.instantPlaybackReady === true ? true : undefined,
-      videoProcessingStatus: pickString(data.videoProcessingStatus)
+      videoProcessingStatus: pickString(data.videoProcessingStatus),
+      rawFirestore: { ...data, id: postId, postId }
     };
     return { candidate };
   } catch {

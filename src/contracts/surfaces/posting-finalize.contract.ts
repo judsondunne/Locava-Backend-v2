@@ -11,6 +11,25 @@ export const POSTING_FINALIZE_BODY_LIMIT_BYTES = Math.ceil(
   (DISPLAY_PHOTO_B64_MAX + VIDEO_POSTER_SLOTS * VIDEO_POSTER_B64_MAX_EACH + 512_000) * 1.05
 );
 
+const LetterboxGradientSourceSchema = z.enum(["calculated", "placeholder", "global", "blurhash"]);
+
+const LetterboxGradientBodySchema = z.object({
+  top: z.string().min(4).max(32),
+  bottom: z.string().min(4).max(32),
+  source: LetterboxGradientSourceSchema.optional()
+});
+
+const AssetPresentationBodySchema = z.object({
+  letterboxGradient: LetterboxGradientBodySchema.optional(),
+  carouselFitWidth: z.boolean().optional(),
+  resizeMode: z.enum(["cover", "contain"]).optional()
+});
+
+const AssetPresentationSlotSchema = z.object({
+  index: z.coerce.number().int().min(0).max(79),
+  presentation: AssetPresentationBodySchema.optional()
+});
+
 export const PostingFinalizeBodySchema = z.object({
   sessionId: z.string().min(6),
   stagedSessionId: z.string().min(6).optional(),
@@ -44,7 +63,13 @@ export const PostingFinalizeBodySchema = z.object({
   displayPhotoBase64: z.string().max(DISPLAY_PHOTO_B64_MAX).optional(),
   videoPostersBase64: z.array(z.string().max(VIDEO_POSTER_B64_MAX_EACH).nullable()).max(VIDEO_POSTER_SLOTS).optional(),
   /** Optional: legends staged preview id to commit after post creation. */
-  legendStageId: z.string().min(8).max(128).optional()
+  legendStageId: z.string().min(8).max(128).optional(),
+  /** Native carousel fit-to-width (letterbox) — stored on canonical post. */
+  carouselFitWidth: z.boolean().optional(),
+  /** Post-level letterbox gradients (top → bottom per slide or broadcast when length is 1). */
+  letterboxGradients: z.array(LetterboxGradientBodySchema).max(20).optional(),
+  /** Per-asset presentation hints aligned by `index` (same ordering as `stagedItems`). */
+  assetPresentations: z.array(AssetPresentationSlotSchema).max(20).optional()
 });
 
 export const PostingFinalizeResponseSchema = z.object({

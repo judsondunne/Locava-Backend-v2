@@ -69,6 +69,8 @@ export type FirestoreProfilePostDetail = {
     commentCount: number;
     viewerHasLiked: boolean;
   };
+  /** Firestore doc-shaped snapshot for AppPostV2 conversion. */
+  sourceRawPost?: Record<string, unknown>;
 };
 
 export class ProfilePostDetailFirestoreAdapter {
@@ -250,7 +252,8 @@ function mapProfilePostDetail(input: {
       likeCount,
       commentCount: resolveCommentCount(postData),
       viewerHasLiked: (input.likedDoc.exists || likedViaArray) && input.viewerId.length > 0
-    }
+    },
+    sourceRawPost: { ...raw, id: input.postDoc.id, postId: input.postDoc.id }
   };
 }
 

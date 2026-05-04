@@ -86,6 +86,26 @@ describe("native post document (finalize parity)", () => {
     expect(doc.playbackLabStatus).toBe("queued");
   });
 
+  it("writes explicit carousel + letterbox gradient overrides when provided", () => {
+    const assembled = assemblePostAssetsFromStagedItems("post_fixture_grad", [
+      {
+        index: 0,
+        assetType: "photo",
+        assetId: "image_g_0",
+        originalUrl: "https://cdn.example.com/original.jpg"
+      }
+    ]);
+    const doc = buildNativePostDocument({
+      ...baseInput,
+      postId: "post_fixture_grad",
+      assembled,
+      carouselFitWidth: false,
+      letterboxGradients: [{ top: "#23569a", bottom: "#5b3320" }]
+    });
+    expect(doc.carouselFitWidth).toBe(false);
+    expect(doc.letterboxGradients).toEqual([{ top: "#23569a", bottom: "#5b3320" }]);
+  });
+
   it("rejects staging URLs in manifest", () => {
     expect(() =>
       assemblePostAssetsFromStagedItems("post_x", [

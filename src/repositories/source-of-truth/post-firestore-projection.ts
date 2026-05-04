@@ -112,6 +112,8 @@ export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
   updatedAtMs: number;
   processing?: boolean;
   processingFailed?: boolean;
+  /** Full Firestore payload for AppPostV2 conversion (no extra reads). */
+  rawFirestore: Record<string, unknown>;
 } {
   const data = doc.data() as Record<string, unknown>;
   const proc = inferPostProcessing(data);
@@ -128,6 +130,7 @@ export function mapPostDocToGridPreview(doc: QueryDocumentSnapshot): {
   });
   return {
     postId: doc.id,
+    rawFirestore: { ...data, id: doc.id, postId: doc.id },
     thumbUrl: readPostThumbUrl(data, doc.id),
     mediaType: inferPostMediaType(data),
     aspectRatio: typeof ar === "number" && ar > 0 ? ar : 9 / 16,

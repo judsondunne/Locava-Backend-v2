@@ -1,6 +1,10 @@
 import { globalCache } from "../../cache/global-cache.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { ProfilePostDetailResponse } from "../../contracts/surfaces/profile-post-detail.contract.js";
+import {
+  attachAppPostV2ToRecord,
+  batchHydrateAppPostsOnRecords
+} from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
 import {
   recordCacheHit,
@@ -110,6 +114,55 @@ export class ProfilePostDetailOrchestrator {
       degraded: fallbacks.length > 0,
       fallbacks
     };
+
+    const postPayload = response.firstRender.post as Record<string, unknown>;
+    const rawForApp =
+      detail.sourceRawPost ??
+      ({
+        id: detail.postId,
+        postId: detail.postId,
+        userId: detail.userId,
+        caption: detail.caption,
+        title: detail.title,
+        description: detail.description,
+        activities: detail.activities,
+        address: detail.address,
+        lat: detail.lat,
+        lng: detail.lng,
+        long: detail.lng,
+        geoData: detail.geoData,
+        coordinates: detail.coordinates,
+        createdAtMs: detail.createdAtMs,
+        updatedAtMs: (detail as { updatedAtMs?: number }).updatedAtMs,
+        mediaType: detail.mediaType,
+        thumbUrl: detail.thumbUrl,
+        assets: detail.assets.map((a) => ({
+          id: a.id,
+          type: a.type,
+          original: a.original,
+          poster: a.poster,
+          thumbnail: a.thumbnail,
+          aspectRatio: a.aspectRatio,
+          durationSec: a.durationSec,
+          width: a.width,
+          height: a.height,
+          orientation: a.orientation,
+          variants: a.variants
+        })),
+        likesCount: detail.social.likeCount,
+        commentCount: detail.social.commentCount
+      } satisfies Record<string, unknown>);
+    attachAppPostV2ToRecord(postPayload, rawForApp, {
+      postId: detail.postId,
+      viewerStatePartial: {
+        liked: detail.social.viewerHasLiked,
+        saved: false,
+        savedCollectionIds: [],
+        followsAuthor: false
+      }
+    });
+    await batchHydrateAppPostsOnRecords([postPayload], viewerId);
+
     console.info("[post.detail.media_readiness]", {
       surface: "profile.postdetail",
       postId,

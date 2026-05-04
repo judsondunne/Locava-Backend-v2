@@ -12,6 +12,7 @@ import {
   recordFallback,
   recordSurfaceTimings,
 } from "../../observability/request-context.js";
+import { enrichGridPreviewItemsWithAppPostV2 } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import type { ProfileService } from "../../services/surfaces/profile.service.js";
 
 const PROFILE_TABS = [
@@ -117,7 +118,7 @@ export class ProfileBootstrapOrchestrator {
 
     const gridStartedAt = performance.now();
     const gridPromise = this.getCachedOrLoad(
-      buildCacheKey("list", ["profile-grid-preview-v1", userId, previewLimit]),
+      buildCacheKey("list", ["profile-grid-preview-v2", userId, previewLimit]),
       () => this.service.loadGridPreview(userId, previewLimit),
       15_000
     )
@@ -182,7 +183,7 @@ export class ProfileBootstrapOrchestrator {
         };
       });
 
-    const [headerRaw, relationshipRaw, gridPreview, collectionsPreview, achievementsPreview, profileBadgeSummary] =
+    const [headerRaw, relationshipRaw, gridPreviewLoaded, collectionsPreview, achievementsPreview, profileBadgeSummary] =
       await Promise.all([
         headerPromise,
         relationshipPromise.catch(() => {
@@ -200,6 +201,14 @@ export class ProfileBootstrapOrchestrator {
         achievementsPromise,
         this.service.loadBadgeSummary(userId, debugSlowDeferredMs).catch(() => null),
       ]);
+
+    const gridPreview = {
+      ...gridPreviewLoaded,
+      items: (await enrichGridPreviewItemsWithAppPostV2(
+        gridPreviewLoaded.items as Array<Record<string, unknown>>,
+        viewer.viewerId === "anonymous" ? null : viewer.viewerId
+      )) as typeof gridPreviewLoaded.items
+    };
 
     const header = toProfileHeaderDTO({
       userId: headerRaw.userId,

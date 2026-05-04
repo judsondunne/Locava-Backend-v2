@@ -284,6 +284,10 @@ export type MasterPostAuditV2 = {
     suppressedDuplicateAssets: string[];
     assetCountBefore: number;
     assetCountAfter: number;
+    rawLetterboxGradientsCount?: number;
+    rawHasPostLevelLetterboxGradient?: boolean;
+    rawHasLetterboxButCoverGradientMissing?: boolean;
+    rawHasLetterboxButAllAssetGradientsMissing?: boolean;
     /** Which raw field produced `lifecycle.createdAtMs`, if any. */
     lifecycleCreatedAtMsSource?: "createdAtMs" | "time" | "createdAt" | "time-created" | "updatedAt" | null;
     /** True when raw had timestamp-like fields but ms could not be derived (validator should warn). */

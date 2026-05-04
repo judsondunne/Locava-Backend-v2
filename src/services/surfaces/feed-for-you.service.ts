@@ -269,6 +269,7 @@ function carouselCompactAssetCap(assetCount: number): number {
 function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string): FeedCardDTO {
   return toFeedCardDTO({
     postId: candidate.postId,
+    sourceRawPost: candidate.rawFirestore,
     rankToken: `fy:${requestId.slice(0, 8)}:${idx + 1}`,
     author: {
       userId: candidate.authorId,

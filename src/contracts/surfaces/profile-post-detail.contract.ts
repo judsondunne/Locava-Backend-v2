@@ -96,7 +96,7 @@ export const ProfilePostDetailResponseSchema = z.object({
       playbackLab: z.record(z.unknown()).optional(),
       assetLocations: z.array(z.record(z.unknown())).optional(),
       assets: z.array(AssetSchema)
-    }),
+    }).passthrough(),
     author: z.object({
       userId: z.string(),
       handle: z.string(),

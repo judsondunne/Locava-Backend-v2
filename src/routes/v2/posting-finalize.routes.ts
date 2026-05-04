@@ -46,6 +46,9 @@ export async function registerV2PostingFinalizeRoutes(app: FastifyInstance): Pro
         displayPhotoBase64: body.displayPhotoBase64,
         videoPostersBase64: body.videoPostersBase64,
         legendStageId: body.legendStageId,
+        carouselFitWidth: body.carouselFitWidth,
+        letterboxGradients: body.letterboxGradients,
+        assetPresentations: body.assetPresentations,
         authorizationHeader: typeof request.headers.authorization === "string" ? request.headers.authorization : undefined
       });
       return success(payload);

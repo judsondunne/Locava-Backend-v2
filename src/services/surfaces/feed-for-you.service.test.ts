@@ -84,6 +84,7 @@ function candidate(idx: number, input: Partial<ForYouCandidate> = {}): ForYouCan
     letterboxGradients: input.letterboxGradients,
     likeCount: input.likeCount ?? 12,
     commentCount: input.commentCount ?? 3,
+    rawFirestore: input.rawFirestore ?? {},
   };
 }
 

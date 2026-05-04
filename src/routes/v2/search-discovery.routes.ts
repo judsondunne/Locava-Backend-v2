@@ -6,6 +6,11 @@ import { buildViewerContext } from "../../auth/viewer-context.js";
 import { SearchBootstrapQuerySchema } from "../../contracts/surfaces/search-bootstrap.contract.js";
 import { SearchSuggestQuerySchema } from "../../contracts/surfaces/search-suggest.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
+import {
+  attachAppPostV2ToSearchDiscoveryRow,
+  batchHydrateAppPostsOnRecords,
+  batchHydrateSearchDiscoveryPayload
+} from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
 import { SearchDiscoveryService } from "../../services/surfaces/search-discovery.service.js";
@@ -292,15 +297,30 @@ function hasLikelyActivityTagSpam(activities: unknown[]): boolean {
 }
 
 function postToSearchRow(post: Record<string, unknown>): Record<string, unknown> {
-  return {
-    postId: String(post.postId ?? post.id ?? ""),
-    id: String(post.id ?? post.postId ?? ""),
-    userId: String(post.userId ?? ""),
-    thumbUrl: String(post.thumbUrl ?? post.displayPhotoLink ?? ""),
-    displayPhotoLink: String(post.displayPhotoLink ?? post.thumbUrl ?? ""),
-    title: String(post.title ?? ""),
-    activities: Array.isArray(post.activities) ? post.activities : []
-  };
+  const raw = (post.rawFirestore as Record<string, unknown> | undefined) ?? post;
+  return attachAppPostV2ToSearchDiscoveryRow(
+    {
+      postId: String(post.postId ?? post.id ?? ""),
+      id: String(post.id ?? post.postId ?? ""),
+      userId: String(post.userId ?? ""),
+      thumbUrl: String(post.thumbUrl ?? post.displayPhotoLink ?? ""),
+      displayPhotoLink: String(post.displayPhotoLink ?? post.thumbUrl ?? ""),
+      title: String(post.title ?? ""),
+      activities: Array.isArray(post.activities) ? post.activities : []
+    },
+    raw
+  );
+}
+
+/** Posts from `GET /v2/search/results` (already PostCardSummary / envelope); do not run discovery `postToSearchRow`. */
+function extractCommittedSearchResultPosts(data: Record<string, unknown>): Array<Record<string, unknown>> {
+  const sections = data.sections as Record<string, unknown> | undefined;
+  const postsSection = sections?.posts as { items?: unknown } | undefined;
+  const fromSections = Array.isArray(postsSection?.items) ? postsSection!.items : [];
+  if (fromSections.length > 0) return fromSections as Array<Record<string, unknown>>;
+  const items = data.items;
+  if (Array.isArray(items)) return items as Array<Record<string, unknown>>;
+  return [];
 }
 
 function collectionToSearchRow(item: Record<string, unknown>): Record<string, unknown> {
@@ -407,9 +427,13 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
     const previews = mixSpecs.map((mix) => ({
       mixId: mix.id,
       spec: mix,
-      posts: posts.slice(0, 8),
+      posts: posts.slice(0, 8).map((p) => service.postToSearchRow(p)),
       success: true
     }));
+    await batchHydrateAppPostsOnRecords(
+      previews.flatMap((p) => p.posts),
+      viewer.viewerId
+    );
     return success({
       routeName: "mixes.prewarm.post",
       mixSpecs,
@@ -430,9 +454,13 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
     const previews = mixSpecs.map((mix, index) => ({
       mixId: String(mix.id ?? `mix_${index + 1}`),
       spec: mix,
-      posts: posts.slice(0, previewLimit),
+      posts: posts.slice(0, previewLimit).map((p) => service.postToSearchRow(p)),
       success: true
     }));
+    await batchHydrateAppPostsOnRecords(
+      previews.flatMap((p) => p.posts),
+      viewer.viewerId
+    );
     return success({ routeName: "mixes.previews.post", previews, rankingVersion: "mix_v1" });
   });
 
@@ -625,7 +653,7 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
     const lat = Number(queryParams.lat);
     const lng = Number(queryParams.lng);
     const normalized = query.trim().toLowerCase();
-    const cacheKey = `search_bootstrap:${normalized}:${limit}:${Number.isFinite(lat) ? lat.toFixed(2) : "_"}:${Number.isFinite(lng) ? lng.toFixed(2) : "_"}`;
+    const cacheKey = `search_bootstrap:${viewer.viewerId}:${normalized}:${limit}:${Number.isFinite(lat) ? lat.toFixed(2) : "_"}:${Number.isFinite(lng) ? lng.toFixed(2) : "_"}`;
     const cached = searchBootstrapCache.get(cacheKey);
     if (cached && cached.expiresAtMs > Date.now()) {
       return success(cached.payload);
@@ -641,6 +669,7 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
         lat: Number.isFinite(lat) ? lat : null,
         lng: Number.isFinite(lng) ? lng : null,
       })) as unknown as Record<string, unknown>;
+      await batchHydrateSearchDiscoveryPayload(payload, viewer.viewerId);
       searchBootstrapCache.set(cacheKey, { expiresAtMs: Date.now() + SEARCH_BOOTSTRAP_CACHE_TTL_MS, payload });
       trimBootstrapCache();
       return payload;
@@ -795,6 +824,7 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
           const posts = liveRows
             .filter((row) => String(row.kind ?? "") === "post")
             .map((row) => postToSearchRow((row.post as Record<string, unknown> | undefined) ?? row));
+          await batchHydrateAppPostsOnRecords(posts, viewer.viewerId);
           const users = liveRows
             .filter((row) => String(row.kind ?? "") === "user")
             .map((row) => {
@@ -840,7 +870,10 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
         }),
       ]);
       const bootstrapData = ((bootstrapRes.json() as Record<string, unknown>).data ?? {}) as Record<string, unknown>;
-      const posts = ((bootstrapData.posts ?? []) as Array<Record<string, unknown>>).map(postToSearchRow);
+      const posts = Array.isArray(bootstrapData.posts)
+        ? (bootstrapData.posts as Array<Record<string, unknown>>)
+        : [];
+      await batchHydrateAppPostsOnRecords(posts, viewer.viewerId);
       return success({
         routeName: "search.live.post",
         posts,
@@ -867,12 +900,14 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
         headers: { "x-viewer-id": viewer.viewerId, "x-viewer-roles": "internal" }
       }),
     ]);
-    let posts = (
-      (((resultsRes.json() as Record<string, unknown>).data as Record<string, unknown> | undefined)?.items ?? []) as Array<Record<string, unknown>>
-    ).map(postToSearchRow);
+    const resultsPayload = (resultsRes.json() as Record<string, unknown>).data as Record<string, unknown> | undefined;
+    let posts = extractCommittedSearchResultPosts(resultsPayload ?? {});
     if (posts.length === 0) {
-      posts = (await service.searchPostsForQuery(query, { limit })).map((post) => postToSearchRow(post as unknown as Record<string, unknown>));
+      posts = (await service.searchPostsForQuery(query, { limit })).map((post) =>
+        postToSearchRow(post as unknown as Record<string, unknown>)
+      );
     }
+    await batchHydrateAppPostsOnRecords(posts, viewer.viewerId);
     const users = (
       (((usersRes.json() as Record<string, unknown>).data as Record<string, unknown> | undefined)?.items ?? []) as Array<Record<string, unknown>>
     ).map((item) => ({

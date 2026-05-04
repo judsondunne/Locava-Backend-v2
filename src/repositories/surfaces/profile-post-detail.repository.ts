@@ -56,6 +56,7 @@ export type ProfilePostDetailRecord = {
     commentCount: number;
     viewerHasLiked: boolean;
   };
+  sourceRawPost?: Record<string, unknown>;
 };
 
 export class ProfilePostDetailRepository {
@@ -104,36 +105,41 @@ export class ProfilePostDetailRepository {
     const mediaType: "image" | "video" = safeIndex % 4 === 0 ? "video" : "image";
     const thumbUrl = `https://picsum.photos/seed/${encodeURIComponent(`${userId}-${safeIndex}`)}/500/888`;
 
+    const seededAssets =
+      mediaType === "video"
+        ? [
+            {
+              id: `${postId}-asset-1`,
+              type: "video" as const,
+              poster: thumbUrl,
+              thumbnail: thumbUrl,
+              variants: {
+                startup720FaststartAvc: `https://cdn.locava.dev/video/${postId}/startup-720.mp4`,
+                main720Avc: `https://cdn.locava.dev/video/${postId}/main-720.mp4`,
+                hls: `https://cdn.locava.dev/video/${postId}/master.m3u8`
+              }
+            }
+          ]
+        : [
+            {
+              id: `${postId}-asset-1`,
+              type: "image" as const,
+              poster: thumbUrl,
+              thumbnail: thumbUrl
+            }
+          ];
+    const likeCount = 12 + safeIndex + mutationStateRepository.getPostLikeDelta(postId);
+    const commentCount = 2 + (safeIndex % 4);
+    const createdAtMs = Date.now() - safeIndex * 3600_000;
+
     return {
       postId,
       userId,
       caption: `Post ${safeIndex} from ${userId}`,
-      createdAtMs: Date.now() - safeIndex * 3600_000,
+      createdAtMs,
       mediaType,
       thumbUrl,
-      assets:
-        mediaType === "video"
-          ? [
-              {
-                id: `${postId}-asset-1`,
-                type: "video",
-                poster: thumbUrl,
-                thumbnail: thumbUrl,
-                variants: {
-                  startup720FaststartAvc: `https://cdn.locava.dev/video/${postId}/startup-720.mp4`,
-                  main720Avc: `https://cdn.locava.dev/video/${postId}/main-720.mp4`,
-                  hls: `https://cdn.locava.dev/video/${postId}/master.m3u8`
-                }
-              }
-            ]
-          : [
-              {
-                id: `${postId}-asset-1`,
-                type: "image",
-                poster: thumbUrl,
-                thumbnail: thumbUrl
-              }
-            ],
+      assets: seededAssets,
       author: {
         userId,
         handle: userId === HEAVY_USER_ID ? "locava_heavy_profile" : `user_${userId.slice(0, 8)}`,
@@ -141,10 +147,29 @@ export class ProfilePostDetailRepository {
         profilePic: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=300&q=80"
       },
       social: {
-        likeCount: 12 + safeIndex + mutationStateRepository.getPostLikeDelta(postId),
-        commentCount: 2 + (safeIndex % 4),
+        likeCount,
+        commentCount,
         viewerHasLiked:
           mutationStateRepository.hasViewerLikedPost(viewerId, postId) || viewerId.length % 2 === 0
+      },
+      sourceRawPost: {
+        id: postId,
+        postId,
+        userId,
+        caption: `Post ${safeIndex} from ${userId}`,
+        createdAtMs,
+        mediaType,
+        thumbUrl,
+        displayPhotoLink: thumbUrl,
+        assets: seededAssets.map((a) => ({
+          id: a.id,
+          type: a.type,
+          poster: a.poster,
+          thumbnail: a.thumbnail,
+          ...(a.type === "video" ? { variants: a.variants } : {})
+        })),
+        likesCount: likeCount,
+        commentsCount: commentCount
       }
     };
   }

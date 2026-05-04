@@ -83,6 +83,21 @@ export function validateMasterPostV2(
     });
   }
 
+  if (post.audit.normalizationDebug?.rawHasLetterboxButCoverGradientMissing) {
+    warnings.push({
+      code: "letterbox_cover_gradient_missing_from_raw",
+      message: "Raw post had letterbox gradients but canonical media.cover.gradient is missing",
+      path: "media.cover.gradient"
+    });
+  }
+  if (post.audit.normalizationDebug?.rawHasLetterboxButAllAssetGradientsMissing) {
+    warnings.push({
+      code: "letterbox_asset_gradients_missing_from_raw",
+      message: "Raw post had letterbox gradients but canonical media.assets[].presentation.letterboxGradient is missing",
+      path: "media.assets.presentation.letterboxGradient"
+    });
+  }
+
   if (post.location.coordinates.lat != null && (post.location.coordinates.lat < -90 || post.location.coordinates.lat > 90)) {
     blockingErrors.push({
       code: "invalid_latitude",

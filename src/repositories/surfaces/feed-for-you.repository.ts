@@ -70,6 +70,8 @@ export type ForYouCandidate = {
   letterboxGradients?: Array<{ top: string; bottom: string }>;
   likeCount: number;
   commentCount: number;
+  /** Raw Firestore post document — used for App Post V2 (`appPost`) serialization on cards. */
+  rawFirestore: Record<string, unknown>;
 };
 
 export type ForYouServedWriteRecord = {
@@ -355,7 +357,8 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
     layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,
     ...normalizeLetterboxHints(data),
     likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
-    commentCount: 0
+    commentCount: 0,
+    rawFirestore: data
   };
 }
 

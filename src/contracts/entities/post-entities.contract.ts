@@ -89,6 +89,9 @@ const PostEnvelopeFieldsSchema = z.object({
 }).passthrough();
 
 export const PostCardSummarySchema = z.object({
+  /** Canonical app-facing post contract (Master Post V2 derived). */
+  appPost: z.record(z.unknown()).optional(),
+  postContractVersion: z.literal(2).optional(),
   postId: z.string(),
   rankToken: z.string(),
   author: AuthorSummarySchema,

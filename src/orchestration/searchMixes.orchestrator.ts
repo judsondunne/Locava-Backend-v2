@@ -1,4 +1,5 @@
 import { mixCache } from "../cache/mixCache.js";
+import { batchHydrateAppPostsOnRecords } from "../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import { SearchMixesServiceV2 } from "../services/mixes/v2/searchMixes.service.js";
 import { firestoreAssetsToCompactSeeds, toSearchMixPreviewDTO } from "../dto/compact-surface-dto.js";
 
@@ -158,87 +159,86 @@ export class SearchMixesOrchestrator {
       cursor: input.cursor ?? null,
       includeDebug: input.includeDebug,
     });
+    const rowRecords = payload.posts.map((row, index) => {
+      const postId = String(row.postId ?? row.id ?? "");
+      const rawAssets = Array.isArray((row as Record<string, unknown>).assets)
+        ? ((row as Record<string, unknown>).assets as unknown[])
+        : [];
+      const compactFromFirestore =
+        rawAssets.length > 0 ? firestoreAssetsToCompactSeeds(rawAssets, postId, 12) : [];
+      const compactAsset = toCompactSeedAsset(row as Record<string, unknown>);
+      const primary = compactFromFirestore[0];
+      const mediaType: "image" | "video" = primary?.type === "video" ? "video" : compactAsset.type;
+      const posterUrl = cleanString(primary?.posterUrl) ?? compactAsset.posterUrl ?? "";
+      return toSearchMixPreviewDTO({
+        postId,
+        rankToken: `mix-${input.mixId}-${index + 1}`,
+        author: {
+          userId: String(row.userId ?? ""),
+          handle: String(row.userHandle ?? "").replace(/^@+/, "") || "unknown",
+          name: typeof row.userName === "string" ? row.userName : null,
+          pic: typeof row.userPic === "string" ? row.userPic : null,
+        },
+        title: typeof row.title === "string" ? row.title : typeof row.caption === "string" ? row.caption : null,
+        captionPreview: typeof row.caption === "string" ? row.caption : typeof row.title === "string" ? row.title : null,
+        activities: cleanStringArray(row.activities),
+        locationSummary: typeof row.address === "string" ? row.address : null,
+        address: typeof row.address === "string" ? row.address : null,
+        media: {
+          type: mediaType,
+          posterUrl,
+          aspectRatio:
+            cleanNumber(primary?.aspectRatio) ??
+            cleanNumber(compactAsset.asset?.aspectRatio) ??
+            1,
+          startupHint: mediaType === "video" ? "poster_then_preview" : "poster_only",
+        },
+        geo: {
+          lat: typeof row.lat === "number" ? row.lat : null,
+          long: typeof row.lng === "number" ? row.lng : typeof row.long === "number" ? row.long : null,
+        },
+        assets:
+          compactFromFirestore.length > 0
+            ? compactFromFirestore
+            : compactAsset.asset
+              ? [
+                  {
+                    id: cleanString(compactAsset.asset.id) ?? `${postId}-asset-1`,
+                    type: compactAsset.type,
+                    previewUrl: compactAsset.previewUrl,
+                    posterUrl: compactAsset.posterUrl || null,
+                    originalUrl: compactAsset.originalUrl,
+                    streamUrl: compactAsset.streamUrl,
+                    mp4Url: compactAsset.mp4Url,
+                    blurhash: cleanString(compactAsset.asset.blurhash),
+                    width: cleanNumber(compactAsset.asset.width),
+                    height: cleanNumber(compactAsset.asset.height),
+                    aspectRatio: cleanNumber(compactAsset.asset.aspectRatio),
+                    orientation: cleanString(compactAsset.asset.orientation),
+                  },
+                ]
+              : [],
+        ...(compactFromFirestore.length > 0 ? { compactAssetLimit: 12 } : {}),
+        createdAtMs: typeof row.time === "number" ? row.time : Date.now(),
+        updatedAtMs: typeof row.updatedAtMs === "number" ? row.updatedAtMs : typeof row.time === "number" ? row.time : Date.now(),
+        social: {
+          likeCount: typeof row.likeCount === "number" ? row.likeCount : 0,
+          commentCount: typeof row.commentCount === "number" ? row.commentCount : 0,
+        },
+        viewer: { liked: false, saved: false },
+        firstAssetUrl:
+          cleanString(primary?.originalUrl) ??
+          cleanString(primary?.previewUrl) ??
+          (compactAsset.originalUrl ?? compactAsset.previewUrl ?? compactAsset.posterUrl ?? null),
+        sourceRawPost: row as Record<string, unknown>,
+      });
+    });
+    await batchHydrateAppPostsOnRecords(rowRecords as Array<Record<string, unknown>>, input.viewerId);
     return {
       routeName: "search.mixes.feed.post",
       mixId: input.mixId,
       mixType: payload.mixType,
-      posts: payload.posts.map((row, index) =>
-        (() => {
-          const postId = String(row.postId ?? row.id ?? "");
-          const rawAssets = Array.isArray((row as Record<string, unknown>).assets)
-            ? ((row as Record<string, unknown>).assets as unknown[])
-            : [];
-          const compactFromFirestore =
-            rawAssets.length > 0 ? firestoreAssetsToCompactSeeds(rawAssets, postId, 12) : [];
-          const compactAsset = toCompactSeedAsset(row as Record<string, unknown>);
-          const primary = compactFromFirestore[0];
-          const mediaType: "image" | "video" =
-            primary?.type === "video" ? "video" : compactAsset.type;
-          const posterUrl =
-            cleanString(primary?.posterUrl) ?? compactAsset.posterUrl ?? "";
-          return toSearchMixPreviewDTO({
-          postId,
-          rankToken: `mix-${input.mixId}-${index + 1}`,
-          author: {
-            userId: String(row.userId ?? ""),
-            handle: String(row.userHandle ?? "").replace(/^@+/, "") || "unknown",
-            name: typeof row.userName === "string" ? row.userName : null,
-            pic: typeof row.userPic === "string" ? row.userPic : null,
-          },
-          title: typeof row.title === "string" ? row.title : typeof row.caption === "string" ? row.caption : null,
-          captionPreview: typeof row.caption === "string" ? row.caption : typeof row.title === "string" ? row.title : null,
-          activities: cleanStringArray(row.activities),
-          locationSummary: typeof row.address === "string" ? row.address : null,
-          address: typeof row.address === "string" ? row.address : null,
-          media: {
-            type: mediaType,
-            posterUrl,
-            aspectRatio:
-              cleanNumber(primary?.aspectRatio) ??
-              cleanNumber(compactAsset.asset?.aspectRatio) ??
-              1,
-            startupHint: mediaType === "video" ? "poster_then_preview" : "poster_only",
-          },
-          geo: {
-            lat: typeof row.lat === "number" ? row.lat : null,
-            long: typeof row.lng === "number" ? row.lng : typeof row.long === "number" ? row.long : null,
-          },
-          assets:
-            compactFromFirestore.length > 0
-              ? compactFromFirestore
-              : compactAsset.asset
-                ? [
-                    {
-                      id: cleanString(compactAsset.asset.id) ?? `${postId}-asset-1`,
-                      type: compactAsset.type,
-                      previewUrl: compactAsset.previewUrl,
-                      posterUrl: compactAsset.posterUrl || null,
-                      originalUrl: compactAsset.originalUrl,
-                      streamUrl: compactAsset.streamUrl,
-                      mp4Url: compactAsset.mp4Url,
-                      blurhash: cleanString(compactAsset.asset.blurhash),
-                      width: cleanNumber(compactAsset.asset.width),
-                      height: cleanNumber(compactAsset.asset.height),
-                      aspectRatio: cleanNumber(compactAsset.asset.aspectRatio),
-                      orientation: cleanString(compactAsset.asset.orientation),
-                    },
-                  ]
-                : [],
-          ...(compactFromFirestore.length > 0 ? { compactAssetLimit: 12 } : {}),
-          createdAtMs: typeof row.time === "number" ? row.time : Date.now(),
-          updatedAtMs: typeof row.updatedAtMs === "number" ? row.updatedAtMs : typeof row.time === "number" ? row.time : Date.now(),
-          social: {
-            likeCount: typeof row.likeCount === "number" ? row.likeCount : 0,
-            commentCount: typeof row.commentCount === "number" ? row.commentCount : 0,
-          },
-          viewer: { liked: false, saved: false },
-          firstAssetUrl:
-            cleanString(primary?.originalUrl) ??
-            cleanString(primary?.previewUrl) ??
-            (compactAsset.originalUrl ?? compactAsset.previewUrl ?? compactAsset.posterUrl ?? null),
-        });
-        })(),
-      ),
+      posts: rowRecords,
       nextCursor: payload.nextCursor,
       hasMore: payload.hasMore,
       scoringVersion,

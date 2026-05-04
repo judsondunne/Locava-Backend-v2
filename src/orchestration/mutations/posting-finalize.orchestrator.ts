@@ -33,6 +33,16 @@ export class PostingFinalizeOrchestrator {
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
     legendStageId?: string;
+    carouselFitWidth?: boolean;
+    letterboxGradients?: Array<{ top: string; bottom: string; source?: "calculated" | "placeholder" | "global" | "blurhash" }>;
+    assetPresentations?: Array<{
+      index: number;
+      presentation?: {
+        letterboxGradient?: { top: string; bottom: string; source?: "calculated" | "placeholder" | "global" | "blurhash" };
+        carouselFitWidth?: boolean;
+        resizeMode?: "cover" | "contain";
+      };
+    }>;
     authorizationHeader?: string;
   }) {
     const result = await this.service.finalizePosting(input);

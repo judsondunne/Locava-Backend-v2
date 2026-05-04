@@ -23,6 +23,10 @@ import {
   type NativePostGeoBlock,
   type NativePostUserSnapshot
 } from "../posting/buildPostDocument.js";
+import {
+  applyPublishPresentationToAssembledAssets,
+  selectPublishLetterboxGradients
+} from "../posting/select-publish-letterbox-gradients.js";
 import { PostingAudioService } from "../posting/posting-audio.service.js";
 import {
   enqueueVideoProcessingCloudTask,
@@ -133,6 +137,16 @@ export class PostingMutationService {
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
     legendStageId?: string;
+    carouselFitWidth?: boolean;
+    letterboxGradients?: Array<{ top: string; bottom: string; source?: string }>;
+    assetPresentations?: Array<{
+      index: number;
+      presentation?: {
+        letterboxGradient?: { top: string; bottom: string; source?: string };
+        carouselFitWidth?: boolean;
+        resizeMode?: "cover" | "contain";
+      };
+    }>;
     authorizationHeader?: string;
   }): Promise<{
     session: UploadSessionRecord;
@@ -854,6 +868,16 @@ export class PostingMutationService {
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
     authorizationHeader?: string;
+    carouselFitWidth?: boolean;
+    letterboxGradients?: Array<{ top: string; bottom: string; source?: string }>;
+    assetPresentations?: Array<{
+      index: number;
+      presentation?: {
+        letterboxGradient?: { top: string; bottom: string; source?: string };
+        carouselFitWidth?: boolean;
+        resizeMode?: "cover" | "contain";
+      };
+    }>;
   }): Promise<string> {
     const debugTimings = process.env.POSTING_FINALIZE_DEBUG_TIMINGS === "1";
     const startedAt = debugTimings ? Date.now() : 0;
@@ -948,7 +972,10 @@ export class PostingMutationService {
       tags: Array.isArray(input.tags) ? input.tags : [],
       texts: Array.isArray(input.texts) ? input.texts : [],
       recordings: Array.isArray(input.recordings) ? input.recordings : [],
-      stagedItems
+      stagedItems,
+      finalizeCarouselFitWidth: input.carouselFitWidth,
+      finalizeLetterboxGradients: input.letterboxGradients,
+      finalizeAssetPresentations: input.assetPresentations
     });
     if (debugTimings) {
       console.info("[posting.finalize.timing] publishNativeCanonicalPost", { ms: Date.now() - beforeNative });
@@ -1057,6 +1084,16 @@ export class PostingMutationService {
       posterKey?: string;
       posterUrl?: string;
     }>;
+    finalizeCarouselFitWidth?: boolean;
+    finalizeLetterboxGradients?: Array<{ top: string; bottom: string; source?: string }>;
+    finalizeAssetPresentations?: Array<{
+      index: number;
+      presentation?: {
+        letterboxGradient?: { top: string; bottom: string; source?: string };
+        carouselFitWidth?: boolean;
+        resizeMode?: "cover" | "contain";
+      };
+    }>;
   }): Promise<string> {
     const db = getFirestoreSourceClient();
     if (!db) {
@@ -1098,6 +1135,42 @@ export class PostingMutationService {
     const activities = input.activities.map((value) => String(value ?? "").trim()).filter(Boolean);
     const enrichedRecordings = await this.postingAudioService.enrichRecordingsForPublish(input.recordings);
     const assembled = assemblePostAssetsFromStagedItems(postId, input.stagedItems);
+    const assets = assembled.assets;
+    const assetBlurhashes = assets.map((a) => {
+      const bh = (a as { blurhash?: unknown }).blurhash;
+      return typeof bh === "string" ? bh : "";
+    }).filter((s) => s.length > 0);
+
+    const gradientPick = selectPublishLetterboxGradients({
+      assetCount: assets.length,
+      bodyLetterboxGradients: input.finalizeLetterboxGradients,
+      bodyCarouselFitWidth: input.finalizeCarouselFitWidth,
+      bodyAssetPresentations: input.finalizeAssetPresentations,
+      stagingLetterboxGradients: undefined,
+      stagingCarouselFitWidth: undefined,
+      stagingAssetPresentations: undefined,
+      assetBlurhashes,
+      fallbackAllowed: true
+    });
+
+    console.info("[PostingFinalizeGradientInput]", {
+      postId,
+      stagedSessionId: input.stagedSessionId,
+      bodyLetterboxGradients: input.finalizeLetterboxGradients ?? null,
+      bodyAssetPresentationGradients:
+        input.finalizeAssetPresentations?.map((row) => ({
+          index: row.index,
+          letterboxGradient: row.presentation?.letterboxGradient ?? null
+        })) ?? null,
+      stagingLetterboxGradients: null,
+      stagingAssetPresentationGradients: null,
+      bodyCarouselFitWidth: input.finalizeCarouselFitWidth ?? null,
+      stagingCarouselFitWidth: null,
+      selectedSourceBeforeWrite: gradientPick.selectedSourceBeforeWrite
+    });
+
+    applyPublishPresentationToAssembledAssets(assets, gradientPick.perAssetPresentation);
+
     const geo = this.resolveFinalizeGeo(lat, lng, input.address ?? "");
     const postDoc = buildNativePostDocument({
       postId,
@@ -1120,7 +1193,23 @@ export class PostingMutationService {
       texts: input.texts,
       recordings: enrichedRecordings,
       assembled,
-      geo
+      geo,
+      carouselFitWidth: gradientPick.carouselFitWidth,
+      letterboxGradients: gradientPick.letterboxGradients
+    });
+
+    const assetsAfter = Array.isArray(postDoc.assets) ? (postDoc.assets as Record<string, unknown>[]) : [];
+    console.info("[PostingFinalizeGradientWrite]", {
+      postId,
+      finalLetterboxGradients: postDoc.letterboxGradients ?? null,
+      finalCarouselFitWidth: postDoc.carouselFitWidth ?? null,
+      finalAssetPresentationGradients: assetsAfter.map((a) => {
+        const pres = a.presentation && typeof a.presentation === "object" ? (a.presentation as Record<string, unknown>) : null;
+        const lg = pres?.letterboxGradient && typeof pres.letterboxGradient === "object" ? pres.letterboxGradient : null;
+        return lg;
+      }),
+      usedPlaceholderGradient: gradientPick.usedPlaceholderGradient,
+      placeholderReason: gradientPick.placeholderReason
     });
     validateNativePostDocumentForWrite(postDoc);
 

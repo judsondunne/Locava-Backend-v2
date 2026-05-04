@@ -150,4 +150,21 @@ describe("validateMasterPostV2", () => {
     const validation = validateMasterPostV2(normalized.canonical);
     expect(validation.warnings.some((w) => w.code === "lifecycle_created_at_ms_not_derived_from_raw")).toBe(true);
   });
+
+  it("warns when raw letterbox gradients existed but canonical gradients were dropped", () => {
+    const normalized = normalizeMasterPostV2({
+      id: "p_letterbox_warn",
+      userId: "u",
+      createdAt: "2026-05-04T00:00:00.000Z",
+      assets: [{ id: "i1", type: "image", original: "https://img/1.jpg", variants: { md: { webp: "https://img/1-md.webp" } } }]
+    });
+    normalized.canonical.audit.normalizationDebug = {
+      ...normalized.canonical.audit.normalizationDebug!,
+      rawHasLetterboxButCoverGradientMissing: true,
+      rawHasLetterboxButAllAssetGradientsMissing: true
+    };
+    const validation = validateMasterPostV2(normalized.canonical);
+    expect(validation.warnings.some((w) => w.code === "letterbox_cover_gradient_missing_from_raw")).toBe(true);
+    expect(validation.warnings.some((w) => w.code === "letterbox_asset_gradients_missing_from_raw")).toBe(true);
+  });
 });

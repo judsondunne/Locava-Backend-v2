@@ -1,4 +1,5 @@
 import { FieldPath, type Query } from "firebase-admin/firestore";
+import { attachAppPostV2ToSearchDiscoveryRow } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
 import { SearchUsersFirestoreAdapter } from "../../repositories/source-of-truth/search-users-firestore.adapter.js";
@@ -55,6 +56,8 @@ export type DiscoveryPost = {
   lng: number | null;
   stateRegionId: string | null;
   cityRegionId: string | null;
+  /** Firestore doc snapshot fields for AppPostV2 (no extra reads). */
+  rawFirestore: Record<string, unknown>;
 };
 
 type RankedDiscoveryPost = {
@@ -904,15 +907,18 @@ export class SearchDiscoveryService {
   }
 
   postToSearchRow(post: DiscoveryPost): Record<string, unknown> {
-    return {
-      postId: post.postId,
-      id: post.id,
-      userId: post.userId,
-      thumbUrl: post.thumbUrl,
-      displayPhotoLink: post.displayPhotoLink,
-      title: post.title,
-      activities: post.activities,
-    };
+    return attachAppPostV2ToSearchDiscoveryRow(
+      {
+        postId: post.postId,
+        id: post.id,
+        userId: post.userId,
+        thumbUrl: post.thumbUrl,
+        displayPhotoLink: post.displayPhotoLink,
+        title: post.title,
+        activities: post.activities,
+      },
+      post.rawFirestore
+    );
   }
 
   private rankPosts(
@@ -1140,6 +1146,7 @@ export class SearchDiscoveryService {
       lng: Number.isFinite(lngValue) ? lngValue : null,
       stateRegionId: String(data.stateRegionId ?? "").trim() || null,
       cityRegionId: String(data.cityRegionId ?? "").trim() || null,
+      rawFirestore: { ...data, id: postId, postId },
     };
   }
 }

@@ -56,6 +56,7 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     POSTING_VIDEO_SYNC_FASTSTART_MAX_BYTES: 157286400,
     POSTING_VIDEO_FASTSTART_REQUIRED: true,
     POSTING_FINALIZE_SYNC_ACHIEVEMENTS: false,
+    BACKEND_APP_POST_V2_RESPONSES: true,
     ...overrides
   };
 }

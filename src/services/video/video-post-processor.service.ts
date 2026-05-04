@@ -263,7 +263,8 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
           generated: labNode.generated,
           generationMetadata: labNode.generationMetadata
         },
-        instantPlaybackReady: true
+        instantPlaybackReady: true,
+        presentation: (assetRow as { presentation?: unknown }).presentation
       };
 
       const idx = assets.findIndex((a) => String(a.id ?? "") === job.id.trim());

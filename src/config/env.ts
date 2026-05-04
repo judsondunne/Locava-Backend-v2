@@ -108,7 +108,9 @@ const EnvSchema = z.object({
   /** Enforce that processed variants must be verified before assetsReady can become true. */
   POSTING_VIDEO_FASTSTART_REQUIRED: z.coerce.boolean().default(true),
   /** Force synchronous achievements delta generation on finalize (default is async for lower latency). */
-  POSTING_FINALIZE_SYNC_ACHIEVEMENTS: z.coerce.boolean().default(false)
+  POSTING_FINALIZE_SYNC_ACHIEVEMENTS: z.coerce.boolean().default(false),
+  /** When true, post envelopes and feed cards include `appPost` (App Post V2 contract). */
+  BACKEND_APP_POST_V2_RESPONSES: z.coerce.boolean().default(true)
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

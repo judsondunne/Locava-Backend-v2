@@ -187,6 +187,26 @@ describe("normalizeMasterPostV2", () => {
     ).toBeLessThanOrEqual(1);
   });
 
+  it("applies post-level letterbox gradients across all assets when only one gradient is provided", () => {
+    const raw = {
+      id: "post_3a42f16570830ea9",
+      userId: "u",
+      createdAt: "2026-05-04T00:00:00.000Z",
+      assets: [
+        { id: "a1", type: "image", original: "https://img/1.jpg", variants: { md: { webp: "https://img/1-md.webp" } } },
+        { id: "a2", type: "image", original: "https://img/2.jpg", variants: { md: { webp: "https://img/2-md.webp" } } },
+        { id: "a3", type: "image", original: "https://img/3.jpg", variants: { md: { webp: "https://img/3-md.webp" } } }
+      ],
+      letterboxGradients: [{ top: "#1f2937", bottom: "#111827" }]
+    };
+    const result = normalizeMasterPostV2(raw, { postId: "post_3a42f16570830ea9" });
+    expect(result.canonical.media.assetCount).toBe(3);
+    expect(result.canonical.media.assets.every((asset) => asset.presentation.letterboxGradient?.top === "#1f2937")).toBe(true);
+    expect(result.canonical.media.assets.every((asset) => asset.presentation.letterboxGradient?.bottom === "#111827")).toBe(true);
+    expect(result.canonical.media.cover.gradient?.top).toBe("#1f2937");
+    expect(result.canonical.media.cover.gradient?.bottom).toBe("#111827");
+  });
+
   it("computes lifecycle.createdAtMs from Firestore-style raw.time (_seconds/_nanoseconds)", () => {
     const raw = {
       id: "SinzQIFVjsC6OgqJiubq",

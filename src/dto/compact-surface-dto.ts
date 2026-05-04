@@ -1,3 +1,6 @@
+import { isBackendAppPostV2ResponsesEnabled } from "../lib/posts/app-post-v2/flags.js";
+import { toAppPostV2FromAny } from "../lib/posts/app-post-v2/toAppPostV2.js";
+
 type Nullable<T> = T | null;
 
 type CompactAssetSeed = {
@@ -27,6 +30,8 @@ type CompactAuthorSeed = {
 type CompactCardSeed = {
   postId: string;
   rankToken: string;
+  /** Full Firestore post payload when available — preferred source for {@link AppPostV2} conversion. */
+  sourceRawPost?: Record<string, unknown> | null;
   author: CompactAuthorSeed;
   activities?: string[] | null;
   address?: string | null;
@@ -96,6 +101,9 @@ type CompactCardSeed = {
 export const DEFAULT_CARD_CAROUSEL_ASSET_CAP = 12;
 
 export type FeedCardDTO = {
+  /** Canonical app-facing post (locava.appPost v2). */
+  appPost?: Record<string, unknown>;
+  postContractVersion?: 2;
   postId: string;
   rankToken: string;
   author: {
@@ -435,6 +443,89 @@ function normalizeAspectRatio(value: number | null | undefined, fallback = 9 / 1
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unknown> {
+  const assets = Array.isArray(seed.assets) ? seed.assets : [];
+  return {
+    id: seed.postId,
+    postId: seed.postId,
+    userId: seed.author.userId,
+    userHandle: seed.author.handle,
+    userName: seed.author.name,
+    userPic: seed.author.pic,
+    title: seed.title,
+    caption: seed.captionPreview,
+    activities: seed.activities,
+    address: seed.address,
+    lat: seed.geo?.lat,
+    lng: seed.geo?.long,
+    long: seed.geo?.long,
+    geoData: {
+      city: seed.geo?.city,
+      state: seed.geo?.state,
+      country: seed.geo?.country,
+      geohash: seed.geo?.geohash
+    },
+    assets: assets.map((a) => ({
+      id: a.id,
+      type: a.type,
+      original: a.originalUrl,
+      url: a.originalUrl,
+      poster: a.posterUrl,
+      thumbnail: a.previewUrl,
+      blurhash: a.blurhash,
+      width: a.width,
+      height: a.height,
+      aspectRatio: a.aspectRatio,
+      orientation: a.orientation,
+      variants: {
+        ...(typeof a.streamUrl === "string" && a.streamUrl.trim() ? { hls: a.streamUrl } : {}),
+        ...(typeof a.mp4Url === "string" && a.mp4Url.trim()
+          ? { main720Avc: a.mp4Url, main1080Avc: a.mp4Url }
+          : {}),
+        ...(a.variants && typeof a.variants === "object" ? a.variants : {})
+      }
+    })),
+    likeCount: seed.social?.likeCount,
+    likesCount: seed.social?.likeCount,
+    commentsCount: seed.social?.commentCount,
+    commentCount: seed.social?.commentCount,
+    mediaType: seed.media.type,
+    thumbUrl: seed.media.posterUrl,
+    displayPhotoLink: seed.media.posterUrl,
+    photoLink: seed.photoLink ?? seed.displayPhotoLink,
+    photoLinks2: seed.playbackUrl ?? seed.fallbackVideoUrl,
+    fallbackVideoUrl: seed.fallbackVideoUrl,
+    createdAtMs: seed.createdAtMs,
+    updatedAtMs: seed.updatedAtMs,
+    carouselFitWidth: seed.carouselFitWidth,
+    layoutLetterbox: seed.layoutLetterbox,
+    letterboxGradientTop: seed.letterboxGradientTop,
+    letterboxGradientBottom: seed.letterboxGradientBottom,
+    letterboxGradients: seed.letterboxGradients
+  };
+}
+
+function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean; saved: boolean }): Partial<FeedCardDTO> {
+  if (!isBackendAppPostV2ResponsesEnabled()) return {};
+  const raw = seed.sourceRawPost ?? syntheticRawFromCompactSeed(seed);
+  try {
+    return {
+      appPost: toAppPostV2FromAny(raw, {
+        postId: seed.postId,
+        viewerState: {
+          liked: viewer.liked,
+          saved: viewer.saved,
+          savedCollectionIds: [],
+          followsAuthor: false
+        }
+      }) as unknown as Record<string, unknown>,
+      postContractVersion: 2
+    };
+  } catch {
+    return {};
+  }
+}
+
 export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
   const seedAssetLen = Array.isArray(seed.assets) ? seed.assets.length : 0;
   const hintedAssetCount =
@@ -462,6 +553,10 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     derivedAssetCount > assets.length ||
     explicitHydrationIncomplete ||
     Boolean(seed.hasMultipleAssets === true && assets.length <= 1);
+  const viewerState = {
+    liked: cleanBool(seed.viewer?.liked),
+    saved: cleanBool(seed.viewer?.saved),
+  };
   return {
     postId: seed.postId,
     rankToken: seed.rankToken,
@@ -501,10 +596,7 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
       likeCount: Math.max(0, Math.floor(cleanNumber(seed.social?.likeCount) ?? 0)),
       commentCount: Math.max(0, Math.floor(cleanNumber(seed.social?.commentCount) ?? 0)),
     },
-    viewer: {
-      liked: cleanBool(seed.viewer?.liked),
-      saved: cleanBool(seed.viewer?.saved),
-    },
+    viewer: viewerState,
     createdAtMs: seed.createdAtMs,
     updatedAtMs: seed.updatedAtMs,
     ...(seed.mediaStatus ? { mediaStatus: seed.mediaStatus } : {}),
@@ -527,6 +619,7 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     ...(cleanString(seed.displayPhotoLink) != null ? { displayPhotoLink: cleanString(seed.displayPhotoLink) } : {}),
     derivedAssetCount,
     ...(carouselIncomplete ? { mediaCompleteness: "cover_only" as const, requiresAssetHydration: true as const } : {}),
+    ...attachAppPostToFeedCard(seed, viewerState),
   };
 }
 

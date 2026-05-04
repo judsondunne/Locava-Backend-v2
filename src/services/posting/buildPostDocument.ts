@@ -42,6 +42,10 @@ export type BuildNativePostDocumentInput = {
   recordings: unknown[];
   assembled: AssembledPostAssets;
   geo: NativePostGeoBlock;
+  /** When omitted, defaults to fit-width + neutral placeholder letterbox (legacy finalize behavior). */
+  carouselFitWidth?: boolean;
+  /** Per-post letterbox gradient list (broadcast single entry across slides when shorter than asset count). */
+  letterboxGradients?: Array<{ top: string; bottom: string }>;
 };
 
 function settingTypeFromActivities(activities: string[]): string {
@@ -136,8 +140,11 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
       ...input.geo.geoData,
       address: input.geo.addressDisplayName
     },
-    carouselFitWidth: true,
-    letterboxGradients: [{ top: "#1f2937", bottom: "#111827" }]
+    carouselFitWidth: input.carouselFitWidth ?? true,
+    letterboxGradients:
+      Array.isArray(input.letterboxGradients) && input.letterboxGradients.length > 0
+        ? input.letterboxGradients
+        : [{ top: "#1f2937", bottom: "#111827" }]
   };
 
   if (input.assembled.hasVideo) {

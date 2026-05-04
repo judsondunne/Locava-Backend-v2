@@ -1,5 +1,7 @@
 import type { NormalizedPostAssetsResult } from "../../contracts/post-assets.contract.js";
 import { normalizePostAssets, normalizedAssetsToEnvelopeRows } from "../../contracts/post-assets.contract.js";
+import { isBackendAppPostV2ResponsesEnabled } from "./app-post-v2/flags.js";
+import { toAppPostV2FromAny } from "./app-post-v2/toAppPostV2.js";
 
 type PostRecord = Record<string, unknown>;
 
@@ -594,5 +596,26 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
   } else if (sourceRoute) {
     envelope.sourceRoute = sourceRoute;
   }
+
+  try {
+    if (isBackendAppPostV2ResponsesEnabled()) {
+      const rawForApp = { ...sourcePost, id: resolvedPostId, postId: resolvedPostId } as Record<string, unknown>;
+      envelope.appPost = toAppPostV2FromAny(rawForApp, {
+        postId: resolvedPostId,
+        viewerState: {
+          liked: viewer.liked,
+          saved: viewer.saved,
+          savedCollectionIds: [],
+          followsAuthor: false
+        }
+      }) as unknown as PostRecord;
+      envelope.postContractVersion = 2;
+    }
+  } catch (error) {
+    if (process.env.NODE_ENV !== "production") {
+      envelope.appPostBuildError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   return envelope as TSeed & PostRecord;
 }

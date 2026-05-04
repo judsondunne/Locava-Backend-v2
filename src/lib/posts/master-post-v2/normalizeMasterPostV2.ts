@@ -54,6 +54,7 @@ const toNum = (...values: unknown[]): number | null => {
 };
 
 const toBool = (value: unknown, fallback = false): boolean => (typeof value === "boolean" ? value : fallback);
+const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 
 const toIso = (value: unknown): string | null => {
   if (!value) return null;
@@ -277,6 +278,15 @@ function previewCommentsFromAuditSubcollection(rows: Array<Record<string, unknow
   return sortRecentCommentsPreviewDesc(mapped).slice(0, RECENT_COMMENTS_PREVIEW);
 }
 
+function normalizeGradientCandidate(value: unknown): { top: string | null; bottom: string | null } | null {
+  const row = toObject(value);
+  if (!row) return null;
+  const top = toTrimmed(row.top, row.letterboxGradientTop);
+  const bottom = toTrimmed(row.bottom, row.letterboxGradientBottom);
+  if (!top && !bottom) return null;
+  return { top: top ?? null, bottom: bottom ?? null };
+}
+
 export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOptions = {}): CanonicalizationResult {
   const warnings: CanonicalizationWarning[] = [];
   const errors: CanonicalizationError[] = [];
@@ -397,6 +407,12 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   const posterFiles = toObject(rawPost.posterFiles) ?? {};
   const labAssets = toObject(playbackLab.assets) ?? {};
   const letterboxGradients = Array.isArray(rawPost.letterboxGradients) ? rawPost.letterboxGradients : [];
+  const postLevelGradient =
+    normalizeGradientCandidate(rawPost.letterboxGradient) ??
+    normalizeGradientCandidate({
+      top: rawPost.letterboxGradientTop,
+      bottom: rawPost.letterboxGradientBottom
+    });
 
   const allowedVideoVariantKeys = new Set([
     "poster",
@@ -556,7 +572,15 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
         ? "video"
         : "image";
     const generatedId = `${resolvedType}_${postId}_${index}`;
-    const gradient = toObject(row.letterboxGradient) ?? toObject(letterboxGradients[index]) ?? null;
+    const gradientByIndex = normalizeGradientCandidate(letterboxGradients[index]);
+    const gradientFromSingleArrayEntry =
+      letterboxGradients.length === 1 ? normalizeGradientCandidate(letterboxGradients[0]) : null;
+    const gradient =
+      normalizeGradientCandidate(toObject(row.presentation)?.letterboxGradient) ??
+      normalizeGradientCandidate(row.letterboxGradient) ??
+      gradientByIndex ??
+      gradientFromSingleArrayEntry ??
+      postLevelGradient;
     return {
       id: toTrimmed(row.id) ?? generatedId,
       index,
@@ -662,12 +686,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
             }
           : null,
       presentation: {
-        letterboxGradient: gradient
-          ? {
-              top: toTrimmed(gradient.top, rawPost.letterboxGradientTop),
-              bottom: toTrimmed(gradient.bottom, rawPost.letterboxGradientBottom)
-            }
-          : null
+        letterboxGradient: gradient ?? null
       }
     };
   });
@@ -1147,6 +1166,8 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
         suppressedDuplicateAssets: [...new Set(suppressedDuplicateAssets)],
         assetCountBefore: allAssets.length,
         assetCountAfter: dedupe.deduped.length,
+        rawLetterboxGradientsCount: letterboxGradients.length,
+        rawHasPostLevelLetterboxGradient: Boolean(postLevelGradient),
         lifecycleCreatedAtMsSource: lifecycleCreatedAtMsDerivation.source,
         lifecycleCreatedAtMsMissingDespiteRawFields:
           lifecycleCreatedAtMsDerivation.ms === null && rawPostHasLifecycleTimestampCandidates(rawPost)
@@ -1166,6 +1187,14 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     pushError(errors, "strict_missing_assets", "Strict mode requires at least one media asset", true, "media.assets");
   }
   if (dedupe.dedupedCount > 0) pushWarning(warnings, "deduped_assets", `Deduped ${dedupe.dedupedCount} assets`, "media.assets");
+
+  const rawHadLetterbox = letterboxGradients.length > 0 || Boolean(postLevelGradient);
+  canonical.audit.normalizationDebug = {
+    ...(canonical.audit.normalizationDebug ?? {}),
+    rawHasLetterboxButCoverGradientMissing: rawHadLetterbox && canonical.media.cover.gradient == null,
+    rawHasLetterboxButAllAssetGradientsMissing:
+      rawHadLetterbox && canonical.media.assets.every((asset) => asset.presentation?.letterboxGradient == null)
+  };
 
   canonical.audit.canonicalValidationStatus = errors.some((e) => e.blocking)
     ? "invalid"

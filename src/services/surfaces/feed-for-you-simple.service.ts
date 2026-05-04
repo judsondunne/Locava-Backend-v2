@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { toFeedCardDTO, type FeedCardDTO } from "../../dto/compact-surface-dto.js";
+import { batchHydrateAppPostsOnRecords } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import { selectBestVideoPlaybackAsset } from "../../lib/posts/video-playback-selection.js";
 import { getRequestContext } from "../../observability/request-context.js";
 import type {
@@ -387,9 +388,13 @@ export class FeedForYouSimpleService {
     diag.fallbackReturnedCount = Math.max(0, items.length - reelCount);
     diag.recycledSeenPosts = diag.relaxedSeenUsed;
 
+    const cards = items.map((candidate, index) => toPostCard(candidate, index, viewerId));
+    const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
+    await batchHydrateAppPostsOnRecords(cardRecords, viewerId.trim() ? viewerId : null);
+
     return {
       routeName: "feed.for_you_simple.get",
-      items: items.map((candidate, index) => toPostCard(candidate, index, viewerId)),
+      items: cardRecords as FeedCardDTO[],
       nextCursor,
       exhausted,
       emptyReason,
@@ -823,6 +828,7 @@ function clampLimit(raw: number): number {
 function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: string): FeedCardDTO {
   return toFeedCardDTO({
     postId: candidate.postId,
+    sourceRawPost: candidate.rawFirestore ?? null,
     rankToken: `fys:${viewerId.slice(0, 8) || "anon"}:${index + 1}`,
     author: {
       userId: candidate.authorId,

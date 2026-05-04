@@ -2,6 +2,7 @@ import { buildCacheKey } from "../../cache/types.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { registerRouteCacheKey } from "../../cache/route-cache-index.js";
 import type { ProfileGridResponse } from "../../contracts/surfaces/profile-grid.contract.js";
+import { enrichGridPreviewItemsWithAppPostV2 } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import { getRequestContext, recordCacheHit, recordCacheMiss, recordFallback } from "../../observability/request-context.js";
 import type { ProfileService } from "../../services/surfaces/profile.service.js";
 
@@ -11,7 +12,7 @@ export class ProfileGridOrchestrator {
   async run(input: { viewerId: string; userId: string; cursor: string | null; limit: number }): Promise<ProfileGridResponse> {
     const { viewerId, userId, cursor, limit } = input;
 
-    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v2", viewerId, userId, cursor ?? "start", limit]);
+    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v3", viewerId, userId, cursor ?? "start", limit]);
     const cached = await globalCache.get<ProfileGridResponse>(pageCacheKey);
     if (cached) {
       recordCacheHit();
@@ -29,18 +30,23 @@ export class ProfileGridOrchestrator {
       page = await this.service.loadGridPage(userId, null, limit);
     }
 
+    const items = (await enrichGridPreviewItemsWithAppPostV2(
+      page.items as Array<Record<string, unknown>>,
+      viewerId === "anonymous" ? null : viewerId
+    )) as ProfileGridResponse["items"];
+
     const response: ProfileGridResponse = {
       routeName: "profile.grid.get",
       profileUserId: userId,
       page: {
         cursorIn: cursor,
         limit,
-        count: page.items.length,
+        count: items.length,
         hasMore: page.nextCursor != null,
         nextCursor: page.nextCursor,
         sort: "updatedAtMs_desc"
       },
-      items: page.items,
+      items,
       degraded: fallbacks.length > 0,
       fallbacks,
       debug:

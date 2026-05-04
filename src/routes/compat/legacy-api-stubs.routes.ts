@@ -1,3 +1,8 @@
+/**
+ * Legacy `/api/v1/product/*` compatibility: many routes forward to v2 or reshape adapter JSON.
+ * AppPostV2: classify each handler — pure proxy upstream responses may be `proxy_not_transformable`;
+ * owned JSON builders should attach `appPost` using shared helpers when feasible (see audit docs).
+ */
 import type { FastifyInstance, FastifyReply } from "fastify";
 import multipart from "@fastify/multipart";
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
