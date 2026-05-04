@@ -345,6 +345,14 @@ describe("v2 posting/upload first slice", () => {
       expect(postRow["assetsReady"]).toBe(true);
       const displayPhotoLink = String(postRow["displayPhotoLink"] ?? "");
       expect(displayPhotoLink.includes("postSessionStaging")).toBe(false);
+      const schema = postRow.schema as { name?: string; version?: number; canonicalizedBy?: string } | undefined;
+      expect(schema?.name).toBe("locava.post");
+      expect(schema?.version).toBe(2);
+      expect(schema?.canonicalizedBy).toBe("posting_finalize_v2");
+      const media = postRow.media as { assets?: unknown[]; assetCount?: number } | undefined;
+      expect(Array.isArray(media?.assets)).toBe(true);
+      expect(media?.assetCount).toBe(1);
+      expect(Array.isArray(postRow.assets)).toBe(true);
     }
   });
 

@@ -56,6 +56,8 @@ type ReadyDeckEntry = {
   items: SimpleFeedCandidate[];
   refillInFlight: Promise<void> | null;
   lastSummary: Record<string, unknown> | null;
+  /** Legacy in-memory decks without this field are discarded (pre–asset-normalize cover-only rows). */
+  deckFormat?: number;
 };
 
 const readyDeckMemory = new Map<string, ReadyDeckEntry>();
@@ -130,6 +132,10 @@ export type FeedForYouSimplePageDebug = {
   /** Canonical variant bucket when first item is video; null otherwise. */
   firstVisibleVariant?: string | null;
   firstVisibleNeedsDetailBeforePlay?: boolean;
+  /** True when a full deck was soft-blocked by served-recent and we refilled without that ring in sessionSeen. */
+  deckStarvationRefillUsed?: boolean;
+  /** Picks that were only eligible after relaxing the short-term served-recent ring (still excludes durable feedSeen). */
+  softServedRecentPicks?: number;
 };
 
 export class FeedForYouSimpleService {
@@ -207,6 +213,10 @@ export class FeedForYouSimpleService {
 
     const deckKey = `${durableViewerId || "anon"}_${FOR_YOU_SIMPLE_SURFACE}`;
     let deck = readyDeckMemory.get(deckKey) ?? null;
+    if (deck && deck.deckFormat !== 2) {
+      readyDeckMemory.delete(deckKey);
+      deck = null;
+    }
     const deckItemsBefore = deck?.items.length ?? 0;
     let deckSource: "memory" | "firestore" | "cold_refill" | "fallback" = deck ? "memory" : "fallback";
     if (!deck && durableViewerId) {
@@ -218,7 +228,8 @@ export class FeedForYouSimpleService {
           refillReason: persisted.refillReason,
           items: persisted.items,
           refillInFlight: null,
-          lastSummary: null
+          lastSummary: null,
+          deckFormat: 2
         };
         readyDeckMemory.set(deckKey, deck);
         deckSource = "firestore";
@@ -231,7 +242,8 @@ export class FeedForYouSimpleService {
         refillReason: "cold_start",
         items: [],
         refillInFlight: null,
-        lastSummary: null
+        lastSummary: null,
+        deckFormat: 2
       };
       readyDeckMemory.set(deckKey, deck);
       deckSource = "cold_refill";
@@ -254,34 +266,34 @@ export class FeedForYouSimpleService {
     const items: SimpleFeedCandidate[] = [];
     const selectedIds = new Set<string>();
     const localServedRecentFiltered = new Set<string>();
-    for (const candidate of deck.items) {
-      if (items.length >= limit) break;
-      if (servedRecent.postIds.has(candidate.postId)) {
-        localServedRecentFiltered.add(candidate.postId);
-        continue;
-      }
-      if (cursorSeen.has(candidate.postId)) {
-        diag.cursorSeenFilteredCount += 1;
-        continue;
-      }
-      if (selectedIds.has(candidate.postId)) continue;
-      if (blockedAuthors.has(candidate.authorId)) continue;
-      if (viewerId && candidate.authorId === viewerId) continue;
-      selectedIds.add(candidate.postId);
-      items.push(candidate);
-      updateMediaDiagnostics(candidate, diag);
-    }
+    pickFromDeckForPage({
+      deck,
+      limit,
+      items,
+      selectedIds,
+      servedRecent: servedRecent.postIds,
+      durableSeen: durableSeen.postIds,
+      cursorSeen,
+      blockedAuthors,
+      viewerId,
+      pickMode: "strict_ring_and_durable",
+      diag,
+      localServedRecentFiltered
+    });
 
     deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
-    const servedRecentFilteredCount = localServedRecentFiltered.size;
 
     let emergencyFallbackUsed = false;
+    let emergencySliceItems: SimpleFeedCandidate[] = [];
     if (items.length < limit) {
       const emerg = await this.repository.fetchEmergencyPlayableSlice({ limit: 25 });
+      emergencySliceItems = emerg.items;
       accumulateSliceStats(emerg.stats, diag);
+      const countBeforeEmerg = items.length;
       for (const candidate of emerg.items) {
         if (items.length >= limit) break;
         if (selectedIds.has(candidate.postId)) continue;
+        if (durableSeen.postIds.has(candidate.postId)) continue;
         if (servedRecent.postIds.has(candidate.postId)) continue;
         if (blockedAuthors.has(candidate.authorId)) continue;
         if (viewerId && candidate.authorId === viewerId) continue;
@@ -289,8 +301,78 @@ export class FeedForYouSimpleService {
         items.push(candidate);
         updateMediaDiagnostics(candidate, diag);
       }
-      emergencyFallbackUsed = items.length > 0;
+      emergencyFallbackUsed = items.length > countBeforeEmerg;
     }
+
+    let softServedRecentPicks = 0;
+    if (items.length < limit && durableViewerId) {
+      diag.deckStarvationRefillUsed = true;
+      deck.items = deck.items.filter((c) => !servedRecent.postIds.has(c.postId));
+      await this.refillDeck({
+        deckKey,
+        deck,
+        viewerId,
+        durableViewerId,
+        mode,
+        blockedAuthors,
+        durableSeen: durableSeen.postIds,
+        servedRecent: servedRecent.postIds,
+        reason: "starvation_refill",
+        omitServedRecentFromSessionSeen: true
+      });
+      pickFromDeckForPage({
+        deck,
+        limit,
+        items,
+        selectedIds,
+        servedRecent: servedRecent.postIds,
+        durableSeen: durableSeen.postIds,
+        cursorSeen,
+        blockedAuthors,
+        viewerId,
+        pickMode: "strict_ring_and_durable",
+        diag,
+        localServedRecentFiltered
+      });
+      deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
+      softServedRecentPicks += pickFromDeckForPage({
+        deck,
+        limit,
+        items,
+        selectedIds,
+        servedRecent: servedRecent.postIds,
+        durableSeen: durableSeen.postIds,
+        cursorSeen,
+        blockedAuthors,
+        viewerId,
+        pickMode: "durable_gate_only",
+        diag,
+        localServedRecentFiltered: undefined
+      });
+      deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
+      const beforeRelaxedEmerg = items.length;
+      for (const candidate of emergencySliceItems) {
+        if (items.length >= limit) break;
+        if (selectedIds.has(candidate.postId)) continue;
+        if (durableSeen.postIds.has(candidate.postId)) continue;
+        if (cursorSeen.has(candidate.postId)) {
+          diag.cursorSeenFilteredCount += 1;
+          continue;
+        }
+        if (blockedAuthors.has(candidate.authorId)) continue;
+        if (viewerId && candidate.authorId === viewerId) continue;
+        if (servedRecent.postIds.has(candidate.postId)) softServedRecentPicks += 1;
+        selectedIds.add(candidate.postId);
+        items.push(candidate);
+        updateMediaDiagnostics(candidate, diag);
+      }
+      if (items.length > beforeRelaxedEmerg) emergencyFallbackUsed = true;
+      deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
+    }
+    diag.softServedRecentPicks = softServedRecentPicks;
+    if (!diag.deckStarvationRefillUsed) diag.deckStarvationRefillUsed = false;
+
+    const servedRecentFilteredCount = localServedRecentFiltered.size;
 
     const returnedIds = items.map((c) => c.postId);
     let seenWriteAttempted = false;
@@ -359,12 +441,11 @@ export class FeedForYouSimpleService {
     diag.deferredWriterSucceededFlushes = 0;
     diag.deferredWriterFailedFlushes = 0;
     diag.exhaustedUnseenCandidates = items.length < limit && !exhausted;
-    diag.recycledSeenPosts = false;
     diag.reelFirstEnabled = true;
     diag.degradedFallbackUsed = emergencyFallbackUsed && diag.degradedMediaCount > 0;
     diag.filteredBySeen += servedRecentFilteredCount;
     diag.durableSeenFilteredCount += servedRecentFilteredCount;
-    diag.relaxedSeenUsed = durableSeen.postIds.size > 0 && items.length > 0;
+    diag.relaxedSeenUsed = softServedRecentPicks > 0;
     diag.wrapAroundUsed = false;
     diag.fallbackAllPostsUsed = emergencyFallbackUsed || String(deck.refillReason ?? "").includes("fallback");
     diag.emergencyFallbackUsed = emergencyFallbackUsed;
@@ -386,7 +467,7 @@ export class FeedForYouSimpleService {
     const reelCount = items.filter((item) => item.reel).length;
     diag.reelReturnedCount = reelCount;
     diag.fallbackReturnedCount = Math.max(0, items.length - reelCount);
-    diag.recycledSeenPosts = diag.relaxedSeenUsed;
+    diag.recycledSeenPosts = softServedRecentPicks > 0;
 
     const cards = items.map((candidate, index) => toPostCard(candidate, index, viewerId));
     const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
@@ -417,12 +498,17 @@ export class FeedForYouSimpleService {
     durableSeen: Set<string>;
     servedRecent: Set<string>;
     reason: string;
+    /**
+     * When true, Firestore scan may re-admit post IDs still in the short-term served-recent ring
+     * (they remain blocked at serve time until soft pass). Used to break "full deck of soft duplicates".
+     */
+    omitServedRecentFromSessionSeen?: boolean;
   }): Promise<void> {
     const items: SimpleFeedCandidate[] = [];
     const sessionSeen = new Set<string>([
       ...input.deck.items.map((item) => item.postId),
-      ...input.servedRecent,
-      ...input.durableSeen
+      ...input.durableSeen,
+      ...(input.omitServedRecentFromSessionSeen ? [] : input.servedRecent)
     ]);
     const reelPhaseState = createPhaseState(input.mode);
     const fallbackPhaseState = createPhaseState(input.mode);
@@ -467,6 +553,7 @@ export class FeedForYouSimpleService {
     input.deck.updatedAtMs = Date.now();
     input.deck.generation += 1;
     input.deck.refillReason = usedFallbackScan ? `${input.reason}:fallback` : input.reason;
+    input.deck.deckFormat = 2;
     readyDeckMemory.set(input.deckKey, input.deck);
     if (input.durableViewerId) {
       const persist: SimpleReadyDeckDoc = {
@@ -820,12 +907,57 @@ function updateMediaDiagnostics(candidate: SimpleFeedCandidate, diag: FeedForYou
   else diag.mediaReadyCount += 1;
 }
 
+type DeckPickMode = "strict_ring_and_durable" | "durable_gate_only";
+
+/** Walk the ready deck and append up to `limit` total `items`, mutating `selectedIds`. */
+function pickFromDeckForPage(input: {
+  deck: ReadyDeckEntry;
+  limit: number;
+  items: SimpleFeedCandidate[];
+  selectedIds: Set<string>;
+  servedRecent: Set<string>;
+  durableSeen: Set<string>;
+  cursorSeen: Set<string>;
+  blockedAuthors: Set<string>;
+  viewerId: string;
+  pickMode: DeckPickMode;
+  diag: FeedForYouSimplePageDebug;
+  localServedRecentFiltered?: Set<string>;
+}): number {
+  let softServedRecentPicks = 0;
+  for (const candidate of input.deck.items) {
+    if (input.items.length >= input.limit) break;
+    if (input.durableSeen.has(candidate.postId)) continue;
+
+    const inServedRecent = input.servedRecent.has(candidate.postId);
+    if (input.pickMode === "strict_ring_and_durable" && inServedRecent) {
+      input.localServedRecentFiltered?.add(candidate.postId);
+      continue;
+    }
+
+    if (input.cursorSeen.has(candidate.postId)) {
+      input.diag.cursorSeenFilteredCount += 1;
+      continue;
+    }
+    if (input.selectedIds.has(candidate.postId)) continue;
+    if (input.blockedAuthors.has(candidate.authorId)) continue;
+    if (input.viewerId && candidate.authorId === input.viewerId) continue;
+
+    input.selectedIds.add(candidate.postId);
+    input.items.push(candidate);
+    if (input.pickMode === "durable_gate_only" && inServedRecent) softServedRecentPicks += 1;
+    updateMediaDiagnostics(candidate, input.diag);
+  }
+  return softServedRecentPicks;
+}
+
 function clampLimit(raw: number): number {
   const n = Number.isFinite(raw) ? Math.floor(raw) : LIMIT_DEFAULT;
   return Math.max(LIMIT_MIN, Math.min(LIMIT_MAX, n || LIMIT_DEFAULT));
 }
 
 function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: string): FeedCardDTO {
+  const sourceLen = candidate.sourceFirestoreAssetArrayLen ?? candidate.assets.length;
   return toFeedCardDTO({
     postId: candidate.postId,
     sourceRawPost: candidate.rawFirestore ?? null,
@@ -865,6 +997,9 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     },
     createdAtMs: candidate.createdAtMs,
     updatedAtMs: candidate.updatedAtMs,
+    rawFirestoreAssetCount: sourceLen,
+    assetCount: sourceLen,
+    hasMultipleAssets: sourceLen > 1,
     ...augmentSimpleFeedVideoPlayback(candidate)
   });
 }

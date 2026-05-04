@@ -98,6 +98,9 @@ export class PostingFinalizeOrchestrator {
             gradientBottom: result.mediaReadiness.gradientBottom,
           }
         : {}),
+      ...("appPost" in result && result.appPost && typeof result.appPost === "object"
+        ? { appPost: result.appPost as Record<string, unknown>, postContractVersion: result.postContractVersion ?? 2 }
+        : {}),
       idempotency: {
         replayed: result.idempotent
       },

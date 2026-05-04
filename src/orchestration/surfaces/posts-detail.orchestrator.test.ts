@@ -923,12 +923,12 @@ describe("posts detail orchestrator missing author hardening", () => {
       reason: "prefetch",
       hydrationMode: "open",
     });
-    expect(out.found).toHaveLength(1);
+    expect(out.found).toHaveLength(0);
+    expect(out.missing).toContain("post-cached-1");
     expect(out.itemStatuses?.[0]).toMatchObject({
       postId: "post-cached-1",
-      status: "partial_cached",
+      status: "missing",
+      selectedSource: "post_card_cache_rejected_open_hydration",
     });
-    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
-    expect(Boolean(post.playbackUrl) || Boolean(post.fallbackVideoUrl)).toBe(true);
   });
 });

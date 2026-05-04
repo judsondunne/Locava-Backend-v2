@@ -3,6 +3,7 @@ import { buildCacheKey } from "../../cache/types.js";
 import type { FeedPageResponse } from "../../contracts/surfaces/feed-page.contract.js";
 import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
+import { wireFeedCandidateToPostCardSummary } from "../../lib/feed/feed-post-card-wire.js";
 
 export class FeedPageOrchestrator {
   constructor(private readonly service: FeedService) {}
@@ -48,28 +49,11 @@ export class FeedPageOrchestrator {
         nextCursor: page.nextCursor,
         sort: "ranked_session"
       },
-      items: page.items.map((item, idx) => ({
-        postId: item.postId,
-        rankToken: `rank-${viewerId.slice(0, 6)}-p-${cursorPart}-${idx + 1}`,
-        author: item.author,
-        activities: item.activities,
-        address: item.address,
-        carouselFitWidth: item.carouselFitWidth,
-        layoutLetterbox: item.layoutLetterbox,
-        letterboxGradientTop: item.letterboxGradientTop,
-        letterboxGradientBottom: item.letterboxGradientBottom,
-        letterboxGradients: item.letterboxGradients,
-        geo: item.geo,
-        assets: item.assets,
-        title: item.title,
-        captionPreview: item.captionPreview,
-        firstAssetUrl: item.firstAssetUrl,
-        media: item.media,
-        social: item.social,
-        viewer: item.viewer,
-        createdAtMs: item.createdAtMs,
-        updatedAtMs: item.updatedAtMs
-      })),
+      items: page.items.map((item, idx) =>
+        wireFeedCandidateToPostCardSummary(item, `rank-${viewerId.slice(0, 6)}-p-${cursorPart}-${idx + 1}`, {
+          route: "feed.page.get"
+        })
+      ),
       degraded: false,
       fallbacks: []
     };

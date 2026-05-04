@@ -57,6 +57,23 @@ export type MasterPostVideoBlockV2 = {
   };
 };
 
+/** Letterbox colors for contain / carousel presentation (optional provenance `source`). */
+export type MasterPostLetterboxGradientV2 = {
+  top: string | null;
+  bottom: string | null;
+  source?: string | null;
+};
+
+export type MasterPostCanonicalizedByV2 = "backend_v2_post_rebuilder" | "posting_finalize_v2";
+
+export type MasterPostSourceShapeV2 =
+  | "legacy_assets_video"
+  | "legacy_assets_image"
+  | "legacy_assets_mixed"
+  | "legacy_links_only"
+  | "native_posting_v2"
+  | "unknown";
+
 export type MasterPostAssetV2 = {
   id: string;
   index: number;
@@ -72,7 +89,9 @@ export type MasterPostAssetV2 = {
   image: MasterPostImageBlockV2 | null;
   video: MasterPostVideoBlockV2 | null;
   presentation: {
-    letterboxGradient: { top: string | null; bottom: string | null } | null;
+    letterboxGradient: MasterPostLetterboxGradientV2 | null;
+    carouselFitWidth?: boolean | null;
+    resizeMode?: string | null;
   };
 };
 
@@ -147,6 +166,11 @@ export type MasterPostMediaV2 = {
   primaryAssetId: string | null;
   coverAssetId: string | null;
   assets: MasterPostAssetV2[];
+  /** Post-level carousel / resize defaults (native finalize + clients). */
+  presentation?: {
+    carouselFitWidth: boolean | null;
+    resizeMode: string | null;
+  } | null;
   cover: {
     assetId: string | null;
     type: MasterPostAssetTypeV2 | null;
@@ -156,7 +180,7 @@ export type MasterPostMediaV2 = {
     width: number | null;
     height: number | null;
     aspectRatio: number | null;
-    gradient: { top: string | null; bottom: string | null } | null;
+    gradient: MasterPostLetterboxGradientV2 | null;
   };
 };
 
@@ -168,6 +192,7 @@ export type MasterPostEngagementV2 = {
   viewCount: number;
   likesVersion: number | null;
   commentsVersion: number | null;
+  savesVersion: number | null;
   showLikes: boolean | null;
   showComments: boolean | null;
 };
@@ -274,7 +299,10 @@ export type MasterPostAuditV2 = {
   canonicalValidationStatus: MasterPostValidationStatusV2;
   warnings: CanonicalizationWarning[];
   errors: CanonicalizationError[];
-  rebuiltFromRawAt: string;
+  /** ISO time when a rebuilder/migration normalized raw Firestore; null for brand-new canonical finalize writes. */
+  rebuiltFromRawAt: string | null;
+  /** ISO time when `/v2/posting/finalize` first wrote this doc as Master Post V2. */
+  createdFromPostingFinalizeAt?: string | null;
   reversible: boolean;
   backupDocPath: string | null;
   engagementSourceAuditSummary?: PostEngagementSourceAuditV2 | null;
@@ -301,8 +329,8 @@ export type MasterPostV2 = {
     name: "locava.post";
     version: 2;
     canonicalizedAt: string;
-    canonicalizedBy: "backend_v2_post_rebuilder";
-    sourceShape: "legacy_assets_video" | "legacy_assets_image" | "legacy_assets_mixed" | "legacy_links_only" | "unknown";
+    canonicalizedBy: MasterPostCanonicalizedByV2;
+    sourceShape: MasterPostSourceShapeV2;
     migrationRunId: string | null;
   };
   lifecycle: MasterPostLifecycleV2;

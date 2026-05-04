@@ -147,7 +147,10 @@ export const PostCardSummarySchema = z.object({
   updatedAtMs: z.number().int().nonnegative()
   ,
   comments: z.array(EmbeddedCommentSchema).optional(),
-  commentsPreview: z.array(EmbeddedCommentSchema).optional()
+  commentsPreview: z.array(EmbeddedCommentSchema).optional(),
+  appPostAttached: z.boolean().optional(),
+  appPostWireAssetCount: z.number().int().nonnegative().optional(),
+  wireDeclaredMediaAssetCount: z.number().int().nonnegative().optional()
 }).merge(PostEnvelopeFieldsSchema).passthrough();
 
 export const PostDetailAssetSchema = z.object({

@@ -7,6 +7,7 @@ import { getFirestoreSourceClient } from "../../repositories/source-of-truth/fir
 import { SuggestedFriendsService } from "../../services/surfaces/suggested-friends.service.js";
 import type { UserSuggestionSummary } from "../../repositories/surfaces/suggested-friends.repository.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
+import { wireFeedCandidateToPostCardSummary } from "../../lib/feed/feed-post-card-wire.js";
 import { TimeoutError, withTimeout } from "../timeouts.js";
 
 export class FeedBootstrapOrchestrator {
@@ -134,28 +135,11 @@ export class FeedBootstrapOrchestrator {
             nextCursor: candidates.length >= limit ? `cursor:${limit}` : null,
             sort: "ranked_session"
           },
-          items: candidates.map((item, idx) => ({
-            postId: item.postId,
-            rankToken: `rank-${viewer.viewerId.slice(0, 6)}-${idx + 1}`,
-            author: item.author,
-            activities: item.activities,
-            address: item.address,
-            carouselFitWidth: item.carouselFitWidth,
-            layoutLetterbox: item.layoutLetterbox,
-            letterboxGradientTop: item.letterboxGradientTop,
-            letterboxGradientBottom: item.letterboxGradientBottom,
-            letterboxGradients: item.letterboxGradients,
-            geo: item.geo,
-            assets: item.assets,
-            title: item.title,
-            captionPreview: item.captionPreview,
-            firstAssetUrl: item.firstAssetUrl,
-            media: item.media,
-            social: item.social,
-            viewer: item.viewer,
-            createdAtMs: item.createdAtMs,
-            updatedAtMs: item.updatedAtMs
-          }))
+          items: candidates.map((item, idx) =>
+            wireFeedCandidateToPostCardSummary(item, `rank-${viewer.viewerId.slice(0, 6)}-${idx + 1}`, {
+              route: "feed.bootstrap.get"
+            })
+          )
         }
       },
       deferred: {

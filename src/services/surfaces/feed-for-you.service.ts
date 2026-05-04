@@ -267,6 +267,7 @@ function carouselCompactAssetCap(assetCount: number): number {
 }
 
 function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string): FeedCardDTO {
+  const sourceLen = candidate.sourceFirestoreAssetArrayLen ?? candidate.assets.length;
   return toFeedCardDTO({
     postId: candidate.postId,
     sourceRawPost: candidate.rawFirestore,
@@ -306,6 +307,9 @@ function toPostCard(candidate: ForYouCandidate, idx: number, requestId: string):
     },
     createdAtMs: candidate.createdAtMs,
     updatedAtMs: candidate.updatedAtMs,
+    rawFirestoreAssetCount: sourceLen,
+    assetCount: sourceLen,
+    hasMultipleAssets: sourceLen > 1,
   });
 }
 

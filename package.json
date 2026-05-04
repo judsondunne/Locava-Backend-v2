@@ -33,6 +33,7 @@
     "debug:parity:search-mix-diff": "tsx scripts/search-mix-parity-diff.mts",
     "typecheck": "tsc --noEmit",
     "audit:app-post-v2-grep": "tsx scripts/audits/app-post-v2-grep-inventory.mts",
+    "audit:post-surfaces": "tsx scripts/audits/full-post-surface-inventory.mts",
     "debug:notifications:push-test": "tsx scripts/notifications-push-test.mts",
     "debug:notifications:seed-inbox": "tsx scripts/seed-inbox-notifications.mts",
     "debug:feed-location:parity": "tsx scripts/debug-feed-location-parity.mts",

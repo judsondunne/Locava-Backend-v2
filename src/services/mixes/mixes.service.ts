@@ -264,7 +264,15 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
     String((row as any).mediaType ?? "").toLowerCase() === "video" ||
     Boolean((row as any).hasVideo) ||
     isVideoAsset;
+  const appWire = (row as any).appPost as Record<string, unknown> | undefined;
+  const appMedia = appWire?.media as Record<string, unknown> | undefined;
+  const appCover = appMedia?.cover as Record<string, unknown> | undefined;
+  const posterFromApp =
+    normalizeText(appCover?.url) ??
+    normalizeText(appCover?.thumbUrl) ??
+    normalizeText((appMedia as any)?.posterUrl);
   const poster =
+    posterFromApp ??
     normalizeText((row as any).thumbUrl) ??
     normalizeText((row as any).displayPhotoLink) ??
     normalizeText((row as any).displayPhotoUrl) ??

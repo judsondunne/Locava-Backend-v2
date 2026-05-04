@@ -55,4 +55,31 @@ describe("PostingFinalizeOrchestrator", () => {
     expect(out.playbackUrlPresent).toBe(false);
     expect(out.posterReady).toBe(true);
   });
+
+  it("passes through appPost and postContractVersion when service returns them", async () => {
+    const service = {
+      finalizePosting: vi.fn(async () => ({
+        session: {} as never,
+        operation: {
+          postId: "post_abc",
+          operationId: "op_abc",
+          state: "processing",
+          pollAfterMs: 1500,
+        },
+        idempotent: false,
+        canonicalCreated: true,
+        appPost: { schema: { name: "locava.appPost", version: 2 }, media: { assetCount: 1, assets: [] } },
+        postContractVersion: 2,
+      })),
+    };
+    const orchestrator = new PostingFinalizeOrchestrator(service as never);
+    const out = await orchestrator.run({
+      viewerId: "viewer-1",
+      sessionId: "session-1",
+      idempotencyKey: "idem-apppost",
+      mediaCount: 1,
+    });
+    expect(out.postContractVersion).toBe(2);
+    expect((out as { appPost?: { schema?: { name?: string } } }).appPost?.schema?.name).toBe("locava.appPost");
+  });
 });

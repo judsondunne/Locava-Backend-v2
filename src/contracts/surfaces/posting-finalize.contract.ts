@@ -108,7 +108,10 @@ export const PostingFinalizeResponseSchema = z.object({
   invalidation: z.object({
     invalidatedKeysCount: z.number().int().nonnegative(),
     invalidationTypes: z.array(z.string())
-  })
+  }),
+  /** Canonical App Post envelope read back from Firestore after finalize (native should prefer over optimistic merge). */
+  appPost: z.record(z.string(), z.unknown()).optional(),
+  postContractVersion: z.number().int().optional()
 });
 
 export const postingFinalizeContract = defineContract({

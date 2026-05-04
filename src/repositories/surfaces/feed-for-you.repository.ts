@@ -1,4 +1,5 @@
 import { FieldPath, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { FEED_READ_NORMALIZED_ASSET_MAX } from "../../constants/feed-read-assets.js";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
@@ -70,6 +71,8 @@ export type ForYouCandidate = {
   letterboxGradients?: Array<{ top: string; bottom: string }>;
   likeCount: number;
   commentCount: number;
+  /** Original Firestore `assets[]` length before normalize cap. */
+  sourceFirestoreAssetArrayLen?: number;
   /** Raw Firestore post document — used for App Post V2 (`appPost`) serialization on cards. */
   rawFirestore: Record<string, unknown>;
 };
@@ -321,6 +324,7 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
   if (!posterUrl) return null;
   const authorId = String(data.userId ?? "").trim();
   if (!authorId) return null;
+  const sourceFirestoreAssetArrayLen = Array.isArray(data.assets) ? data.assets.length : 0;
   const assets = normalizeAssets(data.assets);
   const mediaType = String(data.mediaType ?? "").toLowerCase() === "video" ? "video" : inferFromAssets(assets);
   return {
@@ -358,6 +362,7 @@ function mapDoc(postId: string, data: Record<string, unknown>): ForYouCandidate 
     ...normalizeLetterboxHints(data),
     likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
     commentCount: 0,
+    sourceFirestoreAssetArrayLen,
     rawFirestore: data
   };
 }
@@ -452,7 +457,7 @@ function normalizeLetterboxHints(data: Record<string, unknown>): {
 function normalizeAssets(value: unknown): ForYouCandidate["assets"] {
   if (!Array.isArray(value)) return [];
   const out: ForYouCandidate["assets"] = [];
-  for (let i = 0; i < value.length && out.length < 1; i += 1) {
+  for (let i = 0; i < value.length && out.length < FEED_READ_NORMALIZED_ASSET_MAX; i += 1) {
     const raw = value[i] as Record<string, unknown> | null;
     if (!raw || typeof raw !== "object") continue;
     const variants = (raw.variants as Record<string, unknown> | undefined) ?? {};

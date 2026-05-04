@@ -83,7 +83,9 @@ export type AppPostVideoBlockV2 = {
 };
 
 export type AppPostPresentationV2 = {
-  letterboxGradient: { top: string | null; bottom: string | null } | null;
+  letterboxGradient: { top: string | null; bottom: string | null; source?: string | null } | null;
+  carouselFitWidth?: boolean | null;
+  resizeMode?: "cover" | "contain" | string | null;
 };
 
 export type AppPostAssetV2 =
@@ -120,6 +122,11 @@ export type AppPostMediaCoverV2 = {
   gradient: { top: string | null; bottom: string | null } | null;
 };
 
+export type AppPostMediaPresentationV2 = {
+  carouselFitWidth: boolean | null;
+  resizeMode: string | null;
+};
+
 export type AppPostMediaV2 = {
   status: AppPostMediaStatusV2;
   assetsReady: boolean;
@@ -130,6 +137,8 @@ export type AppPostMediaV2 = {
   hasMultipleAssets: boolean;
   primaryAssetId: string | null;
   coverAssetId: string | null;
+  /** Post-level carousel / resize (mirrors Master Post V2 `media.presentation`). */
+  presentation?: AppPostMediaPresentationV2 | null;
   cover: AppPostMediaCoverV2;
   assets: AppPostAssetV2[];
 };

@@ -581,6 +581,20 @@ export class PostsDetailOrchestrator {
             continue;
           }
           if (cachedProjection?.source === "post_card_cache") {
+            if (input.hydrationMode === "open" || input.hydrationMode === "full") {
+              this.logEvent("PostDetailCacheRejectedForViewer", {
+                postId,
+                hydrationMode: input.hydrationMode,
+                source: "post_card_cache"
+              });
+              missing.push(postId);
+              itemStatuses.push({
+                postId,
+                status: "missing",
+                selectedSource: "post_card_cache_rejected_open_hydration"
+              });
+              continue;
+            }
             const safeCard = this.ensureSafeCardSummary(cachedProjection.card, postId);
             const partial = this.buildFallbackDetailFromCard({
               postId,
@@ -1097,7 +1111,7 @@ export class PostsDetailOrchestrator {
       cardSummary,
       mediaType: detail.mediaType ?? cardSummary.media.type,
       thumbUrl: detail.thumbUrl ?? cardSummary.media.posterUrl,
-      assets: Array.isArray(detail.assets) && detail.assets.length > 0 ? detail.assets : [],
+      assets: Array.isArray(detail.assets) ? detail.assets : [],
       letterboxGradients: Array.isArray(detail.letterboxGradients) ? detail.letterboxGradients : undefined
     };
     if (input.hydrationMode === "open" || input.hydrationMode === "full") {

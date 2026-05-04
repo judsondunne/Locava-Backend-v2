@@ -1,5 +1,6 @@
 import { isBackendAppPostV2ResponsesEnabled } from "../lib/posts/app-post-v2/flags.js";
 import { toAppPostV2FromAny } from "../lib/posts/app-post-v2/toAppPostV2.js";
+import { logForYouAssetTrace, logForYouFullMediaRepair } from "../observability/for-you-asset-trace.js";
 
 type Nullable<T> = T | null;
 
@@ -508,17 +509,48 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
 function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean; saved: boolean }): Partial<FeedCardDTO> {
   if (!isBackendAppPostV2ResponsesEnabled()) return {};
   const raw = seed.sourceRawPost ?? syntheticRawFromCompactSeed(seed);
+  const rawTopLen = Array.isArray(raw.assets) ? raw.assets.length : 0;
+  const canMedia =
+    raw.media && typeof raw.media === "object" ? (raw.media as Record<string, unknown>) : null;
+  const rawCanonAssetLen = Array.isArray(canMedia?.assets) ? (canMedia.assets as unknown[]).length : 0;
+  const rawCanonDeclared =
+    typeof canMedia?.assetCount === "number" && Number.isFinite(canMedia.assetCount)
+      ? Math.floor(canMedia.assetCount)
+      : 0;
+  const rawCanonicalMediaAssetCount = Math.max(rawCanonAssetLen, rawCanonDeclared);
   try {
-    return {
-      appPost: toAppPostV2FromAny(raw, {
+    const appPost = toAppPostV2FromAny(raw, {
+      postId: seed.postId,
+      viewerState: {
+        liked: viewer.liked,
+        saved: viewer.saved,
+        savedCollectionIds: [],
+        followsAuthor: false
+      }
+    }) as unknown as Record<string, unknown>;
+    const media = appPost.media as Record<string, unknown> | undefined;
+    const apAssets = Array.isArray(media?.assets) ? (media.assets as unknown[]) : [];
+    let fixed: Record<string, unknown> = appPost;
+    if (media && typeof media.assetCount === "number" && Number.isFinite(media.assetCount) && media.assetCount !== apAssets.length) {
+      logForYouFullMediaRepair({
         postId: seed.postId,
-        viewerState: {
-          liked: viewer.liked,
-          saved: viewer.saved,
-          savedCollectionIds: [],
-          followsAuthor: false
-        }
-      }) as unknown as Record<string, unknown>,
+        cachedAssetCount: apAssets.length,
+        sourceAssetCount: Math.max(rawTopLen, rawCanonicalMediaAssetCount),
+        repaired: true,
+        reason: "appPost_media_assetCount_mismatch"
+      });
+      fixed = { ...appPost, media: { ...media, assetCount: apAssets.length } };
+    } else if (rawTopLen > apAssets.length && apAssets.length > 0) {
+      logForYouFullMediaRepair({
+        postId: seed.postId,
+        cachedAssetCount: apAssets.length,
+        sourceAssetCount: rawTopLen,
+        repaired: false,
+        reason: "appPost_fewer_assets_than_firestore_top_level"
+      });
+    }
+    return {
+      appPost: fixed as unknown as Record<string, unknown>,
       postContractVersion: 2
     };
   } catch {
@@ -530,10 +562,15 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
   const seedAssetLen = Array.isArray(seed.assets) ? seed.assets.length : 0;
   const hintedAssetCount =
     typeof seed.assetCount === "number" && Number.isFinite(seed.assetCount) ? Math.floor(seed.assetCount) : null;
-  const rawFireLen =
+  const rawFromSeed =
     typeof seed.rawFirestoreAssetCount === "number" && Number.isFinite(seed.rawFirestoreAssetCount)
       ? Math.floor(seed.rawFirestoreAssetCount)
       : null;
+  const rawTopFromPost = Array.isArray(seed.sourceRawPost?.assets) ? seed.sourceRawPost.assets.length : null;
+  const rawFireLen =
+    rawFromSeed != null && rawTopFromPost != null
+      ? Math.max(rawFromSeed, rawTopFromPost)
+      : rawFromSeed ?? rawTopFromPost;
   const assetCap =
     typeof seed.compactAssetLimit === "number" &&
     Number.isFinite(seed.compactAssetLimit) &&
@@ -557,7 +594,15 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     liked: cleanBool(seed.viewer?.liked),
     saved: cleanBool(seed.viewer?.saved),
   };
-  return {
+  const rawForShape = seed.sourceRawPost ?? null;
+  const schemaName =
+    rawForShape && typeof rawForShape === "object" && typeof (rawForShape as { schema?: { name?: unknown } }).schema?.name === "string"
+      ? String((rawForShape as { schema: { name: string } }).schema.name)
+      : null;
+  const sourceShape =
+    schemaName === "locava.post" ? "master_post_v2" : seed.sourceRawPost ? "legacy_firestore" : "synthetic_seed";
+
+  const card: FeedCardDTO = {
     postId: seed.postId,
     rankToken: seed.rankToken,
     author: toCompactAuthor(seed.author),
@@ -621,6 +666,35 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     ...(carouselIncomplete ? { mediaCompleteness: "cover_only" as const, requiresAssetHydration: true as const } : {}),
     ...attachAppPostToFeedCard(seed, viewerState),
   };
+
+  const ap = card.appPost as { media?: { assetCount?: unknown; assets?: unknown[] } } | undefined;
+  const apAssetsLen = Array.isArray(ap?.media?.assets) ? ap.media.assets.length : 0;
+  const apDeclared =
+    typeof ap?.media?.assetCount === "number" && Number.isFinite(ap.media.assetCount) ? Math.floor(ap.media.assetCount) : apAssetsLen;
+  logForYouAssetTrace({
+    postId: seed.postId,
+    sourceShape,
+    rawTopLevelAssetsCount: rawTopFromPost,
+    rawCanonicalMediaAssetCount:
+      rawForShape && typeof rawForShape === "object" && rawForShape.media && typeof rawForShape.media === "object"
+        ? Math.max(
+            Array.isArray((rawForShape.media as { assets?: unknown[] }).assets)
+              ? ((rawForShape.media as { assets: unknown[] }).assets.length ?? 0)
+              : 0,
+            typeof (rawForShape.media as { assetCount?: unknown }).assetCount === "number"
+              ? Math.floor(Number((rawForShape.media as { assetCount: number }).assetCount))
+              : 0
+          )
+        : null,
+    appPostMediaAssetCount: apDeclared,
+    dtoAssetCount: card.assets?.length ?? 0,
+    responseHasAppPost: Boolean(card.appPost),
+    responsePostContractVersion: card.postContractVersion ?? null,
+    mediaCompleteness: card.mediaCompleteness ?? (carouselIncomplete ? "cover_only" : "full"),
+    selectedProjection: "toFeedCardDTO_compact_plus_appPostV2"
+  });
+
+  return card;
 }
 
 export function toSearchMixPreviewDTO(
@@ -807,6 +881,8 @@ export function toProfileHeaderDTO(seed: {
 
 export function listForbiddenCompactFieldViolations(value: unknown): DiagnosticWalkIssue[] {
   const issues: DiagnosticWalkIssue[] = [];
+  const isAppPostProjectionPath = (p: string) =>
+    p === "appPost" || p.startsWith("appPost.") || p.endsWith(".appPost") || p.includes(".appPost.");
   const visit = (current: unknown, path: string) => {
     if (!current || typeof current !== "object") return;
     if (Array.isArray(current)) {
@@ -816,7 +892,11 @@ export function listForbiddenCompactFieldViolations(value: unknown): DiagnosticW
     for (const [key, entry] of Object.entries(current)) {
       const nextPath = path ? `${path}.${key}` : key;
       const lowerKey = key.toLowerCase();
-      if (FORBIDDEN_FIELD_NAMES.has(key) || FORBIDDEN_PATH_PARTS.some((part) => lowerKey.includes(part))) {
+      const skipSubstringGuard = isAppPostProjectionPath(nextPath);
+      if (
+        FORBIDDEN_FIELD_NAMES.has(key) ||
+        (!skipSubstringGuard && FORBIDDEN_PATH_PARTS.some((part) => lowerKey.includes(part)))
+      ) {
         issues.push({ path: nextPath, reason: "forbidden_field" });
       }
       if (typeof entry === "string" && entry.length > 512) {

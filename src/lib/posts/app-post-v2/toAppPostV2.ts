@@ -170,7 +170,11 @@ function mapVideoBlock(video: MasterPostVideoBlockV2): AppPostVideoBlockV2 {
 
 function mapAsset(a: MasterPostAssetV2): AppPostAssetV2 {
   const presentation = {
-    letterboxGradient: a.presentation?.letterboxGradient ?? null
+    letterboxGradient: a.presentation?.letterboxGradient ?? null,
+    ...(typeof a.presentation?.carouselFitWidth === "boolean" ? { carouselFitWidth: a.presentation.carouselFitWidth } : {}),
+    ...(typeof a.presentation?.resizeMode === "string" && a.presentation.resizeMode
+      ? { resizeMode: a.presentation.resizeMode as "cover" | "contain" }
+      : {})
   };
   if (a.type === "video" && a.video) {
     const row: AppPostVideoAssetV2 = {
@@ -215,6 +219,9 @@ function mapMedia(media: MasterPostMediaV2): AppPostMediaV2 {
     hasMultipleAssets: media.hasMultipleAssets,
     primaryAssetId: media.primaryAssetId,
     coverAssetId: media.coverAssetId,
+    ...(media.presentation && (media.presentation.carouselFitWidth !== null || media.presentation.resizeMode != null)
+      ? { presentation: { ...media.presentation } }
+      : {}),
     cover: { ...media.cover },
     assets: media.assets.map(mapAsset)
   };
@@ -257,12 +264,17 @@ function mapEngagement(
 ): AppPostEngagementV2 {
   const rollup = asRecord(master.ranking?.rollup);
   const savesVersionRaw = rollup?.savesVersion ?? rollup?.saveVersion;
-  const savesVersion =
+  const savesVersionFromRollup =
     typeof savesVersionRaw === "number" && Number.isFinite(savesVersionRaw)
       ? Math.floor(savesVersionRaw)
       : typeof savesVersionRaw === "string" && savesVersionRaw.trim()
         ? Number(savesVersionRaw)
         : null;
+  const savesVersionFromEngagement =
+    typeof engagement.savesVersion === "number" && Number.isFinite(engagement.savesVersion)
+      ? Math.floor(engagement.savesVersion)
+      : null;
+  const savesVersion = savesVersionFromEngagement ?? savesVersionFromRollup;
   return {
     likeCount: engagement.likeCount,
     commentCount: engagement.commentCount,

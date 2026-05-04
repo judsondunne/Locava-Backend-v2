@@ -138,6 +138,7 @@ import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-fires
 import { registerPostRebuilderRoutes } from "../routes/debug/post-rebuilder.routes.js";
 import { registerAppPostV2SurfaceCompareRoutes } from "../routes/debug/app-post-v2-surface.routes.js";
 import { registerDebugPostGradientAuditRoutes } from "../routes/debug/post-gradient-audit.routes.js";
+import { registerDebugPostCanonicalStatusRoutes } from "../routes/debug/post-canonical-status.routes.js";
 import { registerPublicExpoPushRoutes } from "../routes/public/expo-push.routes.js";
 import { SourceOfTruthRequiredError } from "../repositories/source-of-truth/strict-mode.js";
 import {
@@ -623,6 +624,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerAppPostV2SurfaceCompareRoutes);
   if (env.NODE_ENV !== "production") {
     app.register(registerDebugPostGradientAuditRoutes);
+    app.register(registerDebugPostCanonicalStatusRoutes);
   }
 
   app.addHook("onReady", async () => {

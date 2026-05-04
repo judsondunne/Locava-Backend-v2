@@ -3,6 +3,7 @@ import type {
   CanonicalizationResult,
   CanonicalizationWarning,
   MasterPostAssetTypeV2,
+  MasterPostLetterboxGradientV2,
   MasterPostLifecycleStatusV2,
   MasterPostMediaKindV2,
   MasterPostMediaStatusV2,
@@ -14,14 +15,21 @@ import { classifyMediaUrl, isVideoUrl } from "./mediaUrlClassifier.js";
 
 type RawPost = Record<string, any>;
 
-type NormalizeOptions = {
+export type NormalizeMasterPostV2Options = {
   postId?: string;
   now?: Date;
   preserveRawLegacy?: boolean;
   strict?: boolean;
   /** Optional Firestore engagement audit (preview/write). When set, drives counts + recent liker preview. */
   engagementSourceAudit?: PostEngagementSourceAuditV2 | null;
+  /**
+   * Native `/v2/posting/finalize` path: stamp schema/audit for a first-write canonical Master Post V2 doc
+   * (not a rebuilder backfill).
+   */
+  postingFinalizeV2?: boolean;
 };
+
+type NormalizeOptions = NormalizeMasterPostV2Options;
 
 const toObject = (value: unknown): Record<string, any> | null =>
   value && typeof value === "object" ? (value as Record<string, any>) : null;
@@ -278,13 +286,17 @@ function previewCommentsFromAuditSubcollection(rows: Array<Record<string, unknow
   return sortRecentCommentsPreviewDesc(mapped).slice(0, RECENT_COMMENTS_PREVIEW);
 }
 
-function normalizeGradientCandidate(value: unknown): { top: string | null; bottom: string | null } | null {
+function normalizeGradientCandidate(value: unknown): MasterPostLetterboxGradientV2 | null {
   const row = toObject(value);
   if (!row) return null;
   const top = toTrimmed(row.top, row.letterboxGradientTop);
   const bottom = toTrimmed(row.bottom, row.letterboxGradientBottom);
   if (!top && !bottom) return null;
-  return { top: top ?? null, bottom: bottom ?? null };
+  const sourceRaw = row.source;
+  const source = typeof sourceRaw === "string" && sourceRaw.trim() ? sourceRaw.trim() : null;
+  const out: MasterPostLetterboxGradientV2 = { top: top ?? null, bottom: bottom ?? null };
+  if (source) out.source = source;
+  return out;
 }
 
 export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOptions = {}): CanonicalizationResult {
@@ -575,12 +587,28 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     const gradientByIndex = normalizeGradientCandidate(letterboxGradients[index]);
     const gradientFromSingleArrayEntry =
       letterboxGradients.length === 1 ? normalizeGradientCandidate(letterboxGradients[0]) : null;
+    const presRow = toObject(row.presentation) ?? {};
     const gradient =
-      normalizeGradientCandidate(toObject(row.presentation)?.letterboxGradient) ??
+      normalizeGradientCandidate(presRow.letterboxGradient) ??
       normalizeGradientCandidate(row.letterboxGradient) ??
       gradientByIndex ??
       gradientFromSingleArrayEntry ??
       postLevelGradient;
+    const carouselFitWidthAsset =
+      typeof presRow.carouselFitWidth === "boolean"
+        ? presRow.carouselFitWidth
+        : typeof rawPost.carouselFitWidth === "boolean"
+          ? rawPost.carouselFitWidth
+          : null;
+    const resizeFromRow = presRow.resizeMode;
+    const resizeModeAsset =
+      resizeFromRow === "contain" || resizeFromRow === "cover"
+        ? (resizeFromRow as "contain" | "cover")
+        : carouselFitWidthAsset === true
+          ? "contain"
+          : carouselFitWidthAsset === false
+            ? "cover"
+            : null;
     return {
       id: toTrimmed(row.id) ?? generatedId,
       index,
@@ -686,7 +714,9 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
             }
           : null,
       presentation: {
-        letterboxGradient: gradient ?? null
+        letterboxGradient: gradient ?? null,
+        ...(carouselFitWidthAsset !== null ? { carouselFitWidth: carouselFitWidthAsset } : {}),
+        ...(resizeModeAsset ? { resizeMode: resizeModeAsset } : {})
       }
     };
   });
@@ -1011,6 +1041,11 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
 
   const firstVideo = dedupe.deduped.find((a) => a.type === "video");
 
+  const mediaPresentationCarousel =
+    typeof rawPost.carouselFitWidth === "boolean" ? rawPost.carouselFitWidth : null;
+  const mediaPresentationResizeMode: string | null =
+    mediaPresentationCarousel === true ? "contain" : mediaPresentationCarousel === false ? "cover" : null;
+
   const canonical: MasterPostV2 = {
     id: postId,
     schema: {
@@ -1061,6 +1096,13 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       hasMultipleAssets: dedupe.deduped.length > 1,
       primaryAssetId: dedupe.deduped[0]?.id ?? null,
       coverAssetId: coverAsset?.id ?? null,
+      presentation:
+        mediaPresentationCarousel !== null
+          ? {
+              carouselFitWidth: mediaPresentationCarousel,
+              resizeMode: mediaPresentationResizeMode
+            }
+          : null,
       assets: dedupe.deduped,
       cover: {
         assetId: coverAsset?.id ?? null,
@@ -1082,6 +1124,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       viewCount: pickNumericOrNull(rawPost.viewCount) ?? 0,
       likesVersion: likesVersionCanon,
       commentsVersion: commentsVersionCanon,
+      savesVersion: pickNumericOrNull(rawPost.savesVersion, toObject(rawPost.rankingRollup)?.savesVersion) ?? 0,
       showLikes: typeof rawPost.showLikes === "boolean" ? rawPost.showLikes : null,
       showComments: typeof rawPost.showComments === "boolean" ? rawPost.showComments : null
     },
@@ -1156,8 +1199,9 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       canonicalValidationStatus: "valid",
       warnings,
       errors,
-      rebuiltFromRawAt: now.toISOString(),
-      reversible: true,
+      rebuiltFromRawAt: options.postingFinalizeV2 ? null : now.toISOString(),
+      createdFromPostingFinalizeAt: options.postingFinalizeV2 ? now.toISOString() : null,
+      reversible: options.postingFinalizeV2 ? false : true,
       backupDocPath: null,
       engagementSourceAuditSummary: engagementAudit ?? null,
       normalizationDebug: {
@@ -1189,18 +1233,23 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   if (dedupe.dedupedCount > 0) pushWarning(warnings, "deduped_assets", `Deduped ${dedupe.dedupedCount} assets`, "media.assets");
 
   const rawHadLetterbox = letterboxGradients.length > 0 || Boolean(postLevelGradient);
-  canonical.audit.normalizationDebug = {
-    ...(canonical.audit.normalizationDebug ?? {}),
-    rawHasLetterboxButCoverGradientMissing: rawHadLetterbox && canonical.media.cover.gradient == null,
-    rawHasLetterboxButAllAssetGradientsMissing:
-      rawHadLetterbox && canonical.media.assets.every((asset) => asset.presentation?.letterboxGradient == null)
-  };
+  const nd = canonical.audit.normalizationDebug;
+  if (nd) {
+    nd.rawHasLetterboxButCoverGradientMissing = rawHadLetterbox && canonical.media.cover.gradient == null;
+    nd.rawHasLetterboxButAllAssetGradientsMissing =
+      rawHadLetterbox && canonical.media.assets.every((asset) => asset.presentation?.letterboxGradient == null);
+  }
 
   canonical.audit.canonicalValidationStatus = errors.some((e) => e.blocking)
     ? "invalid"
     : warnings.length > 0
       ? "warning"
       : "valid";
+
+  if (options.postingFinalizeV2) {
+    canonical.schema.canonicalizedBy = "posting_finalize_v2";
+    canonical.schema.sourceShape = "native_posting_v2";
+  }
 
   return {
     canonical,

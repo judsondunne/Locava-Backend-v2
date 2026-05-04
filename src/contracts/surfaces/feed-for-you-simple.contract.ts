@@ -80,6 +80,8 @@ export const FeedForYouSimpleDebugSchema = z.object({
   firstVisiblePosterPresent: z.boolean().optional(),
   firstVisibleVariant: z.string().nullable().optional(),
   firstVisibleNeedsDetailBeforePlay: z.boolean().optional(),
+  deckStarvationRefillUsed: z.boolean().optional(),
+  softServedRecentPicks: z.number().int().nonnegative().optional()
 });
 
 export const FeedForYouSimpleResponseSchema = z.object({

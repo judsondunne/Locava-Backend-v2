@@ -1,4 +1,5 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
+import { FEED_READ_NORMALIZED_ASSET_MAX } from "../../constants/feed-read-assets.js";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
@@ -62,6 +63,8 @@ export type SimpleFeedCandidate = {
   letterboxGradients?: Array<{ top: string; bottom: string }>;
   likeCount: number;
   commentCount: number;
+  /** Original Firestore `assets[]` length (before normalize cap); used to detect slim deck rows vs multi-asset posts. */
+  sourceFirestoreAssetArrayLen?: number;
   /** Raw Firestore fields for AppPostV2 (`toFeedCardDTO` sourceRawPost). */
   rawFirestore?: Record<string, unknown>;
 };
@@ -94,6 +97,8 @@ export type SimpleReadyDeckDoc = {
   updatedAtMs: number;
   expiresAtMs: number;
   refillReason: string | null;
+  /** v2+ decks store full normalized `assets[]` (see `FEED_READ_NORMALIZED_ASSET_MAX`). Omit or <2 = legacy cover-only deck — ignored at read. */
+  deckFormat?: number;
   items: SimpleFeedCandidate[];
 };
 
@@ -508,6 +513,9 @@ export class FeedForYouSimpleRepository {
     incrementDbOps("reads", snap.exists ? 1 : 0);
     if (!snap.exists) return null;
     const raw = (snap.data() ?? {}) as Record<string, unknown>;
+    if (Number(raw.deckFormat) !== 2) {
+      return null;
+    }
     const itemsRaw = Array.isArray(raw.items) ? raw.items : [];
     const mode: SimpleFeedSortMode = "docId";
     const items = itemsRaw
@@ -527,6 +535,7 @@ export class FeedForYouSimpleRepository {
       updatedAtMs: Math.floor(num(raw.updatedAtMs) ?? Date.now()),
       expiresAtMs: Math.floor(num(raw.expiresAtMs) ?? Date.now()),
       refillReason: pickString(raw.refillReason),
+      deckFormat: 2,
       items
     };
   }
@@ -573,6 +582,7 @@ export class FeedForYouSimpleRepository {
         {
           viewerId,
           surface,
+          deckFormat: 2,
           generation: input.generation,
           updatedAtMs: input.updatedAtMs,
           expiresAtMs: input.expiresAtMs,
@@ -614,6 +624,7 @@ function tryMapSimpleFeedCandidate(
   if (!isVisible(data)) return { reject: "invisible" };
   const authorId = pickString(data.userId);
   if (!authorId) return { reject: "no_author" };
+  const sourceFirestoreAssetArrayLen = Array.isArray(data.assets) ? data.assets.length : 0;
   const assets = normalizeAssets(data.assets);
   const posterUrl = pickString(
     data.displayPhotoLink,
@@ -671,6 +682,7 @@ function tryMapSimpleFeedCandidate(
       ...normalizeLetterboxHints(data),
       likeCount: Math.max(0, Math.floor(num(data.likesCount, data.likeCount) ?? 0)),
       commentCount: Math.max(0, Math.floor(num(data.commentCount, data.commentsCount) ?? 0)),
+      sourceFirestoreAssetArrayLen,
       assetsReady: data.assetsReady === true ? true : undefined,
       instantPlaybackReady: data.instantPlaybackReady === true ? true : undefined,
       videoProcessingStatus: pickString(data.videoProcessingStatus),
@@ -782,7 +794,7 @@ function collectHttpVariantStrings(variants: Record<string, unknown>): Record<st
 function normalizeAssets(value: unknown): SimpleFeedCandidate["assets"] {
   if (!Array.isArray(value)) return [];
   const out: SimpleFeedCandidate["assets"] = [];
-  for (let i = 0; i < value.length && out.length < 1; i += 1) {
+  for (let i = 0; i < value.length && out.length < FEED_READ_NORMALIZED_ASSET_MAX; i += 1) {
     const raw = value[i] as Record<string, unknown> | null;
     if (!raw || typeof raw !== "object") continue;
     const variants = (raw.variants as Record<string, unknown> | undefined) ?? {};

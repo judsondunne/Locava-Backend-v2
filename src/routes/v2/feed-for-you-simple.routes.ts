@@ -75,6 +75,8 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         servedRecentFiltered: payload.debug.servedRecentFiltered ?? 0,
         duplicateSuppressed: payload.debug.duplicateSuppressed ?? 0,
         repeatedFromRecentCount: payload.debug.repeatedFromRecentCount ?? 0,
+        deckStarvationRefillUsed: payload.debug.deckStarvationRefillUsed ?? false,
+        softServedRecentPicks: payload.debug.softServedRecentPicks ?? 0,
         firstPaintCardReadyCount: payload.debug.firstPaintCardReadyCount ?? payload.items.length,
         detailBatchRequiredForFirstPaint: payload.debug.detailBatchRequiredForFirstPaint ?? false,
         durableServedWriteStatus: payload.debug.durableServedWriteStatus ?? "skipped",

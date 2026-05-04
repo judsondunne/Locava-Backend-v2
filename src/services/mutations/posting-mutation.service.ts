@@ -27,6 +27,7 @@ import {
   applyPublishPresentationToAssembledAssets,
   selectPublishLetterboxGradients
 } from "../posting/select-publish-letterbox-gradients.js";
+import { mergeMasterPostV2IntoNativeFinalizeDocument } from "../../lib/posts/master-post-v2/mergeMasterPostV2IntoNativeFinalizeDocument.js";
 import { PostingAudioService } from "../posting/posting-audio.service.js";
 import {
   enqueueVideoProcessingCloudTask,
@@ -190,15 +191,16 @@ export class PostingMutationService {
           postId: result.operation.postId,
           userId: (input.userId?.trim() || input.viewerId).trim()
         });
-        const [mediaReadiness, achievementDelta] = await Promise.all([
-          this.loadCanonicalPostMediaReadiness(result.operation.postId),
+        const [finalizeEcho, achievementDelta] = await Promise.all([
+          this.loadCanonicalFinalizeEcho(result.operation.postId),
           this.resolveFinalizeAchievementDelta(input, result.operation.postId)
         ]);
         return {
           ...result,
           canonicalCreated: true,
           achievementDelta,
-          ...(mediaReadiness ? { mediaReadiness } : {})
+          ...(finalizeEcho.mediaReadiness ? { mediaReadiness: finalizeEcho.mediaReadiness } : {}),
+          ...(finalizeEcho.appPost ? { appPost: finalizeEcho.appPost, postContractVersion: finalizeEcho.postContractVersion ?? 2 } : {})
         };
       }
 
@@ -252,8 +254,8 @@ export class PostingMutationService {
           postId,
           userId: (input.userId?.trim() || input.viewerId).trim()
         });
-        const [mediaReadiness, achievementDelta] = await Promise.all([
-          this.loadCanonicalPostMediaReadiness(postId),
+        const [finalizeEcho, achievementDelta] = await Promise.all([
+          this.loadCanonicalFinalizeEcho(postId),
           this.resolveFinalizeAchievementDelta(input, postId)
         ]);
         return {
@@ -262,7 +264,8 @@ export class PostingMutationService {
           idempotent: result.idempotent,
           canonicalCreated: true,
           achievementDelta,
-          ...(mediaReadiness ? { mediaReadiness } : {})
+          ...(finalizeEcho.mediaReadiness ? { mediaReadiness: finalizeEcho.mediaReadiness } : {}),
+          ...(finalizeEcho.appPost ? { appPost: finalizeEcho.appPost, postContractVersion: finalizeEcho.postContractVersion ?? 2 } : {})
         };
       } catch (error) {
         await postingMutationRepository.markOperationFailed({
@@ -274,17 +277,32 @@ export class PostingMutationService {
     });
   }
 
-  private async loadCanonicalPostMediaReadiness(postId: string): Promise<PostMediaReadiness | undefined> {
+  private async loadCanonicalFinalizeEcho(postId: string): Promise<{
+    mediaReadiness?: PostMediaReadiness;
+    appPost?: Record<string, unknown>;
+    postContractVersion?: number;
+  }> {
     const db = getFirestoreSourceClient();
-    if (!db) return undefined;
+    if (!db) return {};
     const snap = await db.collection("posts").doc(postId).get();
-    if (!snap.exists) return undefined;
-    const readiness = buildPostMediaReadiness((snap.data() ?? {}) as Record<string, unknown>);
+    if (!snap.exists) return {};
+    const raw = (snap.data() ?? {}) as Record<string, unknown>;
+    const mediaReadiness = buildPostMediaReadiness(raw);
     console.info("[posting.finalize.media_readiness]", {
       postId,
-      ...readiness
+      ...mediaReadiness
     });
-    return readiness;
+    let appPost: Record<string, unknown> | undefined;
+    let postContractVersion: number | undefined;
+    try {
+      const { toAppPostV2FromAny } = await import("../../lib/posts/app-post-v2/toAppPostV2.js");
+      const ap = toAppPostV2FromAny(raw as never, { postId });
+      appPost = JSON.parse(JSON.stringify(ap)) as Record<string, unknown>;
+      postContractVersion = 2;
+    } catch (err) {
+      console.warn("[posting.finalize.app_post_echo_failed]", { postId, message: err instanceof Error ? err.message : String(err) });
+    }
+    return { mediaReadiness, ...(appPost ? { appPost, postContractVersion } : {}) };
   }
 
   private scheduleLegendsCommit(input: { stageId?: string; postId: string; userId: string }): void {
@@ -1212,6 +1230,13 @@ export class PostingMutationService {
       placeholderReason: gradientPick.placeholderReason
     });
     validateNativePostDocumentForWrite(postDoc);
+    const firestoreWrite = mergeMasterPostV2IntoNativeFinalizeDocument(postDoc, {
+      now: new Date(now),
+      finalizeMeta: {
+        usedPlaceholderGradient: gradientPick.usedPlaceholderGradient,
+        placeholderReason: gradientPick.placeholderReason
+      }
+    }).firestoreWrite;
 
     const firstVideo = assembled.assets.find((a) => String((a as { type?: string }).type).toLowerCase() === "video") as
       | {
@@ -1234,7 +1259,7 @@ export class PostingMutationService {
     const postRef = db.collection("posts").doc(postId);
     let createdNewPost = true;
     try {
-      await postRef.create(postDoc);
+      await postRef.create(firestoreWrite);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!message.includes("ALREADY_EXISTS")) {
