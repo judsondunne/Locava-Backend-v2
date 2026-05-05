@@ -7,6 +7,21 @@ import { extractMediaProcessingDebugV2 } from "../../lib/posts/master-post-v2/ex
 import { hashPostForRebuild } from "../../lib/posts/master-post-v2/hashPostForRebuild.js";
 import { diffMasterPostPreview } from "../../lib/posts/master-post-v2/diffMasterPostPreview.js";
 import { auditPostEngagementSourcesV2 } from "../../lib/posts/master-post-v2/auditPostEngagementSourcesV2.js";
+import {
+  analyzeVideoFastStartNeeds,
+  generateMissingFastStartVariantsForPost,
+  mergePlaybackLabResultsIntoRawPost,
+  rebuildPostAfterFastStartRepair,
+  type VerifyOutput
+} from "../../lib/posts/master-post-v2/videoFastStartRepair.js";
+import { encodeAndUploadVideoAsset } from "../../services/video/video-post-encoding.pipeline.js";
+import { readWasabiConfigFromEnv } from "../../services/storage/wasabi-config.js";
+import { verifyRemoteMp4Faststart } from "../../services/video/remote-url-verify.js";
+import * as os from "node:os";
+import * as path from "node:path";
+import * as fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { PassThrough } from "node:stream";
 
 const ParamsSchema = z.object({ postId: z.string().min(1) });
 const WriteSchema = z.object({
@@ -19,10 +34,42 @@ const PreviewQuerySchema = z.object({
   dryRunMode: z.enum(["default", "singleVideoCheck"]).optional().default("default")
 });
 const LoadNewestPostsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional().default(12)
+  limit: z.coerce.number().int().min(1).max(200).optional().default(12),
+  /** Number of docs to skip after ordering (0 = start at newest). */
+  offset: z.coerce.number().int().min(0).max(10_000).optional().default(0)
+});
+const OptimizeAndWriteQuerySchema = z.object({
+  /** When "1", response is NDJSON stream: progress lines then a final done/error line. */
+  stream: z.enum(["1"]).optional()
+});
+const GenerateFastStartBodySchema = z.object({
+  dryRun: z.boolean().optional().default(false)
+});
+const OptimizeAndWriteBodySchema = z.object({
+  strict: z.boolean().optional().default(true)
 });
 
 type UnknownRecord = Record<string, unknown>;
+
+function selectedVideoUrlsFromCanonical(canonical: any) {
+  const assets = Array.isArray(canonical?.media?.assets) ? canonical.media.assets : [];
+  return assets
+    .filter((asset: any) => asset?.type === "video")
+    .map((asset: any) => ({
+      assetId: asset?.id ?? null,
+      defaultUrl: asset?.video?.playback?.defaultUrl ?? null,
+      startupUrl: asset?.video?.playback?.startupUrl ?? null,
+      primaryUrl: asset?.video?.playback?.primaryUrl ?? null,
+      goodNetworkUrl: asset?.video?.playback?.goodNetworkUrl ?? null,
+      weakNetworkUrl: asset?.video?.playback?.weakNetworkUrl ?? null,
+      poorNetworkUrl: asset?.video?.playback?.poorNetworkUrl ?? null,
+      previewUrl: asset?.video?.playback?.previewUrl ?? null,
+      fallbackUrl: asset?.video?.playback?.fallbackUrl ?? null,
+      selectedReason: asset?.video?.playback?.selectedReason ?? null,
+      instantPlaybackReady: asset?.video?.readiness?.instantPlaybackReady ?? null,
+      faststartVerified: asset?.video?.readiness?.faststartVerified ?? null
+    }));
+}
 
 function firstNonEmptyString(...values: unknown[]): string | null {
   for (const value of values) {
@@ -108,6 +155,316 @@ function summarizeQueueCandidate(postId: string, raw: UnknownRecord) {
   };
 }
 
+async function defaultVerifyGeneratedVideoUrl(input: {
+  label: string;
+  url: string;
+  originalUrl: string | null;
+}): Promise<VerifyOutput> {
+  const headRes = await fetch(input.url, { method: "HEAD" }).catch(() => null);
+  const contentType = (String(headRes?.headers.get("content-type") ?? "")
+    .split(";")
+    .at(0) ?? "")
+    .trim()
+    .toLowerCase();
+  const acceptRanges = String(headRes?.headers.get("accept-ranges") ?? "").trim().toLowerCase();
+  const verify = await verifyRemoteMp4Faststart(input.url, input.originalUrl ?? "", { requireMoovBeforeMdat: true });
+  return {
+    label: input.label,
+    url: input.url,
+    ok: verify.ok,
+    moovHint: verify.ok ? verify.moovHint : undefined,
+    probe: {
+      head: {
+        ok: Boolean(headRes?.ok),
+        status: headRes?.status ?? 0,
+        contentType,
+        acceptRanges
+      },
+      moovHint: verify.ok ? verify.moovHint : undefined
+    }
+  };
+}
+
+async function defaultGenerateMissingForAsset(input: {
+  postId: string;
+  asset: UnknownRecord;
+  needs: {
+    posterHigh: boolean;
+    preview360Avc: boolean;
+    main720Avc: boolean;
+    startup540FaststartAvc: boolean;
+    startup720FaststartAvc: boolean;
+    startup1080FaststartAvc: boolean;
+    upgrade1080FaststartAvc: boolean;
+  };
+  onEncoderProgress?: (evt: { phase: string; detail?: string }) => void;
+}) {
+  const cfg = readWasabiConfigFromEnv();
+  if (!cfg) throw new Error("wasabi_unavailable");
+  const assetId = firstNonEmptyString(input.asset.id) ?? `video_${Date.now()}`;
+  const original = firstNonEmptyString(input.asset.original, input.asset.url);
+  if (!original) throw new Error("source_missing");
+  const workDir = path.join(os.tmpdir(), `rebuilder-faststart-${input.postId}-${assetId}-${randomUUID()}`);
+  await fs.mkdir(workDir, { recursive: true });
+  try {
+    const encoded = await encodeAndUploadVideoAsset({
+      cfg,
+      postId: `post_${input.postId}`,
+      asset: { id: assetId, original },
+      workDir,
+      encodeOnly: input.needs,
+      onProgress: input.onEncoderProgress
+    });
+    const generated: Record<string, string> = {};
+    if (input.needs.posterHigh && encoded.playbackLabGenerated.posterHigh) generated.posterHigh = encoded.playbackLabGenerated.posterHigh;
+    if (input.needs.preview360Avc && encoded.variants.preview360Avc) generated.preview360Avc = encoded.variants.preview360Avc;
+    if (input.needs.main720Avc && encoded.variants.main720Avc) generated.main720Avc = encoded.variants.main720Avc;
+    if (input.needs.startup540FaststartAvc && encoded.playbackLabGenerated.startup540FaststartAvc) {
+      generated.startup540FaststartAvc = encoded.playbackLabGenerated.startup540FaststartAvc;
+    }
+    if (input.needs.startup720FaststartAvc && encoded.playbackLabGenerated.startup720FaststartAvc) {
+      generated.startup720FaststartAvc = encoded.playbackLabGenerated.startup720FaststartAvc;
+    }
+    if (input.needs.startup1080FaststartAvc && encoded.playbackLabGenerated.startup1080FaststartAvc) {
+      generated.startup1080FaststartAvc = encoded.playbackLabGenerated.startup1080FaststartAvc;
+    }
+    if (input.needs.upgrade1080FaststartAvc && encoded.playbackLabGenerated.upgrade1080FaststartAvc) {
+      generated.upgrade1080FaststartAvc = encoded.playbackLabGenerated.upgrade1080FaststartAvc;
+    }
+    return {
+      generated,
+      generationMetadata: encoded.generationMetadata,
+      diagnosticsJson: encoded.diagnosticsJson,
+      sourceWidth: encoded.sourceWidth,
+      sourceHeight: encoded.sourceHeight
+    };
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+type OptimizeProgress = {
+  stage: string;
+  detail?: string;
+  assetId?: string;
+  index?: number;
+  total?: number;
+};
+
+async function optimizeAndWritePost(input: {
+  db: NonNullable<ReturnType<typeof getFirestoreSourceClient>>;
+  postId: string;
+  strict: boolean;
+  onProgress?: (evt: OptimizeProgress) => void;
+}) {
+  const { db, postId, strict, onProgress } = input;
+  const stages: string[] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  const postRef = db.collection("posts").doc(postId);
+
+  const emit = (stage: string, detail?: string, extra?: Partial<OptimizeProgress>) => {
+    onProgress?.({ stage, detail, ...extra });
+  };
+
+  stages.push("loading_latest_raw");
+  emit("loading_latest_raw", "firestore_get_post");
+  const snap = await postRef.get();
+  if (!snap.exists) return { status: "post_not_found", stages, warnings, errors: ["post_not_found"] };
+  const raw = (snap.data() ?? {}) as UnknownRecord;
+
+  emit("normalize_baseline", "before_fast_start_repair");
+  const beforeNormalized = normalizeMasterPostV2(raw, { postId });
+  const selectedVideoUrlsBefore = selectedVideoUrlsFromCanonical(beforeNormalized.canonical);
+
+  stages.push("analyzing_fast_start_needs");
+  emit("analyzing_fast_start_needs", "scan_assets_and_urls");
+  const run = await generateMissingFastStartVariantsForPost(postId, raw, {
+    generateMissingForAsset: defaultGenerateMissingForAsset,
+    verifyGeneratedUrl: defaultVerifyGeneratedVideoUrl,
+    onProgress: (evt) =>
+      emit(evt.phase, evt.detail, { assetId: evt.assetId, index: evt.index, total: evt.total })
+  });
+  const generatedAssets = run.generationResults
+    .filter((row) => !row.skipped && Object.keys(row.generated ?? {}).length > 0)
+    .map((row) => ({ assetId: row.assetId, generated: row.generated }));
+  const skippedAssets = run.generationResults.filter((row) => row.skipped).map((row) => row.assetId);
+  const generationErrors = run.generationResults.flatMap((row) => row.errors ?? []);
+  if (run.analyze.videoAssetCount === 0) warnings.push("no_video_assets");
+  if (run.analyze.alreadyOptimizedCount === run.analyze.videoAssetCount && run.analyze.videoAssetCount > 0) {
+    warnings.push("already_optimized");
+    warnings.push("no_missing_fast_starts");
+  }
+
+  if (generatedAssets.length > 0) stages.push("generating_missing_fast_starts");
+  stages.push("merging_generated_assets");
+  emit("merging_generated_assets", `rows=${run.generationResults.length}`);
+  const repairedRaw = mergePlaybackLabResultsIntoRawPost(raw, run.generationResults);
+
+  stages.push("rebuilding_canonical_preview");
+  emit("engagement_source_audit", "firestore_subcollections");
+  const engagementSourceAudit = await auditPostEngagementSourcesV2(db, postId, repairedRaw);
+  emit("normalize_master_post_v2", "strict_after_repair");
+  const normalized = normalizeMasterPostV2(repairedRaw, { postId, strict: true, engagementSourceAudit });
+  const selectedVideoUrlsAfterGeneration = selectedVideoUrlsFromCanonical(normalized.canonical);
+  const analyzeAfterRepair = analyzeVideoFastStartNeeds(repairedRaw, { postId });
+  const previewDiffSummary = diffMasterPostPreview({
+    raw: repairedRaw,
+    canonical: normalized.canonical,
+    recoveredLegacyAssets: normalized.recoveredLegacyAssets,
+    dedupedAssets: normalized.dedupedAssets,
+    warnings: normalized.warnings,
+    errors: normalized.errors,
+    processingDebugExtracted: true
+  });
+
+  stages.push("validating");
+  emit("validating", "blocking_and_warnings");
+  const validation = validateMasterPostV2(normalized.canonical, { engagementSourceAudit });
+  if (validation.blockingErrors.length > 0) {
+    errors.push("validation_failed");
+    return {
+      status: "validation_failed",
+      stages,
+      warnings,
+      errors,
+      generatedAssets,
+      skippedAssets,
+      selectedVideoUrlsBefore,
+      selectedVideoUrlsAfterGeneration,
+      validation,
+      raw,
+      repairedRaw,
+      canonicalPreview: normalized.canonical,
+      diffSummary: previewDiffSummary,
+      generationErrors,
+      unresolvedAfterRepair: analyzeAfterRepair
+    };
+  }
+  const unresolvedRequiredAssets = analyzeAfterRepair.assetNeeds.filter(
+    (asset) =>
+      asset.sourceUrl &&
+      (asset.needs.startup540FaststartAvc ||
+        asset.needs.startup720FaststartAvc ||
+        asset.needs.preview360Avc ||
+        asset.needs.main720Avc ||
+        (asset.supports1080 && asset.needs.startup1080FaststartAvc))
+  );
+  if (strict && unresolvedRequiredAssets.length > 0) {
+    errors.push("generation_failed");
+    return {
+      status: "generation_failed",
+      stages,
+      warnings,
+      errors: [...errors, ...generationErrors],
+      generatedAssets,
+      skippedAssets,
+      selectedVideoUrlsBefore,
+      selectedVideoUrlsAfterGeneration,
+      validation,
+      raw,
+      repairedRaw,
+      canonicalPreview: normalized.canonical,
+      diffSummary: previewDiffSummary,
+      generationErrors,
+      unresolvedAfterRepair: analyzeAfterRepair
+    };
+  }
+  if (generationErrors.length > 0) {
+    warnings.push("generation_partial_errors_nonblocking");
+  }
+
+  stages.push("creating_backup");
+  const ts = Date.now();
+  const backupId = `${postId}_${ts}`;
+  const backupPath = `postCanonicalBackups/${backupId}`;
+  emit("creating_backup", backupPath);
+  const canonicalToWrite = {
+    ...normalized.canonical,
+    audit: {
+      ...normalized.canonical.audit,
+      backupDocPath: backupPath
+    }
+  };
+  await db.collection("postCanonicalBackups").doc(backupId).set({
+    postId,
+    createdAt: new Date().toISOString(),
+    rawBefore: raw,
+    rawHash: hashPostForRebuild(raw),
+    optimizedRaw: repairedRaw,
+    canonicalPreview: canonicalToWrite,
+    engagementSourceAudit,
+    actor: { route: "debug/post-rebuilder/optimize-and-write" }
+  });
+
+  stages.push("writing_firestore");
+  emit("writing_firestore", "merge_post_and_raw_assets");
+  // normalizeMasterPostV2 prefers top-level raw `assets` when non-empty over nested
+  // `media.assets`. A merge write of only the canonical block leaves stale root `assets`
+  // / `playbackLab`, so re-read + normalize disagrees with the in-memory preview.
+  const firestoreWritePayload: UnknownRecord = {
+    ...canonicalToWrite,
+    ...(Array.isArray(repairedRaw.assets) && repairedRaw.assets.length > 0
+      ? { assets: repairedRaw.assets }
+      : {}),
+    ...(repairedRaw.playbackLab && typeof repairedRaw.playbackLab === "object"
+      ? { playbackLab: repairedRaw.playbackLab as UnknownRecord }
+      : {})
+  };
+  await postRef.set(firestoreWritePayload, { merge: true });
+
+  stages.push("verifying_saved_doc");
+  emit("verifying_saved_doc", "re_read_and_compare_urls");
+  const savedSnap = await postRef.get();
+  const savedRaw = (savedSnap.data() ?? {}) as UnknownRecord;
+  const savedNormalized = normalizeMasterPostV2(savedRaw, { postId });
+  const selectedVideoUrlsSaved = selectedVideoUrlsFromCanonical(savedNormalized.canonical);
+  if (JSON.stringify(selectedVideoUrlsSaved) !== JSON.stringify(selectedVideoUrlsAfterGeneration)) {
+    errors.push("post_write_verification_failed");
+    return {
+      status: "post_write_verification_failed",
+      stages,
+      backupPath,
+      generatedAssets,
+      skippedAssets,
+      selectedVideoUrlsBefore,
+      selectedVideoUrlsAfterGeneration,
+      selectedVideoUrlsSaved,
+      validation,
+      warnings,
+      errors,
+      raw,
+      repairedRaw,
+      canonicalPreview: normalized.canonical,
+      diffSummary: previewDiffSummary,
+      generationErrors,
+      unresolvedAfterRepair: analyzeAfterRepair
+    };
+  }
+
+  stages.push("complete");
+  return {
+    postId,
+    status: "complete",
+    stages,
+    backupPath,
+    generatedAssets,
+    skippedAssets,
+    selectedVideoUrlsBefore,
+    selectedVideoUrlsAfterGeneration,
+    selectedVideoUrlsSaved,
+    validation,
+    warnings,
+    errors,
+    raw,
+    repairedRaw,
+    canonicalPreview: normalized.canonical,
+    diffSummary: previewDiffSummary,
+    generationErrors,
+    unresolvedAfterRepair: analyzeAfterRepair
+  };
+}
+
 const htmlPage = `<!doctype html>
 <html>
 <head>
@@ -165,6 +522,16 @@ const htmlPage = `<!doctype html>
       cursor:not-allowed;
       box-shadow:none;
     }
+    .button-optimize{
+      background:linear-gradient(180deg, #0d7a4a, #0a5f3a);
+      color:#f3fff9;
+      border-color:#0a5f3a;
+      font-weight:800;
+    }
+    .button-optimize:hover:enabled{
+      border-color:#07502f;
+      box-shadow:0 10px 20px rgba(10,95,58,0.22);
+    }
     input,select,textarea{
       width:100%;
       border:1px solid var(--line);
@@ -197,6 +564,48 @@ const htmlPage = `<!doctype html>
       gap:18px;
       align-items:stretch;
       margin-bottom:18px;
+    }
+    .top-console{
+      position:sticky;
+      top:10px;
+      z-index:4;
+      margin-bottom:16px;
+      border-radius:14px;
+      border:1px solid #2e3a52;
+      background:#111826;
+      color:#c9ddff;
+      padding:10px 12px;
+      box-shadow:0 8px 20px rgba(0,0,0,0.24);
+    }
+    .top-console strong{
+      display:block;
+      font-size:12px;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:#88b4ff;
+      margin-bottom:6px;
+    }
+    .top-console pre{
+      min-height:54px;
+      max-height:320px;
+      background:transparent;
+      padding:0;
+      border-radius:0;
+      margin:0;
+      color:inherit;
+      overflow:auto;
+      font-size:12px;
+    }
+    .top-console-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .top-console-head button{
+      padding:6px 12px;
+      font-size:13px;
     }
     .hero-card,.panel,.detail-card{
       background:rgba(255,253,248,0.92);
@@ -471,6 +880,13 @@ const htmlPage = `<!doctype html>
 </head>
 <body data-mode="manual">
   <div class="shell">
+    <section class="top-console">
+      <div class="top-console-head">
+        <strong>Optimize Console</strong>
+        <button id="cancelRunning" type="button" disabled>Cancel in-flight</button>
+      </div>
+      <pre id="topConsole">Idle.</pre>
+    </section>
     <section class="hero">
       <div class="hero-card hero-copy">
         <p class="eyebrow">Debug / Master Post V2</p>
@@ -504,13 +920,14 @@ const htmlPage = `<!doctype html>
       </div>
 
       <div class="panel">
-        <h2>Load Newest Posts</h2>
-        <p class="muted">Reads directly from the <code>posts</code> collection ordered by newest first.</p>
+        <h2>Load posts by Firestore rank</h2>
+        <p class="muted">Rank is global recency in the <code>posts</code> collection (<code>time</code> desc), not a slot in your queue below.</p>
         <div class="inline-row" style="margin-top:12px">
-          <input id="newestLimit" type="number" min="1" max="200" value="12"/>
-          <button id="loadNewest">Load Newest Posts</button>
+          <input id="newestFromRank" type="number" min="1" max="10000" value="1" title="1 = newest document"/>
+          <input id="newestCount" type="number" min="1" max="200" value="12"/>
+          <button id="loadNewest">Load by rank</button>
         </div>
-        <div class="hint">This only prepares the queue. Nothing previews or writes until you choose a manual or auto action.</div>
+        <div class="hint">Example: From #20 + Count 10 loads the 20th–29th newest posts. This only fills the queue — nothing previews or writes until you run an action.</div>
       </div>
 
       <div class="panel">
@@ -524,6 +941,10 @@ const htmlPage = `<!doctype html>
         </div>
         <div data-mode-section="auto">
           <p class="muted">Use this when you want a clean migration dashboard feel: sequential queue processing with clear per-post status tracking.</p>
+          <label class="checkbox">
+            <input id="autoGenerateFastStarts" type="checkbox"/>
+            <span>Also generate missing fast starts before preview/write</span>
+          </label>
         </div>
         <div class="hint" id="modeHint">
           Manual mode keeps the original raw / preview / write / backups / revert steps focused on one selected post at a time.
@@ -539,9 +960,23 @@ const htmlPage = `<!doctype html>
         <div class="queue-toolbar" data-mode-section="manual">
           <button id="loadRawSelected">Load Raw Selected</button>
           <button id="previewSelected">Preview Selected</button>
+          <button id="generateFastStartsSelected">Generate Missing Fast Starts</button>
+          <button id="optimizeWriteSelected" class="button-optimize">Optimize + Write Selected</button>
+          <button id="optimizeWriteQueueManual" class="button-optimize">Optimize + Write Queue (Manual)</button>
           <button id="writeSelected">Write Selected</button>
           <button id="backupsSelected">Load Backups</button>
         </div>
+        <div class="inline-row" data-mode-section="manual" style="margin-top:12px">
+          <input id="queueRangeStart" type="number" min="1" placeholder="Range start (1-based)"/>
+          <input id="queueRangeEnd" type="number" min="1" placeholder="Range end (1-based, optional)"/>
+        </div>
+        <div class="hint" data-mode-section="manual" style="margin-top:10px">
+          Queue range is positions in the <em>current queue list</em> (for batch optimize / auto). Use “Load by rank” above to pull a window of newest posts from Firestore by global rank #.
+        </div>
+        <label class="checkbox" data-mode-section="manual" style="margin-top:12px">
+          <input id="manualConfirmQueueStart" type="checkbox" checked/>
+          <span>Confirm once before starting queue</span>
+        </label>
 
         <div class="queue-toolbar" data-mode-section="auto">
           <button id="autoPreviewQueue">Auto Preview Queue</button>
@@ -617,7 +1052,9 @@ const htmlPage = `<!doctype html>
       queue: [],
       activePostId: null,
       log: [],
-      auto: { running: false, kind: null }
+      auto: { running: false, kind: null, generateFastStarts: false },
+      manualQueue: { running: false },
+      inFlightAbort: null
     };
 
     const el = (id) => document.getElementById(id);
@@ -663,6 +1100,14 @@ const htmlPage = `<!doctype html>
       el('activityLog').textContent = state.log.length ? state.log.join('\\n') : 'No actions yet.';
     }
 
+    function pushTopConsole(message, postId) {
+      const line = '[' + nowLabel() + '] ' + (postId ? postId + ' - ' : '') + message;
+      const current = el('topConsole').textContent || '';
+      const rows = current === 'Idle.' ? [] : current.split('\\n');
+      rows.unshift(line);
+      el('topConsole').textContent = rows.slice(0, 80).join('\\n');
+    }
+
     function buildBadge(label, tone) {
       return '<span class="badge ' + tone + '">' + escapeHtml(label) + '</span>';
     }
@@ -706,7 +1151,8 @@ const htmlPage = `<!doctype html>
         lastError: '',
         backupId: '',
         lastPreviewedAt: '',
-        lastWrittenAt: ''
+        lastWrittenAt: '',
+        generatedRepairPendingWrite: false
       };
     }
 
@@ -764,6 +1210,32 @@ const htmlPage = `<!doctype html>
     function setSelectedPost(postId) {
       state.activePostId = postId;
       render();
+    }
+
+    function resolveQueueRunRange() {
+      const total = state.queue.length;
+      if (!total) return { ok: false, message: 'Queue is empty.', startIdx: 0, endIdx: -1 };
+      const startRaw = Number(el('queueRangeStart') ? el('queueRangeStart').value : '');
+      const endRaw = Number(el('queueRangeEnd') ? el('queueRangeEnd').value : '');
+      const hasStart = Number.isFinite(startRaw) && startRaw > 0;
+      const hasEnd = Number.isFinite(endRaw) && endRaw > 0;
+      const startOneBased = hasStart ? Math.floor(startRaw) : 1;
+      const endOneBased = hasEnd ? Math.floor(endRaw) : total;
+      if (startOneBased < 1 || startOneBased > total) {
+        return { ok: false, message: 'Range start must be between 1 and ' + total + '.', startIdx: 0, endIdx: -1 };
+      }
+      if (endOneBased < 1 || endOneBased > total) {
+        return { ok: false, message: 'Range end must be between 1 and ' + total + '.', startIdx: 0, endIdx: -1 };
+      }
+      if (endOneBased < startOneBased) {
+        return { ok: false, message: 'Range end must be >= range start.', startIdx: 0, endIdx: -1 };
+      }
+      return {
+        ok: true,
+        message: '',
+        startIdx: startOneBased - 1,
+        endIdx: endOneBased - 1
+      };
     }
 
     function summarizeFromPreview(item, data) {
@@ -924,11 +1396,15 @@ const htmlPage = `<!doctype html>
     function renderButtons() {
       const item = getActiveItem();
       const queueEmpty = state.queue.length === 0;
-      const busy = state.auto.running;
+      const busy = state.auto.running || state.manualQueue.running;
       const hasBlocking = Boolean(item && item.counts.blocking > 0);
       el('loadRawSelected').disabled = !item || busy;
       el('previewSelected').disabled = !item || busy;
-      el('writeSelected').disabled = !item || busy || !item.rawHash || hasBlocking || item.status.preview === 'working';
+      el('generateFastStartsSelected').disabled = !item || busy;
+      el('optimizeWriteSelected').disabled = !item || busy;
+      el('optimizeWriteQueueManual').disabled = queueEmpty || busy;
+      el('writeSelected').disabled =
+        !item || busy || !item.rawHash || hasBlocking || item.status.preview === 'working' || Boolean(item.generatedRepairPendingWrite);
       el('backupsSelected').disabled = !item || busy;
       el('revertSelected').disabled = !item || busy || !item.backupSelection;
       el('autoPreviewQueue').disabled = queueEmpty || busy;
@@ -937,6 +1413,8 @@ const htmlPage = `<!doctype html>
       el('loadIds').disabled = busy;
       el('clearQueue').disabled = busy && queueEmpty;
       el('loadNewest').disabled = busy;
+      el('cancelRunning').disabled =
+        !state.inFlightAbort && !state.manualQueue.running && !state.auto.running;
     }
 
     function render() {
@@ -965,6 +1443,96 @@ const htmlPage = `<!doctype html>
         throw error;
       }
       return data;
+    }
+
+    function formatOptimizeProgressLine(msg) {
+      const parts = [];
+      if (msg.stage) parts.push(String(msg.stage));
+      if (msg.detail) parts.push(String(msg.detail));
+      if (msg.assetId) parts.push('asset=' + String(msg.assetId));
+      if (msg.index != null && msg.total != null) {
+        parts.push('(' + String(msg.index) + '/' + String(msg.total) + ')');
+      }
+      return parts.join(' · ');
+    }
+
+    async function fetchOptimizeWriteNdjson(postId, item, signal) {
+      const res = await fetch(
+        '/debug/post-rebuilder/' + encodeURIComponent(postId) + '/optimize-and-write?stream=1',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ strict: true }),
+          signal: signal
+        }
+      );
+      if (!res.ok) {
+        let data = null;
+        try {
+          data = await res.json();
+        } catch (_err) {}
+        const message =
+          (data && typeof data.error === 'string' && data.error) ||
+          (data && data.error && typeof data.error.message === 'string' && data.error.message) ||
+          ('request_failed_' + res.status);
+        const error = new Error(message);
+        error.statusCode = res.status;
+        error.body = data;
+        throw error;
+      }
+      if (!res.body) throw new Error('no_response_body');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finalResult = null;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        buffer += decoder.decode(chunk.value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          let msg;
+          try {
+            msg = JSON.parse(line);
+          } catch (_err) {
+            pushTopConsole('ndjson_parse_skip ' + line.slice(0, 96), item.postId);
+            continue;
+          }
+          if (msg.type === 'progress') {
+            const human = formatOptimizeProgressLine(msg);
+            item.lastMessage = human;
+            item.status.write = 'working';
+            pushTopConsole(human, item.postId);
+            render();
+          } else if (msg.type === 'done') {
+            finalResult = msg.result;
+          } else if (msg.type === 'error') {
+            throw new Error(msg.message || 'stream_error');
+          }
+        }
+      }
+      if (!finalResult) throw new Error('optimize_stream_no_result');
+      return finalResult;
+    }
+
+    function abortInFlightSilently() {
+      if (state.inFlightAbort) {
+        try {
+          state.inFlightAbort.abort();
+        } catch (_err) {}
+        state.inFlightAbort = null;
+      }
+      state.auto.running = false;
+      state.manualQueue.running = false;
+    }
+
+    function cancelInFlight() {
+      abortInFlightSilently();
+      addLog('Cancel / stop requested.');
+      render();
     }
 
     function setActionState(item, action, nextState, note) {
@@ -1088,6 +1656,7 @@ const htmlPage = `<!doctype html>
           blocking: Array.isArray(data.validation && data.validation.blockingErrors) ? data.validation.blockingErrors.length : 0
         };
         item.status.preview = item.counts.blocking > 0 ? 'blocked' : (item.counts.warnings > 0 ? 'warning' : 'success');
+        item.generatedRepairPendingWrite = false;
         item.lastPreviewedAt = nowLabel();
         item.lastMessage =
           item.status.preview === 'blocked'
@@ -1104,6 +1673,42 @@ const htmlPage = `<!doctype html>
         item.status.preview = 'error';
         item.lastError = error.message || 'preview_failed';
         addLog('Preview failed: ' + item.lastError, item.postId);
+        render();
+        throw error;
+      }
+    }
+
+    async function generateFastStartsForItem(item) {
+      setActionState(item, 'preview', 'working', 'Analyzing + generating missing fast starts...');
+      try {
+        const data = await fetchJson('/debug/post-rebuilder/' + encodeURIComponent(item.postId) + '/preview-after-fast-starts', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dryRun: true })
+        });
+        item.exists = Boolean(data.raw);
+        item.rawHash = data.rawHash || null;
+        item.raw = data.raw || null;
+        item.canonicalPreview = data.canonicalPreview || null;
+        item.diffSummary = data.diffSummary || {};
+        item.validation = data.validation || null;
+        item.counts = {
+          warnings: Array.isArray(data.validation && data.validation.warnings) ? data.validation.warnings.length : 0,
+          blocking: Array.isArray(data.validation && data.validation.blockingErrors) ? data.validation.blockingErrors.length : 0
+        };
+        item.status.preview = item.counts.blocking > 0 ? 'blocked' : (item.counts.warnings > 0 ? 'warning' : 'success');
+        item.lastPreviewedAt = nowLabel();
+        item.generatedRepairPendingWrite = true;
+        item.lastMessage = 'Generated missing fast starts preview is ready. Use Optimize + Write Selected for safe write.';
+        summarizeFromPreview(item, data);
+        hydratePreviewViews(item, data);
+        addLog(item.lastMessage, item.postId);
+        render();
+        return data;
+      } catch (error) {
+        item.status.preview = 'error';
+        item.lastError = error.message || 'generate_fast_starts_failed';
+        addLog('Generate missing fast starts failed: ' + item.lastError, item.postId);
         render();
         throw error;
       }
@@ -1132,6 +1737,10 @@ const htmlPage = `<!doctype html>
     async function writeItem(item) {
       if (!item.rawHash) {
         alert('Preview selected post first.');
+        return null;
+      }
+      if (item.generatedRepairPendingWrite) {
+        alert('Use Optimize + Write Selected to safely write generated fast-start results.');
         return null;
       }
       if (item.counts.blocking > 0) {
@@ -1166,6 +1775,9 @@ const htmlPage = `<!doctype html>
       } catch (error) {
         item.status.write = 'error';
         item.lastError = error.message || 'write_failed';
+        if (error.body && error.body.error === 'stale_hash') {
+          item.lastError = (error.body.message || 'Preview is stale. Reload/preview again, or use Optimize + Write Selected for one-step fresh optimize/write.');
+        }
         if (error.body && error.body.validation) {
           item.validation = error.body.validation;
           item.counts.blocking = Array.isArray(error.body.validation.blockingErrors) ? error.body.validation.blockingErrors.length : item.counts.blocking;
@@ -1205,12 +1817,21 @@ const htmlPage = `<!doctype html>
     }
 
     async function loadNewestPosts() {
-      const limit = Number(el('newestLimit').value || 12);
+      const fromRank = Math.max(1, Math.floor(Number(el('newestFromRank').value || 1)));
+      const count = Math.min(200, Math.max(1, Math.floor(Number(el('newestCount').value || 12))));
+      const offset = fromRank - 1;
       const append = Boolean(el('appendQueue').checked);
-      const data = await fetchJson('/debug/post-rebuilder/posts?limit=' + encodeURIComponent(String(limit)));
+      const data = await fetchJson(
+        '/debug/post-rebuilder/posts?offset=' +
+          encodeURIComponent(String(offset)) +
+          '&limit=' +
+          encodeURIComponent(String(count))
+      );
       ensureQueueFromSeeds((data.posts || []).map(function (post) { return post; }), append);
       el('postIdsInput').value = state.queue.map(function (item) { return item.postId; }).join(', ');
-      addLog('Loaded ' + String((data.posts || []).length) + ' newest posts into the queue.');
+      const n = (data.posts || []).length;
+      const endRank = n ? fromRank + n - 1 : fromRank - 1;
+      addLog('Loaded ' + String(n) + ' post(s) from Firestore rank #' + fromRank + (n ? '–#' + endRank : '') + '.');
       render();
     }
 
@@ -1227,30 +1848,54 @@ const htmlPage = `<!doctype html>
     }
 
     function clearQueue() {
+      abortInFlightSilently();
       state.queue = [];
       state.activePostId = null;
-      state.auto.running = false;
-      state.auto.kind = null;
       el('postIdsInput').value = '';
       addLog('Cleared queue.');
       render();
     }
 
     async function runAutoSequence(withWrite) {
-      if (!state.queue.length) {
-        alert('Queue is empty.');
+      const range = resolveQueueRunRange();
+      if (!range.ok) {
+        alert(range.message);
         return;
       }
+      if (state.inFlightAbort) {
+        try {
+          state.inFlightAbort.abort();
+        } catch (_err) {}
+        state.inFlightAbort = null;
+      }
+      state.inFlightAbort = new AbortController();
+      const opSignal = state.inFlightAbort.signal;
       state.auto.running = true;
       state.auto.kind = withWrite ? 'preview_write' : 'preview';
-      addLog(withWrite ? 'Started auto preview + write queue.' : 'Started auto preview queue.');
+      addLog(
+        (withWrite ? 'Started auto preview + write queue.' : 'Started auto preview queue.') +
+          ' Range: ' + (range.startIdx + 1) + '-' + (range.endIdx + 1) + '.'
+      );
       render();
       try {
-        for (const item of state.queue) {
+        for (let i = range.startIdx; i <= range.endIdx; i++) {
+          const item = state.queue[i];
           if (!state.auto.running) break;
           setSelectedPost(item.postId);
+          pushTopConsole(
+            "queue progress: " + (i + 1) + "/" + state.queue.length,
+            item.postId
+          );
           try {
-            await previewItem(item);
+            if (state.auto.generateFastStarts) {
+              if (withWrite) {
+                await optimizeWriteItem(item, { signal: opSignal });
+                continue;
+              }
+              await generateFastStartsForItem(item);
+            } else {
+              await previewItem(item);
+            }
             if (withWrite) {
               if (item.counts.blocking > 0) {
                 item.status.write = 'skipped';
@@ -1269,6 +1914,7 @@ const htmlPage = `<!doctype html>
         const stoppedEarly = !state.auto.running;
         state.auto.running = false;
         state.auto.kind = null;
+        state.inFlightAbort = null;
         addLog(stoppedEarly ? 'Auto run stopped.' : 'Auto run finished.');
         render();
       }
@@ -1314,11 +1960,196 @@ const htmlPage = `<!doctype html>
         await previewItem(item);
       } catch (_error) {}
     };
+    el('generateFastStartsSelected').onclick = async function () {
+      const item = getActiveItem();
+      if (!item) return;
+      try {
+        await generateFastStartsForItem(item);
+      } catch (_error) {}
+    };
+    async function optimizeWriteItem(item, runOpts) {
+      const externalSignal = runOpts && runOpts.signal;
+      const ownsAbort = !externalSignal;
+      if (ownsAbort) {
+        if (state.inFlightAbort) {
+          try {
+            state.inFlightAbort.abort();
+          } catch (_err) {}
+        }
+        state.inFlightAbort = new AbortController();
+      }
+      const signal = externalSignal || state.inFlightAbort.signal;
+      setActionState(item, 'write', 'working', 'Optimize+Write (live progress)…');
+      pushTopConsole('optimize+write NDJSON stream open', item.postId);
+      try {
+        const data = await fetchOptimizeWriteNdjson(item.postId, item, signal);
+        if (data.status === 'post_not_found') {
+          item.status.write = 'error';
+          item.lastError = 'post_not_found';
+          addLog('Optimize+Write: post not found.', item.postId);
+          render();
+          throw new Error('post_not_found');
+        }
+        if (data.status !== 'complete') {
+          item.status.write = 'error';
+          item.lastError = String(data.status || 'failed');
+          if (data.raw) item.raw = data.raw;
+          if (data.canonicalPreview) item.canonicalPreview = data.canonicalPreview;
+          if (data.validation) {
+            item.validation = data.validation;
+            item.counts = {
+              warnings: Array.isArray(data.validation.warnings) ? data.validation.warnings.length : item.counts.warnings,
+              blocking: Array.isArray(data.validation.blockingErrors) ? data.validation.blockingErrors.length : item.counts.blocking
+            };
+          }
+          if (data.diffSummary) item.diffSummary = data.diffSummary;
+          if (data.selectedVideoUrlsAfterGeneration) {
+            item.diffSummary = Object.assign({}, item.diffSummary || {}, {
+              selectedVideoUrlsBefore: data.selectedVideoUrlsBefore || [],
+              selectedVideoUrlsAfterGeneration: data.selectedVideoUrlsAfterGeneration
+            });
+          }
+          const stageText = Array.isArray(data.stages) ? data.stages.join(' -> ') : '';
+          if (stageText) pushTopConsole('failed @ ' + stageText, item.postId);
+          addLog('Optimize+Write failed: ' + item.lastError + (stageText ? (' @ ' + stageText) : ''), item.postId);
+          render();
+          const err = new Error(item.lastError);
+          err.body = data;
+          throw err;
+        }
+        const stages = Array.isArray(data.stages) ? data.stages.join(' -> ') : 'complete';
+        item.status.write = 'success';
+        item.generatedRepairPendingWrite = false;
+        item.lastWrittenAt = nowLabel();
+        item.backupId = data.backupPath || item.backupId;
+        item.lastMessage = 'Optimize + Write complete. ' + stages;
+        item.raw = data.raw || item.raw;
+        item.canonicalPreview = data.canonicalPreview || item.canonicalPreview;
+        item.validation = data.validation || item.validation;
+        item.diffSummary = data.diffSummary || item.diffSummary;
+        if (data.selectedVideoUrlsSaved) {
+          item.diffSummary = Object.assign({}, item.diffSummary || {}, {
+            selectedVideoUrls: data.selectedVideoUrlsSaved,
+            selectedVideoUrlsBefore: data.selectedVideoUrlsBefore || [],
+            selectedVideoUrlsAfterGeneration: data.selectedVideoUrlsAfterGeneration || []
+          });
+        }
+        pushTopConsole('optimize+write stream complete', item.postId);
+        addLog('Optimize+Write complete: ' + stages, item.postId);
+        await previewItem(item);
+        return data;
+      } catch (error) {
+        if (error && error.name === 'AbortError') {
+          item.status.write = 'idle';
+          item.lastError = '';
+          item.lastMessage = 'Optimize+Write canceled.';
+          addLog('Optimize+Write canceled.', item.postId);
+          pushTopConsole('aborted', item.postId);
+          render();
+          throw error;
+        }
+        item.status.write = 'error';
+        item.lastError = error.message || 'optimize_write_failed';
+        if (error.body && error.body.status) item.lastError = String(error.body.status);
+        if (error.body && error.body.raw) item.raw = error.body.raw;
+        if (error.body && error.body.canonicalPreview) item.canonicalPreview = error.body.canonicalPreview;
+        if (error.body && error.body.validation) {
+          item.validation = error.body.validation;
+          item.counts = {
+            warnings: Array.isArray(error.body.validation.warnings) ? error.body.validation.warnings.length : item.counts.warnings,
+            blocking: Array.isArray(error.body.validation.blockingErrors) ? error.body.validation.blockingErrors.length : item.counts.blocking
+          };
+        }
+        if (error.body && error.body.diffSummary) item.diffSummary = error.body.diffSummary;
+        if (error.body && error.body.selectedVideoUrlsAfterGeneration) {
+          item.diffSummary = Object.assign({}, item.diffSummary || {}, {
+            selectedVideoUrlsBefore: error.body.selectedVideoUrlsBefore || [],
+            selectedVideoUrlsAfterGeneration: error.body.selectedVideoUrlsAfterGeneration
+          });
+        }
+        const stageText = error.body && Array.isArray(error.body.stages) ? error.body.stages.join(' -> ') : '';
+        if (stageText) pushTopConsole('failed @ ' + stageText, item.postId);
+        addLog('Optimize+Write failed: ' + item.lastError + (stageText ? (' @ ' + stageText) : ''), item.postId);
+        render();
+        throw error;
+      } finally {
+        if (ownsAbort) state.inFlightAbort = null;
+      }
+    }
+
+    async function optimizeWriteQueueManualRun() {
+      const range = resolveQueueRunRange();
+      if (!range.ok) {
+        alert(range.message);
+        return;
+      }
+      if (state.manualQueue.running) return;
+
+      const confirmStart = Boolean(
+        el('manualConfirmQueueStart') && el('manualConfirmQueueStart').checked
+      );
+      if (confirmStart) {
+        const ok = window.confirm(
+          'Optimize + Write queue range ' + (range.startIdx + 1) + '-' + (range.endIdx + 1) +
+            ' of ' + state.queue.length + ' posts in order?'
+        );
+        if (!ok) return;
+      }
+
+      if (state.inFlightAbort) {
+        try {
+          state.inFlightAbort.abort();
+        } catch (_err) {}
+        state.inFlightAbort = null;
+      }
+      state.inFlightAbort = new AbortController();
+      const queueSignal = state.inFlightAbort.signal;
+      state.manualQueue.running = true;
+      addLog(
+        'Manual queue optimize+write started. Range: ' +
+          (range.startIdx + 1) + '-' + (range.endIdx + 1) + '.'
+      );
+      render();
+
+      try {
+        for (let i = range.startIdx; i <= range.endIdx; i++) {
+          const item = state.queue[i];
+          if (!state.manualQueue.running) break;
+          setSelectedPost(item.postId);
+          pushTopConsole(
+            "queue progress: " + (i + 1) + "/" + state.queue.length,
+            item.postId
+          );
+          try {
+            await optimizeWriteItem(item, { signal: queueSignal });
+          } catch (_error) {
+            // optimizeWriteItem already updated the UI status for this post; move on.
+          }
+        }
+      } finally {
+        state.manualQueue.running = false;
+        state.inFlightAbort = null;
+        addLog('Manual queue optimize+write finished.');
+        render();
+      }
+    }
     el('writeSelected').onclick = async function () {
       const item = getActiveItem();
       if (!item) return;
       try {
         await writeItem(item);
+      } catch (_error) {}
+    };
+    el('optimizeWriteSelected').onclick = async function () {
+      const item = getActiveItem();
+      if (!item) return;
+      try {
+        await optimizeWriteItem(item);
+      } catch (_error) {}
+    };
+    el('optimizeWriteQueueManual').onclick = async function () {
+      try {
+        await optimizeWriteQueueManualRun();
       } catch (_error) {}
     };
     el('backupsSelected').onclick = async function () {
@@ -1342,13 +2173,19 @@ const htmlPage = `<!doctype html>
       if (!window.confirm('Run preview + write across the current queue?')) return;
       await runAutoSequence(true);
     };
+    el('autoGenerateFastStarts').onchange = function () {
+      state.auto.generateFastStarts = Boolean(el('autoGenerateFastStarts').checked);
+      addLog(state.auto.generateFastStarts ? 'Auto run will generate missing fast starts first.' : 'Auto run will skip fast-start generation.');
+    };
     el('stopAuto').onclick = function () {
-      state.auto.running = false;
-      addLog('Stop requested for auto run.');
-      render();
+      cancelInFlight();
+    };
+    el('cancelRunning').onclick = function () {
+      cancelInFlight();
     };
 
     addLog('System ready. No preview or write has been run yet.');
+    pushTopConsole('System ready. No preview/write executed yet.');
     render();
   </script>
 </body>
@@ -1366,9 +2203,13 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
     const query = LoadNewestPostsQuerySchema.parse(request.query ?? {});
     const db = getFirestoreSourceClient();
     if (!db) return reply.status(503).send({ error: "firestore_unavailable", posts: [] });
-    const snap = await db.collection("posts").orderBy("time", "desc").limit(query.limit).get();
+    let q = db.collection("posts").orderBy("time", "desc");
+    if (query.offset > 0) q = q.offset(query.offset);
+    const snap = await q.limit(query.limit).get();
     return {
       order: "time_desc",
+      offset: query.offset,
+      limit: query.limit,
       count: snap.size,
       posts: snap.docs.map((doc) => summarizeQueueCandidate(doc.id, (doc.data() ?? {}) as UnknownRecord))
     };
@@ -1464,6 +2305,153 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
     };
   });
 
+  app.post<{ Params: { postId: string } }>("/debug/post-rebuilder/:postId/analyze-fast-start", async (request, reply) => {
+    const params = ParamsSchema.parse(request.params);
+    const db = getFirestoreSourceClient();
+    if (!db) return reply.status(503).send({ error: "firestore_unavailable" });
+    const snap = await db.collection("posts").doc(params.postId).get();
+    if (!snap.exists) return reply.status(404).send({ error: "post_not_found" });
+    const raw = (snap.data() ?? {}) as UnknownRecord;
+    const analyze = analyzeVideoFastStartNeeds(raw, { postId: params.postId });
+    return { postId: params.postId, analyze };
+  });
+
+  app.post<{ Params: { postId: string } }>("/debug/post-rebuilder/:postId/generate-fast-starts", async (request, reply) => {
+    const params = ParamsSchema.parse(request.params);
+    const body = GenerateFastStartBodySchema.parse(request.body ?? {});
+    const db = getFirestoreSourceClient();
+    if (!db) return reply.status(503).send({ error: "firestore_unavailable" });
+    const snap = await db.collection("posts").doc(params.postId).get();
+    if (!snap.exists) return reply.status(404).send({ error: "post_not_found" });
+    const raw = (snap.data() ?? {}) as UnknownRecord;
+    const run = await generateMissingFastStartVariantsForPost(params.postId, raw, {
+      generateMissingForAsset: defaultGenerateMissingForAsset,
+      verifyGeneratedUrl: defaultVerifyGeneratedVideoUrl
+    });
+    const repairedRaw = mergePlaybackLabResultsIntoRawPost(raw, run.generationResults);
+    const normalized = rebuildPostAfterFastStartRepair(repairedRaw, { postId: params.postId });
+    const validation = validateMasterPostV2(normalized.canonical);
+    const diffSummary = diffMasterPostPreview({
+      raw,
+      canonical: normalized.canonical,
+      recoveredLegacyAssets: normalized.recoveredLegacyAssets,
+      dedupedAssets: normalized.dedupedAssets,
+      warnings: [...normalized.warnings, ...validation.warnings],
+      errors: [...normalized.errors, ...validation.blockingErrors],
+      processingDebugExtracted: true
+    });
+    if (body.dryRun) {
+      return {
+        postId: params.postId,
+        dryRun: true,
+        analyze: run.analyze,
+        generationResults: run.generationResults,
+        repairedRaw,
+        canonicalPreview: normalized.canonical,
+        validation,
+        diffSummary,
+        firestoreWritten: false
+      };
+    }
+    await db.collection("posts").doc(params.postId).set(repairedRaw, { merge: true });
+    return {
+      postId: params.postId,
+      dryRun: false,
+      analyze: run.analyze,
+      generationResults: run.generationResults,
+      repairedRaw,
+      canonicalPreview: normalized.canonical,
+      validation,
+      diffSummary,
+      firestoreWritten: true
+    };
+  });
+
+  app.post<{ Params: { postId: string } }>("/debug/post-rebuilder/:postId/preview-after-fast-starts", async (request, reply) => {
+    const params = ParamsSchema.parse(request.params);
+    const body = GenerateFastStartBodySchema.parse(request.body ?? {});
+    const db = getFirestoreSourceClient();
+    if (!db) return reply.status(503).send({ error: "firestore_unavailable" });
+    const snap = await db.collection("posts").doc(params.postId).get();
+    if (!snap.exists) return reply.status(404).send({ error: "post_not_found" });
+    const raw = (snap.data() ?? {}) as UnknownRecord;
+    const run = await generateMissingFastStartVariantsForPost(params.postId, raw, {
+      generateMissingForAsset: defaultGenerateMissingForAsset,
+      verifyGeneratedUrl: defaultVerifyGeneratedVideoUrl
+    });
+    const repairedRaw = mergePlaybackLabResultsIntoRawPost(raw, run.generationResults);
+    const engagementSourceAudit = await auditPostEngagementSourcesV2(db, params.postId, repairedRaw);
+    const normalized = normalizeMasterPostV2(repairedRaw, { postId: params.postId, engagementSourceAudit });
+    const validation = validateMasterPostV2(normalized.canonical, { engagementSourceAudit });
+    const diffSummary = diffMasterPostPreview({
+      raw: repairedRaw,
+      canonical: normalized.canonical,
+      recoveredLegacyAssets: normalized.recoveredLegacyAssets,
+      dedupedAssets: normalized.dedupedAssets,
+      warnings: [...normalized.warnings, ...validation.warnings],
+      errors: [...normalized.errors, ...validation.blockingErrors],
+      processingDebugExtracted: true
+    });
+    if (!body.dryRun) {
+      await db.collection("posts").doc(params.postId).set(repairedRaw, { merge: true });
+    }
+    return {
+      postId: params.postId,
+      dryRun: body.dryRun,
+      analyze: run.analyze,
+      generationResults: run.generationResults,
+      raw: repairedRaw,
+      rawHash: hashPostForRebuild(repairedRaw),
+      canonicalPreview: normalized.canonical,
+      validation,
+      diffSummary,
+      writeAllowed: validation.blockingErrors.length === 0,
+      firestoreWritten: !body.dryRun
+    };
+  });
+
+  app.post<{ Params: { postId: string } }>("/debug/post-rebuilder/:postId/optimize-and-write", async (request, reply) => {
+    const params = ParamsSchema.parse(request.params);
+    const body = OptimizeAndWriteBodySchema.parse(request.body ?? {});
+    const query = OptimizeAndWriteQuerySchema.parse(request.query ?? {});
+    const db = getFirestoreSourceClient();
+    if (!db) return reply.status(503).send({ error: "firestore_unavailable" });
+
+    if (query.stream === "1") {
+      const stream = new PassThrough();
+      void (async () => {
+        const writeLine = (obj: unknown) => {
+          stream.write(`${JSON.stringify(obj)}\n`);
+        };
+        try {
+          const result = await optimizeAndWritePost({
+            db,
+            postId: params.postId,
+            strict: body.strict,
+            onProgress: (evt) => writeLine({ type: "progress", t: Date.now(), ...evt })
+          });
+          writeLine({ type: "done", result });
+        } catch (error) {
+          writeLine({
+            type: "error",
+            message: error instanceof Error ? error.message : String(error)
+          });
+        } finally {
+          stream.end();
+        }
+      })();
+      reply.header("Content-Type", "application/x-ndjson; charset=utf-8");
+      reply.header("Cache-Control", "no-store");
+      reply.header("X-Accel-Buffering", "no");
+      return reply.send(stream);
+    }
+
+    const result = await optimizeAndWritePost({ db, postId: params.postId, strict: body.strict });
+    if (result.status === "post_not_found") return reply.status(404).send(result);
+    if (result.status !== "complete") return reply.status(422).send(result);
+    return result;
+  });
+
   app.post<{ Params: { postId: string } }>("/debug/post-rebuilder/:postId/write", async (request, reply) => {
     const params = ParamsSchema.parse(request.params);
     const body = WriteSchema.parse(request.body ?? {});
@@ -1475,7 +2463,14 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
     const raw = (snap.data() ?? {}) as UnknownRecord;
     const rawHash = hashPostForRebuild(raw);
     if (rawHash !== body.expectedHash) {
-      return reply.status(409).send({ error: "stale_hash", expectedHash: body.expectedHash, currentHash: rawHash });
+      return reply
+        .status(409)
+        .send({
+          error: "stale_hash",
+          message: "Preview is stale. Reload/preview again, or use Optimize + Write Selected for one-step fresh optimize/write.",
+          expectedHash: body.expectedHash,
+          currentHash: rawHash
+        });
     }
     const engagementSourceAudit = await auditPostEngagementSourcesV2(db, params.postId, raw);
     const normalized = normalizeMasterPostV2(raw, { postId: params.postId, strict: true, engagementSourceAudit });

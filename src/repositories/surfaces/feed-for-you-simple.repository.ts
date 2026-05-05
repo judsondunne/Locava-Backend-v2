@@ -347,6 +347,24 @@ export class FeedForYouSimpleRepository {
     };
   }
 
+  async fetchCandidatesByPostIds(postIds: string[]): Promise<SimpleFeedCandidate[]> {
+    if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
+    const ordered = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
+    if (ordered.length === 0) return [];
+    const refs = ordered.map((postId) => this.db!.collection("posts").doc(postId));
+    incrementDbOps("queries", 1);
+    const snaps = await this.db.getAll(...refs);
+    incrementDbOps("reads", snaps.length);
+    const mappedById = new Map<string, SimpleFeedCandidate>();
+    for (const snap of snaps) {
+      if (!snap.exists) continue;
+      const raw = (snap.data() ?? {}) as Record<string, unknown>;
+      const mapped = tryMapSimpleFeedCandidate("docId", snap.id, raw);
+      if ("candidate" in mapped) mappedById.set(snap.id, mapped.candidate);
+    }
+    return ordered.map((id) => mappedById.get(id)).filter((row): row is SimpleFeedCandidate => Boolean(row));
+  }
+
   async loadBlockedAuthorIdsForViewer(viewerId: string): Promise<{ blocked: Set<string>; readCount: number }> {
     if (!this.db) return { blocked: new Set(), readCount: 0 };
     const id = viewerId.trim();

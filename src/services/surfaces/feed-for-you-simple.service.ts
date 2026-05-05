@@ -32,6 +32,40 @@ const LIMIT_MAX = 12;
 const MAX_MAIN_READ_BUDGET = 72;
 const BATCH_PAGE_SIZE = 24;
 const MAX_SCAN_ATTEMPTS = 24;
+const FOR_YOU_SIMPLE_DEBUG_FIXED_IDS_FLAG = "LOCAVA_DEBUG_FOR_YOU_SIMPLE_FIXED_IDS";
+const FOR_YOU_SIMPLE_DEBUG_FIXED_ID_LIST = [
+  "post_292fd3193917e0e3",
+  "post_d46abb1b81bc40ed",
+  "post_23809b181c0cb3c4",
+  "post_6890aeea764bc3ab",
+  "post_f5c376d3dfb551bc",
+  "post_22cf1d12ea82e8f1",
+  "post_92a8f2a283c9a64a",
+  "post_71efc895b5108179",
+  "post_580818bf549854cb",
+  "post_c6ef5d9de63888e0",
+  "post_1d753d0e3a0371ec",
+  "post_c51e6b4a78f4c0ce",
+  "post_50bc0d01395ffdad",
+  "post_a8ae358816081905",
+  "post_3a42f16570830ea9",
+  "yHBN1O0CkWuyPc37tZlt",
+  "eGAS1ltuHiapWnAULk2p",
+  "post_ac439fb86d4737d3",
+  "post_b937d784b8b13248",
+  "post_d1515a06e2012f39",
+  "post_6a24153d0aad2ed1",
+  "post_bb8d259ba4195290",
+  "post_79370ef4fcb481f5",
+  "post_dbacbc3770a2673f",
+  "post_fd5cf45f4f56ec3d",
+  "post_be233a003bdb153b",
+  "post_760e7df537939a6e",
+  "post_b1904eac1486174c",
+  "post_503e60c9f63229d1",
+  "post_1be506728c67d93f"
+] as const;
+const FOR_YOU_SIMPLE_DEBUG_FIXED_IDS = new Set<string>(FOR_YOU_SIMPLE_DEBUG_FIXED_ID_LIST);
 
 type PhaseCursorState = {
   anchor: number | string;
@@ -155,6 +189,7 @@ export class FeedForYouSimpleService {
       | "writeReadyDeck"
       | "fetchEmergencyPlayableSlice"
       | "loadBlockedAuthorIdsForViewer"
+      | "fetchCandidatesByPostIds"
     >
   ) {}
 
@@ -191,6 +226,46 @@ export class FeedForYouSimpleService {
     const cursorState = input.refresh ? null : decodeCursor(input.cursor);
     const mode = cursorState?.mode ?? (await this.repository.resolveSortMode());
     const cursorSeen = new Set((cursorState?.seen ?? []).filter(Boolean).slice(-MAX_SEEN_IDS));
+    const debugFixedIdsEnabled = process.env[FOR_YOU_SIMPLE_DEBUG_FIXED_IDS_FLAG] === "1";
+    if (debugFixedIdsEnabled) {
+      const debugCandidates = await this.repository.fetchCandidatesByPostIds([...FOR_YOU_SIMPLE_DEBUG_FIXED_ID_LIST]);
+      const debugItems = debugCandidates.filter((candidate) => !cursorSeen.has(candidate.postId)).slice(0, limit);
+      const returnedIds = debugItems.map((item) => item.postId);
+      const nextCursor =
+        debugItems.length === 0
+          ? null
+          : encodeCursor({
+              v: 2,
+              mode,
+              reel: createPhaseState(mode),
+              fallback: createPhaseState(mode),
+              seen: [...new Set([...cursorSeen, ...returnedIds])].slice(-MAX_SEEN_IDS)
+            });
+      const diag = emptyDiagnostics(limit);
+      diag.returnedCount = debugItems.length;
+      diag.nextCursorPresent = Boolean(nextCursor);
+      diag.cursorUsed = Boolean(input.cursor) && !input.refresh;
+      diag.noCursorRequest = !input.cursor || input.refresh === true;
+      diag.randomSeedOrAnchor = "debug_fixed_ids";
+      diag.firstPaintCardReadyCount = debugItems.length;
+      applyFirstPaintPlaybackDiagnostics(debugItems, diag);
+      const cards = debugItems.map((candidate, index) => toPostCard(candidate, index, viewerId));
+      const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
+      await batchHydrateAppPostsOnRecords(cardRecords, viewerId.trim() ? viewerId : null);
+      return {
+        routeName: "feed.for_you_simple.get",
+        items: cardRecords as FeedCardDTO[],
+        nextCursor,
+        exhausted: debugItems.length === 0,
+        emptyReason: debugItems.length === 0 ? "no_playable_posts" : null,
+        degradedFallbackUsed: false,
+        relaxedSeenUsed: false,
+        wrapAroundUsed: false,
+        fallbackAllPostsUsed: false,
+        emergencyFallbackUsed: false,
+        debug: diag
+      };
+    }
 
     const blockedAuthorsCached = durableViewerId ? blockedAuthorsMemory.get(durableViewerId) ?? null : null;
     const blockedAuthorsPromise =
@@ -383,8 +458,11 @@ export class FeedForYouSimpleService {
     if (!diag.deckStarvationRefillUsed) diag.deckStarvationRefillUsed = false;
 
     const servedRecentFilteredCount = localServedRecentFiltered.size;
+    const finalItems = debugFixedIdsEnabled
+      ? items.filter((candidate) => FOR_YOU_SIMPLE_DEBUG_FIXED_IDS.has(candidate.postId))
+      : items;
 
-    const returnedIds = items.map((c) => c.postId);
+    const returnedIds = finalItems.map((c) => c.postId);
     let seenWriteAttempted = false;
     let seenWriteSucceeded = false;
     let blockingResponseWrites = 0;
@@ -429,11 +507,11 @@ export class FeedForYouSimpleService {
       }, 0);
     }
 
-    const emptyReason: null | "no_playable_posts" = items.length === 0 ? "no_playable_posts" : null;
-    const exhausted = items.length === 0;
+    const emptyReason: null | "no_playable_posts" = finalItems.length === 0 ? "no_playable_posts" : null;
+    const exhausted = finalItems.length === 0;
 
     const nextCursor =
-      items.length === 0
+      finalItems.length === 0
         ? null
         : encodeCursor({
             v: 2,
@@ -443,7 +521,7 @@ export class FeedForYouSimpleService {
             seen: [...new Set([...cursorSeen, ...returnedIds])].slice(-MAX_SEEN_IDS)
           });
 
-    diag.returnedCount = items.length;
+    diag.returnedCount = finalItems.length;
     diag.nextCursorPresent = Boolean(nextCursor);
     diag.randomSeedOrAnchor = `deck:${deck.generation}`;
     diag.seenWriteAttempted = seenWriteAttempted;
@@ -453,7 +531,7 @@ export class FeedForYouSimpleService {
     diag.deferredWriterFlushAttempts = 0;
     diag.deferredWriterSucceededFlushes = 0;
     diag.deferredWriterFailedFlushes = 0;
-    diag.exhaustedUnseenCandidates = items.length < limit && !exhausted;
+    diag.exhaustedUnseenCandidates = finalItems.length < limit && !exhausted;
     diag.reelFirstEnabled = true;
     diag.degradedFallbackUsed = emergencyFallbackUsed && diag.degradedMediaCount > 0;
     diag.filteredBySeen += servedRecentFilteredCount;
@@ -465,7 +543,7 @@ export class FeedForYouSimpleService {
     diag.deckHit = deckItemsBefore > 0;
     diag.deckSource = deckSource;
     diag.deckItemsBefore = deckItemsBefore;
-    diag.deckItemsReturned = items.length;
+    diag.deckItemsReturned = finalItems.length;
     diag.deckItemsAfter = deck.items.length;
     diag.deckRefillScheduled = Boolean(deck.refillInFlight);
     diag.deckRefillReason = deck.refillReason;
@@ -473,16 +551,15 @@ export class FeedForYouSimpleService {
     diag.duplicateSuppressed = diag.duplicateFilteredCount;
     diag.noCursorRequest = noCursorRequest;
     diag.repeatedFromRecentCount = servedRecentFilteredCount;
-    diag.firstPaintCardReadyCount = items.length;
+    diag.firstPaintCardReadyCount = finalItems.length;
     diag.detailBatchRequiredForFirstPaint = false;
-    applyFirstPaintPlaybackDiagnostics(items, diag);
+    applyFirstPaintPlaybackDiagnostics(finalItems, diag);
     diag.durableServedWriteStatus = seenWriteAttempted ? (deferredWritesQueued > 0 ? "deferred" : seenWriteSucceeded ? "ok" : "error") : "skipped";
-    const reelCount = items.filter((item) => item.reel).length;
+    const reelCount = finalItems.filter((item) => item.reel).length;
     diag.reelReturnedCount = reelCount;
-    diag.fallbackReturnedCount = Math.max(0, items.length - reelCount);
+    diag.fallbackReturnedCount = Math.max(0, finalItems.length - reelCount);
     diag.recycledSeenPosts = softServedRecentPicks > 0;
-
-    const cards = items.map((candidate, index) => toPostCard(candidate, index, viewerId));
+    const cards = finalItems.map((candidate, index) => toPostCard(candidate, index, viewerId));
     const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
     await batchHydrateAppPostsOnRecords(cardRecords, viewerId.trim() ? viewerId : null);
 
@@ -783,7 +860,7 @@ function simpleCandidateVideoVariants(a0: SimpleFeedCandidate["assets"][number])
 
 function carouselCompactAssetCap(assetCount: number): number {
   const n = Math.max(1, Math.floor(assetCount || 1));
-  return Math.min(1, n);
+  return Math.min(12, n);
 }
 
 function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
@@ -972,10 +1049,36 @@ function clampLimit(raw: number): number {
 }
 
 function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: string): FeedCardDTO {
+  const firstCanonicalVideoPlayback = (() => {
+    const raw = candidate.rawFirestore;
+    if (!raw || typeof raw !== "object") return null;
+    const media = (raw.media as { assets?: unknown[] } | undefined)?.assets;
+    if (!Array.isArray(media)) return null;
+    const videoAsset = media.find((asset) => {
+      if (!asset || typeof asset !== "object") return false;
+      return (asset as { type?: unknown }).type === "video";
+    }) as { id?: unknown; video?: { playback?: Record<string, unknown> } } | undefined;
+    if (!videoAsset?.video?.playback) return null;
+    const playback = videoAsset.video.playback;
+    return {
+      assetId: typeof videoAsset.id === "string" ? videoAsset.id : null,
+      startupUrl: typeof playback.startupUrl === "string" ? playback.startupUrl : null,
+      defaultUrl: typeof playback.defaultUrl === "string" ? playback.defaultUrl : null,
+      primaryUrl: typeof playback.primaryUrl === "string" ? playback.primaryUrl : null,
+      selectedReason: typeof playback.selectedReason === "string" ? playback.selectedReason : null
+    };
+  })();
   const sourceLen = candidate.sourceFirestoreAssetArrayLen ?? candidate.assets.length;
-  const visibleAssets = candidate.assets.slice(0, 1);
+  const candidateRecord = candidate as unknown as Record<string, unknown>;
+  const shouldPreserveCanonicalAssets =
+    sourceLen > 1 ||
+    candidateRecord.hasMultipleAssets === true ||
+    candidateRecord.mediaCompleteness === "full" ||
+    candidateRecord.mediaCompleteness === "complete";
+  const visibleAssets = shouldPreserveCanonicalAssets ? candidate.assets : candidate.assets.slice(0, 1);
   const fullCard = toFeedCardDTO({
     postId: candidate.postId,
+    sourceRawPost: candidate.rawFirestore ?? null,
     rankToken: `fys:${viewerId.slice(0, 8) || "anon"}:${index + 1}`,
     author: {
       userId: candidate.authorId,
@@ -1018,7 +1121,6 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     ...augmentSimpleFeedVideoPlayback(candidate)
   });
   const {
-    appPost: _appPost,
     postContractVersion: _postContractVersion,
     normalizedCard: _normalizedCard,
     normalizedMedia: _normalizedMedia,
@@ -1038,6 +1140,72 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     wireDeclaredMediaAssetCount: _wireDeclaredMediaAssetCount,
     ...leanCard
   } = fullCard as FeedCardDTO & Record<string, unknown>;
+  const outgoingAppPost = (fullCard.appPost ?? null) as
+    | { media?: { assets?: Array<{ id?: unknown; type?: unknown; video?: { playback?: Record<string, unknown> } }> } }
+    | null;
+  const outgoingPlayback = (() => {
+    const assets = Array.isArray(outgoingAppPost?.media?.assets) ? outgoingAppPost?.media?.assets : [];
+    const videoAsset = assets.find((asset) => asset?.type === "video");
+    const playback = videoAsset?.video?.playback;
+    return {
+      assetId: typeof videoAsset?.id === "string" ? videoAsset.id : null,
+      startupUrl: typeof playback?.startupUrl === "string" ? playback.startupUrl : null,
+      defaultUrl: typeof playback?.defaultUrl === "string" ? playback.defaultUrl : null,
+      primaryUrl: typeof playback?.primaryUrl === "string" ? playback.primaryUrl : null,
+      selectedReason: typeof playback?.selectedReason === "string" ? playback.selectedReason : null
+    };
+  })();
+  const canonicalFaststartPresent = Boolean(
+    firstCanonicalVideoPlayback?.startupUrl &&
+      /startup(?:540|720|1080)_faststart_avc\.mp4/i.test(firstCanonicalVideoPlayback.startupUrl)
+  );
+  const outgoingDroppedFaststart = Boolean(
+    canonicalFaststartPresent &&
+      (!outgoingPlayback.startupUrl ||
+        !/startup(?:540|720|1080)_faststart_avc\.mp4/i.test(outgoingPlayback.startupUrl))
+  );
+  if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
+    const cacheWasStale = Boolean(canonicalFaststartPresent && outgoingDroppedFaststart);
+    const refreshedFromCanonical = Boolean(canonicalFaststartPresent && !outgoingDroppedFaststart);
+    try {
+      // eslint-disable-next-line no-console
+      console.info(
+        "[FEED_WIRE_APPPOST_PLAYBACK_DEBUG]",
+        JSON.stringify({
+          postId: candidate.postId,
+          source: candidate.rawFirestore ? "fresh_post_doc" : "post_card_cache",
+          canonicalDocStartupUrl: firstCanonicalVideoPlayback?.startupUrl ?? null,
+          canonicalDocDefaultUrl: firstCanonicalVideoPlayback?.defaultUrl ?? null,
+          canonicalDocPrimaryUrl: firstCanonicalVideoPlayback?.primaryUrl ?? null,
+          canonicalDocSelectedReason: firstCanonicalVideoPlayback?.selectedReason ?? null,
+          outgoingAppPostStartupUrl: outgoingPlayback.startupUrl,
+          outgoingAppPostDefaultUrl: outgoingPlayback.defaultUrl,
+          outgoingAppPostPrimaryUrl: outgoingPlayback.primaryUrl,
+          outgoingAppPostSelectedReason: outgoingPlayback.selectedReason,
+          cacheWasStale,
+          refreshedFromCanonical
+        })
+      );
+      if (outgoingDroppedFaststart) {
+        // eslint-disable-next-line no-console
+        console.error(
+          "[FEED_CANONICAL_PLAYBACK_DROPPED_ERROR]",
+          JSON.stringify({
+            postId: candidate.postId,
+            canonicalDocStartupUrl: firstCanonicalVideoPlayback?.startupUrl ?? null,
+            outgoingAppPostStartupUrl: outgoingPlayback.startupUrl ?? null
+          })
+        );
+      }
+    } catch {
+      // no-op
+    }
+  }
+  if (fullCard.appPost && typeof fullCard.appPost === "object") {
+    (leanCard as Record<string, unknown>).appPost = fullCard.appPost;
+    (leanCard as Record<string, unknown>).appPostV2 = fullCard.appPost;
+    (leanCard as Record<string, unknown>).postContractVersion = 2 as const;
+  }
   return leanCard as FeedCardDTO;
 }
 

@@ -8,6 +8,10 @@ export type VideoHydrationMode = "card" | "playback" | "detail" | "open" | "full
 /** UI / analytics bucket for the resolver's primary URL (maps many internal labels → stable enum). */
 export type SelectedCanonicalVideoVariant =
   | "hls"
+  | "startup1080"
+  | "startup720"
+  | "startup540"
+  | "upgrade1080"
   | "main1080"
   | "main720"
   | "original"
@@ -295,14 +299,49 @@ function firstVideoAsset(post: PostRecord): PostRecord | null {
 function canonicalVariantAndRank(label: string): { variant: SelectedCanonicalVideoVariant; rank: number } {
   const l = label.toLowerCase();
   if (l === "none" || !label) return { variant: "none", rank: 0 };
-  if (l === "hls") return { variant: "hls", rank: 6 };
-  if (l.includes("startup1080")) return { variant: "main1080", rank: 5 };
+  if (l === "hls") return { variant: "hls", rank: 8 };
+  if (l.includes("startup1080")) return { variant: "startup1080", rank: 7 };
+  if (l.includes("startup720")) return { variant: "startup720", rank: 6 };
+  if (l.includes("startup540")) return { variant: "startup540", rank: 5 };
+  if (l.includes("upgrade1080")) return { variant: "upgrade1080", rank: 6 };
   if (l.startsWith("main1080")) return { variant: "main1080", rank: 5 };
-  if (l.includes("startup720") || l.includes("startup540")) return { variant: "main720", rank: 4 };
   if (l.startsWith("main720")) return { variant: "main720", rank: 4 };
   if (l === "preview360" || l === "preview360avc" || l.includes("preview")) return { variant: "preview360", rank: 2 };
-  /** post_level_* and originals */
   return { variant: "original", rank: 3 };
+}
+
+export function classifyCanonicalPlaybackUrl(
+  url: string | null | undefined,
+  playbackObject?: Record<string, unknown> | null,
+  variants?: Record<string, unknown> | null,
+): SelectedCanonicalVideoVariant {
+  const u = typeof url === "string" ? url.trim() : "";
+  if (!u) return "none";
+  const pb = playbackObject ?? {};
+  const vv = variants ?? {};
+  const eq = (v: unknown) => typeof v === "string" && v.trim() && v.trim() === u;
+  if (eq(pb.startupUrl) || eq(pb.defaultUrl) || eq(pb.goodNetworkUrl)) {
+    if (eq(vv.startup1080FaststartAvc) || /startup1080_faststart_avc\.mp4/i.test(u)) return "startup1080";
+    if (eq(vv.startup720FaststartAvc) || /startup720_faststart_avc\.mp4/i.test(u)) return "startup720";
+    if (eq(vv.startup540FaststartAvc) || /startup540_faststart_avc\.mp4/i.test(u)) return "startup540";
+  }
+  if (eq(pb.weakNetworkUrl)) {
+    if (eq(vv.startup720FaststartAvc) || /startup720_faststart_avc\.mp4/i.test(u)) return "startup720";
+    if (eq(vv.startup540FaststartAvc) || /startup540_faststart_avc\.mp4/i.test(u)) return "startup540";
+  }
+  if (eq(pb.poorNetworkUrl)) {
+    if (eq(vv.startup540FaststartAvc) || /startup540_faststart_avc\.mp4/i.test(u)) return "startup540";
+  }
+  if (eq(pb.upgradeUrl) || eq(vv.upgrade1080FaststartAvc) || /upgrade1080_faststart_avc\.mp4/i.test(u)) return "upgrade1080";
+  if (eq(vv.startup1080FaststartAvc) || /startup1080_faststart_avc\.mp4/i.test(u)) return "startup1080";
+  if (eq(vv.startup720FaststartAvc) || /startup720_faststart_avc\.mp4/i.test(u)) return "startup720";
+  if (eq(vv.startup540FaststartAvc) || /startup540_faststart_avc\.mp4/i.test(u)) return "startup540";
+  if (eq(vv.main1080Avc) || /main1080_avc\.mp4/i.test(u)) return "main1080";
+  if (eq(vv.main720Avc) || /main720_avc\.mp4/i.test(u)) return "main720";
+  if (eq(vv.preview360Avc) || /preview360_avc\.mp4/i.test(u)) return "preview360";
+  if (eq(vv.hls) || /\.m3u8(\?|$)/i.test(u)) return "hls";
+  if (eq(pb.fallbackUrl) || eq(pb.originalUrl)) return "original";
+  return "original";
 }
 
 /**
@@ -685,7 +724,14 @@ export function selectBestVideoPlaybackAsset(
   else if (videoProcessingStatus === "completed" && assetsReady) mediaStatusHint = "ready";
   else mediaStatusHint = "processing";
 
-  const { variant: selectedVideoVariant, rank: selectedVideoQualityRank } = canonicalVariantAndRank(selectedLabel);
+  const selectedVideoVariant = classifyCanonicalPlaybackUrl(
+    playbackUrl ?? selectedUrl,
+    asRecord(asset?.playback),
+    asRecord(asset?.variants),
+  );
+  const { rank: selectedVideoQualityRank } = canonicalVariantAndRank(
+    selectedVideoVariant === "none" ? selectedLabel : selectedVideoVariant,
+  );
   const isDegradedVideo = Boolean(isPreviewOnly && playbackUrl);
 
   const base: VideoPlaybackSelection = {

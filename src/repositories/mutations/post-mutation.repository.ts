@@ -211,6 +211,7 @@ export class PostMutationRepository {
     viewerId: string,
     postId: string
   ): Promise<{ postId: string; deleted: boolean; changed: boolean }> {
+    const hardDeleteUsed = true;
     const db = getFirestoreSourceClient();
     if (!db) {
       incrementDbOps("queries", 1);
@@ -218,6 +219,20 @@ export class PostMutationRepository {
       if (state.changed) {
         incrementDbOps("writes", 1);
       }
+      try {
+        console.log(
+          JSON.stringify({
+            event: "POST_DELETE_REPOSITORY_RESULT",
+            postId,
+            callerSurface: "backend_v2_posts_delete_route",
+            hardDeleteUsed,
+            success: true,
+            fallbackMode: "mutation_state_only",
+            changed: state.changed,
+            ts: Date.now()
+          })
+        );
+      } catch {}
       return { postId, deleted: true, changed: state.changed };
     }
 
@@ -234,46 +249,43 @@ export class PostMutationRepository {
       throw new Error("forbidden");
     }
     if (Boolean(data.deleted) || Boolean(data.isDeleted)) {
-      // Ensure process-local state is consistent so downstream surfaces can tombstone-filter immediately.
+      // Document may still exist from prior soft-delete path; hard-delete it now.
+      await postRef.delete();
+      incrementDbOps("writes", 1);
       mutationStateRepository.deletePost(postId);
+      try {
+        console.log(
+          JSON.stringify({
+            event: "POST_DELETE_REPOSITORY_RESULT",
+            postId,
+            callerSurface: "backend_v2_posts_delete_route",
+            hardDeleteUsed,
+            success: true,
+            fallbackMode: "firestore",
+            changed: false,
+            ts: Date.now()
+          })
+        );
+      } catch {}
       return { postId, deleted: true, changed: false };
     }
-
-    const now = new Date();
-    const batch = db.batch();
-    batch.set(
-      postRef,
-      {
-        deleted: true,
-        isDeleted: true,
-        deletedAt: now,
-        updatedAt: now,
-        lastUpdated: now
-      },
-      { merge: true }
-    );
-    if (authorId) {
-      // Keep profile counts coherent for the acting user; many surfaces read embedded counts instead of counting posts.
-      const userRef = db.collection("users").doc(authorId);
-      batch.set(
-        userRef,
-        {
-          postCount: FieldValue.increment(-1),
-          postsCount: FieldValue.increment(-1),
-          numPosts: FieldValue.increment(-1),
-          stats: {
-            posts: FieldValue.increment(-1),
-            totalPosts: FieldValue.increment(-1)
-          }
-        },
-        { merge: true }
-      );
-      incrementDbOps("writes", 2);
-    } else {
-      incrementDbOps("writes", 1);
-    }
-    await batch.commit();
+    await postRef.delete();
+    incrementDbOps("writes", 1);
     mutationStateRepository.deletePost(postId);
+    try {
+      console.log(
+        JSON.stringify({
+          event: "POST_DELETE_REPOSITORY_RESULT",
+          postId,
+          callerSurface: "backend_v2_posts_delete_route",
+          hardDeleteUsed,
+          success: true,
+          fallbackMode: "firestore",
+          changed: true,
+          ts: Date.now()
+        })
+      );
+    } catch {}
     return { postId, deleted: true, changed: true };
   }
 }

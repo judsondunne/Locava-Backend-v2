@@ -428,6 +428,48 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(post.requiresAssetHydration).toBe(true);
   });
 
+  it("playback prefetch preserves canonical complete multi-asset shells without trimming to cover-only", async () => {
+    const service = buildService({
+      loadPostDetail: vi.fn(async () => {
+        throw new Error("should_not_read_firestore_when_cache_already_complete");
+      }),
+      loadPostCardSummaryBatchLightweight: vi.fn(async () => [
+        {
+          postId: "yHBN1O0CkWuyPc37tZlt",
+          rankToken: "rank-full",
+          author: { userId: "u1", handle: "u1", name: null, pic: null },
+          captionPreview: "caption",
+          media: { type: "image" as const, posterUrl: "https://cdn/0.jpg", aspectRatio: 3 / 4, startupHint: "poster_only" as const },
+          social: { likeCount: 0, commentCount: 0 },
+          viewer: { liked: false, saved: false },
+          createdAtMs: 1,
+          updatedAtMs: 1,
+          assetCount: 3,
+          rawFirestoreAssetCount: 3,
+          hasMultipleAssets: true,
+          mediaCompleteness: "complete",
+          assets: [
+            { id: "image_cad2cf0470_0", type: "image" as const, originalUrl: "https://cdn/0_lg.webp", posterUrl: "https://cdn/0_lg.webp" },
+            { id: "image_cad2cf0470_1", type: "image" as const, originalUrl: "https://cdn/1_lg.webp", posterUrl: "https://cdn/1_lg.webp" },
+            { id: "image_cad2cf0470_2", type: "image" as const, originalUrl: "https://cdn/2_lg.webp", posterUrl: "https://cdn/2_lg.webp" },
+          ],
+        },
+      ]),
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["yHBN1O0CkWuyPc37tZlt"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+    });
+    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
+    expect(Array.isArray(post.assets)).toBe(true);
+    expect((post.assets as unknown[]).length).toBe(3);
+    expect(post.mediaCompleteness).not.toBe("cover_only");
+    expect(post.requiresAssetHydration).not.toBe(true);
+  });
+
   it("playback batch upgrades slim carousel shells past index two when Firestore read cap allows", async () => {
     const prevCap = process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP;
     process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP = "3";

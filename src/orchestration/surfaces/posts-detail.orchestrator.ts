@@ -155,8 +155,9 @@ function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFe
     ...(typeof (summary as Record<string, unknown>).rawFirestoreAssetCount === "number"
       ? { rawFirestoreAssetCount: (summary as Record<string, unknown>).rawFirestoreAssetCount as number }
       : {}),
-    ...((summary as Record<string, unknown>).mediaCompleteness === "cover_only"
-      ? { mediaCompleteness: "cover_only" as const }
+    ...((typeof (summary as Record<string, unknown>).mediaCompleteness === "string" &&
+      String((summary as Record<string, unknown>).mediaCompleteness).trim().length > 0)
+      ? { mediaCompleteness: (summary as Record<string, unknown>).mediaCompleteness as string }
       : {}),
     ...((summary as Record<string, unknown>).requiresAssetHydration === true
       ? { requiresAssetHydration: true as const }
@@ -813,7 +814,50 @@ export class PostsDetailOrchestrator {
         userId: card.author.userId,
         card: toCompactPlaybackCard(card),
       });
-      if (input.reason === "prefetch" && Array.isArray(playbackShell.assets) && playbackShell.assets.length > 1) {
+      const cardRecord = card as Record<string, unknown>;
+      const cardCompleteness = String(cardRecord.mediaCompleteness ?? "").toLowerCase();
+      if (
+        (cardCompleteness === "complete" || cardCompleteness === "full") &&
+        Array.isArray(card.assets) &&
+        card.assets.length > 1
+      ) {
+        playbackShell = {
+          ...playbackShell,
+          assets: card.assets.map((asset, idx) => ({
+            id: asset.id ?? `${card.postId}-asset-${idx + 1}`,
+            type: asset.type,
+            original: (asset as { originalUrl?: string | null; mp4Url?: string | null }).originalUrl ??
+              (asset as { mp4Url?: string | null }).mp4Url ??
+              null,
+            poster: asset.posterUrl ?? null,
+            thumbnail: asset.posterUrl ?? null,
+            aspectRatio: asset.aspectRatio ?? undefined,
+            width: asset.width ?? undefined,
+            height: asset.height ?? undefined,
+            orientation: asset.orientation ?? undefined,
+            variants: {
+              ...(asset.previewUrl ? { preview360: asset.previewUrl, preview360Avc: asset.previewUrl } : {}),
+              ...(asset.streamUrl ? { hls: asset.streamUrl } : {}),
+              ...(asset.mp4Url ? { main720Avc: asset.mp4Url, main720: asset.mp4Url } : {}),
+            },
+          })),
+          mediaCompleteness: cardRecord.mediaCompleteness,
+          hasMultipleAssets: cardRecord.hasMultipleAssets === true,
+          assetCount:
+            typeof cardRecord.assetCount === "number" && Number.isFinite(cardRecord.assetCount)
+              ? Math.floor(cardRecord.assetCount)
+              : card.assets.length,
+          rawFirestoreAssetCount:
+            typeof cardRecord.rawFirestoreAssetCount === "number" &&
+            Number.isFinite(cardRecord.rawFirestoreAssetCount)
+              ? Math.floor(cardRecord.rawFirestoreAssetCount)
+              : card.assets.length,
+        };
+      }
+      if (
+        input.reason === "prefetch" &&
+        shouldTrimPlaybackShellToCoverOnlyForPrefetch(playbackShell)
+      ) {
         playbackShell = {
           ...playbackShell,
           assets: playbackShell.assets.slice(0, 1),
@@ -864,7 +908,10 @@ export class PostsDetailOrchestrator {
             card;
           const safeCard = this.ensureSafeCardSummary(cardSummaryRaw, postId, detail);
           playbackShell = mergePlaybackShellFromDetailRecord(detail, safeCard);
-          if (input.reason === "prefetch" && Array.isArray(playbackShell.assets) && playbackShell.assets.length > 1) {
+          if (
+            input.reason === "prefetch" &&
+            shouldTrimPlaybackShellToCoverOnlyForPrefetch(playbackShell)
+          ) {
             playbackShell = {
               ...playbackShell,
               assets: playbackShell.assets.slice(0, 1),
@@ -1332,4 +1379,14 @@ function classifyPayloadCategory(
   if (hydrationMode === "playback") return "small";
   if (hydrationMode === "open") return count <= 2 ? "small" : "medium";
   return "heavy";
+}
+
+function shouldTrimPlaybackShellToCoverOnlyForPrefetch(
+  playbackShell: PlaybackPostShellDTO,
+): boolean {
+  const assetsLen = Array.isArray(playbackShell.assets) ? playbackShell.assets.length : 0;
+  if (assetsLen <= 1) return false;
+  const completeness = String((playbackShell as Record<string, unknown>).mediaCompleteness ?? "").toLowerCase();
+  const canonicalComplete = completeness === "complete" || completeness === "full";
+  return !canonicalComplete;
 }

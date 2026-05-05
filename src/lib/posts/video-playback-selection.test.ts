@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyCanonicalPlaybackUrl,
   playbackBatchCarouselIncompleteMedia,
   playbackBatchNeedsPhotoCarouselFirestoreDetail,
   playbackBatchShouldFetchFirestoreDetail,
@@ -398,5 +399,27 @@ describe("video playback regressions — representative docs", () => {
         allowPreviewOnly: true,
       }).selectedVideoVariant,
     ).toBe("none");
+  });
+});
+
+describe("classifyCanonicalPlaybackUrl", () => {
+  it("classifies canonical startup720 url as startup720", () => {
+    const url = "https://cdn.locava.dev/path/startup720_faststart_avc.mp4";
+    const variant = classifyCanonicalPlaybackUrl(
+      url,
+      { startupUrl: url, defaultUrl: url, primaryUrl: url },
+      { startup720FaststartAvc: url },
+    );
+    expect(variant).toBe("startup720");
+  });
+
+  it("classifies canonical startup1080 url as startup1080", () => {
+    const url = "https://cdn.locava.dev/path/startup1080_faststart_avc.mp4";
+    const variant = classifyCanonicalPlaybackUrl(
+      url,
+      { startupUrl: url, defaultUrl: url, primaryUrl: url },
+      { startup1080FaststartAvc: url },
+    );
+    expect(variant).toBe("startup1080");
   });
 });

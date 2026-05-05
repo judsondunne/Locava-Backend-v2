@@ -12,6 +12,53 @@ import { shouldGenerate1080Ladder } from "./video-source-policy.js";
 
 export type VideoAssetJob = { id: string; original: string };
 
+/** Fine-grained encoder progress for debug UIs (download, each ffmpeg, Wasabi PUT). */
+export type VideoEncoderProgress = { phase: string; detail?: string };
+
+/** When set, only these outputs are encoded/uploaded (skips the rest of the ladder). Used by repair paths that already have most variants. */
+export type VideoEncodeOnlySelection = Partial<{
+  preview360Avc: boolean;
+  main720Avc: boolean;
+  startup540FaststartAvc: boolean;
+  startup720FaststartAvc: boolean;
+  startup1080FaststartAvc: boolean;
+  upgrade1080FaststartAvc: boolean;
+  posterHigh: boolean;
+}>;
+
+function isPartialEncodeMode(sel: VideoEncodeOnlySelection | undefined): boolean {
+  return Boolean(sel && Object.keys(sel).length > 0);
+}
+
+function wantEncode(sel: VideoEncodeOnlySelection | undefined, key: keyof VideoEncodeOnlySelection): boolean {
+  if (!isPartialEncodeMode(sel)) return true;
+  return Boolean(sel![key]);
+}
+
+function encodeConcurrency(partial: boolean): number {
+  const raw = process.env.VIDEO_ENCODE_MAX_PARALLEL?.trim();
+  if (raw) {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1) return Math.min(8, Math.floor(n));
+  }
+  return partial ? 3 : 1;
+}
+
+async function runEncodeJobsConcurrent(jobs: Array<() => Promise<void>>, concurrency: number): Promise<void> {
+  if (jobs.length === 0) return;
+  const workers = Math.max(1, Math.min(concurrency, jobs.length));
+  let next = 0;
+  const worker = async () => {
+    while (true) {
+      const i = next++;
+      if (i >= jobs.length) break;
+      const job = jobs[i];
+      if (job) await job();
+    }
+  };
+  await Promise.all(Array.from({ length: workers }, worker));
+}
+
 export type EncodedVideoAssetResult = {
   assetId: string;
   /** `videos-lab/{postId}/{assetId}` — verify lab MP4s with authenticated S3, not anonymous HTTP. */
@@ -89,6 +136,8 @@ async function encodeAvcFaststart(input: {
     "libx264",
     "-preset",
     input.preset,
+    "-threads",
+    "0",
     "-crf",
     String(input.crf),
     "-pix_fmt",
@@ -128,6 +177,8 @@ async function encodeHevcFaststart(input: {
         "libx265",
         "-preset",
         "fast",
+        "-threads",
+        "0",
         "-crf",
         String(input.crf),
         "-tag:v",
@@ -192,16 +243,31 @@ export async function encodeAndUploadVideoAsset(input: {
   workDir: string;
   ffmpegBin?: string;
   enableMain720Hevc?: boolean;
+  encodeOnly?: VideoEncodeOnlySelection;
+  onProgress?: (evt: VideoEncoderProgress) => void;
 }): Promise<EncodedVideoAssetResult> {
   const ffmpeg = input.ffmpegBin ?? "ffmpeg";
   const ffprobe = process.env.FFPROBE_BIN?.trim() || "ffprobe";
   const timings: Record<string, number> = {};
+  const tPipeline = Date.now();
+  const emit = (phase: string, detail?: string) => {
+    input.onProgress?.({ phase, detail });
+  };
+  emit("encoder_pipeline_open", `post=${input.postId} asset=${input.asset.id}`);
   const t0 = Date.now();
   const originalUrl = input.asset.original.trim();
   const localIn = path.join(input.workDir, "source_in.mp4");
+  const srcHint = originalUrl.length > 140 ? `${originalUrl.slice(0, 140)}…` : originalUrl;
+  emit("encoder_download_start", srcHint);
   await downloadToFile(originalUrl, localIn);
+  const stIn = await fs.stat(localIn);
   timings.downloadMs = Date.now() - t0;
+  emit(
+    "encoder_download_done",
+    `${timings.downloadMs}ms bytes=${stIn.size} (~${(stIn.size / (1024 * 1024)).toFixed(2)} MiB)`
+  );
 
+  emit("encoder_ffprobe_start", path.basename(localIn));
   const probe = await runFfprobeJson(localIn, ffprobe);
   const { video, audio } = pickPrimaryStreams(probe.streams);
   if (!video || typeof video.index !== "number") throw new Error("ffprobe_missing_video_stream");
@@ -210,7 +276,19 @@ export async function encodeAndUploadVideoAsset(input: {
   if (!(w > 0) || !(h > 0)) throw new Error("ffprobe_invalid_dimensions");
   const durationSec = parseDurationSeconds(probe.format, probe.streams);
   const audioIdx = audio && typeof audio.index === "number" ? audio.index : null;
+  emit(
+    "encoder_ffprobe_done",
+    `${w}x${h} dur=${durationSec.toFixed(2)}s vcodec=${String(video.codec_name ?? "?")}`
+  );
   const enable1080 = shouldGenerate1080Ladder(w, h);
+  const encodeOnly = input.encodeOnly;
+  if (isPartialEncodeMode(encodeOnly) && !Object.values(encodeOnly!).some(Boolean)) {
+    throw new Error("encode_only_empty");
+  }
+
+  const partial = isPartialEncodeMode(encodeOnly);
+  const main720Preset = partial ? "veryfast" : "medium";
+  const upgrade1080Preset = partial ? "veryfast" : "medium";
 
   const prefix = labKeyPrefix(input.postId, input.asset.id);
   const variants: Record<string, string> = {};
@@ -234,81 +312,131 @@ export async function encodeAndUploadVideoAsset(input: {
   const outPosterHigh = path.join(input.workDir, "out_poster_high.jpg");
 
   const encStart = Date.now();
-  await encodeAvcFaststart({
-    ffmpeg,
-    inputPath: localIn,
-    outputPath: outPreview,
-    videoAbsIndex: video.index,
-    audioAbsIndex: audioIdx,
-    vf: vf360,
-    crf: 24,
-    preset: "veryfast"
-  });
-  await encodeAvcFaststart({
-    ffmpeg,
-    inputPath: localIn,
-    outputPath: outMain720Avc,
-    videoAbsIndex: video.index,
-    audioAbsIndex: audioIdx,
-    vf: vf720,
-    crf: 20,
-    preset: "medium"
-  });
-  await encodeAvcFaststart({
-    ffmpeg,
-    inputPath: localIn,
-    outputPath: outStartup540,
-    videoAbsIndex: video.index,
-    audioAbsIndex: audioIdx,
-    vf: vf540,
-    crf: 26,
-    preset: "veryfast"
-  });
-  await encodeAvcFaststart({
-    ffmpeg,
-    inputPath: localIn,
-    outputPath: outStartup720,
-    videoAbsIndex: video.index,
-    audioAbsIndex: audioIdx,
-    vf: vf720,
-    crf: 24,
-    preset: "veryfast"
-  });
+  const encodeJobs: Array<() => Promise<void>> = [];
+  const pushEnc = (label: string, run: () => Promise<void>) => {
+    encodeJobs.push(async () => {
+      emit("encoder_ffmpeg_start", label);
+      const t = Date.now();
+      try {
+        await run();
+        emit("encoder_ffmpeg_done", `${label} ${Date.now() - t}ms`);
+      } catch (err) {
+        emit("encoder_ffmpeg_error", `${label} ${err instanceof Error ? err.message : String(err)}`);
+        throw err;
+      }
+    });
+  };
 
-  if (enable1080) {
-    await encodeAvcFaststart({
-      ffmpeg,
-      inputPath: localIn,
-      outputPath: outStartup1080,
-      videoAbsIndex: video.index,
-      audioAbsIndex: audioIdx,
-      vf: vf1080,
-      crf: 24,
-      preset: "veryfast"
-    });
-    await encodeAvcFaststart({
-      ffmpeg,
-      inputPath: localIn,
-      outputPath: outUpgrade1080,
-      videoAbsIndex: video.index,
-      audioAbsIndex: audioIdx,
-      vf: vf1080,
-      crf: 18,
-      preset: "medium"
-    });
+  if (wantEncode(encodeOnly, "preview360Avc")) {
+    pushEnc("preview360Avc_crf24_veryfast", () =>
+      encodeAvcFaststart({
+        ffmpeg,
+        inputPath: localIn,
+        outputPath: outPreview,
+        videoAbsIndex: video.index,
+        audioAbsIndex: audioIdx,
+        vf: vf360,
+        crf: 24,
+        preset: "veryfast"
+      })
+    );
+  }
+  if (wantEncode(encodeOnly, "main720Avc")) {
+    pushEnc(`main720Avc_crf20_${main720Preset}`, () =>
+      encodeAvcFaststart({
+        ffmpeg,
+        inputPath: localIn,
+        outputPath: outMain720Avc,
+        videoAbsIndex: video.index,
+        audioAbsIndex: audioIdx,
+        vf: vf720,
+        crf: 20,
+        preset: main720Preset
+      })
+    );
+  }
+  if (wantEncode(encodeOnly, "startup540FaststartAvc")) {
+    pushEnc("startup540FaststartAvc_crf26_veryfast", () =>
+      encodeAvcFaststart({
+        ffmpeg,
+        inputPath: localIn,
+        outputPath: outStartup540,
+        videoAbsIndex: video.index,
+        audioAbsIndex: audioIdx,
+        vf: vf540,
+        crf: 26,
+        preset: "veryfast"
+      })
+    );
+  }
+  if (wantEncode(encodeOnly, "startup720FaststartAvc")) {
+    pushEnc("startup720FaststartAvc_crf24_veryfast", () =>
+      encodeAvcFaststart({
+        ffmpeg,
+        inputPath: localIn,
+        outputPath: outStartup720,
+        videoAbsIndex: video.index,
+        audioAbsIndex: audioIdx,
+        vf: vf720,
+        crf: 24,
+        preset: "veryfast"
+      })
+    );
+  }
+  if (enable1080 && wantEncode(encodeOnly, "startup1080FaststartAvc")) {
+    pushEnc("startup1080FaststartAvc_crf24_veryfast", () =>
+      encodeAvcFaststart({
+        ffmpeg,
+        inputPath: localIn,
+        outputPath: outStartup1080,
+        videoAbsIndex: video.index,
+        audioAbsIndex: audioIdx,
+        vf: vf1080,
+        crf: 24,
+        preset: "veryfast"
+      })
+    );
+  }
+  if (enable1080 && wantEncode(encodeOnly, "upgrade1080FaststartAvc")) {
+    pushEnc(`upgrade1080FaststartAvc_crf18_${upgrade1080Preset}`, () =>
+      encodeAvcFaststart({
+        ffmpeg,
+        inputPath: localIn,
+        outputPath: outUpgrade1080,
+        videoAbsIndex: video.index,
+        audioAbsIndex: audioIdx,
+        vf: vf1080,
+        crf: 18,
+        preset: upgrade1080Preset
+      })
+    );
+  }
+  if (wantEncode(encodeOnly, "posterHigh")) {
+    pushEnc("posterHigh_jpeg", () =>
+      encodePosterHighJpeg({
+        ffmpeg,
+        inputPath: localIn,
+        outputPath: outPosterHigh,
+        videoAbsIndex: video.index,
+        vf: buildPlaybackLabScaleFilter(w, h, 1080, 1080)
+      })
+    );
   }
 
-  await encodePosterHighJpeg({
-    ffmpeg,
-    inputPath: localIn,
-    outputPath: outPosterHigh,
-    videoAbsIndex: video.index,
-    vf: buildPlaybackLabScaleFilter(w, h, 1080, 1080)
-  });
+  emit(
+    "encoder_ffprobe_summary",
+    `${w}x${h} dur=${durationSec.toFixed(2)}s audio=${audioIdx != null} 1080ladder=${enable1080} jobs=${encodeJobs.length} parallel=${encodeConcurrency(partial)}`
+  );
+  emit("encoder_transcode_batch_start", String(encodeJobs.length));
+  await runEncodeJobsConcurrent(encodeJobs, encodeConcurrency(partial));
+  emit("encoder_transcode_batch_done", `wallMs=${Date.now() - encStart}`);
 
   let hevcOk = false;
-  const hevcWanted = input.enableMain720Hevc === true || process.env.VIDEO_MAIN720_HEVC_ENABLED === "1";
+  const hevcWanted =
+    !partial && (input.enableMain720Hevc === true || process.env.VIDEO_MAIN720_HEVC_ENABLED === "1");
   if (hevcWanted) {
+    emit("encoder_ffmpeg_start", "main720Hevc_crf26_fast");
+    const tHevc = Date.now();
     hevcOk = await encodeHevcFaststart({
       ffmpeg,
       inputPath: localIn,
@@ -318,95 +446,189 @@ export async function encodeAndUploadVideoAsset(input: {
       vf: vf720,
       crf: 26
     });
+    emit("encoder_ffmpeg_done", `main720Hevc ok=${hevcOk} ${Date.now() - tHevc}ms`);
   }
   timings.encodeMs = Date.now() - encStart;
+  emit("encoder_transcode_all_done", `encodePhaseMs=${timings.encodeMs}`);
 
   const uploadOne = async (local: string, keySuffix: string, contentType: string) => {
     const key = `${prefix}/${keySuffix}`;
     return uploadFileToWasabiKey({ cfg: input.cfg, localPath: local, key, contentType });
   };
 
+  type Up = Awaited<ReturnType<typeof uploadOne>>;
+  const trackedUpload = async (label: string, work: Promise<Up | null>): Promise<Up | null> => {
+    emit("encoder_upload_start", label);
+    const t = Date.now();
+    const r = await work;
+    if (r) {
+      emit(
+        "encoder_upload_done",
+        `${label} ${Date.now() - t}ms ${Math.round(r.sizeBytes / 1024)}KiB`
+      );
+    } else {
+      emit("encoder_upload_skip", label);
+    }
+    return r;
+  };
   const upStart = Date.now();
-  const upPreview = await uploadOne(outPreview, "preview360_avc.mp4", "video/mp4");
-  const upMain720Avc = await uploadOne(outMain720Avc, "main720_avc.mp4", "video/mp4");
-  const up540 = await uploadOne(outStartup540, "startup540_faststart_avc.mp4", "video/mp4");
-  const up720 = await uploadOne(outStartup720, "startup720_faststart_avc.mp4", "video/mp4");
-  let up1080s: { startup: typeof up720; upgrade: typeof up720 } | null = null;
-  if (enable1080) {
-    up1080s = {
-      startup: await uploadOne(outStartup1080, "startup1080_faststart_avc.mp4", "video/mp4"),
-      upgrade: await uploadOne(outUpgrade1080, "upgrade1080_faststart_avc.mp4", "video/mp4")
-    };
-  }
-  const upPosterHigh = await uploadOne(outPosterHigh, "poster_high.jpg", "image/jpeg");
-  let upHevc: { publicUrl: string; sizeBytes: number } | null = null;
-  if (hevcOk) {
-    upHevc = await uploadOne(outMain720Hevc, "main720_hevc.mp4", "video/mp4");
-  }
+  emit("encoder_upload_batch_start", "wasabi_parallel_puts");
+  const [
+    upPreview,
+    upMain720Avc,
+    up540,
+    up720,
+    up1080Startup,
+    up1080Upgrade,
+    upPosterHigh,
+    upHevc
+  ] = await Promise.all([
+    trackedUpload(
+      "preview360_avc.mp4",
+      wantEncode(encodeOnly, "preview360Avc")
+        ? uploadOne(outPreview, "preview360_avc.mp4", "video/mp4")
+        : Promise.resolve(null as Up | null)
+    ),
+    trackedUpload(
+      "main720_avc.mp4",
+      wantEncode(encodeOnly, "main720Avc")
+        ? uploadOne(outMain720Avc, "main720_avc.mp4", "video/mp4")
+        : Promise.resolve(null as Up | null)
+    ),
+    trackedUpload(
+      "startup540_faststart_avc.mp4",
+      wantEncode(encodeOnly, "startup540FaststartAvc")
+        ? uploadOne(outStartup540, "startup540_faststart_avc.mp4", "video/mp4")
+        : Promise.resolve(null as Up | null)
+    ),
+    trackedUpload(
+      "startup720_faststart_avc.mp4",
+      wantEncode(encodeOnly, "startup720FaststartAvc")
+        ? uploadOne(outStartup720, "startup720_faststart_avc.mp4", "video/mp4")
+        : Promise.resolve(null as Up | null)
+    ),
+    trackedUpload(
+      "startup1080_faststart_avc.mp4",
+      enable1080 && wantEncode(encodeOnly, "startup1080FaststartAvc")
+        ? uploadOne(outStartup1080, "startup1080_faststart_avc.mp4", "video/mp4")
+        : Promise.resolve(null as Up | null)
+    ),
+    trackedUpload(
+      "upgrade1080_faststart_avc.mp4",
+      enable1080 && wantEncode(encodeOnly, "upgrade1080FaststartAvc")
+        ? uploadOne(outUpgrade1080, "upgrade1080_faststart_avc.mp4", "video/mp4")
+        : Promise.resolve(null as Up | null)
+    ),
+    trackedUpload(
+      "poster_high.jpg",
+      wantEncode(encodeOnly, "posterHigh")
+        ? uploadOne(outPosterHigh, "poster_high.jpg", "image/jpeg")
+        : Promise.resolve(null as Up | null)
+    ),
+    trackedUpload(
+      "main720_hevc.mp4",
+      hevcOk ? uploadOne(outMain720Hevc, "main720_hevc.mp4", "video/mp4") : Promise.resolve(null as Up | null)
+    )
+  ]);
+  const up1080s =
+    up1080Startup || up1080Upgrade ? { startup: up1080Startup, upgrade: up1080Upgrade } : null;
   timings.uploadMs = Date.now() - upStart;
+  emit("encoder_upload_batch_done", `${timings.uploadMs}ms`);
 
-  const previewUrl = upPreview.publicUrl;
-  const main720AvcUrl = upMain720Avc.publicUrl;
+  const previewUrl = upPreview?.publicUrl ?? "";
+  const main720AvcUrl = upMain720Avc?.publicUrl ?? "";
   const main720Url = upHevc?.publicUrl ?? main720AvcUrl;
 
-  variants.preview360 = previewUrl;
-  variants.preview360Avc = previewUrl;
-  variants.main720Avc = main720AvcUrl;
-  variants.main720 = main720Url;
-  if (enable1080 && up1080s) {
+  if (upPreview) {
+    variants.preview360 = previewUrl;
+    variants.preview360Avc = previewUrl;
+  }
+  if (upMain720Avc) {
+    variants.main720Avc = main720AvcUrl;
+  }
+  if (upHevc || upMain720Avc) {
+    variants.main720 = main720Url;
+  }
+  if (enable1080 && up1080s?.upgrade?.publicUrl) {
     variants.main1080 = up1080s.upgrade.publicUrl;
     variants.main1080Avc = up1080s.upgrade.publicUrl;
   }
 
   const previewW = w >= h ? Math.round((360 * w) / h) : 360;
   const previewH = w >= h ? 360 : Math.round((360 * h) / w);
-  variantMetadata.preview360 = {
-    codec: "h264",
-    width: previewW,
-    height: previewH,
-    sizeBytes: upPreview.sizeBytes,
-    bitrateKbps: bitrateKbpsFromFile(upPreview.sizeBytes, durationSec)
-  };
-  variantMetadata.preview360Avc = variantMetadata.preview360;
+  if (upPreview) {
+    variantMetadata.preview360 = {
+      codec: "h264",
+      width: previewW,
+      height: previewH,
+      sizeBytes: upPreview.sizeBytes,
+      bitrateKbps: bitrateKbpsFromFile(upPreview.sizeBytes, durationSec)
+    };
+    variantMetadata.preview360Avc = variantMetadata.preview360;
+  }
   const m720W = w >= h ? Math.round((720 * w) / h) : 720;
   const m720H = w >= h ? 720 : Math.round((720 * h) / w);
-  variantMetadata.main720Avc = {
-    codec: "h264",
-    width: m720W,
-    height: m720H,
-    sizeBytes: upMain720Avc.sizeBytes,
-    bitrateKbps: bitrateKbpsFromFile(upMain720Avc.sizeBytes, durationSec)
-  };
-  variantMetadata.main720 =
-    upHevc != null
-      ? { codec: "hevc", width: m720W, height: m720H, sizeBytes: upHevc.sizeBytes, bitrateKbps: bitrateKbpsFromFile(upHevc.sizeBytes, durationSec) }
-      : { codec: "h264", width: m720W, height: m720H, sizeBytes: upMain720Avc.sizeBytes, bitrateKbps: bitrateKbpsFromFile(upMain720Avc.sizeBytes, durationSec) };
+  if (upMain720Avc) {
+    variantMetadata.main720Avc = {
+      codec: "h264",
+      width: m720W,
+      height: m720H,
+      sizeBytes: upMain720Avc.sizeBytes,
+      bitrateKbps: bitrateKbpsFromFile(upMain720Avc.sizeBytes, durationSec)
+    };
+  }
+  if (upHevc != null || upMain720Avc != null) {
+    variantMetadata.main720 =
+      upHevc != null
+        ? {
+            codec: "hevc",
+            width: m720W,
+            height: m720H,
+            sizeBytes: upHevc.sizeBytes,
+            bitrateKbps: bitrateKbpsFromFile(upHevc.sizeBytes, durationSec)
+          }
+        : {
+            codec: "h264",
+            width: m720W,
+            height: m720H,
+            sizeBytes: upMain720Avc!.sizeBytes,
+            bitrateKbps: bitrateKbpsFromFile(upMain720Avc!.sizeBytes, durationSec)
+          };
+  }
 
   const lab = playbackLabGenerated;
-  lab.startup540FaststartAvc = up540.publicUrl;
-  lab.startup720FaststartAvc = up720.publicUrl;
-  lab.startup540Faststart = up540.publicUrl;
-  lab.startup720Faststart = up720.publicUrl;
-  if (enable1080 && up1080s) {
+  if (up540) {
+    lab.startup540FaststartAvc = up540.publicUrl;
+    lab.startup540Faststart = up540.publicUrl;
+  }
+  if (up720) {
+    lab.startup720FaststartAvc = up720.publicUrl;
+    lab.startup720Faststart = up720.publicUrl;
+  }
+  if (up1080s?.startup) {
     lab.startup1080FaststartAvc = up1080s.startup.publicUrl;
     lab.startup1080Faststart = up1080s.startup.publicUrl;
+  }
+  if (up1080s?.upgrade) {
     lab.upgrade1080FaststartAvc = up1080s.upgrade.publicUrl;
     lab.upgrade1080Faststart = up1080s.upgrade.publicUrl;
   }
-  lab.posterHigh = upPosterHigh.publicUrl;
+  if (upPosterHigh) {
+    lab.posterHigh = upPosterHigh.publicUrl;
+  }
 
   const metaBase = (label: string, codec: string): Record<string, unknown> => ({
     outputCodec: codec,
     generationType: "reencode_resize",
     label
   });
-  generationMetadata.startup540FaststartAvc = metaBase("startup540FaststartAvc", "h264");
-  generationMetadata.startup720FaststartAvc = metaBase("startup720FaststartAvc", "h264");
-  if (enable1080 && up1080s) {
-    generationMetadata.startup1080FaststartAvc = metaBase("startup1080FaststartAvc", "h264");
-    generationMetadata.upgrade1080FaststartAvc = metaBase("upgrade1080FaststartAvc", "h264");
+  if (up540) generationMetadata.startup540FaststartAvc = metaBase("startup540FaststartAvc", "h264");
+  if (up720) generationMetadata.startup720FaststartAvc = metaBase("startup720FaststartAvc", "h264");
+  if (up1080s?.startup) generationMetadata.startup1080FaststartAvc = metaBase("startup1080FaststartAvc", "h264");
+  if (up1080s?.upgrade) generationMetadata.upgrade1080FaststartAvc = metaBase("upgrade1080FaststartAvc", "h264");
+  if (upPosterHigh) {
+    generationMetadata.posterHigh = { outputCodec: "jpeg", generationType: "frame_grab", label: "posterHigh" };
   }
-  generationMetadata.posterHigh = { outputCodec: "jpeg", generationType: "frame_grab", label: "posterHigh" };
 
   const verifyLocalMoov = async (label: string, file: string, publicUrl: string) => {
     const buf = await fs.readFile(file);
@@ -420,21 +642,31 @@ export async function encodeAndUploadVideoAsset(input: {
     if (hint !== "moov_before_mdat_in_prefix") throw new Error(`local_moov_verify_failed:${label}`);
   };
 
-  await verifyLocalMoov("preview360Avc", outPreview, previewUrl);
-  await verifyLocalMoov("main720Avc", outMain720Avc, main720AvcUrl);
-  await verifyLocalMoov("startup540FaststartAvc", outStartup540, up540.publicUrl);
-  await verifyLocalMoov("startup720FaststartAvc", outStartup720, up720.publicUrl);
-  if (enable1080 && up1080s) {
-    await verifyLocalMoov("startup1080FaststartAvc", outStartup1080, up1080s.startup.publicUrl);
-    await verifyLocalMoov("upgrade1080FaststartAvc", outUpgrade1080, up1080s.upgrade.publicUrl);
+  const verifyTasks: Array<Promise<void>> = [];
+  if (upPreview) verifyTasks.push(verifyLocalMoov("preview360Avc", outPreview, previewUrl));
+  if (upMain720Avc) verifyTasks.push(verifyLocalMoov("main720Avc", outMain720Avc, main720AvcUrl));
+  if (up540) verifyTasks.push(verifyLocalMoov("startup540FaststartAvc", outStartup540, up540.publicUrl));
+  if (up720) verifyTasks.push(verifyLocalMoov("startup720FaststartAvc", outStartup720, up720.publicUrl));
+  if (up1080s?.startup) {
+    verifyTasks.push(verifyLocalMoov("startup1080FaststartAvc", outStartup1080, up1080s.startup.publicUrl));
+  }
+  if (up1080s?.upgrade) {
+    verifyTasks.push(verifyLocalMoov("upgrade1080FaststartAvc", outUpgrade1080, up1080s.upgrade.publicUrl));
   }
   if (upHevc) {
-    await verifyLocalMoov("main720", outMain720Hevc, upHevc.publicUrl);
+    verifyTasks.push(verifyLocalMoov("main720", outMain720Hevc, upHevc.publicUrl));
   }
+  emit("encoder_moov_verify_start", `files=${verifyTasks.length}`);
+  const tMoov = Date.now();
+  await Promise.all(verifyTasks);
+  emit("encoder_moov_verify_done", `${Date.now() - tMoov}ms`);
+
+  emit("encoder_pipeline_complete", `totalMs=${Date.now() - tPipeline}`);
 
   const diagnostics = {
     generationPolicyVersion: "backend_v2_video_pipeline_v1",
     timingsMs: timings,
+    encodeMode: partial ? "partial_selection" : "full_ladder",
     source: {
       width: w,
       height: h,
@@ -443,18 +675,14 @@ export async function encodeAndUploadVideoAsset(input: {
       audioCodec: audio ? String(audio.codec_name ?? "") : null
     },
     outputs: {
-      preview360Avc: previewUrl,
-      main720Avc: main720AvcUrl,
-      main720: main720Url,
-      startup540FaststartAvc: up540.publicUrl,
-      startup720FaststartAvc: up720.publicUrl,
-      ...(enable1080 && up1080s
-        ? {
-            startup1080FaststartAvc: up1080s.startup.publicUrl,
-            upgrade1080FaststartAvc: up1080s.upgrade.publicUrl
-          }
-        : {}),
-      posterHigh: upPosterHigh.publicUrl
+      ...(previewUrl ? { preview360Avc: previewUrl } : {}),
+      ...(main720AvcUrl ? { main720Avc: main720AvcUrl } : {}),
+      ...(main720Url ? { main720: main720Url } : {}),
+      ...(up540 ? { startup540FaststartAvc: up540.publicUrl } : {}),
+      ...(up720 ? { startup720FaststartAvc: up720.publicUrl } : {}),
+      ...(up1080s?.startup ? { startup1080FaststartAvc: up1080s.startup.publicUrl } : {}),
+      ...(up1080s?.upgrade ? { upgrade1080FaststartAvc: up1080s.upgrade.publicUrl } : {}),
+      ...(upPosterHigh ? { posterHigh: upPosterHigh.publicUrl } : {})
     }
   };
 
