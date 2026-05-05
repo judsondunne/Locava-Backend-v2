@@ -4,7 +4,6 @@
  * owned JSON builders should attach `appPost` using shared helpers when feasible (see audit docs).
  */
 import type { FastifyInstance, FastifyReply } from "fastify";
-import multipart from "@fastify/multipart";
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import type { AppEnv } from "../../config/env.js";
 import type { ProductCompatViewer } from "./compat-viewer-payload.js";
@@ -49,9 +48,6 @@ function normalizeCompatPostRow(row: Record<string, unknown>): Record<string, un
  * `legacy-product-upload.routes.ts` (+ optional monolith proxy for create-from-staged).
  */
 export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: AppEnv): Promise<void> {
-  await app.register(multipart, {
-    limits: { fileSize: 25 * 1024 * 1024, files: 1 }
-  });
   const db = _env.FIRESTORE_SOURCE_ENABLED ? getFirestoreSourceClient() : null;
   const userActivityService = new UserActivityService(userActivityRepository);
   const chatsService = new ChatsService(chatsRepository);
@@ -472,133 +468,6 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     }
   });
 
-  /**
-   * Native report sheet expects the classic monolith endpoint even when pointed at Backendv2:
-   * `POST /api/reports/post` → { success: true, reportId }
-   *
-   * Persist to Firestore collection `reportedPosts` with the same fields as Backend v1.
-   */
-  app.post<{
-    Body: {
-      postId?: unknown;
-      reason?: unknown;
-      category?: unknown;
-      severity?: unknown;
-      additionalDetails?: unknown;
-    };
-  }>("/api/reports/post", async (request, reply) => {
-    setRouteName("compat.reports.post.post");
-    const viewerId = resolveCompatViewerId(request);
-    if (!viewerId || viewerId === "anonymous") {
-      return reply.status(401).send({ success: false, error: "User not authenticated" });
-    }
-
-    const body = (request.body ?? {}) as Record<string, unknown>;
-    const postId = typeof body.postId === "string" ? body.postId.trim() : String(body.postId ?? "").trim();
-    const reason = typeof body.reason === "string" ? body.reason.trim() : String(body.reason ?? "").trim();
-    if (!postId || !reason) {
-      return reply.status(400).send({ success: false, error: "Post ID and reason are required" });
-    }
-
-    const allowedCategories = ["spam", "inappropriate", "harassment", "violence", "copyright", "other"] as const;
-    const allowedSeverities = ["low", "medium", "high", "critical"] as const;
-    const categoryRaw = typeof body.category === "string" ? body.category.trim().toLowerCase() : "";
-    const severityRaw = typeof body.severity === "string" ? body.severity.trim().toLowerCase() : "";
-    const category = (allowedCategories as readonly string[]).includes(categoryRaw) ? categoryRaw : "other";
-    const severity = (allowedSeverities as readonly string[]).includes(severityRaw) ? severityRaw : "medium";
-    const additionalDetails = typeof body.additionalDetails === "string" ? body.additionalDetails : "";
-
-    if (!db) {
-      return reply.status(201).send({ success: true, reportId: `mock-report-${Date.now()}` });
-    }
-
-    try {
-      const docRef = await db.collection("reportedPosts").add({
-        postId,
-        reason,
-        reporterId: viewerId,
-        reportedAt: FieldValue.serverTimestamp(),
-        status: "pending",
-        severity,
-        category,
-        additionalDetails
-      });
-      incrementDbOps("writes", 1);
-      return reply.status(201).send({ success: true, reportId: docRef.id });
-    } catch (error) {
-      request.log.error(
-        { routeName: "compat.reports.post.post", viewerId, postId, error: error instanceof Error ? error.message : String(error) },
-        "compat report post failed"
-      );
-      return reply.status(500).send({ success: false, error: "Failed to report post" });
-    }
-  });
-
-  /**
-   * Legacy route parity for place reporting:
-   * `POST /api/reports/place` → { success: true, reportId }
-   */
-  app.post<{
-    Body: {
-      placeId?: unknown;
-      reason?: unknown;
-      category?: unknown;
-      severity?: unknown;
-      additionalDetails?: unknown;
-    };
-  }>("/api/reports/place", async (request, reply) => {
-    setRouteName("compat.reports.place.post");
-    const viewerId = resolveCompatViewerId(request);
-    if (!viewerId || viewerId === "anonymous") {
-      return reply.status(401).send({ success: false, error: "User not authenticated" });
-    }
-
-    const body = (request.body ?? {}) as Record<string, unknown>;
-    const placeId = typeof body.placeId === "string" ? body.placeId.trim() : String(body.placeId ?? "").trim();
-    const reason = typeof body.reason === "string" ? body.reason.trim() : String(body.reason ?? "").trim();
-    if (!placeId || !reason) {
-      return reply.status(400).send({ success: false, error: "Place ID and reason are required" });
-    }
-
-    const allowedCategories = ["spam", "inappropriate", "harassment", "violence", "copyright", "other"] as const;
-    const allowedSeverities = ["low", "medium", "high", "critical"] as const;
-    const categoryRaw = typeof body.category === "string" ? body.category.trim().toLowerCase() : "";
-    const severityRaw = typeof body.severity === "string" ? body.severity.trim().toLowerCase() : "";
-    const category = (allowedCategories as readonly string[]).includes(categoryRaw) ? categoryRaw : "other";
-    const severity = (allowedSeverities as readonly string[]).includes(severityRaw) ? severityRaw : "medium";
-    const additionalDetails = typeof body.additionalDetails === "string" ? body.additionalDetails : "";
-
-    if (!db) {
-      return reply.status(201).send({ success: true, reportId: `mock-place-report-${Date.now()}` });
-    }
-
-    try {
-      const docRef = await db.collection("reportedPlaces").add({
-        placeId,
-        reason,
-        reporterId: viewerId,
-        reportedAt: FieldValue.serverTimestamp(),
-        status: "pending",
-        severity,
-        category,
-        additionalDetails
-      });
-      incrementDbOps("writes", 1);
-      return reply.status(201).send({ success: true, reportId: docRef.id });
-    } catch (error) {
-      request.log.error(
-        {
-          routeName: "compat.reports.place.post",
-          viewerId,
-          placeId,
-          error: error instanceof Error ? error.message : String(error)
-        },
-        "compat report place failed"
-      );
-      return reply.status(500).send({ success: false, error: "Failed to report place" });
-    }
-  });
-
   app.get("/api/config/video-compression", async (request, reply) => {
     const fileSizeRaw = Number((request.query as { fileSizeBytes?: string | number }).fileSizeBytes ?? 0);
     const assetTypeRaw = String((request.query as { assetType?: string }).assetType ?? "video").toLowerCase();
@@ -912,7 +781,8 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       coverUri,
       displayPhotoUrl: coverUri,
       mixCoverThumbUrls,
-      mixInitialPosts: Array.isArray(c.mixInitialPosts) ? c.mixInitialPosts : []
+      mixInitialPosts: Array.isArray(c.mixInitialPosts) ? c.mixInitialPosts : [],
+      ...(c.generatedBy && typeof c.generatedBy === "object" ? { generatedBy: c.generatedBy } : {}),
     };
   }
 
@@ -2100,6 +1970,53 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       return reply.send({ success: true, collections: [] });
     }
   });
+
+  app.post("/api/v1/product/collections/generated", async (request, reply) => {
+    const viewerId = resolveCompatViewerId(request);
+    if (!viewerId) {
+      return reply.status(401).send({ success: false, error: "User not authenticated" });
+    }
+    const body = (request.body ?? {}) as Record<string, unknown>;
+    const v2 = await callV2PostWithStatus("/v2/collections/generated", viewerId, body);
+    if (v2.statusCode < 200 || v2.statusCode >= 300) {
+      const code = v2.statusCode === 403 ? 403 : v2.statusCode === 400 ? 400 : 503;
+      return reply.status(code).send({
+        success: false,
+        error: compatErrorMessage(v2.payload),
+      });
+    }
+    const data = v2Data(v2.payload);
+    const collectionId = String(data.collectionId ?? "").trim();
+    if (!collectionId) {
+      return reply.status(503).send({ success: false, error: "missing_collection_id" });
+    }
+    const detail = await callV2Get(`/v2/collections/${encodeURIComponent(collectionId)}`, viewerId);
+    const item = detail ? (v2Data(detail).item as Record<string, unknown> | undefined) : undefined;
+    if (!item) {
+      return reply.status(201).send({
+        success: true,
+        collectionId,
+        collection: {
+          id: collectionId,
+          collectionId,
+          name: "Mix",
+          title: "Mix",
+          ownerId: viewerId,
+          privacy: "public",
+          description: "",
+          items: [],
+          collaborators: [viewerId],
+          itemsCount: 0,
+        },
+      });
+    }
+    return reply.status(201).send({
+      success: true,
+      collectionId,
+      collection: mapV2CollectionToLegacy(item),
+    });
+  });
+
   app.post("/api/v1/product/collections/system-mixes/bootstrap", async (request, reply) => {
     const viewerId = resolveCompatViewerId(request);
     const cached = mixBootstrapCache.get(viewerId);
@@ -2313,46 +2230,7 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     async (request, reply) => handleCollectionCoverUpload(request, reply)
   );
 
-  /**
-   * Legacy chat photo upload parity.
-   * Native expects: POST /api/media/upload-photo (multipart field "file") → { success, url }.
-   * Backendv2 owns this path when EXPO_PUBLIC_BACKEND_URL points at v2.
-   */
-  app.post("/api/media/upload-photo", async (request, reply) => {
-    const viewerId = resolveCompatViewerId(request);
-    if (!viewerId || viewerId === "anonymous") {
-      return reply.status(401).send({ success: false, error: "Unauthorized" });
-    }
-    const part = await request.file();
-    if (!part) {
-      return reply.status(400).send({ success: false, error: "file required" });
-    }
-    const cfg = getWasabiConfigOrNull();
-    if (!cfg) {
-      return reply.status(503).send({ success: false, error: "Wasabi configuration unavailable" });
-    }
-    const fileBuffer = await part.toBuffer();
-    if (!fileBuffer.length) {
-      return reply.status(400).send({ success: false, error: "empty file" });
-    }
-    const ext =
-      typeof part.mimetype === "string" && part.mimetype.toLowerCase().includes("png") ? "png" : "jpg";
-    const destinationKey = `chatPhotos/${viewerId}/${Date.now()}-${Math.random().toString(36).slice(2, 10)}.${ext}`;
-    const upload = await uploadPostSessionStagingFromBuffer(
-      cfg,
-      viewerId,
-      `chat-photo-${viewerId}`,
-      0,
-      "photo",
-      fileBuffer,
-      { destinationKey, contentType: part.mimetype || "image/jpeg" }
-    );
-    if (!upload.success) {
-      return reply.status(500).send({ success: false, error: upload.error ?? "chat_photo_upload_failed" });
-    }
-    const url = wasabiPublicUrlForKey(cfg, destinationKey);
-    return reply.send({ success: true, url });
-  });
+  /** `POST /api/media/upload-photo` is registered in `native-chat-media-upload.routes.ts` (always on). */
   app.post<{ Params: { collectionId: string; collaboratorId: string } }>(
     "/api/v1/product/collections/:collectionId/collaborators/:collaboratorId",
     async (request, reply) => {
@@ -2934,6 +2812,9 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     const chatId = String(body.chatId ?? "").trim();
     const photoUrl = String(body.photoUrl ?? "").trim();
     const senderId = String(body.senderId ?? "").trim();
+    const replyingToRaw = body.replyingTo ?? body.replyingToMessageId ?? body.replyToMessageId;
+    const replyingToMessageId =
+      typeof replyingToRaw === "string" && replyingToRaw.trim().length > 0 ? replyingToRaw.trim() : "";
     if (!chatId || !photoUrl) {
       return reply.status(400).send({ success: false, error: "Chat ID and photoUrl are required" });
     }
@@ -2945,7 +2826,11 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
         `/v2/chats/${encodeURIComponent(chatId)}/messages`,
         viewerId,
         "/api/v1/product/chats/send-photo-message",
-        { messageType: "photo", photoUrl }
+        {
+          messageType: "photo",
+          photoUrl,
+          ...(replyingToMessageId ? { replyingToMessageId } : {})
+        }
       );
       const msg = (v2Data(v2).message as Record<string, unknown> | undefined) ?? {};
       return reply.send({ success: true, messageId: String(msg.messageId ?? "") });

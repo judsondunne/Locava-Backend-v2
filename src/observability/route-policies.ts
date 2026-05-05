@@ -133,6 +133,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "required",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
   },
+  "profile.achievements_overview.get": {
+    routeName: "profile.achievements_overview.get",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 140, p95Ms: 320 },
+      dbOps: { maxReadsCold: 45, maxQueriesCold: 5, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 120_000, targetBytes: 45_000 }
+    },
+    cacheExpectation: "required",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 3 }
+  },
   "profile.liked_posts.get": {
     routeName: "profile.liked_posts.get",
     priority: "deferred_interactive",
@@ -1081,6 +1092,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
       payload: { maxBytes: 900_000, targetBytes: 780_000 }
     },
     cacheExpectation: "required",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "map.current_weather.get": {
+    routeName: "map.current_weather.get",
+    priority: "background",
+    budgets: {
+      latency: { p50Ms: 400, p95Ms: 2_000 },
+      dbOps: { maxReadsCold: 0, maxQueriesCold: 0, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 4_000, targetBytes: 800 }
+    },
+    cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
   },
   "search.suggest.get": {

@@ -7,7 +7,7 @@ describe("compat /api/reports/*", () => {
       NODE_ENV: "test",
       LOG_LEVEL: "silent",
       FIRESTORE_SOURCE_ENABLED: false,
-      ENABLE_LEGACY_COMPAT_ROUTES: true
+      ENABLE_LEGACY_COMPAT_ROUTES: false
     });
     try {
       const res = await app.inject({
@@ -35,7 +35,7 @@ describe("compat /api/reports/*", () => {
       NODE_ENV: "test",
       LOG_LEVEL: "silent",
       FIRESTORE_SOURCE_ENABLED: false,
-      ENABLE_LEGACY_COMPAT_ROUTES: true
+      ENABLE_LEGACY_COMPAT_ROUTES: false
     });
     try {
       const res = await app.inject({
@@ -56,7 +56,7 @@ describe("compat /api/reports/*", () => {
       NODE_ENV: "test",
       LOG_LEVEL: "silent",
       FIRESTORE_SOURCE_ENABLED: false,
-      ENABLE_LEGACY_COMPAT_ROUTES: true
+      ENABLE_LEGACY_COMPAT_ROUTES: false
     });
     try {
       const res = await app.inject({

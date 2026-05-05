@@ -45,6 +45,11 @@ export type FirestoreCollectionRecord = {
     canManageCollaborators: boolean;
   };
   kind: "backend";
+  /** Raw Firestore `collections.kind` (e.g. system_mix). Distinct from API `kind: backend`. */
+  sourceKind?: string;
+  systemManaged?: boolean;
+  systemMix?: Record<string, unknown>;
+  generatedBy?: Record<string, unknown>;
 };
 
 export type FirestoreCollectionPostEdge = {
@@ -292,7 +297,7 @@ function mapCollectionData(docId: string, data: Record<string, unknown>, viewerI
   const privacy = normalizePrivacy(
     data.privacy ?? (normalizeBooleanish(data.isPublic) ? "public" : "private")
   );
-  return {
+    return {
     id: docId,
     ownerId,
     userId,
@@ -332,6 +337,11 @@ function mapCollectionData(docId: string, data: Record<string, unknown>, viewerI
       canManageCollaborators: isOwner,
     },
     kind: "backend",
+    sourceKind: typeof data.kind === "string" && data.kind.trim() ? String(data.kind).trim() : undefined,
+    systemManaged: data.systemManaged === true ? true : undefined,
+    systemMix: data.systemMix && typeof data.systemMix === "object" ? (data.systemMix as Record<string, unknown>) : undefined,
+    generatedBy:
+      data.generatedBy && typeof data.generatedBy === "object" ? (data.generatedBy as Record<string, unknown>) : undefined,
   };
 }
 
@@ -358,11 +368,39 @@ function isCollectionMarkedDeleted(viewerId: string, collectionId: string): bool
   return RECENTLY_DELETED_COLLECTION_IDS_BY_VIEWER.get(viewerId)?.has(collectionId) ?? false;
 }
 
+/** Server-owned mixes only — viewer prompt mixes use `generatedBy` and must remain readable/updatable. */
 function isSystemOrGeneratedCollection(data: Record<string, unknown>): boolean {
   if (data.systemManaged === true) return true;
   if (typeof data.kind === "string" && data.kind === "system_mix") return true;
   if (data.systemMix && typeof data.systemMix === "object") return true;
-  if (data.generatedBy && typeof data.generatedBy === "object") return true;
+  return false;
+}
+
+function shouldStripFromViewerCollectionIndex(row: FirestoreCollectionRecord): boolean {
+  if (row.systemManaged === true) return true;
+  if (row.sourceKind === "system_mix") return true;
+  if (row.systemMix && typeof row.systemMix === "object") return true;
+  if (isLegacyStableSystemMixCollectionId(row.ownerId, row.id)) return true;
+  return false;
+}
+
+/** Legacy stable system mix doc ids: `mix_${ownerId}_${slotKey}` (daily, friends, activity_*, …). */
+export function isLegacyStableSystemMixCollectionId(ownerId: string, collectionId: string): boolean {
+  const o = String(ownerId ?? "").trim();
+  const id = String(collectionId ?? "").trim();
+  if (!o || !id) return false;
+  return id.startsWith(`mix_${o}_`);
+}
+
+/**
+ * Collections list / profile grid: only hand-curated collections (not system mixes, not prompt blends/mixes).
+ */
+export function isExcludedFromHandCuratedCollectionsList(row: FirestoreCollectionRecord): boolean {
+  if (row.systemManaged === true) return true;
+  if (row.sourceKind === "system_mix") return true;
+  if (row.systemMix && typeof row.systemMix === "object") return true;
+  if (row.generatedBy && typeof row.generatedBy === "object") return true;
+  if (isLegacyStableSystemMixCollectionId(row.ownerId, row.id)) return true;
   return false;
 }
 
@@ -533,6 +571,7 @@ export class CollectionsFirestoreAdapter {
     const records = raw
       .filter((row): row is StoredCollectionIndexRecord => Boolean(row && typeof row === "object"))
       .map((row) => fromStoredCollectionIndexRecord(viewerId, row))
+      .filter((row) => !isExcludedFromHandCuratedCollectionsList(row))
       .sort(sortCollectionsDesc);
     records.forEach((record) => queueCacheWrite(this.collectionCacheKey(viewerId, record.id), record, 30_000));
     return records;
@@ -677,6 +716,10 @@ export class CollectionsFirestoreAdapter {
       "description",
       "privacy",
       "isPublic",
+      "kind",
+      "systemManaged",
+      "systemMix",
+      "generatedBy",
       "collaborators",
       "collaboratorInfo",
       "items",
@@ -777,6 +820,10 @@ export class CollectionsFirestoreAdapter {
           canManageCollaborators: collection.ownerId === viewerId
         }
       };
+      if (shouldStripFromViewerCollectionIndex(viewerScopedCollection)) {
+        await this.removeCollectionFromViewerIndexes([viewerId], collection.id);
+        continue;
+      }
       queueCacheWrite(this.collectionCacheKey(viewerId, collection.id), viewerScopedCollection, 30_000);
       const cachedUserDoc = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId));
       const raw = cachedUserDoc?.[CollectionsFirestoreAdapter.INDEX_FIELD];

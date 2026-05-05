@@ -83,8 +83,12 @@ export async function registerV2ChatsManageRoutes(app: FastifyInstance): Promise
     const params = ConversationParamsSchema.parse(request.params);
     setRouteName(chatsDeleteContract.routeName);
     try {
-      // invalidation: deleting a conversation invalidates inbox ordering and thread detail caches.
       const result = await service.deleteConversation({ viewerId: viewer.viewerId, conversationId: params.conversationId });
+      await invalidateEntitiesForMutation({
+        mutationType: "chat.deleteconversation",
+        viewerId: viewer.viewerId,
+        conversationId: params.conversationId,
+      });
       return success({ routeName: chatsDeleteContract.routeName, ...result });
     } catch (error) {
       if (error instanceof ChatsRepositoryError && error.code === "conversation_not_found") {

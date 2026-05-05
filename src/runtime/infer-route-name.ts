@@ -14,6 +14,7 @@ const ROUTE_INDEX: Entry[] = [
   { method: "POST", path: "/v2/analytics/events", routeName: "analytics.events.post" },
   { method: "GET", path: "/v2/search/home-bootstrap", routeName: "search.home_bootstrap.v1" },
   { method: "GET", path: "/v2/auth/session", routeName: "auth.session.get" },
+  { method: "GET", path: "/v2/map/current-weather", routeName: "map.current_weather.get" },
   { method: "GET", path: "/v2/map/markers", routeName: "map.markers.get" },
   { method: "GET", path: "/v2/map/bootstrap", routeName: "map.bootstrap.get" },
   { method: "POST", path: "/v2/posts/details:batch", routeName: "posts.detail.batch" },

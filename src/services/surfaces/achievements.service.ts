@@ -94,6 +94,13 @@ export class AchievementsService {
     );
   }
 
+  /** Read-only achievements snapshot for viewing another user's profile (no writes / lazy init). */
+  async loadPublicProfileSnapshot(subjectUserId: string): Promise<AchievementSnapshot> {
+    return dedupeInFlight(`achievements:snapshot-public:${subjectUserId}`, () =>
+      withConcurrencyLimit("achievements-snapshot-repo", 6, () => this.repository.getSnapshotPublicReadOnly(subjectUserId))
+    );
+  }
+
   async loadStatusSurface(viewerId: string): Promise<AchievementsCanonicalStatus> {
     return dedupeInFlight(`achievements:status:${viewerId}`, () =>
       withConcurrencyLimit("achievements-status-repo", 6, () => this.repository.getCanonicalStatus(viewerId))

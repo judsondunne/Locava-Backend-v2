@@ -3,7 +3,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
-import multipart from "@fastify/multipart";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { AppEnv } from "../../config/env.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
@@ -235,15 +234,7 @@ export async function registerLegacyProductUploadRoutes(app: FastifyInstance, en
     }
   });
 
-  await app.register(async (scoped) => {
-    await scoped.register(multipart, {
-      limits: {
-        fileSize: MAX_STAGING_UPLOAD_BYTES,
-        files: 2
-      }
-    });
-
-    scoped.post("/api/v1/product/upload/stage-asset", async (request, reply) => {
+  app.post("/api/v1/product/upload/stage-asset", async (request, reply) => {
       const viewerId = resolveCompatViewerId(request);
       if (!viewerId || viewerId === "anonymous") {
         return reply.status(401).send({ success: false, error: "Unauthorized" });
@@ -302,7 +293,7 @@ export async function registerLegacyProductUploadRoutes(app: FastifyInstance, en
       }
     });
 
-    scoped.post("/api/v1/product/upload/stage-poster", async (request, reply) => {
+  app.post("/api/v1/product/upload/stage-poster", async (request, reply) => {
       const viewerId = resolveCompatViewerId(request);
       if (!viewerId || viewerId === "anonymous") {
         return reply.status(401).send({ success: false, error: "Unauthorized" });
@@ -349,7 +340,6 @@ export async function registerLegacyProductUploadRoutes(app: FastifyInstance, en
         kind: "poster"
       });
     });
-  });
 
   await app.register(async (bin) => {
     bin.addContentTypeParser(

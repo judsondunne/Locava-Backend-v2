@@ -1,0 +1,6852 @@
+{
+  "generatedAt": "2026-05-04T22:40:11.360Z",
+  "root": "Locava Backendv2/src",
+  "totalHits": 12710,
+  "uniqueFiles": 571,
+  "buckets": [
+    "chat_shared_post_preview",
+    "collection_selector",
+    "detail_hydration",
+    "in_memory_filter",
+    "legacy_compat_proxy",
+    "map_cluster_marker",
+    "mix_generation",
+    "needs_manual_review",
+    "notification_post_preview",
+    "profile_grid_selector",
+    "query_filter_firestore_index",
+    "ranking_algorithm",
+    "search_algorithm",
+    "selector_helper",
+    "test_fixture"
+  ],
+  "termCounts": {
+    "feed_for_you": 1521,
+    "userId_author": 1518,
+    "map_radius": 1499,
+    "lat_lng": 1114,
+    "collection_posts": 1054,
+    "time_created": 994,
+    "search_mix": 765,
+    "title_content_search": 749,
+    "assets_length": 683,
+    "likes_comments": 476,
+    "mediaType_reel": 335,
+    "activities_top": 321,
+    "photo_links": 318,
+    "geohash_geo": 248,
+    "privacy_visibility": 243,
+    "region_ids": 239,
+    "notification_chat": 182,
+    "assetsReady": 153,
+    "deleted_flags": 145,
+    "lifecycle": 63,
+    "recordings": 29,
+    "primaryActivity": 19,
+    "ranking": 15,
+    "settingType": 12,
+    "moderatorTier": 12,
+    "impressions_opens": 3
+  },
+  "files": [
+    {
+      "file": "src/routes/compat/legacy-api-stubs.routes.ts",
+      "hitCount": 493,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/achievements.repository.ts",
+      "hitCount": 312,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/collections-firestore.adapter.ts",
+      "hitCount": 257,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-discovery.service.ts",
+      "hitCount": 241,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/services/mutations/posting-mutation.service.ts",
+      "hitCount": 223,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/feed.repository.ts",
+      "hitCount": 222,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/posts-detail.orchestrator.test.ts",
+      "hitCount": 216,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-v2.routes.ts",
+      "hitCount": 199,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-discovery.routes.ts",
+      "hitCount": 185,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/dto/compact-surface-dto.test.ts",
+      "hitCount": 181,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/feed-detail-firestore.adapter.ts",
+      "hitCount": 179,
+      "buckets": [
+        "detail_hydration"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/search-results-firestore.adapter.ts",
+      "hitCount": 173,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/normalizeMasterPostV2.test.ts",
+      "hitCount": 162,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/dto/compact-surface-dto.ts",
+      "hitCount": 161,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/debug/local-debug.routes.ts",
+      "hitCount": 158,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/chats.repository.ts",
+      "hitCount": 155,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/services/mixes/v2/searchMixes.service.ts",
+      "hitCount": 147,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/normalizeMasterPostV2.ts",
+      "hitCount": 140,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend.service.ts",
+      "hitCount": 138,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/post-envelope.ts",
+      "hitCount": 135,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/feed-firestore.adapter.ts",
+      "hitCount": 134,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/feed-for-you-simple.repository.ts",
+      "hitCount": 132,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/services/mixes/mixes.service.test.ts",
+      "hitCount": 126,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/profile-post-detail-firestore.adapter.ts",
+      "hitCount": 119,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/profile-firestore.adapter.ts",
+      "hitCount": 118,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/mixPosts.repository.ts",
+      "hitCount": 114,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-for-you-simple.routes.test.ts",
+      "hitCount": 112,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/suggested-friends.repository.ts",
+      "hitCount": 109,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/comments.repository.ts",
+      "hitCount": 106,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/map-markers-firestore.adapter.ts",
+      "hitCount": 104,
+      "buckets": [
+        "map_cluster_marker"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-reels-near-me.routes.ts",
+      "hitCount": 103,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/lib/posts/postFieldSelectors.ts",
+      "hitCount": 101,
+      "buckets": [
+        "selector_helper"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/feed-for-you.repository.ts",
+      "hitCount": 94,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/posts-detail.orchestrator.ts",
+      "hitCount": 92,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/collections-firestore.adapter.test.ts",
+      "hitCount": 92,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/mixes/mixes.service.ts",
+      "hitCount": 89,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/routes/debug/public-firestore-probe.routes.ts",
+      "hitCount": 88,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "hitCount": 85,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/notifications.repository.ts",
+      "hitCount": 84,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/debug/search-truth-harness.test.ts",
+      "hitCount": 83,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/internal/health-dashboard.service.ts",
+      "hitCount": 82,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/validateMasterPostV2.ts",
+      "hitCount": 80,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/post-envelope.test.ts",
+      "hitCount": 77,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/observability/route-policies.ts",
+      "hitCount": 75,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/contracts.ts",
+      "hitCount": 73,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-home-v1.service.ts",
+      "hitCount": 69,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/lib/posts/video-playback-selection.test.ts",
+      "hitCount": 68,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/posting/buildPostDocument.ts",
+      "hitCount": 68,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/search-autofill/search-autofill.service.ts",
+      "hitCount": 68,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/feed-for-you-simple.service.ts",
+      "hitCount": 68,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/services/mutations/posting-achievements.service.ts",
+      "hitCount": 67,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/firestore-client.ts",
+      "hitCount": 63,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search.service.ts",
+      "hitCount": 63,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend.repository.ts",
+      "hitCount": 60,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/orchestration/searchMixes.orchestrator.ts",
+      "hitCount": 58,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/achievement-celebrations.service.ts",
+      "hitCount": 58,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-places-index.service.ts",
+      "hitCount": 57,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/lib/posts/app-post-v2/toAppPostV2.test.ts",
+      "hitCount": 56,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-detail.routes.test.ts",
+      "hitCount": 55,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/profile-post-detail.repository.ts",
+      "hitCount": 53,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-mixes.truth-v2.test.ts",
+      "hitCount": 52,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/user-mutation.repository.ts",
+      "hitCount": 51,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/feed.service.ts",
+      "hitCount": 51,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "hitCount": 50,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/app-post-v2/toAppPostV2.ts",
+      "hitCount": 50,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/mergeMasterPostV2IntoNativeFinalizeDocument.test.ts",
+      "hitCount": 50,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/map-markers.routes.test.ts",
+      "hitCount": 50,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/validateMasterPostV2.test.ts",
+      "hitCount": 48,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/debug/search-firestore-truth-seeded.test.ts",
+      "hitCount": 47,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/groups.repository.ts",
+      "hitCount": 44,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/feed.repository.test.ts",
+      "hitCount": 43,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-saved.routes.test.ts",
+      "hitCount": 43,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/auditPostEngagementSourcesV2.ts",
+      "hitCount": 42,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/notifications/legacy-notification-push.publisher.ts",
+      "hitCount": 42,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/post-assets.contract.ts",
+      "hitCount": 41,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/video-playback-selection.ts",
+      "hitCount": 41,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/posting/posting-audio.service.ts",
+      "hitCount": 41,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "hitCount": 40,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "hitCount": 40,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/profile.repository.ts",
+      "hitCount": 40,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-for-you.routes.test.ts",
+      "hitCount": 37,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-mixes.routes.ts",
+      "hitCount": 37,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-post-detail.orchestrator.ts",
+      "hitCount": 36,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/services/mutations/posting-mutation.service.test.ts",
+      "hitCount": 36,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/post-mutation.repository.ts",
+      "hitCount": 35,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/services/mixes/mixRanking.service.ts",
+      "hitCount": 35,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/mutations/auth-mutations.service.ts",
+      "hitCount": 35,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-bootstrap.orchestrator.ts",
+      "hitCount": 33,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/compat/posts-batch.repository.ts",
+      "hitCount": 33,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/services/mixes/mixRegistry.service.ts",
+      "hitCount": 33,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/mutations/posts-publish.service.ts",
+      "hitCount": 33,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-bootstrap.orchestrator.test.ts",
+      "hitCount": 32,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/profile-collections-firestore.adapter.ts",
+      "hitCount": 32,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/achievements.repository.test.ts",
+      "hitCount": 32,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/map-markers.routes.ts",
+      "hitCount": 32,
+      "buckets": [
+        "map_cluster_marker"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-bootstrap.routes.ts",
+      "hitCount": 31,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-page.routes.test.ts",
+      "hitCount": 31,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/legends-me-bootstrap.routes.ts",
+      "hitCount": 31,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend-award.service.ts",
+      "hitCount": 30,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/postFieldSelectors.test.ts",
+      "hitCount": 30,
+      "buckets": [
+        "selector_helper"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/feed-item-detail.orchestrator.ts",
+      "hitCount": 30,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/routes/debug/post-rebuilder.routes.ts",
+      "hitCount": 30,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/auth-mutations.routes.test.ts",
+      "hitCount": 30,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/mixes/mixGeneration.service.ts",
+      "hitCount": 30,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/feed-for-you.service.test.ts",
+      "hitCount": 30,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/contracts/searchMixes.contract.ts",
+      "hitCount": 29,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/dashboard/search-autofill-lab.ts",
+      "hitCount": 29,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/repositories/mixes.repository.ts",
+      "hitCount": 29,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/profile.service.ts",
+      "hitCount": 29,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "hitCount": 28,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legends.types.ts",
+      "hitCount": 28,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/collection-mutation.repository.ts",
+      "hitCount": 28,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/posts-stage.repository.ts",
+      "hitCount": 28,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/map.repository.ts",
+      "hitCount": 28,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/notifications.repository.test.ts",
+      "hitCount": 28,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-mixes.routes.test.ts",
+      "hitCount": 28,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search.service.test.ts",
+      "hitCount": 28,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "hitCount": 27,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/feed-bootstrap.orchestrator.ts",
+      "hitCount": 27,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/post-firestore-projection.ts",
+      "hitCount": 27,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/search-users-firestore.adapter.ts",
+      "hitCount": 27,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/groups.repository.test.ts",
+      "hitCount": 27,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-page.routes.ts",
+      "hitCount": 27,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "hitCount": 26,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/media-readiness.ts",
+      "hitCount": 26,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/search-users.repository.ts",
+      "hitCount": 26,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/routes/v2/mutations.routes.test.ts",
+      "hitCount": 26,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/feed-for-you.service.ts",
+      "hitCount": 26,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/services/mixes/v2/searchMixes.service.test.ts",
+      "hitCount": 25,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/search.repository.ts",
+      "hitCount": 24,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/routes/v2/achievements.routes.test.ts",
+      "hitCount": 24,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/map-bootstrap.routes.test.ts",
+      "hitCount": 24,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/video/video-post-processor.service.ts",
+      "hitCount": 24,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/mutation-state.repository.ts",
+      "hitCount": 23,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/feed-firestore.adapter.test.ts",
+      "hitCount": 23,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-home-v1.routes.ts",
+      "hitCount": 23,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-results.routes.test.ts",
+      "hitCount": 23,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "hitCount": 22,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-post-detail.contract.ts",
+      "hitCount": 22,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/lib/search-query-intent.ts",
+      "hitCount": 22,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/services/storage/wasabi-staging.service.ts",
+      "hitCount": 22,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-inbox.routes.test.ts",
+      "hitCount": 21,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-bootstrap.routes.test.ts",
+      "hitCount": 21,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/observability/feed-items-media-trace.ts",
+      "hitCount": 20,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/search.repository.test.ts",
+      "hitCount": 20,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/profile.routes.test.ts",
+      "hitCount": 20,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-home-v1.routes.test.ts",
+      "hitCount": 20,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/search-home-bootstrap-v1.contract.ts",
+      "hitCount": 19,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/contracts/v2/mixes.contract.ts",
+      "hitCount": 19,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/lib/posts/app-post-v2/hydrateAppPostViewerState.ts",
+      "hitCount": 19,
+      "buckets": [
+        "detail_hydration"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/feed-page.orchestrator.ts",
+      "hitCount": 19,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-achievements.orchestrator.ts",
+      "hitCount": 19,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-collections.orchestrator.ts",
+      "hitCount": 19,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/mixes/mixes.repository.ts",
+      "hitCount": 19,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/profile-achievements-firestore.adapter.ts",
+      "hitCount": 19,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posting.routes.test.ts",
+      "hitCount": 19,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-discovery.routes.test.ts",
+      "hitCount": 19,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/posting/native-post-document.test.ts",
+      "hitCount": 19,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-bootstrap.contract.ts",
+      "hitCount": 18,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/mixes.routes.ts",
+      "hitCount": 18,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/mutations/collection-mutation.service.ts",
+      "hitCount": 18,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/lib/location/reverse-geocode.ts",
+      "hitCount": 17,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-grid.orchestrator.ts",
+      "hitCount": 17,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-create.routes.test.ts",
+      "hitCount": 17,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/legends-stage-post.routes.ts",
+      "hitCount": 17,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/mixes.routes.test.ts",
+      "hitCount": 17,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-users.routes.test.ts",
+      "hitCount": 17,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-home-v1.projection.ts",
+      "hitCount": 17,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "hitCount": 16,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/posts-publish.orchestrator.ts",
+      "hitCount": 16,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/search-users.orchestrator.ts",
+      "hitCount": 16,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/repositories/nearbyMix.repository.ts",
+      "hitCount": 16,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/chats.repository.test.ts",
+      "hitCount": 16,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posting-staging-presign.routes.ts",
+      "hitCount": 16,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/posting/select-publish-letterbox-gradients.test.ts",
+      "hitCount": 16,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-home-v1.service.test.ts",
+      "hitCount": 16,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/search-bootstrap.contract.ts",
+      "hitCount": 15,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/lib/feed/feed-post-card-wire.ts",
+      "hitCount": 15,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/map-bootstrap.orchestrator.ts",
+      "hitCount": 15,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/search-home-v1.orchestrator.ts",
+      "hitCount": 15,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-api-stubs.mixes.test.ts",
+      "hitCount": 15,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-membership.routes.test.ts",
+      "hitCount": 15,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/search-autofill/autofill-library.ts",
+      "hitCount": 15,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/achievements.service.ts",
+      "hitCount": 15,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/feed/feed-post-card-wire.test.ts",
+      "hitCount": 14,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/auditPostEngagementSourcesV2.test.ts",
+      "hitCount": 14,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/posting-mutation.repository.ts",
+      "hitCount": 14,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/routes/v2/legends-after-post.routes.ts",
+      "hitCount": 14,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/places-reverse-geocode.routes.ts",
+      "hitCount": 14,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/mixes/mixCover.service.ts",
+      "hitCount": 14,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-users.service.ts",
+      "hitCount": 14,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/map.repository.test.ts",
+      "hitCount": 13,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/suggested-friends.repository.test.ts",
+      "hitCount": 13,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-item-detail.routes.test.ts",
+      "hitCount": 13,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posts-publish.routes.ts",
+      "hitCount": 13,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-mixes.pagination.test.ts",
+      "hitCount": 13,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-results.routes.ts",
+      "hitCount": 13,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/routes/v2/social.routes.test.ts",
+      "hitCount": 13,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/notifications/legacy-notification-push.publisher.test.ts",
+      "hitCount": 13,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/posting/select-publish-letterbox-gradients.ts",
+      "hitCount": 13,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/latlng-geohash.ts",
+      "hitCount": 12,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/observability/request-metrics.collector.ts",
+      "hitCount": 12,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/directory-users.orchestrator.ts",
+      "hitCount": 12,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/search-results.orchestrator.ts",
+      "hitCount": 12,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/repositories/mixes/mixes.repository.test.ts",
+      "hitCount": 12,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-product-bootstrap.ts",
+      "hitCount": 12,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/routes/v2/comments.routes.test.ts",
+      "hitCount": 12,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/map-bootstrap.routes.ts",
+      "hitCount": 12,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/notifications.routes.test.ts",
+      "hitCount": 12,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posts-detail.routes.test.ts",
+      "hitCount": 12,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/profile.routes.ts",
+      "hitCount": 12,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/directory-users.service.ts",
+      "hitCount": 12,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/social-suggested-friends.contract.ts",
+      "hitCount": 11,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/debug/full-app-launch-readiness.test.ts",
+      "hitCount": 11,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/location/post-location-normalizer.ts",
+      "hitCount": 11,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/app-post-v2/enrichAppPostV2Response.ts",
+      "hitCount": 11,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/media-readiness.test.ts",
+      "hitCount": 11,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/user-follow.orchestrator.ts",
+      "hitCount": 11,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/notifications-list.orchestrator.ts",
+      "hitCount": 11,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/post-likes.repository.ts",
+      "hitCount": 11,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/routes/v2/legends-after-post.routes.test.ts",
+      "hitCount": 11,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/collections.service.ts",
+      "hitCount": 11,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "hitCount": 10,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/feed-bootstrap.contract.ts",
+      "hitCount": 10,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posting-finalize.contract.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posts-detail.contract.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/posting-finalize.orchestrator.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/auth-session.orchestrator.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/collections-saved.orchestrator.ts",
+      "hitCount": 10,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/feed-for-you.orchestrator.ts",
+      "hitCount": 10,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-relationship.orchestrator.ts",
+      "hitCount": 10,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/legacy-groups-firestore.adapter.ts",
+      "hitCount": 10,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/profile-firestore.adapter.test.ts",
+      "hitCount": 10,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-for-you-simple.routes.ts",
+      "hitCount": 10,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/routes/v2/social-batch.routes.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/analytics/analytics-ingest.service.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/posting/assemblePostAssets.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/posting/posting-audio.service.test.ts",
+      "hitCount": 10,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/feed-for-you-simple.native-contract.ts",
+      "hitCount": 10,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/services/video/remote-url-verify.ts",
+      "hitCount": 10,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/map-markers.contract.ts",
+      "hitCount": 9,
+      "buckets": [
+        "map_cluster_marker"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend-scope-deriver.test.ts",
+      "hitCount": 9,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/domains/users/canonical-user-document.ts",
+      "hitCount": 9,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/flags/cutover.ts",
+      "hitCount": 9,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/geo-prefixes-around-center.ts",
+      "hitCount": 9,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/search-users.repository.test.ts",
+      "hitCount": 9,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/user-activity.repository.ts",
+      "hitCount": 9,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-for-you.routes.ts",
+      "hitCount": 9,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "hitCount": 8,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "hitCount": 8,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/legends-me-bootstrap.contract.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/map-bootstrap.contract.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posts-stage.contract.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/dashboard/admin-page.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/debug/launch-concurrency-readiness.test.ts",
+      "hitCount": 8,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/merge-profile-preview-with-bootstrap.ts",
+      "hitCount": 8,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/observability/diagnostics-store.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/user-unfollow.orchestrator.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/auth-bootstrap-firestore.adapter.ts",
+      "hitCount": 8,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-product-upload.routes.ts",
+      "hitCount": 8,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/routes/v2/analytics-events.routes.test.ts",
+      "hitCount": 8,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/legends-stage-post.routes.test.ts",
+      "hitCount": 8,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posting-finalize.routes.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-mixes.daily.test.ts",
+      "hitCount": 8,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-mixes.distance-ranking.test.ts",
+      "hitCount": 8,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/users-suggested.routes.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/runtime/infer-route-name.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/mutations/user-mutation.service.ts",
+      "hitCount": 8,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/profile-post-detail.service.ts",
+      "hitCount": 8,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/feed-page.contract.ts",
+      "hitCount": 7,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/search-results.contract.ts",
+      "hitCount": 7,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/lib/feed-author-spacing.ts",
+      "hitCount": 7,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/lib/merge-profile-preview-with-bootstrap.test.ts",
+      "hitCount": 7,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/chats-send-message.orchestrator.ts",
+      "hitCount": 7,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/post-document-like-count.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-bootstrap.orchestrator.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/bootstrap.orchestrator.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/chats-inbox.orchestrator.ts",
+      "hitCount": 7,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/map-bootstrap.orchestrator.test.ts",
+      "hitCount": 7,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-followers.orchestrator.ts",
+      "hitCount": 7,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-following.orchestrator.ts",
+      "hitCount": 7,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/collections.repository.ts",
+      "hitCount": 7,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/compat/map-v2-notification-to-legacy-product.ts",
+      "hitCount": 7,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/compat/native-essential-compat.routes.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/auth-bootstrap.routes.test.ts",
+      "hitCount": 7,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posting-location-suggest.routes.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-mixes.friends.test.ts",
+      "hitCount": 7,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/search-users.routes.ts",
+      "hitCount": 7,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/routes/v2/social-suggested-friends.routes.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/posting/video-processing-cloud-task.service.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/search-autofill/search-autofill.generated-mixes.test.ts",
+      "hitCount": 7,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/chats.service.ts",
+      "hitCount": 7,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/comments.service.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/map.service.ts",
+      "hitCount": 7,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend-place-humanize.ts",
+      "hitCount": 6,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/search-query-intent.location-prefix.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/shared-primitives.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/user-search-fields.ts",
+      "hitCount": 6,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/comments-list.orchestrator.ts",
+      "hitCount": 6,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/users-last-active.orchestrator.ts",
+      "hitCount": 6,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/profile-post-detail.repository.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/search-home-v1-users.repository.ts",
+      "hitCount": 6,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-bootstrap.routes.ts",
+      "hitCount": 6,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/routes/compat/map-v2-notification-to-legacy-product.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/public/expo-push.routes.ts",
+      "hitCount": 6,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/auth-bootstrap.routes.ts",
+      "hitCount": 6,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/auth-mutations.routes.ts",
+      "hitCount": 6,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-manage.routes.ts",
+      "hitCount": 6,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-update.routes.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/feed-item-detail.routes.ts",
+      "hitCount": 6,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/routes/v2/legends-events.routes.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/ops/user-search-fields-backfill.runner.ts",
+      "hitCount": 6,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/services/search-autofill/search-autofill.sentence-suggestions.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/achievements.service.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/notifications.service.ts",
+      "hitCount": 6,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-places-index.service.test.ts",
+      "hitCount": 6,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.test.ts",
+      "hitCount": 5,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/chat-entities.contract.ts",
+      "hitCount": 5,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/chat-message-entities.contract.ts",
+      "hitCount": 5,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/feed-item-detail.contract.ts",
+      "hitCount": 5,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/legends-stage-post.contract.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posts-publish.contract.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/search-suggest.contract.ts",
+      "hitCount": 5,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend-events-unseen.service.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend-scope-deriver.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/firebase-identity-toolkit.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/diffMasterPostPreview.test.ts",
+      "hitCount": 5,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/observability/feed-items-media-trace.test.ts",
+      "hitCount": 5,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/observability/route-registry.validation.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/collections-update.orchestrator.ts",
+      "hitCount": 5,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/posting-finalize.orchestrator.test.ts",
+      "hitCount": 5,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-status.orchestrator.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/chats-thread.orchestrator.ts",
+      "hitCount": 5,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/profile-liked-posts.orchestrator.ts",
+      "hitCount": 5,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/compat/user-full.repository.ts",
+      "hitCount": 5,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/posting-state.persistence.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/postDiscovery.repository.ts",
+      "hitCount": 5,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/auth-bootstrap-firestore.adapter.test.ts",
+      "hitCount": 5,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/invites.repository.ts",
+      "hitCount": 5,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-monolith-auth-proxy.routes.ts",
+      "hitCount": 5,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-monolith-notifications-proxy.routes.ts",
+      "hitCount": 5,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/routes/compat/native-product-shim.routes.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/debug/post-canonical-status.routes.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/debug/post-gradient-audit.routes.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/achievements-bootstrap.routes.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/storage/wasabi-userpics.service.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/video/video-post-encoding.pipeline.ts",
+      "hitCount": 5,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/cache/route-cache-index.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/map-entities.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/bootstrap.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/collections-saved.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/feed-for-you.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/places-reverse-geocode.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posting-location-suggest.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-achievements.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-collections.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-followers.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-following.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-grid.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/search-users.contract.ts",
+      "hitCount": 4,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/domains/profile/profile-header-cache.test.ts",
+      "hitCount": 4,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/diffMasterPostPreview.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/extractMediaProcessingDebugV2.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/user-search-fields.test.ts",
+      "hitCount": 4,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/observability/request-metrics.collector.test.ts",
+      "hitCount": 4,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/mixes/mixes.orchestrator.ts",
+      "hitCount": 4,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/collections-create.orchestrator.ts",
+      "hitCount": 4,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/post-like.orchestrator.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/post-unlike.orchestrator.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/auth-branch-attribution.repository.ts",
+      "hitCount": 4,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/auth-branch-attribution-firestore.adapter.ts",
+      "hitCount": 4,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/user-document-firestore.adapter.ts",
+      "hitCount": 4,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/auth-bootstrap.repository.test.ts",
+      "hitCount": 4,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/profile.repository.test.ts",
+      "hitCount": 4,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/compat/compat-viewer-payload.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-group-media.routes.ts",
+      "hitCount": 4,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-saved.routes.ts",
+      "hitCount": 4,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/comments-list.routes.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/legends-scope-detail.routes.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posts-publish.routes.test.ts",
+      "hitCount": 4,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/mutations/auth-branch-attribution.service.ts",
+      "hitCount": 4,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/feed-seen-async-writer.ts",
+      "hitCount": 4,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/profile.service.test.ts",
+      "hitCount": 4,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/config/env.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/comment-entities.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/achievements-bootstrap.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/achievements-claimables.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/chats-thread.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/collections-create.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/collections-list.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/collections-update.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/feed-for-you-simple.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/groups.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/legends-scope-detail.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posting-songs.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/profile-relationship.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/social-contacts-sync.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/user-follow.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/user-unfollow.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/users-last-active.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/users-suggested.contract.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/debug/full-app-v2-audit-support.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/phone-search-fields.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/post-delete.orchestrator.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/post-document-like-count.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-hero.orchestrator.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/sample.repository.ts",
+      "hitCount": 3,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/source-of-truth/post-firestore-projection.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/auth-bootstrap.repository.ts",
+      "hitCount": 3,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/collections-list.repository.ts",
+      "hitCount": 3,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/feed-seen.repository.ts",
+      "hitCount": 3,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/routes/admin.routes.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-api-stubs.reports.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-monolith-product-proxy.routes.ts",
+      "hitCount": 3,
+      "buckets": [
+        "legacy_compat_proxy"
+      ]
+    },
+    {
+      "file": "src/routes/compat/video-processor.routes.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-create.routes.ts",
+      "hitCount": 3,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/directory-users.routes.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posting-songs.routes.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/profile-grid.routes.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/profile-post-detail.routes.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/mixes/v2/mixCursor.ts",
+      "hitCount": 3,
+      "buckets": [
+        "mix_generation"
+      ]
+    },
+    {
+      "file": "src/services/mutations/auth-branch-attribution.service.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/search-autofill/autofill-ranker.ts",
+      "hitCount": 3,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/auth-bootstrap.service.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/invites.service.test.ts",
+      "hitCount": 3,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/user-activity.service.ts",
+      "hitCount": 3,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/boot/printDevListenUrls.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/cache/types.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/constants/feed-read-assets.ts",
+      "hitCount": 2,
+      "buckets": [
+        "in_memory_filter"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/notification-entities.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/entities/user-discovery-entities.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/achievements-status.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/auth-profile-create.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/chats-inbox.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/collections-detail.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/collections-save-sheet.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/notifications-list.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/post-likes-list.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/social-batch.contract.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/debug/full-app-v2-audit-support.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/diagnostics/postAlgorithmFieldSource.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/background-work.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/concurrency-limit.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/pagination.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/hashPostForRebuild.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/search-query-intent.mixes-near-me.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/observability/for-you-asset-trace.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/comments-like.orchestrator.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/notifications-mark-read.orchestrator.ts",
+      "hitCount": 2,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/post-save.orchestrator.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/post-unsave.orchestrator.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-leaderboard.orchestrator.grace.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-snapshot.orchestrator.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/user-mutation.repository.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/collection-telemetry.repository.ts",
+      "hitCount": 2,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-api-stubs.posts-batch.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-monolith-auth-proxy.routes.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-reels-near-me.cursor.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/compat/video-processor.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/compat/viewer-patch-guard.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/internal/internal-ops.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/system.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-create.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-manage.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-update.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/places-reverse-geocode.routes.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/posts-detail.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/profile-grid.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/profile-picture-upload.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/users-last-active.routes.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/runtime/low-priority-request-gate.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/feed-for-you-simple.native-contract.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/groups.service.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/search-home-v1.activity-aliases.ts",
+      "hitCount": 2,
+      "buckets": [
+        "search_algorithm"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/suggested-friends.service.ts",
+      "hitCount": 2,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/video/remote-url-verify.test.ts",
+      "hitCount": 2,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/auth/viewer-context.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/cache/in-flight-dedupe.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/achievements-leaderboard-ack.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/analytics-events.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/auth-login.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/auth-profile-branch-merge.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/auth-register.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/auth-signin-apple.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/auth-signin-google.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/chats-conversation.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/chats-create-group.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/chats-create-or-get.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/chats-delete.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/chats-send-message.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/collections-posts.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/comments-create.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/comments-delete.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/comments-like.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/comments-list.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/directory-users.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/invites.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/legends-after-post.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/legends-events-unseen.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/post-delete.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/post-like.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/post-save.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/post-unlike.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/post-unsave.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posting-operation-cancel.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posting-operation-retry.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/contracts/surfaces/posting-operation-status.contract.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/domains/legends/legend.service.canonical.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/domains/profile/profile-header-cache.ts",
+      "hitCount": 1,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/domains/users/canonical-user-document.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/auth-provider-resolution.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/contact-sync-logging.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/lib/contact-sync-logging.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/firebase-admin.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/mutation-lock.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/posts/master-post-v2/mergeMasterPostV2IntoNativeFinalizeDocument.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/profile-social-counts-merge.ts",
+      "hitCount": 1,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/lib/qr/instagramQr.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/lib/user-discovery-exclude.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/observability/diagnostics-store.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/observability/route-policies.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/chats-mark-read.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/chats-mark-unread.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/chats-message-reaction.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/comments-create.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/comments-delete.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/notifications-mark-all-read.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "notification_post_preview"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/posting-operation-cancel.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/posting-operation-retry.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/mutations/posting-operation-status.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-badges.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-claimables.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-leaderboard-viewer-rank.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "ranking_algorithm"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-leaderboard.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-leagues.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/achievements-pending-delta.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/orchestration/surfaces/collections-list.orchestrator.ts",
+      "hitCount": 1,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/repositories/analytics/analytics-publisher.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/analytics/analytics-publisher.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/repositories/mutations/posting-state.persistence.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/repositories/surfaces/directory-users.repository.ts",
+      "hitCount": 1,
+      "buckets": [
+        "query_filter_firestore_index"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-api-stubs.story-users.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/compat/legacy-api-stubs.user-full.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/debug/app-post-v2-surface.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/auth-session.account-status.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/auth-session.hydration.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-conversation.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-create.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-inbox.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-mark-read.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-mark-unread.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-message-reaction.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-send-message.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/chats-thread.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "chat_shared_post_preview"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-detail.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "collection_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/collections-list.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/post-detail.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/post-likes.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/profile-post-detail.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "profile_grid_selector"
+      ]
+    },
+    {
+      "file": "src/routes/v2/social-batch.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/routes/v2/social-contacts-sync.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/user-follow.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/user-unfollow.routes.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/routes/v2/users-last-active.routes.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/analytics/analytics-ingest.service.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/compat/posts-batch.service.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/posting/video-processing-cloud-task.service.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    },
+    {
+      "file": "src/services/storage/wasabi-presign.service.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/achievements-core.ts",
+      "hitCount": 1,
+      "buckets": [
+        "needs_manual_review"
+      ]
+    },
+    {
+      "file": "src/services/surfaces/suggested-friends.service.test.ts",
+      "hitCount": 1,
+      "buckets": [
+        "test_fixture"
+      ]
+    }
+  ],
+  "hitsSample": [
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 87,
+      "termId": "title_content_search",
+      "snippet": "\"content-type\": \"application/json\"",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 92,
+      "termId": "title_content_search",
+      "snippet": "title: \"Locava\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 102,
+      "termId": "title_content_search",
+      "snippet": "headers: { \"content-type\": \"application/json\" }",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 156,
+      "termId": "title_content_search",
+      "snippet": "\"content-type\": \"application/json\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 172,
+      "termId": "title_content_search",
+      "snippet": "\"content-type\": \"application/json\"",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 177,
+      "termId": "userId_author",
+      "snippet": "const body = res.json() as { viewer: { userId: string; name: string; settings?: { language?: string } }; etag?: string };",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 178,
+      "termId": "userId_author",
+      "snippet": "expect(body.viewer.userId).toBe(\"firebase-user-abc\");",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 192,
+      "termId": "title_content_search",
+      "snippet": "\"content-type\": \"application/json\"",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 197,
+      "termId": "userId_author",
+      "snippet": "expect((res.json() as { viewer: { userId: string } }).viewer.userId).toBe(\"jwt-resolved-uid\");",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 207,
+      "termId": "title_content_search",
+      "snippet": "\"content-type\": \"application/json\"",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 216,
+      "termId": "userId_author",
+      "snippet": "const body = res.json() as { viewer: { userId: string; name: string; handle: string; profilePic: string } };",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 217,
+      "termId": "userId_author",
+      "snippet": "expect(body.viewer.userId).toBe(\"firebase-user-guarded\");",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 223,
+      "termId": "feed_for_you",
+      "snippet": "it(\"session bootstrap uses resolved viewer id from x-viewer-id\", async () => {",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 226,
+      "termId": "feed_for_you",
+      "snippet": "url: \"/api/v1/product/session/bootstrap\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 230,
+      "termId": "userId_author",
+      "snippet": "const j = res.json() as { viewer: { userId: string }; user: { uid: string } };",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 231,
+      "termId": "userId_author",
+      "snippet": "expect(j.viewer.userId).toBe(\"session-user-xyz\");",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 273,
+      "termId": "search_mix",
+      "snippet": "const res = await app.inject({ method: \"POST\", url: \"/internal/ops/backfill/user-search-fields\", payload: {} });",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 288,
+      "termId": "title_content_search",
+      "snippet": "expect(htmlRes.headers[\"content-type\"]).toContain(\"text/html\");",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 333,
+      "termId": "notification_chat",
+      "snippet": "it(\"V2 update-group and post chat messages work for seeded chats\", async () => {",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 344,
+      "termId": "title_content_search",
+      "snippet": "headers: { ...headers, \"content-type\": \"application/json\" },",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 364,
+      "termId": "title_content_search",
+      "snippet": "headers: { ...headers, \"content-type\": \"application/json\" },",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.test.ts",
+      "line": 388,
+      "termId": "title_content_search",
+      "snippet": "headers: { ...headers, \"content-type\": \"application/json\" },",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 23,
+      "termId": "search_mix",
+      "snippet": "import { searchPlacesIndexService } from \"../services/surfaces/search-places-index.service.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 31,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2AuthBootstrapRoutes } from \"../routes/v2/auth-bootstrap.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 35,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2FeedBootstrapRoutes } from \"../routes/v2/feed-bootstrap.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 36,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2FeedForYouRoutes } from \"../routes/v2/feed-for-you.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 37,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2FeedForYouSimpleRoutes } from \"../routes/v2/feed-for-you-simple.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 38,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2FeedItemDetailRoutes } from \"../routes/v2/feed-item-detail.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 39,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2FeedPageRoutes } from \"../routes/v2/feed-page.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 43,
+      "termId": "search_mix",
+      "snippet": "import { registerV2SearchResultsRoutes } from \"../routes/v2/search-results.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 44,
+      "termId": "search_mix",
+      "snippet": "import { registerV2SearchUsersRoutes } from \"../routes/v2/search-users.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 45,
+      "termId": "search_mix",
+      "snippet": "import { registerV2SearchDiscoveryRoutes } from \"../routes/v2/search-discovery.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 46,
+      "termId": "search_mix",
+      "snippet": "import { registerV2SearchMixesRoutes } from \"../routes/v2/search-mixes.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 47,
+      "termId": "search_mix",
+      "snippet": "import { registerV2SearchHomeV1Routes } from \"../routes/v2/search-home-v1.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 48,
+      "termId": "search_mix",
+      "snippet": "import { registerV2MixesRoutes } from \"../routes/v2/mixes.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 71,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2LegendsMeBootstrapRoutes } from \"../routes/v2/legends-me-bootstrap.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 105,
+      "termId": "feed_for_you",
+      "snippet": "import { registerLegacyBootstrapCompatRoutes } from \"../routes/compat/legacy-bootstrap.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 108,
+      "termId": "collection_posts",
+      "snippet": "import { registerV2CollectionsSavedRoutes } from \"../routes/v2/collections-saved.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 112,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2AchievementsBootstrapRoutes } from \"../routes/v2/achievements-bootstrap.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 130,
+      "termId": "feed_for_you",
+      "snippet": "import { registerV2MapBootstrapRoutes } from \"../routes/v2/map-bootstrap.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 130,
+      "termId": "map_radius",
+      "snippet": "import { registerV2MapBootstrapRoutes } from \"../routes/v2/map-bootstrap.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 131,
+      "termId": "map_radius",
+      "snippet": "import { registerV2MapMarkersRoutes } from \"../routes/v2/map-markers.routes.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 157,
+      "termId": "map_radius",
+      "snippet": "import type { MapMarkersResponse } from \"../contracts/surfaces/map-markers.contract.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 158,
+      "termId": "map_radius",
+      "snippet": "import { MapMarkersFirestoreAdapter } from \"../repositories/source-of-truth/map-markers-firestore.adapter.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 692,
+      "termId": "search_mix",
+      "snippet": "// Warm GeoNames places index in the background so first /v2/search/suggest hits are not seeds-only.",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 705,
+      "termId": "map_radius",
+      "snippet": "const cacheKey = \"map:markers:v2:all\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 712,
+      "termId": "map_radius",
+      "snippet": "routeName: \"map.markers.get\",",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 729,
+      "termId": "map_radius",
+      "snippet": "{ reason: error instanceof Error ? error.message : String(error), routeName: \"map.markers.get\" },",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/app/createApp.ts",
+      "line": 730,
+      "termId": "map_radius",
+      "snippet": "\"map markers route cache prewarm skipped\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/auth/viewer-context.ts",
+      "line": 26,
+      "termId": "map_radius",
+      "snippet": ".map((role) => role.trim())",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/boot/printDevListenUrls.ts",
+      "line": 46,
+      "termId": "map_radius",
+      "snippet": "...lan.map((u) => `    EXPO_PUBLIC_BACKEND_V2_URL=${u}`),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/boot/printDevListenUrls.ts",
+      "line": 54,
+      "termId": "map_radius",
+      "snippet": "...lan.slice(0, 3).map((u) => `    curl -sS ${u}/health`),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 4,
+      "termId": "map_radius",
+      "snippet": "const authorPostIndex = new Map<string, Set<string>>();",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 5,
+      "termId": "map_radius",
+      "snippet": "const postAuthorIndex = new Map<string, string>();",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 17,
+      "termId": "userId_author",
+      "snippet": "userSummary(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 18,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:summary`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 21,
+      "termId": "feed_for_you",
+      "snippet": "* Canonical profile header for `/v2/profiles/:id/bootstrap` — **must not** share `userSummary`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 22,
+      "termId": "notification_chat",
+      "snippet": "* which is also used for lightweight AuthorSummary / chat participant previews.",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 24,
+      "termId": "userId_author",
+      "snippet": "profileHeaderCanonical(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 25,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:profileHeader:v1`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 28,
+      "termId": "userId_author",
+      "snippet": "userFirestoreDoc(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 29,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:firestoreDoc`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 32,
+      "termId": "userId_author",
+      "snippet": "userLastActiveMs(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 33,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:lastActiveMs:v1`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 35,
+      "termId": "userId_author",
+      "snippet": "userPostCount(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 36,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:postCount:v2`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 38,
+      "termId": "userId_author",
+      "snippet": "notificationsUnreadCount(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 39,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:notificationsUnreadCount`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 41,
+      "termId": "userId_author",
+      "snippet": "notificationsReadAllAt(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 42,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:notificationsReadAllAt`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 45,
+      "termId": "notification_chat",
+      "snippet": "return `chat:${conversationId}:viewer:${viewerId}:membership`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 48,
+      "termId": "notification_chat",
+      "snippet": "return `chat:direct:${pairKey}:conversationId`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 53,
+      "termId": "userId_author",
+      "snippet": "userFollowCounts(userId: string): string {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 54,
+      "termId": "userId_author",
+      "snippet": "return `user:${userId}:followCounts:v1`;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 72,
+      "termId": "map_radius",
+      "snippet": "const unique = [...new Set(keys.map((key) => key.trim()).filter(Boolean))];",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 73,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(unique.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 108,
+      "termId": "userId_author",
+      "snippet": "author?: { userId?: unknown };",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-cache.ts",
+      "line": 111,
+      "termId": "userId_author",
+      "snippet": "const authorUserId = typeof maybe.author?.userId === \"string\" ? maybe.author.userId : null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 13,
+      "termId": "map_radius",
+      "snippet": "import { MapMarkersFirestoreAdapter } from \"../repositories/source-of-truth/map-markers-firestore.adapter.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 14,
+      "termId": "search_mix",
+      "snippet": "import { searchHomeV1CacheKeys } from \"../services/surfaces/search-home-v1.service.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 44,
+      "termId": "userId_author",
+      "snippet": "userId: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 50,
+      "termId": "userId_author",
+      "snippet": "userId: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 75,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"notification.create\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 79,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"notification.markread\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 83,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"notification.markallread\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 87,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"chat.markread\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 91,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"chat.markunread\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 95,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"chat.sendtext\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 100,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"chat.reaction\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 105,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"chat.message.delete\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 110,
+      "termId": "notification_chat",
+      "snippet": "mutationType: \"chat.updategroup\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 139,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"entity\", [\"feed-item-detail-v1\", viewerId, postId]),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 142,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(targetedRouteCacheKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 146,
+      "termId": "collection_posts",
+      "snippet": "? await invalidateRouteCacheByTags([`route:collections.saved:${viewerId}`])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 180,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"entity\", [\"feed-item-detail-v1\", viewerId, postId]),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 183,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(targetedRouteCacheKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 186,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(visibilityRouteCacheKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 187,
+      "termId": "collection_posts",
+      "snippet": "const collectionsRouteKeys = await invalidateRouteCacheByTags([`route:collections.saved:${viewerId}`]);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 188,
+      "termId": "feed_for_you",
+      "snippet": "const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 188,
+      "termId": "map_radius",
+      "snippet": "const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 191,
+      "termId": "feed_for_you",
+      "snippet": "`route:profile.bootstrap:${ownerUserId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 207,
+      "termId": "map_radius",
+      "snippet": "...[6, 12, 18].map((previewLimit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 210,
+      "termId": "map_radius",
+      "snippet": "...[6, 8, 12, 24].map((limit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 211,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"list\", [\"profile-grid-page-v2\", viewerId, ownerUserId, \"start\", String(limit)])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 214,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 260,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"entity\", [\"feed-item-detail-v1\", viewerId, postId]),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 263,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(targetedRouteCacheKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 266,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(visibilityRouteCacheKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 267,
+      "termId": "feed_for_you",
+      "snippet": "const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 267,
+      "termId": "map_radius",
+      "snippet": "const mapBootstrapRouteKeys = await invalidateRouteCacheByTags([`route:map.bootstrap:${viewerId}`]);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 270,
+      "termId": "feed_for_you",
+      "snippet": "`route:profile.bootstrap:${ownerUserId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 278,
+      "termId": "map_radius",
+      "snippet": "...[6, 12, 18].map((previewLimit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 281,
+      "termId": "map_radius",
+      "snippet": "...[6, 8, 12, 24].map((limit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 282,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"list\", [\"profile-grid-page-v2\", viewerId, ownerUserId, \"start\", String(limit)])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 285,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 317,
+      "termId": "search_mix",
+      "snippet": "\"search.home_bootstrap.v1\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 331,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"entity\", [\"feed-item-detail-v1\", viewerId, postId]),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 341,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(targetedRouteCacheKeys.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 352,
+      "termId": "notification_chat",
+      "snippet": "input.mutationType === \"notification.create\" ||",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 353,
+      "termId": "notification_chat",
+      "snippet": "input.mutationType === \"notification.markread\" ||",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 354,
+      "termId": "notification_chat",
+      "snippet": "input.mutationType === \"notification.markallread\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 368,
+      "termId": "notification_chat",
+      "snippet": "if (input.mutationType === \"chat.markread\" || input.mutationType === \"chat.markunread\") {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 382,
+      "termId": "notification_chat",
+      "snippet": "input.mutationType === \"chat.sendtext\" ||",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 383,
+      "termId": "notification_chat",
+      "snippet": "input.mutationType === \"chat.reaction\" ||",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 384,
+      "termId": "notification_chat",
+      "snippet": "input.mutationType === \"chat.message.delete\" ||",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 385,
+      "termId": "notification_chat",
+      "snippet": "input.mutationType === \"chat.updategroup\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 408,
+      "termId": "userId_author",
+      "snippet": "const { userId, viewerId } = input;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 410,
+      "termId": "userId_author",
+      "snippet": "entityCacheKeys.userSummary(userId),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 411,
+      "termId": "userId_author",
+      "snippet": "entityCacheKeys.userFirestoreDoc(userId),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 412,
+      "termId": "userId_author",
+      "snippet": "entityCacheKeys.userFollowCounts(userId),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 413,
+      "termId": "userId_author",
+      "snippet": "entityCacheKeys.profileHeaderCanonical(userId),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 420,
+      "termId": "userId_author",
+      "snippet": "buildCacheKey(\"entity\", [\"profile-header-v1\", userId]),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 423,
+      "termId": "map_radius",
+      "snippet": "const profileGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 424,
+      "termId": "userId_author",
+      "snippet": "buildCacheKey(\"list\", [\"profile-grid-preview-v1\", userId, String(previewLimit)])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 426,
+      "termId": "map_radius",
+      "snippet": "const selfGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 429,
+      "termId": "map_radius",
+      "snippet": "const profileGridPageStartKeys: string[] = [6, 8, 12, 24].map((limit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 430,
+      "termId": "userId_author",
+      "snippet": "buildCacheKey(\"list\", [\"profile-grid-page-v2\", viewerId, userId, \"start\", String(limit)])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 430,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"list\", [\"profile-grid-page-v2\", viewerId, userId, \"start\", String(limit)])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 432,
+      "termId": "map_radius",
+      "snippet": "const selfGridPageStartKeys: string[] = [6, 8, 12, 24].map((limit) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 433,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"list\", [\"profile-grid-page-v2\", viewerId, viewerId, \"start\", String(limit)])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 435,
+      "termId": "userId_author",
+      "snippet": "const affectedPostIds = getKnownPostIdsForAuthor(userId, input.affectedAuthorPostLimit ?? 48);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 436,
+      "termId": "map_radius",
+      "snippet": "const viewerStateKeys = affectedPostIds.map((postId) => entityCacheKeys.viewerPostState(viewerId, postId));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 438,
+      "termId": "userId_author",
+      "snippet": "buildCacheKey(\"entity\", [\"profile-relationship-v1\", viewerId, userId])",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 440,
+      "termId": "userId_author",
+      "snippet": "const bootstrapKeys = allProfileBootstrapCacheKeys(viewerId, userId);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 441,
+      "termId": "feed_for_you",
+      "snippet": "// Follow/unfollow changes the viewer's own \"following\" count; clear self bootstrap too so profile header updates",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 445,
+      "termId": "userId_author",
+      "snippet": "`route:profile.bootstrap:${userId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 445,
+      "termId": "feed_for_you",
+      "snippet": "`route:profile.bootstrap:${userId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 446,
+      "termId": "feed_for_you",
+      "snippet": "`route:profile.bootstrap:${viewerId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 447,
+      "termId": "userId_author",
+      "snippet": "`route:profile.grid:${userId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 448,
+      "termId": "userId_author",
+      "snippet": "`route:profile.relationship:${userId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 449,
+      "termId": "userId_author",
+      "snippet": "`route:profile.collections:${userId}`,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 465,
+      "termId": "map_radius",
+      "snippet": "].map((key) => globalCache.del(key))",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 510,
+      "termId": "search_mix",
+      "snippet": "\"search.home_bootstrap.v1\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 527,
+      "termId": "map_radius",
+      "snippet": "return [...candidates].map((profileUserId) =>",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 536,
+      "termId": "feed_for_you",
+      "snippet": "keys.add(buildCacheKey(\"bootstrap\", [\"feed-bootstrap-v1\", viewerId, \"explore\", \"_\", \"_\", \"_\", String(limit)]));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 537,
+      "termId": "feed_for_you",
+      "snippet": "keys.add(buildCacheKey(\"list\", [\"feed-candidates-v1\", viewerId, \"explore\", \"_\", \"_\", \"_\", String(limit)]));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 538,
+      "termId": "feed_for_you",
+      "snippet": "keys.add(buildCacheKey(\"list\", [\"feed-page-v1\", viewerId, \"explore\", \"_\", \"_\", \"_\", \"start\", String(limit)]));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 549,
+      "termId": "feed_for_you",
+      "snippet": "keys.add(buildCacheKey(\"list\", [\"profile-grid-page-v2\", viewerId, viewerId, \"start\", String(limit)]));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 553,
+      "termId": "map_radius",
+      "snippet": "keys.add(`map:markers:v2:${limit}`);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 555,
+      "termId": "map_radius",
+      "snippet": "keys.add(\"map:markers:v2:all\");",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 556,
+      "termId": "map_radius",
+      "snippet": "keys.add(\"map:markers:v1\");",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 565,
+      "termId": "userId_author",
+      "snippet": "const userId = postId.slice(0, idx).trim();",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/entity-invalidation.ts",
+      "line": 566,
+      "termId": "userId_author",
+      "snippet": "return userId.length > 0 ? userId : null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-flight-dedupe.ts",
+      "line": 4,
+      "termId": "map_radius",
+      "snippet": "const inFlight = new Map<string, Promise<unknown>>();",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "line": 9,
+      "termId": "map_radius",
+      "snippet": "private readonly map = new Map<string, MemoryRecord>();",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "line": 12,
+      "termId": "map_radius",
+      "snippet": "const record = this.map.get(key);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "line": 15,
+      "termId": "map_radius",
+      "snippet": "this.map.delete(key);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "line": 22,
+      "termId": "map_radius",
+      "snippet": "this.map.set(key, {",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "line": 29,
+      "termId": "map_radius",
+      "snippet": "this.map.delete(key);",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "line": 33,
+      "termId": "map_radius",
+      "snippet": "this.map.clear();",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/in-memory-cache.ts",
+      "line": 39,
+      "termId": "map_radius",
+      "snippet": "size: this.map.size,",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 4,
+      "termId": "map_radius",
+      "snippet": "private readonly map = new Map<string, CacheEntry<unknown>>();",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 5,
+      "termId": "map_radius",
+      "snippet": "private readonly inFlight = new Map<string, Promise<unknown>>();",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 10,
+      "termId": "map_radius",
+      "snippet": "const row = this.map.get(key);",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 13,
+      "termId": "map_radius",
+      "snippet": "this.map.delete(key);",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 20,
+      "termId": "map_radius",
+      "snippet": "this.map.set(key, { expiresAtMs: Date.now() + Math.max(1, ttlMs), value });",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 37,
+      "termId": "map_radius",
+      "snippet": "while (this.map.size > this.maxKeys) {",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 38,
+      "termId": "map_radius",
+      "snippet": "const oldestKey = this.map.keys().next().value as string | undefined;",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/mixCache.ts",
+      "line": 40,
+      "termId": "map_radius",
+      "snippet": "this.map.delete(oldestKey);",
+      "bucket": "mix_generation"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.test.ts",
+      "line": 10,
+      "termId": "feed_for_you",
+      "snippet": "it(\"uses v2 as the canonical bootstrap segment for reads\", () => {",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.test.ts",
+      "line": 12,
+      "termId": "feed_for_you",
+      "snippet": "buildCacheKey(\"bootstrap\", [PROFILE_BOOTSTRAP_CACHE_SEGMENT, \"v\", \"u\", 12])",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.test.ts",
+      "line": 16,
+      "termId": "feed_for_you",
+      "snippet": "it(\"evicts legacy v2 bootstrap keys alongside v1 so stale snapshots cannot survive follow/unfollow\", () => {",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.test.ts",
+      "line": 18,
+      "termId": "feed_for_you",
+      "snippet": "expect(keys).toContain(buildCacheKey(\"bootstrap\", [\"profile-bootstrap-v1\", \"viewerA\", \"profileB\", 6]));",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.test.ts",
+      "line": 19,
+      "termId": "feed_for_you",
+      "snippet": "expect(keys).toContain(buildCacheKey(\"bootstrap\", [\"profile-bootstrap-v2\", \"viewerA\", \"profileB\", 6]));",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 5,
+      "termId": "feed_for_you",
+      "snippet": "/** Canonical bootstrap cache segment — must match `profileBootstrapCacheKey` + follow/unfollow eviction. */",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 6,
+      "termId": "feed_for_you",
+      "snippet": "export const PROFILE_BOOTSTRAP_CACHE_SEGMENT = \"profile-bootstrap-v2\";",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 9,
+      "termId": "feed_for_you",
+      "snippet": "const LEGACY_PROFILE_BOOTSTRAP_CACHE_SEGMENT = \"profile-bootstrap-v1\";",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 14,
+      "termId": "feed_for_you",
+      "snippet": "return buildCacheKey(\"bootstrap\", [PROFILE_BOOTSTRAP_CACHE_SEGMENT, viewerId, profileUserId, gridLimit]);",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 17,
+      "termId": "feed_for_you",
+      "snippet": "/** All bootstrap cache keys for both cache-label revisions (v1 + legacy v2). */",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 22,
+      "termId": "feed_for_you",
+      "snippet": "keys.push(buildCacheKey(\"bootstrap\", [segment, viewerId, profileUserId, lim]));",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 30,
+      "termId": "feed_for_you",
+      "snippet": "* Clears shaped bootstrap snapshots, profile header entity cache, and user summary / follow-count slices for both users.",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/profile-follow-graph-cache.ts",
+      "line": 48,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(keys.map((k) => globalCache.del(k)));",
+      "bucket": "profile_grid_selector"
+    },
+    {
+      "file": "src/cache/route-cache-index.ts",
+      "line": 24,
+      "termId": "map_radius",
+      "snippet": "const cleanedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/route-cache-index.ts",
+      "line": 47,
+      "termId": "map_radius",
+      "snippet": "const cleanedTags = [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))];",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/route-cache-index.ts",
+      "line": 51,
+      "termId": "map_radius",
+      "snippet": "const tagKeyLists = await Promise.all(cleanedTags.map((tag) => readStringList(tagIndexKey(tag))));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/route-cache-index.ts",
+      "line": 60,
+      "termId": "map_radius",
+      "snippet": "await Promise.all(invalidateList.map((key) => globalCache.del(key)));",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/types.ts",
+      "line": 19,
+      "termId": "feed_for_you",
+      "snippet": "export type CacheNamespace = \"entity\" | \"list\" | \"bootstrap\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/cache/types.ts",
+      "line": 22,
+      "termId": "map_radius",
+      "snippet": "return [namespace, ...parts.map(String)].join(\":\");",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/config/env.ts",
+      "line": 68,
+      "termId": "search_mix",
+      "snippet": "/** When set, enables POST /internal/ops/* bearer-protected maintenance routes (e.g. search-field backfill). */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/config/env.ts",
+      "line": 108,
+      "termId": "assetsReady",
+      "snippet": "/** Enforce that processed variants must be verified before assetsReady can become true. */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/config/env.ts",
+      "line": 112,
+      "termId": "feed_for_you",
+      "snippet": "/** When true, post envelopes and feed cards include `appPost` (App Post V2 contract). */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/constants/feed-read-assets.ts",
+      "line": 2,
+      "termId": "assets_length",
+      "snippet": "* Max assets read from Firestore `assets[]` onto feed candidates / cards.",
+      "bucket": "in_memory_filter"
+    },
+    {
+      "file": "src/constants/feed-read-assets.ts",
+      "line": 2,
+      "termId": "feed_for_you",
+      "snippet": "* Max assets read from Firestore `assets[]` onto feed candidates / cards.",
+      "bucket": "in_memory_filter"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 8,
+      "termId": "deleted_flags",
+      "snippet": "export type AppPostLifecycleStatusV2 = \"active\" | \"deleted\" | \"hidden\" | \"processing\" | \"failed\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 56,
+      "termId": "assetsReady",
+      "snippet": "assetsReady: boolean | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 132,
+      "termId": "assetsReady",
+      "snippet": "assetsReady: boolean;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 143,
+      "termId": "assets_length",
+      "snippet": "assets: AppPostAssetV2[];",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 147,
+      "termId": "userId_author",
+      "snippet": "userId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 154,
+      "termId": "title_content_search",
+      "snippet": "title: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 157,
+      "termId": "title_content_search",
+      "snippet": "content: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 158,
+      "termId": "title_content_search",
+      "snippet": "searchableText: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 163,
+      "termId": "lat_lng",
+      "snippet": "lat: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 164,
+      "termId": "lat_lng",
+      "snippet": "lng: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 165,
+      "termId": "geohash_geo",
+      "snippet": "geohash: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 183,
+      "termId": "region_ids",
+      "snippet": "cityRegionId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 184,
+      "termId": "region_ids",
+      "snippet": "stateRegionId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 185,
+      "termId": "region_ids",
+      "snippet": "countryRegionId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 190,
+      "termId": "activities_top",
+      "snippet": "activities: string[];",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 191,
+      "termId": "primaryActivity",
+      "snippet": "primaryActivity: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 193,
+      "termId": "privacy_visibility",
+      "snippet": "visibility: \"public\" | \"friends\" | \"private\" | \"unknown\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 195,
+      "termId": "mediaType_reel",
+      "snippet": "reel: boolean;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 196,
+      "termId": "settingType",
+      "snippet": "settingType: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 197,
+      "termId": "moderatorTier",
+      "snippet": "moderatorTier: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 203,
+      "termId": "likes_comments",
+      "snippet": "likeCount: number;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 204,
+      "termId": "likes_comments",
+      "snippet": "commentCount: number;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 216,
+      "termId": "userId_author",
+      "snippet": "userId: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 225,
+      "termId": "userId_author",
+      "snippet": "userId: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 230,
+      "termId": "time_created",
+      "snippet": "createdAt: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 241,
+      "termId": "collection_posts",
+      "snippet": "saved: boolean;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 247,
+      "termId": "photo_links",
+      "snippet": "photoLink: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 250,
+      "termId": "photo_links",
+      "snippet": "displayPhotoLink: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 253,
+      "termId": "photo_links",
+      "snippet": "fallbackVideoUrl: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 254,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: AppPostMediaKindV2;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 259,
+      "termId": "deleted_flags",
+      "snippet": "isDeleted: boolean;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 260,
+      "termId": "time_created",
+      "snippet": "createdAt: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 261,
+      "termId": "time_created",
+      "snippet": "createdAtMs: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 275,
+      "termId": "lifecycle",
+      "snippet": "lifecycle: AppPostLifecycleV2;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 300,
+      "termId": "lifecycle",
+      "snippet": "| \"lifecycle\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 322,
+      "termId": "lifecycle",
+      "snippet": "\"id\" | \"schema\" | \"lifecycle\" | \"author\" | \"location\" | \"classification\" | \"media\" | \"engagement\" | \"viewerState\" | \"compatibility\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 333,
+      "termId": "lifecycle",
+      "snippet": "| \"lifecycle\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 356,
+      "termId": "lifecycle",
+      "snippet": "| \"lifecycle\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 371,
+      "termId": "lifecycle",
+      "snippet": "\"id\" | \"schema\" | \"lifecycle\" | \"author\" | \"text\" | \"media\" | \"engagement\" | \"viewerState\" | \"compatibility\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/app-post-v2.contract.ts",
+      "line": 380,
+      "termId": "lifecycle",
+      "snippet": "\"id\" | \"schema\" | \"lifecycle\" | \"author\" | \"classification\" | \"media\" | \"engagement\" | \"viewerState\" | \"compatibility\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 25,
+      "termId": "title_content_search",
+      "snippet": "title: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 37,
+      "termId": "title_content_search",
+      "snippet": "title: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 45,
+      "termId": "title_content_search",
+      "snippet": "title: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 80,
+      "termId": "userId_author",
+      "snippet": "userId: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 102,
+      "termId": "title_content_search",
+      "snippet": "title: z.string().min(1),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 123,
+      "termId": "title_content_search",
+      "snippet": "title: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 139,
+      "termId": "title_content_search",
+      "snippet": "title: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 147,
+      "termId": "time_created",
+      "snippet": "createdAt: z.unknown().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 208,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 231,
+      "termId": "title_content_search",
+      "snippet": "title: z.string().min(1),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 257,
+      "termId": "userId_author",
+      "snippet": "userId: z.string().min(1),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 266,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 284,
+      "termId": "title_content_search",
+      "snippet": "title: z.string().min(1),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 313,
+      "termId": "title_content_search",
+      "snippet": "title: z.string().min(1),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 333,
+      "termId": "title_content_search",
+      "snippet": "title: z.string().min(1),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/achievement-entities.contract.ts",
+      "line": 358,
+      "termId": "userId_author",
+      "snippet": "userId: z.string().min(1),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/chat-entities.contract.ts",
+      "line": 7,
+      "termId": "title_content_search",
+      "snippet": "title: z.string(),",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-entities.contract.ts",
+      "line": 12,
+      "termId": "collection_posts",
+      "snippet": "lastMessageType: z.enum([\"message\", \"photo\", \"gif\", \"post\", \"place\", \"collection\"]).nullable(),",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-entities.contract.ts",
+      "line": 17,
+      "termId": "deleted_flags",
+      "snippet": "archived: z.boolean()",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-entities.contract.ts",
+      "line": 23,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative(),",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-entities.contract.ts",
+      "line": 24,
+      "termId": "time_created",
+      "snippet": "updatedAtMs: z.number().int().nonnegative().nullable(),",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-message-entities.contract.ts",
+      "line": 7,
+      "termId": "title_content_search",
+      "snippet": "title: z.string().optional(),",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-message-entities.contract.ts",
+      "line": 21,
+      "termId": "collection_posts",
+      "snippet": "messageType: z.enum([\"text\", \"photo\", \"gif\", \"post\", \"place\", \"collection\", \"message\"]),",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-message-entities.contract.ts",
+      "line": 27,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative(),",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-message-entities.contract.ts",
+      "line": 31,
+      "termId": "userId_author",
+      "snippet": "/** Map of userId -> emoji string for persisted message reactions */",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/chat-message-entities.contract.ts",
+      "line": 31,
+      "termId": "map_radius",
+      "snippet": "/** Map of userId -> emoji string for persisted message reactions */",
+      "bucket": "chat_shared_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/comment-entities.contract.ts",
+      "line": 2,
+      "termId": "notification_chat",
+      "snippet": "import { GifAttachmentSchema } from \"./chat-message-entities.contract.js\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/comment-entities.contract.ts",
+      "line": 18,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/comment-entities.contract.ts",
+      "line": 19,
+      "termId": "likes_comments",
+      "snippet": "likeCount: z.number().int().nonnegative().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/map-entities.contract.ts",
+      "line": 6,
+      "termId": "lat_lng",
+      "snippet": "lat: z.number().min(-90).max(90),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/map-entities.contract.ts",
+      "line": 7,
+      "termId": "lat_lng",
+      "snippet": "lng: z.number().min(-180).max(180),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/map-entities.contract.ts",
+      "line": 9,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: z.enum([\"image\", \"video\"]),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/map-entities.contract.ts",
+      "line": 12,
+      "termId": "settingType",
+      "snippet": "settingType: z.enum([\"indoor\", \"outdoor\"]).nullable(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/notification-entities.contract.ts",
+      "line": 18,
+      "termId": "notification_chat",
+      "snippet": "\"chat\",",
+      "bucket": "notification_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/notification-entities.contract.ts",
+      "line": 37,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative(),",
+      "bucket": "notification_post_preview"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 9,
+      "termId": "userId_author",
+      "snippet": "author: { userId: \"u1\", handle: \"h1\", name: \"Name\", pic: null },",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 10,
+      "termId": "title_content_search",
+      "snippet": "title: null,",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 14,
+      "termId": "likes_comments",
+      "snippet": "social: { likeCount: 0, commentCount: 0 },",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 15,
+      "termId": "collection_posts",
+      "snippet": "viewer: { liked: false, saved: false },",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 16,
+      "termId": "time_created",
+      "snippet": "createdAtMs: 1,",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 17,
+      "termId": "time_created",
+      "snippet": "updatedAtMs: 1,",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 28,
+      "termId": "userId_author",
+      "snippet": "userId: \"u1\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 30,
+      "termId": "time_created",
+      "snippet": "createdAtMs: 1,",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 31,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: \"image\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.test.ts",
+      "line": 33,
+      "termId": "assets_length",
+      "snippet": "assets: [{ id: \"a1\", type: \"image\", poster: \"https://example.com/p.webp\", thumbnail: \"https://example.com/p.webp\" }],",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 5,
+      "termId": "title_content_search",
+      "snippet": "content: z.string().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 7,
+      "termId": "userId_author",
+      "snippet": "userId: z.string().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 11,
+      "termId": "time_created",
+      "snippet": "time: z.unknown().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 12,
+      "termId": "time_created",
+      "snippet": "createdAt: z.unknown().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 13,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 19,
+      "termId": "userId_author",
+      "snippet": "userId: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 26,
+      "termId": "likes_comments",
+      "snippet": "likeCount: z.number().int().nonnegative(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 27,
+      "termId": "likes_comments",
+      "snippet": "commentCount: z.number().int().nonnegative()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 32,
+      "termId": "collection_posts",
+      "snippet": "saved: z.boolean()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 49,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: z.enum([\"image\", \"video\"]).optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 50,
+      "termId": "assets_length",
+      "snippet": "assets: z.array(z.record(z.unknown())).optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 59,
+      "termId": "lat_lng",
+      "snippet": "lat: z.number().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 60,
+      "termId": "lat_lng",
+      "snippet": "long: z.number().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 64,
+      "termId": "geohash_geo",
+      "snippet": "geohash: z.string().nullable().optional()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 68,
+      "termId": "likes_comments",
+      "snippet": "likeCount: z.number().int().nonnegative().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 69,
+      "termId": "likes_comments",
+      "snippet": "commentCount: z.number().int().nonnegative().optional()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 98,
+      "termId": "activities_top",
+      "snippet": "activities: z.array(z.string()).optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 114,
+      "termId": "lat_lng",
+      "snippet": "lat: z.number().nullable(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 115,
+      "termId": "lat_lng",
+      "snippet": "long: z.number().nullable(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 119,
+      "termId": "geohash_geo",
+      "snippet": "geohash: z.string().nullable()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 122,
+      "termId": "assets_length",
+      "snippet": "assets: z",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 140,
+      "termId": "title_content_search",
+      "snippet": "title: z.string().nullable(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 146,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 147,
+      "termId": "time_created",
+      "snippet": "updatedAtMs: z.number().int().nonnegative()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 178,
+      "termId": "assetsReady",
+      "snippet": "assetsReady: z.boolean(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 186,
+      "termId": "photo_links",
+      "snippet": "fallbackVideoUrl: z.string().url().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 203,
+      "termId": "time_created",
+      "snippet": "updatedAtMs: z.number().int().nonnegative().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 209,
+      "termId": "userId_author",
+      "snippet": "userId: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 211,
+      "termId": "time_created",
+      "snippet": "createdAtMs: z.number().int().nonnegative(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 212,
+      "termId": "time_created",
+      "snippet": "updatedAtMs: z.number().int().nonnegative().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 225,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: z.enum([\"image\", \"video\"]),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 227,
+      "termId": "assetsReady",
+      "snippet": "assetsReady: z.boolean().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 229,
+      "termId": "geohash_geo",
+      "snippet": "geoData: z",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 234,
+      "termId": "geohash_geo",
+      "snippet": "geohash: z.string().nullable().optional()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 239,
+      "termId": "lat_lng",
+      "snippet": "lat: z.number().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 240,
+      "termId": "lat_lng",
+      "snippet": "lng: z.number().nullable().optional()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 252,
+      "termId": "photo_links",
+      "snippet": "fallbackVideoUrl: z.string().url().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 257,
+      "termId": "lat_lng",
+      "snippet": "lat: z.number().nullable().optional(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 258,
+      "termId": "lat_lng",
+      "snippet": "long: z.number().nullable().optional()",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/post-entities.contract.ts",
+      "line": 262,
+      "termId": "assets_length",
+      "snippet": "assets: z.array(PostDetailAssetSchema),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/user-discovery-entities.contract.ts",
+      "line": 4,
+      "termId": "search_mix",
+      "snippet": "* Canonical minimal user row for discovery / pickers / incremental search.",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/entities/user-discovery-entities.contract.ts",
+      "line": 8,
+      "termId": "userId_author",
+      "snippet": "userId: z.string(),",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 1,
+      "termId": "deleted_flags",
+      "snippet": "export type MasterPostLifecycleStatusV2 = \"active\" | \"deleted\" | \"hidden\" | \"processing\" | \"failed\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 7,
+      "termId": "geohash_geo",
+      "snippet": "| \"geoData\"",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 53,
+      "termId": "assetsReady",
+      "snippet": "assetsReady: boolean | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 82,
+      "termId": "assets_length",
+      "snippet": "kind: \"assets\" | \"media.assets\" | \"legacy\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 100,
+      "termId": "deleted_flags",
+      "snippet": "isDeleted: boolean;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 102,
+      "termId": "time_created",
+      "snippet": "createdAt: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 103,
+      "termId": "time_created",
+      "snippet": "createdAtMs: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 110,
+      "termId": "userId_author",
+      "snippet": "userId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 118,
+      "termId": "lat_lng",
+      "snippet": "lat: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 119,
+      "termId": "lat_lng",
+      "snippet": "lng: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 120,
+      "termId": "geohash_geo",
+      "snippet": "geohash: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 124,
+      "termId": "title_content_search",
+      "snippet": "/** Place / address headline for maps and location UI — never mirrors `text.title`. */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 139,
+      "termId": "region_ids",
+      "snippet": "cityRegionId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 140,
+      "termId": "region_ids",
+      "snippet": "stateRegionId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 141,
+      "termId": "region_ids",
+      "snippet": "countryRegionId: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 146,
+      "termId": "activities_top",
+      "snippet": "activities: string[];",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 147,
+      "termId": "primaryActivity",
+      "snippet": "primaryActivity: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 149,
+      "termId": "privacy_visibility",
+      "snippet": "visibility: \"public\" | \"friends\" | \"private\" | \"unknown\";",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 151,
+      "termId": "mediaType_reel",
+      "snippet": "reel: boolean;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 152,
+      "termId": "settingType",
+      "snippet": "settingType: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 153,
+      "termId": "moderatorTier",
+      "snippet": "moderatorTier: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 160,
+      "termId": "assetsReady",
+      "snippet": "assetsReady: boolean;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 168,
+      "termId": "assets_length",
+      "snippet": "assets: MasterPostAssetV2[];",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 188,
+      "termId": "likes_comments",
+      "snippet": "likeCount: number;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 189,
+      "termId": "likes_comments",
+      "snippet": "commentCount: number;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 201,
+      "termId": "photo_links",
+      "snippet": "photoLink: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 204,
+      "termId": "photo_links",
+      "snippet": "displayPhotoLink: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 207,
+      "termId": "photo_links",
+      "snippet": "fallbackVideoUrl: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 208,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: MasterPostMediaKindV2;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 241,
+      "termId": "userId_author",
+      "snippet": "userId: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 251,
+      "termId": "userId_author",
+      "snippet": "userId: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 256,
+      "termId": "time_created",
+      "snippet": "createdAt: string | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 262,
+      "termId": "userId_author",
+      "snippet": "* - Likes docs: `posts/{postId}/likes/{userId}` (increment + denormalized counts on post)",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 267,
+      "termId": "likes_comments",
+      "snippet": "likeCount: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 269,
+      "termId": "likes_comments",
+      "snippet": "commentsCount: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 276,
+      "termId": "likes_comments",
+      "snippet": "likesCount: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 280,
+      "termId": "likes_comments",
+      "snippet": "commentsCount: number | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 285,
+      "termId": "likes_comments",
+      "snippet": "likeCount: number;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 286,
+      "termId": "likes_comments",
+      "snippet": "commentCount: number;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 302,
+      "termId": "time_created",
+      "snippet": "/** ISO time when a rebuilder/migration normalized raw Firestore; null for brand-new canonical finalize writes. */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 304,
+      "termId": "time_created",
+      "snippet": "/** ISO time when `/v2/posting/finalize` first wrote this doc as Master Post V2. */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 319,
+      "termId": "lifecycle",
+      "snippet": "/** Which raw field produced `lifecycle.createdAtMs`, if any. */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 319,
+      "termId": "time_created",
+      "snippet": "/** Which raw field produced `lifecycle.createdAtMs`, if any. */",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 320,
+      "termId": "time_created",
+      "snippet": "lifecycleCreatedAtMsSource?: \"createdAtMs\" | \"time\" | \"createdAt\" | \"time-created\" | \"updatedAt\" | null;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 336,
+      "termId": "lifecycle",
+      "snippet": "lifecycle: MasterPostLifecycleV2;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 339,
+      "termId": "title_content_search",
+      "snippet": "title: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 342,
+      "termId": "title_content_search",
+      "snippet": "content: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 343,
+      "termId": "title_content_search",
+      "snippet": "searchableText: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 351,
+      "termId": "time_created",
+      "snippet": "* Preserves today’s embedded liker display fields (`userName` → displayName, `userHandle`, `userPic`, liked time).",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/master-post-v2.types.ts",
+      "line": 355,
+      "termId": "userId_author",
+      "snippet": "userId: string;",
+      "bucket": "needs_manual_review"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 6,
+      "termId": "assets_length",
+      "snippet": "} from \"./post-assets.contract.js\";",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 8,
+      "termId": "assets_length",
+      "snippet": "function displayUris(assets: NormalizedPostAsset[]): string[] {",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 9,
+      "termId": "assets_length",
+      "snippet": "return assets.map((a) => a.displayUri);",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 9,
+      "termId": "map_radius",
+      "snippet": "return assets.map((a) => a.displayUri);",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 16,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: \"image\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 17,
+      "termId": "assets_length",
+      "snippet": "assets: [",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 44,
+      "termId": "assets_length",
+      "snippet": "expect(r.assets).toHaveLength(3);",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 47,
+      "termId": "assets_length",
+      "snippet": "expect(displayUris(r.assets)).toEqual([",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 52,
+      "termId": "photo_links",
+      "snippet": "expect(r.displayPhotoLink?.length).toBeGreaterThan(0);",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 53,
+      "termId": "photo_links",
+      "snippet": "expect(r.photoLink).toContain(\"webp\");",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 59,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: \"video\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 60,
+      "termId": "photo_links",
+      "snippet": "displayPhotoLink: \"https://cdn.example/poster.jpg\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 61,
+      "termId": "assets_length",
+      "snippet": "assets: [",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 76,
+      "termId": "assets_length",
+      "snippet": "expect(r.assets).toHaveLength(1);",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 77,
+      "termId": "assets_length",
+      "snippet": "const asset0 = r.assets[0];",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 89,
+      "termId": "mediaType_reel",
+      "snippet": "mediaType: \"image\",",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 94,
+      "termId": "assets_length",
+      "snippet": "expect(r.assets.map((x) => x.displayUri)).toEqual([",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 94,
+      "termId": "map_radius",
+      "snippet": "expect(r.assets.map((x) => x.displayUri)).toEqual([",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 102,
+      "termId": "photo_links",
+      "snippet": "it(\"legacy single photoLink with empty photoLinks2/3 yields one asset\", () => {",
+      "bucket": "test_fixture"
+    },
+    {
+      "file": "src/contracts/post-assets.contract.test.ts",
+      "line": 105,
+      "termId": "photo_links",
+      "snippet": "photoLink: \"https://one.jpg\",",
+      "bucket": "test_fixture"
+    }
+  ]
+}

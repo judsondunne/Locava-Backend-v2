@@ -19,6 +19,8 @@ const SearchHomeV1FirstPostSchema = z
     mediaType: z.enum(["photo", "video"]),
     activity: z.string(),
     createdAt: z.string(),
+    /** Progressive URL for inline muted preview when `mediaType` is `video`. */
+    videoPreviewUrl: z.string().nullable().optional(),
   })
   .nullable();
 

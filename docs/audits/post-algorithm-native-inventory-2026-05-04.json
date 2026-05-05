@@ -1,0 +1,1595 @@
+{
+  "generatedAt": "2026-05-04T22:40:12.269Z",
+  "nativeRoot": "Locava-Native/src",
+  "nativePresent": true,
+  "totalHits": 263,
+  "patternCounts": {
+    "post_dot_activities": 16,
+    "post_dot_lat": 49,
+    "post_dot_mediaType": 9,
+    "getPostActivities": 8,
+    "getPostCover": 9,
+    "getPostMediaAssets": 36,
+    "appPostV2": 136
+  },
+  "hits": [
+    {
+      "file": "Locava-Native/src/data/cache/postMetadata.cache.ts",
+      "line": 233,
+      "patternId": "post_dot_activities",
+      "snippet": "if (Array.isArray(post.activities)) {"
+    },
+    {
+      "file": "Locava-Native/src/data/cache/postMetadata.cache.ts",
+      "line": 234,
+      "patternId": "post_dot_activities",
+      "snippet": "row.activities = post.activities.filter((item): item is string => typeof item === 'string');"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/competitive/CompetitiveBadgeDetailModal.tsx",
+      "line": 98,
+      "patternId": "post_dot_lat",
+      "snippet": "latitude: post.lat,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/competitive/CompetitiveBadgeDetailModal.tsx",
+      "line": 99,
+      "patternId": "post_dot_lat",
+      "snippet": "longitude: post.lng,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 335,
+      "patternId": "post_dot_activities",
+      "snippet": "activities: post.activities,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 336,
+      "patternId": "post_dot_lat",
+      "snippet": "lat: post.lat,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 337,
+      "patternId": "post_dot_lat",
+      "snippet": "long: post.lng,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 382,
+      "patternId": "post_dot_activities",
+      "snippet": "const activity = humanizeActivity(post.activities[0]);"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 391,
+      "patternId": "post_dot_lat",
+      "snippet": ".filter((post) => typeof post.lat === 'number' && typeof post.lng === 'number')"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 394,
+      "patternId": "post_dot_lat",
+      "snippet": "lat: post.lat as number,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 395,
+      "patternId": "post_dot_lat",
+      "snippet": "lon: post.lng as number,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 872,
+      "patternId": "post_dot_activities",
+      "snippet": "? `Across ${new Set(recap.posts.map((post) => post.activities[0] ?? post.title)).size} distinct adventure types`"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 889,
+      "patternId": "post_dot_lat",
+      "snippet": "() => recap.posts.filter((post) => post.lat != null && post.lng != null),"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 995,
+      "patternId": "post_dot_lat",
+      "snippet": "coordinate={{ latitude: post.lat as number, longitude: post.lng as number }}"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 1124,
+      "patternId": "post_dot_lat",
+      "snippet": "if (post.lat == null || post.lng == null) return;"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 1126,
+      "patternId": "post_dot_lat",
+      "snippet": "latitude: post.lat,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 1127,
+      "patternId": "post_dot_lat",
+      "snippet": "longitude: post.lng,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 1131,
+      "patternId": "post_dot_lat",
+      "snippet": "[post.heroUri, post.lat, post.lng],"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 1265,
+      "patternId": "post_dot_activities",
+      "snippet": "recap.topActivity ? post.activities.some((activity) => activity === recap.topActivity) : true,"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 1653,
+      "patternId": "post_dot_lat",
+      "snippet": "const mapPosts = recap.posts.filter((post) => post.lat != null && post.lng != null);"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/MonthlyOverviewModal.heavy.tsx",
+      "line": 1674,
+      "patternId": "post_dot_lat",
+      "snippet": "coordinate={{ latitude: post.lat as number, longitude: post.lng as number }}"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 156,
+      "patternId": "post_dot_activities",
+      "snippet": "for (const activity of post.activities) {"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 235,
+      "patternId": "post_dot_lat",
+      "snippet": "post.lat ??"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 240,
+      "patternId": "post_dot_lat",
+      "snippet": "post.long ??"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 241,
+      "patternId": "post_dot_lat",
+      "snippet": "post.lng ??"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 353,
+      "patternId": "post_dot_lat",
+      "snippet": "const mapped = posts.filter((post) => post.lat != null && post.lng != null);"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 355,
+      "patternId": "post_dot_lat",
+      "snippet": "const lats = mapped.map((post) => post.lat as number);"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 356,
+      "patternId": "post_dot_lat",
+      "snippet": "const lngs = mapped.map((post) => post.lng as number);"
+    },
+    {
+      "file": "Locava-Native/src/features/achievements/monthlyOverview/monthlyRecap.load.ts",
+      "line": 378,
+      "patternId": "post_dot_activities",
+      "snippet": "for (const activity of post.activities) {"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 51,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: {"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 60,
+      "patternId": "appPostV2",
+      "snippet": "assert(Array.isArray(merged?.assets) && merged!.assets.length === 3, \"must replace stale cached media arrays when appPostV2 assetCount differs\");"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 88,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: {"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 100,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: {"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 110,
+      "patternId": "appPostV2",
+      "snippet": "const mergedGradient = (merged?.appPostV2 as { media?: { cover?: { gradient?: { top?: string } } } } | undefined)?.media?.cover?.gradient?.top;"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 117,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: {"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 128,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: {"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.test.ts",
+      "line": 137,
+      "patternId": "appPostV2",
+      "snippet": "const mergedFit = (merged?.appPostV2 as { media?: { assets?: Array<{ presentation?: { carouselFitWidth?: boolean } }> } } | undefined)?.media?.assets?.[0]?.presentation?.carouselFitWidth;"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 63,
+      "patternId": "appPostV2",
+      "snippet": "const appPost = (record.appPostV2 ?? record.appPost) as"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 76,
+      "patternId": "appPostV2",
+      "snippet": "const appPost = (record.appPostV2 ?? record.appPost) as"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 99,
+      "patternId": "appPostV2",
+      "snippet": "const appPost = (record.appPostV2 ?? record.appPost) as"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 116,
+      "patternId": "appPostV2",
+      "snippet": "const appPost = (record.appPostV2 ?? record.appPost) as { media?: { assets?: Array<{ id?: unknown }> } } | null | undefined;"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 208,
+      "patternId": "appPostV2",
+      "snippet": "Boolean(incoming.appPostV2 ?? incoming.appPost)"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 219,
+      "patternId": "appPostV2",
+      "snippet": "Boolean(incoming.appPostV2 ?? incoming.appPost);"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 231,
+      "patternId": "appPostV2",
+      "snippet": "if (incoming.appPostV2 && typeof incoming.appPostV2 === \"object\") merged.appPostV2 = incoming.appPostV2;"
+    },
+    {
+      "file": "Locava-Native/src/features/continuity/mergePostPreserveRichFields.ts",
+      "line": 253,
+      "patternId": "appPostV2",
+      "snippet": "hadServerAppPost: Boolean(incoming.appPostV2 ?? incoming.appPost),"
+    },
+    {
+      "file": "Locava-Native/src/features/findFriends/findFriends.postMedia.ts",
+      "line": 68,
+      "patternId": "post_dot_lat",
+      "snippet": "const lat = typeof post.lat === 'number' ? post.lat : null;"
+    },
+    {
+      "file": "Locava-Native/src/features/findFriends/findFriends.postMedia.ts",
+      "line": 69,
+      "patternId": "post_dot_lat",
+      "snippet": "const lng = typeof post.long === 'number' ? post.long : null;"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedDetailV2.normalize.ts",
+      "line": 244,
+      "patternId": "post_dot_activities",
+      "snippet": "activities: Array.isArray(post.activities) ? post.activities : [],"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedDetailV2.normalize.ts",
+      "line": 253,
+      "patternId": "post_dot_mediaType",
+      "snippet": "mediaType: post.mediaType,"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 3,
+      "patternId": "appPostV2",
+      "snippet": "import { warnAppPostV2InDev } from '@/features/posts/appPostV2/assertAppPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 4,
+      "patternId": "appPostV2",
+      "snippet": "import { isNativeAppPostV2ConsumerEnabled } from '@/features/posts/appPostV2/flags';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 5,
+      "patternId": "getPostCover",
+      "snippet": "import { getPostCoverDisplayUri } from '@/features/posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 5,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostCoverDisplayUri } from '@/features/posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 6,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from '@/features/posts/appPostV2/getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 6,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostMediaAssets } from '@/features/posts/appPostV2/getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 7,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from '@/features/posts/appPostV2/normalizeAppPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 8,
+      "patternId": "getPostActivities",
+      "snippet": "import { getPostActivities } from '@/features/posts/getPostActivities';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 34,
+      "patternId": "appPostV2",
+      "snippet": "const appPostV2 = normalizeAppPostV2("
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 48,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const normalizedAppLen = appPostV2 ? getPostMediaAssets(appPostV2).length : 0;"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 48,
+      "patternId": "appPostV2",
+      "snippet": "const normalizedAppLen = appPostV2 ? getPostMediaAssets(appPostV2).length : 0;"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 86,
+      "patternId": "appPostV2",
+      "snippet": "if (__DEV__) warnAppPostV2InDev('feedV2.normalize', appPostV2);"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 88,
+      "patternId": "appPostV2",
+      "snippet": "isNativeAppPostV2ConsumerEnabled() && appPostV2 ? getPostCoverDisplayUri(appPostV2)?.trim() ?? '' : '';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 100,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: appPostV2 ?? null,"
+    },
+    {
+      "file": "Locava-Native/src/features/home/backendv2/feedV2.normalize.ts",
+      "line": 116,
+      "patternId": "getPostActivities",
+      "snippet": "activities: getPostActivities(item as unknown as Record<string, unknown>),"
+    },
+    {
+      "file": "Locava-Native/src/features/home/reels.types.ts",
+      "line": 6,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/home/reels.types.ts",
+      "line": 53,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2?: AppPostV2 | null;"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 68,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets, getPostMediaAssetsFromRecord } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 68,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostMediaAssets, getPostMediaAssetsFromRecord } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 69,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostPlaybackUrlsFromAsset } from \"../posts/appPostV2/getPostPlaybackUrls\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 70,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from \"../posts/appPostV2/normalizeAppPostV2\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 71,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostLetterboxGradientsFromRecord } from \"../posts/appPostV2/getPostLetterboxGradient\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 72,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostAssetPresentation } from \"../posts/appPostV2/getPostMediaPresentation\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 77,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostV2 } from \"../../contracts/appPostV2\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/AssetCarouselOnly.tsx",
+      "line": 532,
+      "patternId": "getPostMediaAssets",
+      "snippet": "appPostAssetCount: ap ? getPostMediaAssets(ap).length : 0,"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 84,
+      "patternId": "getPostMediaAssets",
+      "snippet": "} from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 84,
+      "patternId": "appPostV2",
+      "snippet": "} from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 154,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostAssetLetterboxGradientFromRecord, getPostLetterboxGradientsFromRecord } from \"../posts/appPostV2/getPostLetterboxGradient\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 266,
+      "patternId": "post_dot_lat",
+      "snippet": "const lat = post.lat ?? post.latitude ?? location?.lat ?? location?.latitude;"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 268,
+      "patternId": "post_dot_lat",
+      "snippet": "post.long ??"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 269,
+      "patternId": "post_dot_lat",
+      "snippet": "post.lng ??"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 810,
+      "patternId": "post_dot_lat",
+      "snippet": "post.lat ?? post.latitude,"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 811,
+      "patternId": "post_dot_lat",
+      "snippet": "post.long ?? post.longitude,"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 1462,
+      "patternId": "post_dot_lat",
+      "snippet": "post.lat ?? post.latitude,"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 1463,
+      "patternId": "post_dot_lat",
+      "snippet": "post.long ?? post.longitude,"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 1481,
+      "patternId": "post_dot_activities",
+      "snippet": "activities: (editActivities?.length ? editActivities : (post.activities as string[])) ?? [],"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3341,
+      "patternId": "post_dot_lat",
+      "snippet": "? post.lat"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3343,
+      "patternId": "post_dot_lat",
+      "snippet": "? parseFloat(post.lat as string)"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3348,
+      "patternId": "post_dot_lat",
+      "snippet": "? post.long"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3350,
+      "patternId": "post_dot_lat",
+      "snippet": "? parseFloat(post.long as string)"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3788,
+      "patternId": "post_dot_lat",
+      "snippet": "if (typeof post?.lat === \"number\") return post.lat;"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3789,
+      "patternId": "post_dot_lat",
+      "snippet": "if (typeof post?.lat === \"string\") return parseFloat(post.lat as string);"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3797,
+      "patternId": "post_dot_lat",
+      "snippet": "if (typeof post?.long === \"number\") return post.long;"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/LiftableViewerHost.heavy.tsx",
+      "line": 3798,
+      "patternId": "post_dot_lat",
+      "snippet": "if (typeof post?.long === \"string\") return parseFloat(post.long as string);"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 33,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from '../posts/appPostV2/getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 33,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostMediaAssets } from '../posts/appPostV2/getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 34,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostPlaybackUrlsFromAsset } from '../posts/appPostV2/getPostPlaybackUrls';"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 35,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from '../posts/appPostV2/normalizeAppPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 137,
+      "patternId": "appPostV2",
+      "snippet": "const wire = rec.appPostV2 ?? rec.appPost;"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 140,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(ap);"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 291,
+      "patternId": "appPostV2",
+      "snippet": "const wire = resolvedPost?.appPostV2 ?? resolvedPost?.appPost;"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/PostTile.tsx",
+      "line": 294,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(ap);"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/getHeroUri.ts",
+      "line": 3,
+      "patternId": "appPostV2",
+      "snippet": "* Prefers AppPostV2 `media.cover` when `appPost` / `appPostV2` is present, then legacy displayPhotoLink / assets."
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/getHeroUri.ts",
+      "line": 6,
+      "patternId": "getPostCover",
+      "snippet": "import { getPostCoverDisplayUri } from '../posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/getHeroUri.ts",
+      "line": 6,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostCoverDisplayUri } from '../posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/getHeroUri.ts",
+      "line": 7,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from '../posts/appPostV2/normalizeAppPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/getHeroUri.ts",
+      "line": 30,
+      "patternId": "appPostV2",
+      "snippet": "const wire = post.appPostV2 ?? post.appPost;"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/liftablePrecache.ts",
+      "line": 79,
+      "patternId": "getPostMediaAssets",
+      "snippet": "} from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/liftablePrecache.ts",
+      "line": 79,
+      "patternId": "appPostV2",
+      "snippet": "} from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/nativeVideoPrefetch.ts",
+      "line": 10,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssetsFromRecord } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/nativeVideoPrefetch.ts",
+      "line": 10,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostMediaAssetsFromRecord } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/liftable/nativeVideoPrefetch.ts",
+      "line": 11,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostPlaybackUrlsFromAsset } from \"../posts/appPostV2/getPostPlaybackUrls\";"
+    },
+    {
+      "file": "Locava-Native/src/features/map/MapSurface.tsx",
+      "line": 292,
+      "patternId": "post_dot_mediaType",
+      "snippet": "mediaType: post.mediaType === 'video' ? 'video' : 'image',"
+    },
+    {
+      "file": "Locava-Native/src/features/map/MapSurface.tsx",
+      "line": 293,
+      "patternId": "post_dot_lat",
+      "snippet": "lat: post.lat,"
+    },
+    {
+      "file": "Locava-Native/src/features/map/MapSurface.tsx",
+      "line": 296,
+      "patternId": "post_dot_lat",
+      "snippet": "lat: post.lat,"
+    },
+    {
+      "file": "Locava-Native/src/features/media/playbackPostModel.ts",
+      "line": 122,
+      "patternId": "post_dot_mediaType",
+      "snippet": "if (post.mediaType === \"video\") return true;"
+    },
+    {
+      "file": "Locava-Native/src/features/media/playbackReadyOpenGate.ts",
+      "line": 263,
+      "patternId": "post_dot_mediaType",
+      "snippet": "if (post.mediaType === \"video\") return true;"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 2,
+      "patternId": "getPostCover",
+      "snippet": "import { getPostCoverDisplayUri } from \"../posts/appPostV2/getPostCover\";"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 2,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostCoverDisplayUri } from \"../posts/appPostV2/getPostCover\";"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 3,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 3,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostMediaAssets } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 4,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostPlaybackUrlsFromAsset } from \"../posts/appPostV2/getPostPlaybackUrls\";"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 5,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from \"../posts/appPostV2/normalizeAppPostV2\";"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 74,
+      "patternId": "appPostV2",
+      "snippet": "const appPostV2 = normalizeAppPostV2((post.appPostV2 ?? post.appPost) as unknown);"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 75,
+      "patternId": "appPostV2",
+      "snippet": "if (appPostV2) {"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 76,
+      "patternId": "appPostV2",
+      "snippet": "const postId = pickString(appPostV2.id, post.postId, post.id);"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 77,
+      "patternId": "appPostV2",
+      "snippet": "const cover = getPostCoverDisplayUri(appPostV2) ?? \"\";"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 78,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(appPostV2);"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 78,
+      "patternId": "appPostV2",
+      "snippet": "const assets = getPostMediaAssets(appPostV2);"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 121,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2,"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 124,
+      "patternId": "appPostV2",
+      "snippet": "userId: pickString(post.userId, appPostV2.author.userId),"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 125,
+      "patternId": "appPostV2",
+      "snippet": "userHandle: pickString(post.userHandle, appPostV2.author.handle),"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 126,
+      "patternId": "appPostV2",
+      "snippet": "userName: pickString(post.userName, appPostV2.author.displayName),"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 127,
+      "patternId": "appPostV2",
+      "snippet": "userPic: pickString(post.userPic, appPostV2.author.profilePicUrl),"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 131,
+      "patternId": "appPostV2",
+      "snippet": "mediaType: appPostV2.classification.mediaKind === \"video\" ? \"video\" : \"image\","
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 134,
+      "patternId": "appPostV2",
+      "snippet": "fallbackVideoUrl: appPostV2.compatibility.fallbackVideoUrl ?? undefined,"
+    },
+    {
+      "file": "Locava-Native/src/features/mixes/mixPostMedia.ts",
+      "line": 137,
+      "patternId": "appPostV2",
+      "snippet": "assetsReady: appPostV2.media.status === \"ready\","
+    },
+    {
+      "file": "Locava-Native/src/features/notifications/Notifications.heavy.tsx",
+      "line": 47,
+      "patternId": "getPostCover",
+      "snippet": "import { getPostCoverDisplayUri } from '../posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/notifications/Notifications.heavy.tsx",
+      "line": 47,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostCoverDisplayUri } from '../posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/notifications/Notifications.heavy.tsx",
+      "line": 48,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from '../posts/appPostV2/normalizeAppPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/notifications/Notifications.heavy.tsx",
+      "line": 207,
+      "patternId": "appPostV2",
+      "snippet": "const appPost = normalizeAppPostV2(postRecord?.appPostV2 ?? postRecord?.appPost);"
+    },
+    {
+      "file": "Locava-Native/src/features/post/upload/directPostUploadClient.ts",
+      "line": 598,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: finalizePayload.appPost,"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/AppPostLiftableMediaV2.tsx",
+      "line": 5,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostAssetV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/AppPostMediaCarouselV2.tsx",
+      "line": 3,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostAssetV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/appPostV2.gradient.test.ts",
+      "line": 2,
+      "patternId": "appPostV2",
+      "snippet": "* Run: npx --yes tsx src/features/posts/appPostV2/appPostV2.gradient.test.ts"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/appPostV2.gradient.test.ts",
+      "line": 5,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from \"./getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/appPostV2.gradient.test.ts",
+      "line": 6,
+      "patternId": "getPostCover",
+      "snippet": "import { getPostCover } from \"./getPostCover\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/appPostV2.gradient.test.ts",
+      "line": 94,
+      "patternId": "getPostCover",
+      "snippet": "const cover = getPostCover(appPost!);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/appPostV2.gradient.test.ts",
+      "line": 97,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(appPost!);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/appPostV2.gradient.test.ts",
+      "line": 116,
+      "patternId": "appPostV2",
+      "snippet": "console.log(\"appPostV2 gradient tests passed\");"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/assertAppPostV2.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostCover.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostMediaCoverV2, AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostCover.ts",
+      "line": 3,
+      "patternId": "getPostCover",
+      "snippet": "export function getPostCover(post: AppPostV2): AppPostMediaCoverV2 {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostEngagement.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostEngagementV2, AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostLetterboxGradient.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostAssetV2, AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostLetterboxGradient.ts",
+      "line": 2,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from './getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostLetterboxGradient.ts",
+      "line": 48,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const byIndex = getPostMediaAssets(post)[index];"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostLetterboxGradient.ts",
+      "line": 57,
+      "patternId": "appPostV2",
+      "snippet": "const appPost = normalizeAppPostV2(post.appPostV2 ?? post.appPost);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostLetterboxGradient.ts",
+      "line": 59,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(appPost);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.test.ts",
+      "line": 7,
+      "patternId": "getPostMediaAssets",
+      "snippet": "} from \"./getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.test.ts",
+      "line": 8,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostAssetV2 } from \"../../../contracts/appPostV2\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostAssetV2, AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 82,
+      "patternId": "getPostMediaAssets",
+      "snippet": "export function getPostMediaAssets(post: AppPostV2): AppPostAssetV2[] {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 88,
+      "patternId": "appPostV2",
+      "snippet": "* Prefers embedded `appPostV2` / `appPost` when fresh; if it has fewer assets than top-level `assets[]`"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 94,
+      "patternId": "appPostV2",
+      "snippet": "const wire = post.appPostV2 ?? post.appPost;"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 96,
+      "patternId": "getPostMediaAssets",
+      "snippet": "if (ap && rawLen > 0 && getPostMediaAssets(ap).length < rawLen) {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 98,
+      "patternId": "getPostMediaAssets",
+      "snippet": "if (full && getPostMediaAssets(full).length === rawLen) {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 102,
+      "patternId": "getPostMediaAssets",
+      "snippet": "if (!ap || getPostMediaAssets(ap).length === 0) {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 105,
+      "patternId": "getPostMediaAssets",
+      "snippet": "if (!ap || getPostMediaAssets(ap).length === 0) {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 109,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const beforeDedupe = getPostMediaAssets(ap);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 128,
+      "patternId": "appPostV2",
+      "snippet": "? 'appPostV2.media.assets_from_master_post'"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaAssets.ts",
+      "line": 129,
+      "patternId": "appPostV2",
+      "snippet": ": 'appPostV2.media.assets_from_full_post';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaPresentation.test.ts",
+      "line": 2,
+      "patternId": "appPostV2",
+      "snippet": "* Run: npx --yes tsx src/features/posts/appPostV2/getPostMediaPresentation.test.ts"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaPresentation.test.ts",
+      "line": 6,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from \"./getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaPresentation.test.ts",
+      "line": 41,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const cAsset = getPostMediaAssets(canonical!)[0];"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaPresentation.test.ts",
+      "line": 75,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const gOnlyAsset = getPostMediaAssets(canonicalGradientOnly!)[0];"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaPresentation.test.ts",
+      "line": 90,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const lAssets = getPostMediaAssets(legacy!);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostMediaPresentation.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostAssetV2, AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostPlaybackUrls.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostAssetV2, AppPostVideoAssetV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostPrimaryImage.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostImageAssetV2, AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostPrimaryImage.ts",
+      "line": 2,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from './getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostPrimaryImage.ts",
+      "line": 5,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(post);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostPrimaryVideo.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostVideoAssetV2, AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostPrimaryVideo.ts",
+      "line": 2,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from './getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/getPostPrimaryVideo.ts",
+      "line": 5,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(post);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/appPostV2/normalizeAppPostV2.ts",
+      "line": 1,
+      "patternId": "appPostV2",
+      "snippet": "import type { AppPostV2 } from '@/contracts/appPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.test.ts",
+      "line": 2,
+      "patternId": "getPostActivities",
+      "snippet": "import { getPostActivities, getPostPrimaryActivity } from \"./getPostActivities\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.test.ts",
+      "line": 4,
+      "patternId": "getPostActivities",
+      "snippet": "describe(\"getPostActivities\", () => {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.test.ts",
+      "line": 5,
+      "patternId": "appPostV2",
+      "snippet": "it(\"prefers appPostV2.classification.activities\", () => {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.test.ts",
+      "line": 7,
+      "patternId": "getPostActivities",
+      "snippet": "getPostActivities({"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.test.ts",
+      "line": 10,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: { classification: { activities: [\"hike\"] } },"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.test.ts",
+      "line": 16,
+      "patternId": "getPostActivities",
+      "snippet": "expect(getPostActivities({ activities: [\"swim\", \"run\"] })).toEqual([\"swim\", \"run\"]);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.ts",
+      "line": 19,
+      "patternId": "getPostActivities",
+      "snippet": "export function getPostActivities(post: PostRecord | null | undefined): string[] {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.ts",
+      "line": 21,
+      "patternId": "appPostV2",
+      "snippet": "const appV2 = post.appPostV2 as PostRecord | undefined;"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.ts",
+      "line": 29,
+      "patternId": "post_dot_activities",
+      "snippet": "return normalizeActivityList(post.activities);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/getPostActivities.ts",
+      "line": 39,
+      "patternId": "getPostActivities",
+      "snippet": "const acts = getPostActivities(post);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/mergePostMedia.test.ts",
+      "line": 18,
+      "patternId": "appPostV2",
+      "snippet": "it(\"reads appPostV2.media.assetCount\", () => {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/mergePostMedia.test.ts",
+      "line": 20,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: { media: { assetCount: 2, assets: [{}, {}] } },"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/mergePostMedia.ts",
+      "line": 11,
+      "patternId": "appPostV2",
+      "snippet": "* - embedded `appPostV2` / `appPost` (`media.assetCount` or `media.assets.length`)"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/mergePostMedia.ts",
+      "line": 18,
+      "patternId": "appPostV2",
+      "snippet": "const appPost = (post.appPostV2 ?? post.appPost) as"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 2,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from \"./appPostV2/normalizeAppPostV2\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 3,
+      "patternId": "appPostV2",
+      "snippet": "import { warnAppPostV2InDev } from \"./appPostV2/assertAppPostV2\";"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 63,
+      "patternId": "post_dot_lat",
+      "snippet": "post.lat,"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 72,
+      "patternId": "post_dot_lat",
+      "snippet": "post.long,"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 73,
+      "patternId": "post_dot_lat",
+      "snippet": "post.lng,"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 282,
+      "patternId": "appPostV2",
+      "snippet": "// Prefer backend `appPost` / `appPostV2` (canonical) and attach normalized `appPostV2` for UI consumption."
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 283,
+      "patternId": "appPostV2",
+      "snippet": "const wireAppPost = (post.appPostV2 ?? post.appPost) as unknown;"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 285,
+      "patternId": "appPostV2",
+      "snippet": "if (__DEV__ && (post.appPost || post.appPostV2)) {"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 293,
+      "patternId": "post_dot_mediaType",
+      "snippet": "pickNonEmptyString(post.mediaType) === \"video\" ||"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 330,
+      "patternId": "post_dot_activities",
+      "snippet": "const activities = normalizeStringArray(post.activities);"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postCanonical.ts",
+      "line": 356,
+      "patternId": "appPostV2",
+      "snippet": "...(normalizedAppPostV2 ? { appPostV2: normalizedAppPostV2 } : {}),"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postDetail.store.ts",
+      "line": 54,
+      "patternId": "appPostV2",
+      "snippet": "const wire = post.appPostV2 ?? post.appPost;"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postDetail.store.ts",
+      "line": 61,
+      "patternId": "post_dot_mediaType",
+      "snippet": "const mediaType = typeof post.mediaType === 'string' ? post.mediaType.trim().toLowerCase() : '';"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postDetail.store.ts",
+      "line": 71,
+      "patternId": "appPostV2",
+      "snippet": "const ap = (incoming.appPostV2 ?? incoming.appPost) as { media?: { assets?: unknown[] } } | undefined;"
+    },
+    {
+      "file": "Locava-Native/src/features/posts/postEnvelope.ts",
+      "line": 283,
+      "patternId": "post_dot_lat",
+      "snippet": "(pickNumber(post.lat, post.long) != null ? 1 : 0) +"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 96,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2: item.appPostV2,"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 115,
+      "patternId": "appPostV2",
+      "snippet": "...(canonical?.appPostV2 && typeof canonical.appPostV2 === 'object'"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 116,
+      "patternId": "appPostV2",
+      "snippet": "? { appPostV2: canonical.appPostV2 as Record<string, unknown> }"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 249,
+      "patternId": "post_dot_mediaType",
+      "snippet": "mediaType: post.mediaType,"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 261,
+      "patternId": "post_dot_activities",
+      "snippet": "activities: Array.isArray(post.activities) ? post.activities : [],"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 263,
+      "patternId": "post_dot_lat",
+      "snippet": "lat: post.lat ?? null,"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 264,
+      "patternId": "post_dot_lat",
+      "snippet": "lng: post.lng ?? null,"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 269,
+      "patternId": "post_dot_mediaType",
+      "snippet": "mediaType: post.mediaType,"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.normalize.ts",
+      "line": 296,
+      "patternId": "post_dot_mediaType",
+      "snippet": "mediaType: post.mediaType,"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.types.ts",
+      "line": 30,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2?: Record<string, unknown>;"
+    },
+    {
+      "file": "Locava-Native/src/features/profile/backendv2/profileV2.types.ts",
+      "line": 339,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2?: Record<string, unknown>;"
+    },
+    {
+      "file": "Locava-Native/src/features/search/SearchHomeSurface.tsx",
+      "line": 12,
+      "patternId": "getPostCover",
+      "snippet": "import { getPostCoverDisplayUri } from '../posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/search/SearchHomeSurface.tsx",
+      "line": 12,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostCoverDisplayUri } from '../posts/appPostV2/getPostCover';"
+    },
+    {
+      "file": "Locava-Native/src/features/search/SearchHomeSurface.tsx",
+      "line": 13,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from '../posts/appPostV2/normalizeAppPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/search/SearchHomeSurface.tsx",
+      "line": 59,
+      "patternId": "appPostV2",
+      "snippet": "const ap = normalizeAppPostV2(row.appPostV2 ?? row.appPost);"
+    },
+    {
+      "file": "Locava-Native/src/features/search/searchStoryRingPlayback.ts",
+      "line": 2,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from '../posts/appPostV2/getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/search/searchStoryRingPlayback.ts",
+      "line": 2,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostMediaAssets } from '../posts/appPostV2/getPostMediaAssets';"
+    },
+    {
+      "file": "Locava-Native/src/features/search/searchStoryRingPlayback.ts",
+      "line": 3,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostPlaybackUrlsFromAsset } from '../posts/appPostV2/getPostPlaybackUrls';"
+    },
+    {
+      "file": "Locava-Native/src/features/search/searchStoryRingPlayback.ts",
+      "line": 4,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from '../posts/appPostV2/normalizeAppPostV2';"
+    },
+    {
+      "file": "Locava-Native/src/features/search/searchStoryRingPlayback.ts",
+      "line": 18,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(ap);"
+    },
+    {
+      "file": "Locava-Native/src/features/search/searchStoryRingPlayback.ts",
+      "line": 32,
+      "patternId": "appPostV2",
+      "snippet": "return pickStoryRailVideoUrlFromAppPostRecord(item.appPostV2 ?? item.appPost);"
+    },
+    {
+      "file": "Locava-Native/src/features/search/searchStoryRingPlayback.ts",
+      "line": 38,
+      "patternId": "appPostV2",
+      "snippet": "const fromEmbed = pickStoryRailVideoUrlFromAppPostRecord(row.appPostV2 ?? row.appPost);"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 113,
+      "patternId": "getPostCover",
+      "snippet": "import { getPostCoverDisplayUri } from \"../posts/appPostV2/getPostCover\";"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 113,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostCoverDisplayUri } from \"../posts/appPostV2/getPostCover\";"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 114,
+      "patternId": "getPostMediaAssets",
+      "snippet": "import { getPostMediaAssets } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 114,
+      "patternId": "appPostV2",
+      "snippet": "import { getPostMediaAssets } from \"../posts/appPostV2/getPostMediaAssets\";"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 115,
+      "patternId": "appPostV2",
+      "snippet": "import { normalizeAppPostV2 } from \"../posts/appPostV2/normalizeAppPostV2\";"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 134,
+      "patternId": "appPostV2",
+      "snippet": "const appPostV2 = normalizeAppPostV2((post.appPostV2 ?? post.appPost) as unknown);"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 135,
+      "patternId": "appPostV2",
+      "snippet": "if (appPostV2) {"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 136,
+      "patternId": "appPostV2",
+      "snippet": "const postId = String(post.postId ?? post.id ?? appPostV2.id ?? \"\").trim();"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 137,
+      "patternId": "appPostV2",
+      "snippet": "const cover = getPostCoverDisplayUri(appPostV2) ?? \"\";"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 138,
+      "patternId": "getPostMediaAssets",
+      "snippet": "const assets = getPostMediaAssets(appPostV2).map((asset) =>"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 138,
+      "patternId": "appPostV2",
+      "snippet": "const assets = getPostMediaAssets(appPostV2).map((asset) =>"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 170,
+      "patternId": "appPostV2",
+      "snippet": "appPostV2,"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 173,
+      "patternId": "appPostV2",
+      "snippet": "title: typeof post.title === \"string\" ? post.title : appPostV2.text.title,"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 174,
+      "patternId": "appPostV2",
+      "snippet": "content: typeof post.captionPreview === \"string\" ? post.captionPreview : (appPostV2.text.caption ?? \"\"),"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 175,
+      "patternId": "appPostV2",
+      "snippet": "userId: String(post.userId ?? appPostV2.author.userId ?? \"\"),"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 176,
+      "patternId": "appPostV2",
+      "snippet": "userHandle: String(post.userHandle ?? appPostV2.author.handle ?? \"\"),"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 177,
+      "patternId": "appPostV2",
+      "snippet": "userName: typeof post.userName === \"string\" ? post.userName : (appPostV2.author.displayName ?? \"\"),"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 178,
+      "patternId": "appPostV2",
+      "snippet": "userPic: typeof post.userPic === \"string\" ? post.userPic : (appPostV2.author.profilePicUrl ?? \"\"),"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 179,
+      "patternId": "post_dot_activities",
+      "snippet": "activities: Array.isArray(post.activities) ? post.activities : appPostV2.classification.activities,"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 179,
+      "patternId": "appPostV2",
+      "snippet": "activities: Array.isArray(post.activities) ? post.activities : appPostV2.classification.activities,"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 202,
+      "patternId": "post_dot_activities",
+      "snippet": "activities: Array.isArray(post.activities) ? post.activities : [],"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 381,
+      "patternId": "post_dot_lat",
+      "snippet": "read(post.lat) ??"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 387,
+      "patternId": "post_dot_lat",
+      "snippet": "read(post.lng) ??"
+    },
+    {
+      "file": "Locava-Native/src/features/togo/CollectionDetail.heavy.tsx",
+      "line": 388,
+      "patternId": "post_dot_lat",
+      "snippet": "read(post.long) ??"
+    },
+    {
+      "file": "Locava-Native/src/features/userDisplay/UserDisplayContent.heavy.tsx",
+      "line": 137,
+      "patternId": "appPostV2",
+      "snippet": "...(grid.appPostV2 && typeof grid.appPostV2 === 'object' ? { appPostV2: grid.appPostV2 } : {}),"
+    },
+    {
+      "file": "Locava-Native/src/features/userDisplay/userDisplay.gridHydrate.ts",
+      "line": 60,
+      "patternId": "appPostV2",
+      "snippet": "...(full.appPostV2 && typeof full.appPostV2 === \"object\" ? { appPostV2: full.appPostV2 } : {}),"
+    },
+    {
+      "file": "Locava-Native/src/recommendation/postedActivityAffinity.ts",
+      "line": 30,
+      "patternId": "post_dot_activities",
+      "snippet": "const raw = post.activities;"
+    }
+  ]
+}

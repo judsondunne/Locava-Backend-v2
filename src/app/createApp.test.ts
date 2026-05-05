@@ -11,6 +11,14 @@ describe("backend foundation routes", () => {
     ENABLE_LEGACY_COMPAT_ROUTES: true
   });
 
+  it("exposes POST /api/media/upload-photo (always on; unauthenticated → 401, not 404)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/media/upload-photo"
+    });
+    expect(res.statusCode).not.toBe(404);
+  });
+
   it("returns health", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);

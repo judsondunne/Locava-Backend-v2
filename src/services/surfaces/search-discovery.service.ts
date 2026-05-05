@@ -1,5 +1,21 @@
 import { FieldPath, type Query } from "firebase-admin/firestore";
 import { attachAppPostV2ToSearchDiscoveryRow } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
+import type { PostRecord } from "../../lib/posts/postFieldSelectors.js";
+import {
+  getPostActivities,
+  getPostAuthorSummary,
+  getPostCaption,
+  getPostCityRegionId,
+  getPostCoordinates,
+  getPostCoverDisplayUrl,
+  getPostDescription,
+  getPostEngagementCounts,
+  getPostMediaKind,
+  getPostSearchableText,
+  getPostStateRegionId,
+  getPostTitle,
+  getPostUpdatedAtMs,
+} from "../../lib/posts/postFieldSelectors.js";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
 import { SearchUsersFirestoreAdapter } from "../../repositories/source-of-truth/search-users-firestore.adapter.js";
@@ -77,6 +93,16 @@ type SuggestLocationRow = {
 };
 
 const DISCOVERY_POST_SELECT_FIELDS = [
+  "schema",
+  "author",
+  "lifecycle",
+  "classification",
+  "location",
+  "text",
+  "media",
+  "engagement",
+  "ranking",
+  "compatibility",
   "userId",
   "userHandle",
   "userName",
@@ -84,7 +110,10 @@ const DISCOVERY_POST_SELECT_FIELDS = [
   "title",
   "caption",
   "description",
+  "content",
   "activities",
+  "searchableText",
+  "searchText",
   "thumbUrl",
   "displayPhotoLink",
   "photoLink",
@@ -102,22 +131,10 @@ const DISCOVERY_POST_SELECT_FIELDS = [
   "long",
   "stateRegionId",
   "cityRegionId",
+  "countryRegionId",
+  "geoData",
+  "geohash",
 ] as const;
-
-function resolveDiscoveryThumbUrl(data: Record<string, unknown>): string {
-  const direct = String(data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? "").trim();
-  if (/^https?:\/\//i.test(direct)) return direct;
-  const assets = data.assets;
-  if (Array.isArray(assets) && assets[0] && typeof assets[0] === "object") {
-    const a0 = assets[0] as Record<string, unknown>;
-    const candidates = [a0.poster, a0.thumbnail, a0.original, (a0.variants as any)?.poster];
-    for (const c of candidates) {
-      const u = typeof c === "string" ? c.trim() : "";
-      if (/^https?:\/\//i.test(u)) return u;
-    }
-  }
-  return "";
-}
 
 function hasLikelyActivityTagSpam(activities: string[]): boolean {
   const uniqueCount = new Set(activities).size;
@@ -225,7 +242,7 @@ export class SearchDiscoveryService {
     let snap;
     try {
       snap = await withTimeout(
-        db.collection("posts").orderBy("time", "desc").select("activities").limit(160).get(),
+        db.collection("posts").orderBy("time", "desc").select("activities", "classification", "schema").limit(160).get(),
         SearchDiscoveryService.FIRESTORE_TIMEOUT_MS,
         "search-discovery-top-activities"
       );
@@ -237,7 +254,7 @@ export class SearchDiscoveryService {
     const counts = new Map<string, number>();
     for (const doc of snap.docs) {
       const row = doc.data() as Record<string, unknown>;
-      const activities = Array.isArray(row.activities) ? row.activities : [];
+      const activities = getPostActivities(row as PostRecord);
       for (const raw of activities) {
         const activity = String(raw ?? "").trim().toLowerCase();
         if (!activity) continue;
@@ -589,11 +606,12 @@ export class SearchDiscoveryService {
       intent.location.place?.lng != null
     ) {
       const nearby = ranked.filter((row) => {
-        if (row.post.lat == null || row.post.lng == null) return false;
+        const c = getPostCoordinates(row.post.rawFirestore as PostRecord);
+        if (c.lat == null || c.lng == null) return false;
         return (
           distanceMiles(
             { lat: intent.location?.place?.lat as number, lng: intent.location?.place?.lng as number },
-            { lat: row.post.lat, lng: row.post.lng }
+            { lat: c.lat, lng: c.lng }
           ) <= 90
         );
       });
@@ -936,11 +954,12 @@ export class SearchDiscoveryService {
         : null;
     const activityKeysToMatch = primaryQueryActivities(activity, 2);
     return posts
-      .filter((post) => post.thumbUrl.startsWith("http"))
-      .filter((post) => !hasLikelyActivityTagSpam(post.activities))
+      .filter((post) => getPostCoverDisplayUrl(post.rawFirestore as PostRecord).startsWith("http"))
+      .filter((post) => !hasLikelyActivityTagSpam(getPostActivities(post.rawFirestore as PostRecord)))
       .map((post) => {
-        const activityKeys = post.activities.map((value) => toActivityKey(value));
-        const textCorpus = normalizeSearchText(`${post.title} ${post.caption} ${post.description}`);
+        const raw = post.rawFirestore as PostRecord;
+        const activityKeys = getPostActivities(raw).map((value) => toActivityKey(value));
+        const textCorpus = normalizeSearchText(getPostSearchableText(raw));
         let score = 0;
         let activityMatched = false;
         let locationMatched = false;
@@ -959,21 +978,24 @@ export class SearchDiscoveryService {
         }
 
         if (location?.cityRegionId || location?.stateRegionId) {
-          if (location.cityRegionId && post.cityRegionId === location.cityRegionId) {
+          const postCity = getPostCityRegionId(raw);
+          const postState = getPostStateRegionId(raw);
+          const coords = getPostCoordinates(raw);
+          if (location.cityRegionId && postCity === location.cityRegionId) {
             score += 20;
             locationMatched = true;
-          } else if (location.stateRegionId && post.stateRegionId === location.stateRegionId) {
+          } else if (location.stateRegionId && postState === location.stateRegionId) {
             score += 12;
             locationMatched = true;
           } else if (
             location.place?.lat != null &&
             location.place?.lng != null &&
-            post.lat != null &&
-            post.lng != null
+            coords.lat != null &&
+            coords.lng != null
           ) {
             const miles = distanceMiles(
               { lat: location.place.lat, lng: location.place.lng },
-              { lat: post.lat, lng: post.lng }
+              { lat: coords.lat, lng: coords.lng }
             );
             if (miles <= 90) {
               score += Math.max(6, 16 - miles / 12);
@@ -991,8 +1013,9 @@ export class SearchDiscoveryService {
           if (activityKeys.some((candidate) => candidate.includes(token))) score += 7;
         }
 
-        if (viewerCoords && post.lat != null && post.lng != null) {
-          const miles = distanceMiles(viewerCoords, { lat: post.lat, lng: post.lng });
+        const viewerDistCoords = getPostCoordinates(raw);
+        if (viewerCoords && viewerDistCoords.lat != null && viewerDistCoords.lng != null) {
+          const miles = distanceMiles(viewerCoords, { lat: viewerDistCoords.lat, lng: viewerDistCoords.lng });
           if (nearMe && miles > 120) {
             return { post, score: -1, locationMatched: false, activityMatched };
           }
@@ -1003,12 +1026,17 @@ export class SearchDiscoveryService {
           return { post, score: -1, locationMatched: false, activityMatched };
         }
 
-        score += Math.min(4, (post.likeCount ?? 0) / 12);
-        score += Math.min(2, (post.commentCount ?? 0) / 6);
+        const eng = getPostEngagementCounts(raw);
+        score += Math.min(4, eng.likeCount / 12);
+        score += Math.min(2, eng.commentCount / 6);
         return { post, score, locationMatched, activityMatched };
       })
       .filter((row) => row.score > 0)
-      .sort((a, b) => b.score - a.score || (b.post.updatedAtMs ?? 0) - (a.post.updatedAtMs ?? 0));
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          getPostUpdatedAtMs(b.post.rawFirestore as PostRecord) - getPostUpdatedAtMs(a.post.rawFirestore as PostRecord),
+      );
   }
 
   private async loadCandidatePostsForIntent(
@@ -1111,42 +1139,37 @@ export class SearchDiscoveryService {
   }
 
   private mapDiscoveryPost(postId: string, data: Record<string, unknown>): DiscoveryPost {
-    const activities = Array.isArray(data.activities) ? data.activities.map((a) => String(a)).filter(Boolean) : [];
-    const thumb = resolveDiscoveryThumbUrl(data);
-    const mediaType =
-      String(data.mediaType ?? "").toLowerCase() === "video"
-        ? "video"
-        : "image";
-    const updatedAtMs = Number(data.updatedAtMs ?? data.createdAtMs ?? 0);
-    const orderMillis = Number.isFinite(updatedAtMs) && updatedAtMs > 0
-      ? updatedAtMs
-      : typeof data.time === "number"
-        ? Number(data.time)
-        : Date.now();
-    const latValue = Number(data.lat ?? NaN);
-    const lngValue = Number(data.lng ?? data.long ?? NaN);
+    const rec = { ...data, id: postId, postId } as PostRecord;
+    const activities = getPostActivities(rec);
+    const thumb = getPostCoverDisplayUrl(rec);
+    const mk = getPostMediaKind(rec);
+    const mediaType = mk === "video" ? "video" : "image";
+    const orderMillis = getPostUpdatedAtMs(rec);
+    const coords = getPostCoordinates(rec);
+    const author = getPostAuthorSummary(rec);
+    const eng = getPostEngagementCounts(rec);
     return {
       id: postId,
       postId,
-      userId: String(data.userId ?? ""),
-      userHandle: String(data.userHandle ?? "").replace(/^@+/, "").trim(),
-      userName: String(data.userName ?? "").trim(),
-      userPic: sanitizeProfilePic(data.userPic),
-      title: String(data.title ?? "").trim(),
-      caption: String(data.caption ?? "").trim(),
-      description: String(data.description ?? "").trim(),
+      userId: author.userId ?? "",
+      userHandle: author.handle ?? "",
+      userName: author.displayName ?? "",
+      userPic: sanitizeProfilePic(author.profilePicUrl ?? data.userPic),
+      title: getPostTitle(rec),
+      caption: getPostCaption(rec),
+      description: getPostDescription(rec),
       activities,
       thumbUrl: thumb,
       displayPhotoLink: String(data.displayPhotoLink ?? thumb).trim(),
       mediaType,
-      likeCount: Number(data.likesCount ?? data.likeCount ?? 0) || 0,
-      commentCount: Number(data.commentsCount ?? data.commentCount ?? 0) || 0,
+      likeCount: eng.likeCount,
+      commentCount: eng.commentCount,
       updatedAtMs: orderMillis,
-      lat: Number.isFinite(latValue) ? latValue : null,
-      lng: Number.isFinite(lngValue) ? lngValue : null,
-      stateRegionId: String(data.stateRegionId ?? "").trim() || null,
-      cityRegionId: String(data.cityRegionId ?? "").trim() || null,
-      rawFirestore: { ...data, id: postId, postId },
+      lat: coords.lat,
+      lng: coords.lng,
+      stateRegionId: getPostStateRegionId(rec),
+      cityRegionId: getPostCityRegionId(rec),
+      rawFirestore: rec,
     };
   }
 }

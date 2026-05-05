@@ -161,6 +161,18 @@ describe("v2 profile bootstrap route", () => {
     expect(achievements.json().data.routeName).toBe("profile.achievements.get");
     expect(achievements.json().data.page.limit).toBe(6);
     expect(Array.isArray(achievements.json().data.items)).toBe(true);
+
+    const overview = await app.inject({
+      method: "GET",
+      url: `/v2/profiles/${HEAVY_USER_ID}/achievements-overview`,
+      headers,
+    });
+    expect(overview.statusCode).toBe(200);
+    expect(overview.json().data.routeName).toBe("profile.achievements_overview.get");
+    expect(overview.json().data.profileUserId).toBe(HEAVY_USER_ID);
+    expect(overview.json().data.snapshot).toBeTruthy();
+    expect(typeof overview.json().data.snapshot.xp?.current).toBe("number");
+    expect(Array.isArray(overview.json().data.snapshot.badges)).toBe(true);
   });
 
   it("serves truthful fresh facts immediately after follow/unfollow", async () => {

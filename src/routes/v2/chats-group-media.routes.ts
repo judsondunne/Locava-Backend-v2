@@ -1,5 +1,4 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import multipart from "@fastify/multipart";
 import { z } from "zod";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
@@ -31,10 +30,6 @@ async function readImageUploadPart(request: FastifyRequest & { file: () => Promi
 }
 
 export async function registerV2ChatsGroupMediaRoutes(app: FastifyInstance, _env: AppEnv): Promise<void> {
-  await app.register(multipart, {
-    limits: { fileSize: 25 * 1024 * 1024, files: 1 }
-  });
-
   const service = new ChatsService(chatsRepository);
 
   app.post("/v2/chats/group-avatar-upload", async (request, reply) => {

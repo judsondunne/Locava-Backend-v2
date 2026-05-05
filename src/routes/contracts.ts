@@ -126,6 +126,12 @@ export const routeContracts: RouteContract[] = [
   { method: "GET", path: "/v2/feed/items/:postId/detail", description: "V2 home/feed item detail hydration surface", tags: ["v2", "home", "feed", "post"], querySchema: { debugSlowDeferredMs: "number (0-2000) optional" } },
   { method: "GET", path: "/v2/profiles/:userId/bootstrap", description: "V2 profile bootstrap surface", tags: ["v2", "profile"], querySchema: { gridLimit: "number (6-18) optional", debugSlowDeferredMs: "number (0-2000) optional" } },
   { method: "GET", path: "/v2/profiles/:userId/grid", description: "V2 profile grid pagination surface", tags: ["v2", "profile"], querySchema: { cursor: "string optional", limit: "number (6-24) optional" } },
+  {
+    method: "GET",
+    path: "/v2/profiles/:userId/achievements-overview",
+    description: "V2 read-only achievements snapshot for profile (XP, badges, league-style summary)",
+    tags: ["v2", "profile", "achievements"]
+  },
   { method: "GET", path: "/v2/profiles/:userId/posts/:postId/detail", description: "V2 profile post detail hydration surface", tags: ["v2", "profile", "post"], querySchema: { debugSlowDeferredMs: "number (0-2000) optional" } },
   {
     method: "GET",

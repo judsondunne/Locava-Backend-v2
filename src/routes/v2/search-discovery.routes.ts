@@ -257,15 +257,6 @@ function buildBestInStateCompletionsFromHints(query: string): { activity: string
   return { activity, rows };
 }
 
-function decodeMixCursor(raw: unknown): number {
-  if (typeof raw !== "string") return 0;
-  const trimmed = raw.trim();
-  if (!trimmed) return 0;
-  const value = trimmed.startsWith("cursor:") ? Number(trimmed.slice("cursor:".length)) : Number(trimmed);
-  if (!Number.isFinite(value) || value < 0) return 0;
-  return Math.floor(value);
-}
-
 function tokenizeNormalized(input: unknown): string[] {
   return String(input ?? "")
     .toLowerCase()
@@ -321,6 +312,35 @@ function extractCommittedSearchResultPosts(data: Record<string, unknown>): Array
   const items = data.items;
   if (Array.isArray(items)) return items as Array<Record<string, unknown>>;
   return [];
+}
+
+/**
+ * Maps legacy `mixSpec` bodies (MixSpec v1, catalog rows, etc.) to v2 search mix ids consumed by
+ * {@link SearchMixesOrchestrator} — same namespace as `GET /v2/search/mixes/bootstrap`.
+ */
+function resolveLegacyMixSpecToSearchMixId(mixSpec: Record<string, unknown> | undefined): string {
+  if (!mixSpec || typeof mixSpec !== "object") return "nearby:near_you";
+  const id = typeof mixSpec.id === "string" ? mixSpec.id.trim() : "";
+  if (
+    id.startsWith("friends:") ||
+    id.startsWith("daily:") ||
+    id.startsWith("activity:") ||
+    id.startsWith("nearby:") ||
+    id.startsWith("trending:") ||
+    id.startsWith("general:") ||
+    id.startsWith("location_activity:")
+  ) {
+    return id;
+  }
+  const seeds = mixSpec.seeds as Record<string, unknown> | undefined;
+  const primary = typeof seeds?.primaryActivityId === "string" ? seeds.primaryActivityId.trim().toLowerCase() : "";
+  if (primary) return `activity:${primary}`;
+  const hero = typeof mixSpec.heroQuery === "string" ? mixSpec.heroQuery.trim().toLowerCase() : "";
+  if (hero) {
+    const token = hero.replace(/^[^a-z0-9]+/i, "").split(/[^a-z0-9]+/i)[0] ?? "";
+    if (token) return `activity:${token}`;
+  }
+  return "nearby:near_you";
 }
 
 function collectionToSearchRow(item: Record<string, unknown>): Record<string, unknown> {
@@ -537,23 +557,18 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
       setRouteName("mixes.feed.post");
       try {
         const limit = Math.max(1, Math.min(36, Number(request.body?.limit ?? 20) || 20));
-        const cursorOffset = decodeMixCursor(request.body?.cursor);
         const mixSpec = (request.body?.mixSpec ?? {}) as Record<string, unknown>;
-        const seedActivityRaw =
-          ((mixSpec.seeds as Record<string, unknown> | undefined)?.primaryActivityId as string | undefined) ??
-          (mixSpec.heroQuery as string | undefined) ??
-          "";
-        const seedActivity = String(seedActivityRaw).trim().toLowerCase();
-
-        const mixId = seedActivity ? `activity:${seedActivity}` : "nearby:near_you";
+        const mixId = resolveLegacyMixSpecToSearchMixId(mixSpec);
+        const rawCursor = request.body?.cursor;
+        const cursor =
+          typeof rawCursor === "string" && rawCursor.trim().length > 0 ? rawCursor.trim() : null;
         const payload = await mixesOrchestrator.feedPage({
           viewerId: viewer.viewerId,
           mixId,
           lat: typeof request.body?.lat === "number" && Number.isFinite(request.body.lat) ? request.body.lat : null,
           lng: typeof request.body?.lng === "number" && Number.isFinite(request.body.lng) ? request.body.lng : null,
           limit,
-          cursor: null,
-          cursorOffsetOverride: cursorOffset,
+          cursor,
           includeDebug: Boolean((request.body as any)?.includeDebug),
         });
 
@@ -562,8 +577,7 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
           {
             event: "MIX_FEED_V2",
             mixId,
-            seedActivity,
-            cursorOffset,
+            cursorPresent: Boolean(cursor),
             limit,
             postsReturned: Array.isArray(payload.posts) ? payload.posts.length : 0,
             hasMore
@@ -573,9 +587,9 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
         return success({
           routeName: "mixes.feed.post",
           posts: payload.posts,
-          nextCursor: hasMore ? `cursor:${cursorOffset + limit}` : null,
+          nextCursor: payload.nextCursor,
           hasMore,
-          rankingVersion: "mix_v1"
+          rankingVersion: payload.scoringVersion ?? "mix_v1"
         });
       } catch (error) {
         return reply.status(503).send(failure("upstream_unavailable", "Mix feed is temporarily unavailable"));
@@ -612,7 +626,6 @@ export async function registerV2SearchDiscoveryRoutes(app: FastifyInstance): Pro
           lng: Number.isFinite(lng) ? lng : null,
           limit,
           cursor: null,
-          cursorOffsetOverride: 0,
           includeDebug: false,
         });
         const posts = payload.posts;

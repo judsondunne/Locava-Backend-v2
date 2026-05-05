@@ -1,5 +1,8 @@
 import type { FirestoreCollectionRecord } from "../source-of-truth/collections-firestore.adapter.js";
-import { CollectionsFirestoreAdapter } from "../source-of-truth/collections-firestore.adapter.js";
+import {
+  CollectionsFirestoreAdapter,
+  isExcludedFromHandCuratedCollectionsList,
+} from "../source-of-truth/collections-firestore.adapter.js";
 
 export class CollectionsListRepository {
   private readonly adapter = new CollectionsFirestoreAdapter();
@@ -12,7 +15,7 @@ export class CollectionsListRepository {
     // It should not appear as a user-visible default collection in list surfaces.
     const hiddenDefaultSavedId = `saved-${input.viewerId}`;
     const items = (await this.adapter.listViewerCollections(input)).filter(
-      (row) => row.id !== hiddenDefaultSavedId,
+      (row) => row.id !== hiddenDefaultSavedId && !isExcludedFromHandCuratedCollectionsList(row),
     );
     return {
       items,

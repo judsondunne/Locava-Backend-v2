@@ -496,6 +496,11 @@ export class GroupsRepository {
           }
         : { isMember: false };
 
+    const chatIdForSync = typeof data.chatId === "string" ? data.chatId.trim() : "";
+    if (viewerId && viewerMembership.isMember && chatIdForSync) {
+      void this.ensureViewerInGroupChat(viewerId, chatIdForSync).catch(() => undefined);
+    }
+
     return {
       groupId,
       name: typeof data.name === "string" ? data.name : "",
@@ -789,6 +794,60 @@ export class GroupsRepository {
     await batch.commit();
   }
 
+  /**
+   * Ensures the viewer is on the linked group chat's `participants` array so `/v2/chats/inbox` can find it.
+   * Best-effort repair for members added before chat wiring or legacy imports (e.g. school groups).
+   */
+  async ensureViewerInGroupChat(viewerId: string, chatId: string | null): Promise<void> {
+    const cid = (chatId ?? "").trim();
+    const uid = viewerId.trim();
+    if (!cid || !uid) return;
+    try {
+      incrementDbOps("queries", 1);
+      const snap = await this.adapter.chat(cid).get();
+      incrementDbOps("reads", 1);
+      if (!snap.exists) return;
+      const d = (snap.data() ?? {}) as Record<string, unknown>;
+      const parts = Array.isArray(d.participants) ? d.participants.filter((x): x is string => typeof x === "string") : [];
+      if (parts.includes(uid)) return;
+      incrementDbOps("writes", 1);
+      await this.adapter.chat(cid).set(
+        {
+          participants: FieldValue.arrayUnion(uid),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** Repair chat participants for all groups this user belongs to (capped). */
+  async syncViewerIntoLinkedGroupChats(viewerId: string): Promise<void> {
+    const uid = viewerId.trim();
+    if (!uid) return;
+    try {
+      const membershipIds = await this.loadMembershipGroupIds(uid);
+      const primary = await this.loadViewerPrimaryGroup(uid);
+      if (primary?.groupId) membershipIds.add(primary.groupId);
+      const ids = [...membershipIds].slice(0, 24);
+      if (ids.length === 0) return;
+      const groupSnaps = await Promise.all(ids.map((id) => this.adapter.group(id).get()));
+      incrementDbOps("reads", groupSnaps.length);
+      const uniqueChatIds = new Set<string>();
+      for (const snap of groupSnaps) {
+        if (!snap.exists) continue;
+        const gd = (snap.data() ?? {}) as Record<string, unknown>;
+        const cid = typeof gd.chatId === "string" ? gd.chatId.trim() : "";
+        if (cid) uniqueChatIds.add(cid);
+      }
+      await Promise.all([...uniqueChatIds].map((cid) => this.ensureViewerInGroupChat(uid, cid)));
+    } catch {
+      // collection-group index may be missing in some environments
+    }
+  }
+
   async ensureShareLink(groupId: string): Promise<string> {
     const groupSnap = await this.adapter.group(groupId).get();
     incrementDbOps("reads", 1);
@@ -801,50 +860,70 @@ export class GroupsRepository {
           ? String((data.shareLinks as Record<string, unknown>).branchInvite).trim()
           : "";
     if (existing) return existing;
+    const publicBase = (
+      process.env.BACKEND_PUBLIC_BASE_URL?.trim().replace(/\/$/, "") ||
+      process.env.EXPO_PUBLIC_WEB_APP_ORIGIN?.trim().replace(/\/$/, "") ||
+      "https://locava.app"
+    ).trim();
+    const universalInviteUrl = `${publicBase}/groups/${encodeURIComponent(groupId)}`;
+
     const branchKey =
       process.env.BRANCH_API_KEY?.trim() ||
       process.env.EXPO_PUBLIC_BRANCH_API_KEY?.trim() ||
       process.env.BRANCH_KEY?.trim() ||
       "";
-    if (!branchKey) throw new Error("branch_api_key_missing");
     const name = typeof data.name === "string" ? data.name.trim() : "";
     const slug = typeof data.slug === "string" && data.slug.trim() ? data.slug.trim() : slugifyGroupName(name || groupId);
     const photoUrl = typeof data.photoUrl === "string" ? data.photoUrl.trim() : "";
     const bio = typeof data.bio === "string" ? data.bio.trim() : "";
-    const response = await fetch("https://api2.branch.io/v1/url", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        branch_key: branchKey,
-        channel: "group_share",
-        feature: "invite",
-        campaign: "group_invite",
-        stage: "group",
-        alias: slug ? `group-${slug}` : `group-${groupId}`,
-        data: {
-          invite_type: "group_invite",
-          invite_token: `group:${groupId}`,
-          group_id: groupId,
-          group_name: name,
-          group_slug: slug,
-          group_photo_url: photoUrl,
-          group_bio: bio,
-          campaign: "group_invite",
-          campus_id: groupId,
-          distribution_surface: "group_share",
-          qr_variant: "none",
-          $canonical_identifier: `group-invite/${groupId}`,
-          $og_title: name ? `Join ${name} on Locava` : "Join this group on Locava",
-          $og_description: bio || "Join this group on Locava.",
-          $og_image_url: photoUrl || undefined,
-        },
-      }),
-    });
-    const json = (await response.json().catch(() => ({}))) as { url?: string; error?: { message?: string } };
-    const url = typeof json.url === "string" ? json.url.trim() : "";
-    if (!response.ok || !url) {
-      throw new Error(json.error?.message ?? "group_share_link_failed");
+
+    let url = "";
+    if (branchKey) {
+      try {
+        const response = await fetch("https://api2.branch.io/v1/url", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            branch_key: branchKey,
+            channel: "group_share",
+            feature: "invite",
+            campaign: "group_invite",
+            stage: "group",
+            alias: slug ? `group-${slug}` : `group-${groupId}`,
+            data: {
+              invite_type: "group_invite",
+              invite_token: `group:${groupId}`,
+              group_id: groupId,
+              group_name: name,
+              group_slug: slug,
+              group_photo_url: photoUrl,
+              group_bio: bio,
+              campaign: "group_invite",
+              campus_id: groupId,
+              distribution_surface: "group_share",
+              qr_variant: "none",
+              $canonical_identifier: `group-invite/${groupId}`,
+              $og_title: name ? `Join ${name} on Locava` : "Join this group on Locava",
+              $og_description: bio || "Join this group on Locava.",
+              $og_image_url: photoUrl || undefined,
+              $fallback_url: universalInviteUrl,
+              $desktop_url: universalInviteUrl,
+            },
+          }),
+        });
+        const json = (await response.json().catch(() => ({}))) as { url?: string; error?: { message?: string } };
+        const branchUrl = typeof json.url === "string" ? json.url.trim() : "";
+        if (response.ok && branchUrl) {
+          url = branchUrl;
+        }
+      } catch {
+        url = "";
+      }
     }
+    if (!url) {
+      url = universalInviteUrl;
+    }
+    const status = url === universalInviteUrl ? "universal_fallback" : "ready";
     incrementDbOps("writes", 1);
     await this.adapter.group(groupId).set(
       {
@@ -852,7 +931,7 @@ export class GroupsRepository {
         shareLinks: {
           branchInvite: url,
           branchInviteSavedAt: Date.now(),
-          branchInviteStatus: "ready",
+          branchInviteStatus: status,
           branchInviteError: "",
         },
         updatedAt: FieldValue.serverTimestamp(),

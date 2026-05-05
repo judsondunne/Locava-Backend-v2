@@ -1,4 +1,5 @@
 import { FieldPath, type Query } from "firebase-admin/firestore";
+import { isPostVisibleInPublicAlgorithmPools } from "../lib/posts/postFieldSelectors.js";
 import { incrementDbOps } from "../observability/request-context.js";
 import { getFirestoreSourceClient } from "./source-of-truth/firestore-client.js";
 import { SourceOfTruthRequiredError } from "./source-of-truth/strict-mode.js";
@@ -21,6 +22,16 @@ export type MixPostRow = Record<string, unknown> & {
 
 const SELECT_FIELDS = [
   FieldPath.documentId(),
+  "schema",
+  "author",
+  "lifecycle",
+  "classification",
+  "location",
+  "text",
+  "media",
+  "engagement",
+  "ranking",
+  "compatibility",
   "userId",
   "userHandle",
   "userName",
@@ -48,6 +59,7 @@ const SELECT_FIELDS = [
   "long",
   "stateRegionId",
   "cityRegionId",
+  "countryRegionId",
   "privacy",
   "deleted",
   "isDeleted",
@@ -76,13 +88,8 @@ function mapDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): MixPostRow {
 }
 
 function isVisiblePost(row: Record<string, unknown>): boolean {
-  /** Align with feed surfaces: only hard-private posts are excluded (e.g. "Public Spot" stays visible). */
-  const privacy = typeof row.privacy === "string" ? row.privacy.trim().toLowerCase() : "public";
-  if (privacy === "private") return false;
-  if (row.deleted === true || row.isDeleted === true) return false;
-  if (row.archived === true) return false;
-  if (row.hidden === true) return false;
-  return true;
+  /** Align with feed surfaces: only hard-private posts are excluded; canonical lifecycle respected. */
+  return isPostVisibleInPublicAlgorithmPools(row);
 }
 
 export class MixPostsRepository {

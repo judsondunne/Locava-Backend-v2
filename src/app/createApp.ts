@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import Fastify, { type FastifyInstance } from "fastify";
+import multipart from "@fastify/multipart";
 import { context, trace } from "@opentelemetry/api";
 import { ZodError } from "zod";
 import { type AppEnv, loadEnv } from "../config/env.js";
@@ -32,6 +33,7 @@ import { registerV2AuthBootstrapRoutes } from "../routes/v2/auth-bootstrap.route
 import { registerV2AuthMutationRoutes } from "../routes/v2/auth-mutations.routes.js";
 import { registerV2AuthPushTokenRoutes } from "../routes/v2/auth-push-token.routes.js";
 import { registerProfilePictureUploadRoutes } from "../routes/v2/profile-picture-upload.routes.js";
+import { registerNativeChatMediaUploadRoutes } from "../routes/compat/native-chat-media-upload.routes.js";
 import { registerV2FeedBootstrapRoutes } from "../routes/v2/feed-bootstrap.routes.js";
 import { registerV2FeedForYouRoutes } from "../routes/v2/feed-for-you.routes.js";
 import { registerV2FeedForYouSimpleRoutes } from "../routes/v2/feed-for-you-simple.routes.js";
@@ -44,6 +46,7 @@ import { registerV2SearchResultsRoutes } from "../routes/v2/search-results.route
 import { registerV2SearchUsersRoutes } from "../routes/v2/search-users.routes.js";
 import { registerV2SearchDiscoveryRoutes } from "../routes/v2/search-discovery.routes.js";
 import { registerV2SearchMixesRoutes } from "../routes/v2/search-mixes.routes.js";
+import { registerV2SearchActivityPostCountsRoutes } from "../routes/v2/search-activity-counts.routes.js";
 import { registerV2SearchHomeV1Routes } from "../routes/v2/search-home-v1.routes.js";
 import { registerV2MixesRoutes } from "../routes/v2/mixes.routes.js";
 import { registerV2PlacesReverseGeocodeRoutes } from "../routes/v2/places-reverse-geocode.routes.js";
@@ -106,6 +109,7 @@ import { registerLegacyBootstrapCompatRoutes } from "../routes/compat/legacy-boo
 import { registerNativeEssentialCompatRoutes } from "../routes/compat/native-essential-compat.routes.js";
 import { registerCompatQrCodeRoutes } from "../routes/compat/qr-code.routes.js";
 import { registerV2CollectionsSavedRoutes } from "../routes/v2/collections-saved.routes.js";
+import { registerV2CollectionsGeneratedRoutes } from "../routes/v2/collections-generated.routes.js";
 import { registerV2CollectionsRoutes } from "../routes/v2/collections-v2.routes.js";
 import { registerV2PostsDetailRoutes } from "../routes/v2/posts-detail.routes.js";
 import { registerV2AchievementsHeroRoutes } from "../routes/v2/achievements-hero.routes.js";
@@ -128,6 +132,7 @@ import { registerV2AchievementsClaimBadgeRoutes } from "../routes/v2/achievement
 import { registerV2AchievementsClaimChallengeRoutes } from "../routes/v2/achievements-claim-challenge.routes.js";
 import { registerV2AchievementsClaimIntroBonusRoutes } from "../routes/v2/achievements-claim-intro-bonus.routes.js";
 import { registerV2MapBootstrapRoutes } from "../routes/v2/map-bootstrap.routes.js";
+import { registerV2MapCurrentWeatherRoutes } from "../routes/v2/map-current-weather.routes.js";
 import { registerV2MapMarkersRoutes } from "../routes/v2/map-markers.routes.js";
 import { registerV2DirectoryUsersRoutes } from "../routes/v2/directory-users.routes.js";
 import { registerV2SocialSuggestedFriendsRoutes } from "../routes/v2/social-suggested-friends.routes.js";
@@ -149,6 +154,7 @@ import {
 } from "../repositories/source-of-truth/firestore-client.js";
 import { isLocalDevIdentityModeEnabled, resolveLocalDebugViewerId } from "../lib/local-dev-identity.js";
 import { registerNativeProductShimRoutes } from "../routes/compat/native-product-shim.routes.js";
+import { registerNativeReportsCompatRoutes } from "../routes/compat/native-reports-compat.routes.js";
 import {
   markP1P2InteractiveRequest,
   markProcessBoot
@@ -221,6 +227,14 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.decorate("config", env);
   attachErrorBufferToLogger(app.log as unknown as Record<string, unknown>);
   cacheMetricsCollector.setStatsProvider(() => globalCache.getRuntimeStats?.() ?? null);
+
+  /** One registration for the whole app — per-route `register(multipart)` collides on `multipartErrors`. */
+  app.register(multipart, {
+    limits: {
+      fileSize: 2 * 1024 * 1024 * 1024,
+      files: 2
+    }
+  });
 
   if (shouldPrimeFirestoreOnReady) {
     app.addHook("onReady", async () => {
@@ -500,6 +514,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2AnalyticsEventsRoutes);
   app.register(async (instance) => {
     await registerProfilePictureUploadRoutes(instance, env);
+    await registerNativeChatMediaUploadRoutes(instance, env);
   });
   app.register(registerV2FeedBootstrapRoutes);
   app.register(registerV2FeedForYouRoutes);
@@ -513,6 +528,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2SearchUsersRoutes);
   app.register(registerV2SearchDiscoveryRoutes);
   app.register(registerV2SearchMixesRoutes);
+  app.register(registerV2SearchActivityPostCountsRoutes);
   app.register(registerV2SearchHomeV1Routes);
   app.register(registerV2MixesRoutes);
   app.register(registerV2PlacesReverseGeocodeRoutes);
@@ -565,6 +581,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2InvitesRoutes);
   app.register(registerLaunchCompatRoutes);
   app.register(registerNativeProductShimRoutes);
+  app.register(async (instance) => {
+    await registerNativeReportsCompatRoutes(instance, env);
+  });
   app.register(registerNativeEssentialCompatRoutes);
   app.register(registerCompatQrCodeRoutes);
   if (env.ENABLE_LEGACY_COMPAT_ROUTES) {
@@ -584,6 +603,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   }
   app.register(registerV2CollectionsSavedRoutes);
   app.register(registerV2CollectionsRoutes);
+  app.register(registerV2CollectionsGeneratedRoutes);
   app.register(registerV2PostsDetailRoutes);
   app.register(registerV2AchievementsHeroRoutes);
   app.register(registerV2AchievementsBootstrapRoutes);
@@ -606,6 +626,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2AchievementsClaimIntroBonusRoutes);
   app.register(registerV2MapBootstrapRoutes);
   app.register(registerV2MapMarkersRoutes);
+  app.register(registerV2MapCurrentWeatherRoutes);
   app.register(registerV2DirectoryUsersRoutes);
   app.register(registerV2SocialSuggestedFriendsRoutes);
   app.register(registerV2SocialContactsSyncRoutes);

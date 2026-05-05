@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import multipart from "@fastify/multipart";
 import type { AppEnv } from "../../config/env.js";
 import { setRouteName } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
@@ -16,10 +15,6 @@ import { uploadUserProfilePicture } from "../../services/storage/wasabi-userpics
  * Response: `{ success, url, profilePicUrl, storagePath, profilePicPath }` on success.
  */
 export async function registerProfilePictureUploadRoutes(app: FastifyInstance, env: AppEnv): Promise<void> {
-  await app.register(multipart, {
-    limits: { fileSize: 25 * 1024 * 1024, files: 1 }
-  });
-
   const db = env.FIRESTORE_SOURCE_ENABLED ? getFirestoreSourceClient() : null;
 
   app.post("/api/upload/profile-picture", async (request, reply) => {

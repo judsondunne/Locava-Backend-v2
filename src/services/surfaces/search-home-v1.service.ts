@@ -3,7 +3,7 @@ import { SearchHomeV1UsersRepository, type SearchHomeV1UserSummary } from "../..
 // P1 search home must share the same warmed pool as /v2/mixes — a separate MixesRepository instance stays cold forever.
 import { mixesRepository } from "../../repositories/mixes/mixes.repository.js";
 import { SuggestedFriendsService } from "./suggested-friends.service.js";
-import { getBestPostCover } from "../mixes/mixCover.service.js";
+import { getBestPostCover, pickPostVideoProgressivePreviewUrl } from "../mixes/mixCover.service.js";
 import { SearchMixesServiceV2 } from "../mixes/v2/searchMixes.service.js";
 import { mediaTypeFromRow } from "./search-home-v1.projection.js";
 
@@ -35,6 +35,7 @@ function firstPostFromRow(row: Record<string, unknown>): {
   mediaType: "photo" | "video";
   activity: string;
   createdAt: string;
+  videoPreviewUrl: string | null;
 } | null {
   const id = String(row.postId ?? row.id ?? "").trim();
   if (!id) return null;
@@ -44,12 +45,14 @@ function firstPostFromRow(row: Record<string, unknown>): {
   const mt = mediaTypeFromRow(row);
   const t = Number(row.time ?? row.createdAtMs ?? 0);
   const createdAt = Number.isFinite(t) && t > 0 ? new Date(t).toISOString() : new Date().toISOString();
+  const videoPreviewUrl = mt === "video" ? pickPostVideoProgressivePreviewUrl(row) : null;
   return {
     id,
     thumbnailUrl: cover.coverImageUrl,
     mediaType: mt,
     activity,
     createdAt,
+    videoPreviewUrl,
   };
 }
 

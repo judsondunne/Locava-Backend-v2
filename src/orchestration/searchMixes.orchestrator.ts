@@ -137,7 +137,6 @@ export class SearchMixesOrchestrator {
     lng: number | null;
     limit: number;
     cursor: string | null;
-    cursorOffsetOverride?: number;
     includeDebug: boolean;
   }): Promise<{
     routeName: "search.mixes.feed.post";

@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import {
+  ProfileAchievementsOverviewParamsSchema,
+  profileAchievementsOverviewContract
+} from "../../contracts/surfaces/profile-achievements-overview.contract.js";
+import {
   ProfileAchievementsParamsSchema,
   ProfileAchievementsQuerySchema,
   profileAchievementsContract
@@ -32,6 +36,7 @@ import {
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
 import { getRequestContext, setRouteName } from "../../observability/request-context.js";
+import { ProfileAchievementsOverviewOrchestrator } from "../../orchestration/surfaces/profile-achievements-overview.orchestrator.js";
 import { ProfileAchievementsOrchestrator } from "../../orchestration/surfaces/profile-achievements.orchestrator.js";
 import { ProfileBootstrapOrchestrator } from "../../orchestration/surfaces/profile-bootstrap.orchestrator.js";
 import { ProfileCollectionsOrchestrator } from "../../orchestration/surfaces/profile-collections.orchestrator.js";
@@ -43,7 +48,9 @@ import {
 } from "../../contracts/surfaces/profile-liked-posts.contract.js";
 import { ProfileLikedPostsOrchestrator } from "../../orchestration/surfaces/profile-liked-posts.orchestrator.js";
 import { ProfileRelationshipOrchestrator } from "../../orchestration/surfaces/profile-relationship.orchestrator.js";
+import { achievementsRepository } from "../../repositories/surfaces/achievements.repository.js";
 import { ProfileRepository } from "../../repositories/surfaces/profile.repository.js";
+import { AchievementsService } from "../../services/surfaces/achievements.service.js";
 import { ProfileService } from "../../services/surfaces/profile.service.js";
 
 function logProfileRoute(
@@ -89,6 +96,9 @@ export async function registerV2ProfileRoutes(app: FastifyInstance): Promise<voi
   const orchestrator = new ProfileBootstrapOrchestrator(service);
   const collectionsOrchestrator = new ProfileCollectionsOrchestrator(service);
   const achievementsOrchestrator = new ProfileAchievementsOrchestrator(service);
+  const achievementsOverviewOrchestrator = new ProfileAchievementsOverviewOrchestrator(
+    new AchievementsService(achievementsRepository)
+  );
   const followersOrchestrator = new ProfileFollowersOrchestrator(service);
   const followingOrchestrator = new ProfileFollowingOrchestrator(service);
   const likedPostsOrchestrator = new ProfileLikedPostsOrchestrator(service);
@@ -197,6 +207,26 @@ export async function registerV2ProfileRoutes(app: FastifyInstance): Promise<voi
       profileUserId: params.userId,
       viewerId: viewer.viewerId,
       counts: { achievements: payload.items.length },
+    });
+    return success(payload);
+  });
+
+  app.get(profileAchievementsOverviewContract.path, async (request, reply) => {
+    const viewer = buildViewerContext(request);
+    if (!canUseV2Surface("profile", viewer.roles)) {
+      return reply.status(403).send(failure("v2_surface_disabled", "Profile v2 surface is not enabled for this viewer"));
+    }
+    const params = ProfileAchievementsOverviewParamsSchema.parse(request.params);
+    setRouteName(profileAchievementsOverviewContract.routeName);
+    const payload = await achievementsOverviewOrchestrator.run({
+      viewerId: viewer.viewerId,
+      profileUserId: params.userId
+    });
+    logProfileRoute(request, {
+      routeName: profileAchievementsOverviewContract.routeName,
+      profileUserId: params.userId,
+      viewerId: viewer.viewerId,
+      counts: { achievements: payload.snapshot.badges.length }
     });
     return success(payload);
   });

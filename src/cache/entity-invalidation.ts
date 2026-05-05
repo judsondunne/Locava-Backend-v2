@@ -110,6 +110,11 @@ export type MutationInvalidationInput =
       mutationType: "chat.updategroup";
       viewerId: string;
       conversationId: string;
+    }
+  | {
+      mutationType: "chat.deleteconversation";
+      viewerId: string;
+      conversationId: string;
     };
 
 export type InvalidationResult = {
@@ -382,7 +387,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     input.mutationType === "chat.sendtext" ||
     input.mutationType === "chat.reaction" ||
     input.mutationType === "chat.message.delete" ||
-    input.mutationType === "chat.updategroup"
+    input.mutationType === "chat.updategroup" ||
+    input.mutationType === "chat.deleteconversation"
   ) {
     const keys = await invalidateRouteCacheByTags(
       [

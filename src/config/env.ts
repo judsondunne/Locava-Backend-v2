@@ -72,6 +72,11 @@ const EnvSchema = z.object({
   MAP_MARKERS_CACHE_TTL_MS: z.coerce.number().int().min(30_000).max(120_000).default(60_000),
   MAP_MARKERS_MAX_DOCS: z.coerce.number().int().min(100).max(10_000).default(5000),
   /**
+   * When set, `/v2/map/current-weather` uses OpenWeather current weather (commercial-friendly).
+   * When unset, the route uses Open-Meteo (free, non-commercial terms — use OWM key in production apps with ads/subscriptions).
+   */
+  OPENWEATHER_API_KEY: z.string().optional(),
+  /**
    * Optional classic Locava API origin (no trailing path). When set:
    * - Auth routes can forward to the monolith (see `legacy-monolith-auth-proxy.routes.ts` if wired).
    * - **Product upload post-creation** (`create-from-staged`, multipart `create-with-files`, Commons moderation)

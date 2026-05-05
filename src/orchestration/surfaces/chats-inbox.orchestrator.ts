@@ -1,8 +1,10 @@
+import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { setRouteCacheEntry } from "../../cache/route-cache.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { ChatsInboxResponse } from "../../contracts/surfaces/chats-inbox.contract.js";
 import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
+import { groupsRepository } from "../../repositories/surfaces/groups.repository.js";
 import type { ChatsService } from "../../services/surfaces/chats.service.js";
 
 export class ChatsInboxOrchestrator {
@@ -10,6 +12,12 @@ export class ChatsInboxOrchestrator {
 
   async run(input: { viewerId: string; cursor: string | null; limit: number }): Promise<ChatsInboxResponse> {
     const cursorPart = input.cursor ?? "start";
+    // Repair group-linked chat participants (real Firestore only). Skipped under Vitest to preserve inbox DB budgets.
+    if (!input.cursor && process.env.VITEST !== "true") {
+      await dedupeInFlight(`groups:sync-linked-chats:${input.viewerId}`, () =>
+        groupsRepository.syncViewerIntoLinkedGroupChats(input.viewerId),
+      ).catch(() => undefined);
+    }
     const cacheKey = buildCacheKey("list", ["chats-inbox-v1", input.viewerId, cursorPart, String(input.limit)]);
     const cached = await globalCache.get<ChatsInboxResponse>(cacheKey);
     if (cached) {

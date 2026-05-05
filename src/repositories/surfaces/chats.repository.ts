@@ -1384,7 +1384,7 @@ export class ChatsRepository {
     return { messageId: input.messageId, reactions: result.reactions, viewerReaction: result.viewerReaction };
   }
 
-  async deleteConversation(input: { viewerId: string; conversationId: string }): Promise<{ conversationId: string; deleted: boolean }> {
+  async deleteConversation(input: { viewerId: string; conversationId: string }): Promise<{ conversationId: string; removed: boolean }> {
     if (shouldAllowSeededFallback(input.viewerId)) {
       recordFallback("chats_seeded_delete_conversation");
       this.ensureSeededViewer(input.viewerId);
@@ -1395,13 +1395,36 @@ export class ChatsRepository {
       rows.splice(idx, 1);
       this.seededMessagesByConversation.delete(input.conversationId);
       incrementDbOps("writes", 1);
-      return { conversationId: input.conversationId, deleted: true };
+      return { conversationId: input.conversationId, removed: true };
     }
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
-    await this.assertViewerMembership(input.viewerId, input.conversationId);
-    incrementDbOps("writes", 1);
-    await this.db.collection("chats").doc(input.conversationId).delete();
-    return { conversationId: input.conversationId, deleted: true };
+    const docData = await this.assertViewerMembership(input.viewerId, input.conversationId);
+    const participants = Array.isArray(docData.participants)
+      ? docData.participants.filter((x): x is string => typeof x === "string")
+      : [];
+    const isGroup =
+      participants.length > 2 ||
+      typeof docData.groupName === "string" ||
+      docData.isGroupChat === true;
+    const chatRef = this.db.collection("chats").doc(input.conversationId);
+    const remaining = participants.filter((p) => p !== input.viewerId);
+    const leavePayload = {
+      participants: FieldValue.arrayRemove(input.viewerId),
+      manualUnreadBy: FieldValue.arrayRemove(input.viewerId),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+    if (isGroup) {
+      incrementDbOps("writes", 1);
+      await chatRef.set(leavePayload, { merge: true });
+    } else if (remaining.length === 0) {
+      incrementDbOps("writes", 1);
+      await chatRef.delete();
+    } else {
+      incrementDbOps("writes", 1);
+      await chatRef.set(leavePayload, { merge: true });
+    }
+    void globalCache.del(entityCacheKeys.chatConversationMembership(input.viewerId, input.conversationId)).catch(() => undefined);
+    return { conversationId: input.conversationId, removed: true };
   }
 
   async deleteMessage(input: { viewerId: string; conversationId: string; messageId: string }): Promise<{ messageId: string; deleted: boolean }> {

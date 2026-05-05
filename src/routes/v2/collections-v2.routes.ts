@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import multipart from "@fastify/multipart";
 import { z } from "zod";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { deleteEntityCacheKeys, entityCacheKeys } from "../../cache/entity-cache.js";
@@ -600,10 +599,6 @@ async function buildCollectionRecommendedPage(input: {
 }
 
 export async function registerV2CollectionsRoutes(app: FastifyInstance): Promise<void> {
-  await app.register(multipart, {
-    limits: { fileSize: 25 * 1024 * 1024, files: 1 }
-  });
-
   app.get(collectionsListContract.path, async (request, reply) => {
     const viewer = buildViewerContext(request);
     if (!canUseV2Surface("collections", viewer.roles)) {

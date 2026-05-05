@@ -1,0 +1,53 @@
+{
+  "generatedAt": "2026-05-04T22:40:12.839Z",
+  "note": "Synthetic fixtures only; extend with real post IDs via a future Firestore-backed mode.",
+  "visibilitySamples": [
+    {
+      "postId": "legacy_image",
+      "visibility": "public",
+      "updatedAtMs": 1700000000000
+    },
+    {
+      "postId": "migrated_v2",
+      "visibility": "public",
+      "updatedAtMs": 1767312000000
+    },
+    {
+      "postId": "private_hidden",
+      "visibility": "private",
+      "updatedAtMs": 1777934412839
+    }
+  ],
+  "matrix": {
+    "legacy_image": {
+      "activity_extraction": "pass",
+      "location_extraction": "pass",
+      "media_extraction": "pass",
+      "ranking_extraction": "pass",
+      "visibility_filter": "pass",
+      "search_text": "pass",
+      "map_coordinates": "pass",
+      "thumb_cover": "pass"
+    },
+    "migrated_v2": {
+      "activity_extraction": "pass",
+      "location_extraction": "pass",
+      "media_extraction": "pass",
+      "ranking_extraction": "pass",
+      "visibility_filter": "pass",
+      "search_text": "pass",
+      "map_coordinates": "pass",
+      "thumb_cover": "pass"
+    },
+    "private_hidden": {
+      "activity_extraction": "pass",
+      "location_extraction": "warning",
+      "media_extraction": "pass",
+      "ranking_extraction": "pass",
+      "visibility_filter": "pass",
+      "search_text": "warning",
+      "map_coordinates": "warning",
+      "thumb_cover": "warning"
+    }
+  }
+}

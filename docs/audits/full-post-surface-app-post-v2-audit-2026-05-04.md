@@ -20,6 +20,15 @@
 | Feed activities from top-level only | **`feedV2.normalize`** uses **`getPostActivities`**; **`getPostPrimaryActivity`** added for compact labels. |
 | Contract / tests | **`PostCardSummarySchema`** extended for wire diagnostics; **Vitest** updated for batch open + **`feed-post-card-wire`**. |
 
+### Algorithm readiness pass (2026-05-04)
+
+- **Shared backend selectors:** `src/lib/posts/postFieldSelectors.ts` (canonical → `appPost`/`appPostV2` → legacy fallbacks) + `src/lib/posts/postFieldSelectors.test.ts`.
+- **Wired this pass:** `search-discovery.service.ts` (mapping, ranking, top-activities, broader Firestore `select`), `mixRanking.service.ts`, `mixGeneration.service.ts`, `mixPosts.repository.ts` (visibility + canonical `select` fields).
+- **Diagnostics:** `src/diagnostics/postAlgorithmFieldSource.ts` (structured field-source payload for logs).
+- **Inventories / script:** `docs/audits/post-algorithm-canonical-readiness-2026-05-04.md`, `docs/audits/post-algorithm-backend-inventory-2026-05-04.json`, `docs/audits/post-algorithm-native-inventory-2026-05-04.json`, `npm run audit:post-algorithm-readiness`, `npm run audit:post-algorithm-inventory`.
+- **Native:** `getPostPrimaryActivity` reads root `classification.primaryActivity` (`getPostActivities.test.ts`).
+- **Follow-up:** Feed-for-you, map markers, profile, collections, notifications, and other files in the backend inventory still need selector pass where they read post fields in memory after fetch.
+
 **Remaining risks:** legacy **`GET /v2/posts/:postId/detail`** may still return **`post_card_cache` fallback** when SoT is down (intentional degraded UX). Deep-link-only surfaces not exhaustively re-tested here. Re-run **`npm run audit:post-surfaces`** to refresh JSON inventories after large diffs.
 
 **Machine inventories**

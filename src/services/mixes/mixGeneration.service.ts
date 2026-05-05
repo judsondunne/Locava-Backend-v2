@@ -1,4 +1,5 @@
 import type { MixDefinition } from "./mixRegistry.service.js";
+import { getPostId } from "../../lib/posts/postFieldSelectors.js";
 import { PostDiscoveryRepository, type MixPostCandidate } from "../../repositories/postDiscovery.repository.js";
 import { MixRankingService, type RankedMixPost } from "./mixRanking.service.js";
 import { MixesRepository } from "../../repositories/mixes.repository.js";
@@ -85,9 +86,9 @@ export class MixGenerationService {
         viewerCoords: input.viewerCoords,
         includeDebug: Boolean(input.includeDebug),
       });
-      const seen = new Set(ranked.map((r) => String((r.post as any)?.postId ?? (r.post as any)?.id ?? "")));
+      const seen = new Set(ranked.map((r) => getPostId(r.post as Record<string, unknown>)));
       for (const row of relaxed) {
-        const pid = String((row.post as any)?.postId ?? (row.post as any)?.id ?? "");
+        const pid = getPostId(row.post as Record<string, unknown>);
         if (!pid || seen.has(pid)) continue;
         ranked.push(row);
         seen.add(pid);
@@ -104,11 +105,11 @@ export class MixGenerationService {
       });
       const byId = new Map<string, MixPostCandidate>();
       for (const row of candidates as MixPostCandidate[]) {
-        const id = String((row as any)?.postId ?? (row as any)?.id ?? "");
+        const id = getPostId(row as Record<string, unknown>);
         if (id) byId.set(id, row as MixPostCandidate);
       }
       for (const row of broader as MixPostCandidate[]) {
-        const id = String((row as any)?.postId ?? (row as any)?.id ?? "");
+        const id = getPostId(row as Record<string, unknown>);
         if (id && !byId.has(id)) byId.set(id, row as MixPostCandidate);
       }
       const merged = [...byId.values()];
@@ -125,9 +126,9 @@ export class MixGenerationService {
           viewerCoords: input.viewerCoords,
           includeDebug: Boolean(input.includeDebug),
         });
-        const seen2 = new Set(ranked.map((r) => String((r.post as any)?.postId ?? (r.post as any)?.id ?? "")));
+        const seen2 = new Set(ranked.map((r) => getPostId(r.post as Record<string, unknown>)));
         for (const row of relaxed2) {
-          const pid = String((row.post as any)?.postId ?? (row.post as any)?.id ?? "");
+          const pid = getPostId(row.post as Record<string, unknown>);
           if (!pid || seen2.has(pid)) continue;
           ranked.push(row);
           seen2.add(pid);

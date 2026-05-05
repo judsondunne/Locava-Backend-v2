@@ -179,6 +179,54 @@ describe("collections firestore adapter stale index handling", () => {
     expect(db.getAll).not.toHaveBeenCalled();
   });
 
+  it("drops legacy stable system mix rows (mix_${owner}_*) from embedded viewer index reads", async () => {
+    const indexed = [
+      buildIndexedCollection("mix_viewer-1_friends", { name: "Friends Mix", lastContentActivityAtMs: 99 }),
+      buildIndexedCollection("real-collection", { lastContentActivityAtMs: 2 }),
+    ];
+    const cachedUserDoc = {
+      collectionsV2Index: indexed,
+      collectionsV2IndexedAtMs: Date.now(),
+    };
+    const db = {
+      getAll: vi.fn(),
+      collection: (name: string) => {
+        if (name === "users") {
+          return {
+            doc: (_viewerId: string) => ({
+              get: async () => ({
+                exists: true,
+                data: () => cachedUserDoc,
+              }),
+              set: vi.fn(async () => undefined),
+            }),
+          };
+        }
+        if (name === "collections") {
+          return {
+            doc: (_collectionId: string) => ({
+              get: async () => ({ exists: false }),
+            }),
+          };
+        }
+        throw new Error(`unexpected_collection:${name}`);
+      },
+    };
+
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(db as never);
+    vi.spyOn(globalCache, "get").mockImplementation(async (key: string) => {
+      if (key === entityCacheKeys.userFirestoreDoc("viewer-1")) return cachedUserDoc;
+      return undefined;
+    });
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+    vi.spyOn(globalCache, "del").mockResolvedValue(undefined);
+
+    const adapter = new CollectionsFirestoreAdapter();
+    const items = await adapter.listViewerCollections({ viewerId: "viewer-1", limit: 10 });
+
+    expect(items.map((row) => row.id)).toEqual(["real-collection"]);
+  });
+
   it("returns null for an indexed collection whose canonical doc has been deleted", async () => {
     const indexed = [buildIndexedCollection("stale-collection")];
     const userSet = vi.fn(async () => undefined);

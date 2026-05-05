@@ -112,3 +112,33 @@ export function getBestPostCover(post: unknown): MixCover {
 
   return { coverImageUrl: null, coverPostId: postId };
 }
+
+/**
+ * Progressive MP4 (or similar) for small muted previews (e.g. search story rail).
+ * Prefers lighter tiers when the mix post row includes `assets[0].variants`.
+ */
+export function pickPostVideoProgressivePreviewUrl(post: unknown): string | null {
+  if (!post || typeof post !== "object") return null;
+  const obj = post as Record<string, unknown>;
+  const assets = obj.assets;
+  if (!Array.isArray(assets) || assets.length === 0 || typeof assets[0] !== "object" || !assets[0]) {
+    return null;
+  }
+  const a0 = assets[0] as Record<string, unknown>;
+  if (String(a0.type ?? "").toLowerCase() !== "video") return null;
+  const variants = (a0.variants ?? {}) as Record<string, unknown>;
+  const tierKeys = [
+    "preview360Avc",
+    "preview360",
+    "startup",
+    "main720Avc",
+    "main720",
+    "main1080Avc",
+    "main1080",
+  ] as const;
+  for (const k of tierKeys) {
+    const u = asHttpUrl(variants[k]);
+    if (u && isVideoPlaybackUrl(u) && !isProcessingPlaceholderCdnUrl(u)) return u;
+  }
+  return null;
+}
