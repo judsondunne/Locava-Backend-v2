@@ -64,7 +64,7 @@ export class PostingFinalizeOrchestrator {
       legendRewards: {
         postId: result.operation.postId,
         viewerId: input.viewerId,
-        status: "processing",
+        status: "pending",
         pollAfterMs: result.operation.pollAfterMs,
         hasRewards: false,
         earnedFirstLegends: [],

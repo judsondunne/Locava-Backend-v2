@@ -17,7 +17,7 @@ export async function registerV2LegendsStagePostCancelRoutes(app: FastifyInstanc
     }
     setRouteName(legendsStagePostCancelContract.routeName);
     const params = LegendsStagePostCancelParamsSchema.parse(request.params);
-    const result = await legendRepository.cancelStage(params.stageId);
+    const result = await legendRepository.cancelStage(params.stageId, viewer.viewerId);
     return success({
       routeName: legendsStagePostCancelContract.routeName,
       stageId: params.stageId,

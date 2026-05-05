@@ -685,19 +685,25 @@ export const routeContracts: RouteContract[] = [
   {
     method: "GET",
     path: "/debug/post-rebuilder",
-    description: "One-post Master Post V2 rebuilder UI (env-gated)",
+    description: "Multi-post Master Post V2 rebuilder UI with manual + auto queue modes (env-gated)",
+    tags: ["debug", "post", "migration"]
+  },
+  {
+    method: "GET",
+    path: "/debug/post-rebuilder/posts",
+    description: "Load newest posts for the rebuilder queue (time-desc)",
     tags: ["debug", "post", "migration"]
   },
   {
     method: "POST",
     path: "/debug/post-rebuilder/:postId/preview",
-    description: "Preview one-post canonical rebuild + validation + diff",
+    description: "Preview per-post canonical rebuild + validation + diff",
     tags: ["debug", "post", "migration"]
   },
   {
     method: "POST",
     path: "/debug/post-rebuilder/:postId/write",
-    description: "Additively write one-post canonical fields (hash-guarded)",
+    description: "Additively write per-post canonical fields (hash-guarded)",
     tags: ["debug", "post", "mutation"]
   },
   {

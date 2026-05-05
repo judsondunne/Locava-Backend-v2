@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-05-05T13:24:36.196Z",
+  "generatedAt": "2026-05-05T13:22:05.446Z",
   "baseUrl": "http://127.0.0.1:8080",
-  "runId": "real-user-replay-1777987447291",
+  "runId": "real-user-replay-1777987296520",
   "viewerId": "internal-viewer",
   "collectionId": "YJCOaRVsAtapT1pUfZeU",
   "events": [
@@ -13,18 +13,15 @@
       "status": 200,
       "startOffsetMs": 0,
       "scheduledOffsetMs": 0,
-      "endOffsetMs": 5846,
-      "latencyMs": 5810.99,
-      "payloadBytes": 16254,
+      "endOffsetMs": 80,
+      "latencyMs": 79.25,
+      "payloadBytes": 12603,
       "routeName": "feed.for_you_simple.get",
-      "budgetViolations": [
-        "latency_p95_exceeded",
-        "db_queries_exceeded"
-      ],
+      "budgetViolations": [],
       "db": {
-        "reads": 98,
+        "reads": 2,
         "writes": 0,
-        "queries": 7
+        "queries": 2
       },
       "requestGroup": "first_paint",
       "hydrationMode": "card",
@@ -33,23 +30,12 @@
       "repeatedPayloadBytesForSamePostIds": null,
       "cursorCorrect": null,
       "firstPlayableMediaAvailable": true,
-      "selectedVideoVariant": "hls",
-      "selectedVideoUrlClass": "hls",
+      "selectedVideoVariant": "photo",
+      "selectedVideoUrlClass": "photo",
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "auth_session",
-        "config_version",
-        "analytics_events",
-        "details_prefetch_2"
-      ],
-      "hardFailures": [
-        "latency_hard_fail:5810.99>800",
-        "reads_exceeded:98>35",
-        "queries_exceeded:7>3"
-      ],
-      "warnings": [
-        "latency_target_exceeded:5810.99>500"
-      ]
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
     },
     {
       "id": "auth_session",
@@ -59,13 +45,13 @@
       "status": 200,
       "startOffsetMs": 289,
       "scheduledOffsetMs": 288,
-      "endOffsetMs": 370,
-      "latencyMs": 73.7,
+      "endOffsetMs": 292,
+      "latencyMs": 0.72,
       "payloadBytes": 1092,
       "routeName": "auth.session.get",
       "budgetViolations": [],
       "db": {
-        "reads": 1,
+        "reads": 0,
         "writes": 0,
         "queries": 0
       },
@@ -79,9 +65,7 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "feed_page_1"
-      ],
+      "overlapsWith": [],
       "hardFailures": [],
       "warnings": []
     },
@@ -91,10 +75,10 @@
       "route": "/api/config/version",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 1596,
+      "startOffsetMs": 1595,
       "scheduledOffsetMs": 1595,
-      "endOffsetMs": 4875,
-      "latencyMs": 0.98,
+      "endOffsetMs": 1597,
+      "latencyMs": 0.56,
       "payloadBytes": 279,
       "routeName": null,
       "budgetViolations": [],
@@ -113,11 +97,39 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "feed_page_1",
-        "analytics_events",
-        "details_prefetch_2"
-      ],
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_prefetch_1",
+      "label": "detail prefetch first window",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 1958,
+      "scheduledOffsetMs": 1958,
+      "endOffsetMs": 2030,
+      "latencyMs": 70.82,
+      "payloadBytes": 15560,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [],
+      "db": {
+        "reads": 3,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "photo",
+      "selectedVideoUrlClass": "photo",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [],
       "hardFailures": [],
       "warnings": []
     },
@@ -129,8 +141,8 @@
       "status": 202,
       "startOffsetMs": 3233,
       "scheduledOffsetMs": 3232,
-      "endOffsetMs": 4928,
-      "latencyMs": 2.19,
+      "endOffsetMs": 3234,
+      "latencyMs": 0.72,
       "payloadBytes": 332,
       "routeName": "analytics.events.post",
       "budgetViolations": [],
@@ -149,11 +161,7 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "feed_page_1",
-        "config_version",
-        "details_prefetch_2"
-      ],
+      "overlapsWith": [],
       "hardFailures": [],
       "warnings": []
     },
@@ -162,84 +170,12 @@
       "label": "detail prefetch second window",
       "route": "/v2/posts/details:batch",
       "method": "POST",
-      "status": 400,
-      "startOffsetMs": 3746,
+      "status": 200,
+      "startOffsetMs": 3745,
       "scheduledOffsetMs": 3744,
-      "endOffsetMs": 4979,
-      "latencyMs": 2.61,
-      "payloadBytes": 507,
-      "routeName": null,
-      "budgetViolations": [],
-      "db": {
-        "reads": 0,
-        "writes": 0,
-        "queries": 0
-      },
-      "requestGroup": "prefetch",
-      "hydrationMode": "playback",
-      "routePriority": "P1_NEXT_PLAYBACK",
-      "duplicatePrefetchPostIds": [],
-      "repeatedPayloadBytesForSamePostIds": null,
-      "cursorCorrect": null,
-      "firstPlayableMediaAvailable": null,
-      "selectedVideoVariant": null,
-      "selectedVideoUrlClass": null,
-      "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "feed_page_1",
-        "config_version",
-        "analytics_events"
-      ],
-      "hardFailures": [],
-      "warnings": []
-    },
-    {
-      "id": "details_prefetch_1",
-      "label": "detail prefetch first window",
-      "route": "/v2/posts/details:batch",
-      "method": "POST",
-      "status": 200,
-      "startOffsetMs": 5855,
-      "scheduledOffsetMs": 1958,
-      "endOffsetMs": 6161,
-      "latencyMs": 263.16,
-      "payloadBytes": 23942,
-      "routeName": "posts.detail.batch",
-      "budgetViolations": [
-        "latency_p95_exceeded"
-      ],
-      "db": {
-        "reads": 3,
-        "writes": 0,
-        "queries": 0
-      },
-      "requestGroup": "prefetch",
-      "hydrationMode": "playback",
-      "routePriority": "P1_NEXT_PLAYBACK",
-      "duplicatePrefetchPostIds": [],
-      "repeatedPayloadBytesForSamePostIds": null,
-      "cursorCorrect": null,
-      "firstPlayableMediaAvailable": true,
-      "selectedVideoVariant": "hls",
-      "selectedVideoUrlClass": "hls",
-      "primaryAssetLatencyMs": 0,
-      "overlapsWith": [],
-      "hardFailures": [],
-      "warnings": [
-        "latency_target_exceeded:263.16>180"
-      ]
-    },
-    {
-      "id": "details_prefetch_3",
-      "label": "detail prefetch sliding window",
-      "route": "/v2/posts/details:batch",
-      "method": "POST",
-      "status": 200,
-      "startOffsetMs": 8795,
-      "scheduledOffsetMs": 8793,
-      "endOffsetMs": 8923,
-      "latencyMs": 125.53,
-      "payloadBytes": 44722,
+      "endOffsetMs": 3813,
+      "latencyMs": 67.01,
+      "payloadBytes": 16658,
       "routeName": "posts.detail.batch",
       "budgetViolations": [],
       "db": {
@@ -254,12 +190,42 @@
       "repeatedPayloadBytesForSamePostIds": null,
       "cursorCorrect": null,
       "firstPlayableMediaAvailable": true,
-      "selectedVideoVariant": "hls",
-      "selectedVideoUrlClass": "hls",
+      "selectedVideoVariant": "photo",
+      "selectedVideoUrlClass": "photo",
       "primaryAssetLatencyMs": 0,
-      "overlapsWith": [
-        "details_opened_post"
-      ],
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_prefetch_3",
+      "label": "detail prefetch sliding window",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 8794,
+      "scheduledOffsetMs": 8793,
+      "endOffsetMs": 8799,
+      "latencyMs": 3.39,
+      "payloadBytes": 27059,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "photo",
+      "selectedVideoUrlClass": "photo",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [],
       "hardFailures": [],
       "warnings": []
     },
@@ -269,15 +235,13 @@
       "route": "/v2/posts/details:batch",
       "method": "POST",
       "status": 200,
-      "startOffsetMs": 8807,
+      "startOffsetMs": 8806,
       "scheduledOffsetMs": 8805,
-      "endOffsetMs": 9104,
-      "latencyMs": 295.49,
-      "payloadBytes": 13997,
+      "endOffsetMs": 8941,
+      "latencyMs": 134.27,
+      "payloadBytes": 10130,
       "routeName": "posts.detail.batch",
-      "budgetViolations": [
-        "latency_p95_exceeded"
-      ],
+      "budgetViolations": [],
       "db": {
         "reads": 3,
         "writes": 0,
@@ -290,16 +254,12 @@
       "repeatedPayloadBytesForSamePostIds": null,
       "cursorCorrect": null,
       "firstPlayableMediaAvailable": true,
-      "selectedVideoVariant": "hls",
-      "selectedVideoUrlClass": "hls",
+      "selectedVideoVariant": "none",
+      "selectedVideoUrlClass": "photo",
       "primaryAssetLatencyMs": 0,
-      "overlapsWith": [
-        "details_prefetch_3"
-      ],
+      "overlapsWith": [],
       "hardFailures": [],
-      "warnings": [
-        "latency_target_exceeded:295.49>220"
-      ]
+      "warnings": []
     },
     {
       "id": "push_token",
@@ -307,10 +267,10 @@
       "route": "/v2/auth/push-token",
       "method": "POST",
       "status": 200,
-      "startOffsetMs": 9316,
+      "startOffsetMs": 9315,
       "scheduledOffsetMs": 9314,
-      "endOffsetMs": 9320,
-      "latencyMs": 1.2,
+      "endOffsetMs": 9319,
+      "latencyMs": 1.33,
       "payloadBytes": 187,
       "routeName": "auth.push_token.post",
       "budgetViolations": [],
@@ -336,14 +296,14 @@
     {
       "id": "feed_page_2",
       "label": "home feed next page",
-      "route": "/v2/feed/for-you/simple?limit=5&cursor=fys%3Av2%3AeyJ2IjoyLCJtb2RlIjoiZG9jSWQiLCJyZWVsIjp7ImFuY2hvciI6IjUwZjI1YjNhOGY4NDAzNWE1MmY0Iiwid3JhcHBlZCI6ZmFsc2UsImxhc3RWYWx1ZSI6bnVsbCwibGFzdFBvc3RJZCI6bnVsbH0sImZhbGxiYWNrIjp7ImFuY2hvciI6IjFiMDU1N2NhM2MyOTQzOTg2MWRiIiwid3JhcHBlZCI6ZmFsc2UsImxhc3RWYWx1ZSI6bnVsbCwibGFzdFBvc3RJZCI6bnVsbH0sInNlZW4iOlsiV2tBZ2F6ckxoUElObm5zd0F0SjciLCJYRDdVQzdHcXJXbFlJd2xNdG82MSIsIlhUWDM1YjVJb0FKWnEwaVh1T3k5IiwiWVl5V2lWcDNyem5wUG9uVzl5MUIiLCJZa3VLZnNDbWxTZjNUMmxrd0huNSJdfQ",
+      "route": "/v2/feed/for-you/simple?limit=5&cursor=fys%3Av2%3AeyJ2IjoyLCJtb2RlIjoiZG9jSWQiLCJyZWVsIjp7ImFuY2hvciI6ImUyZTQ4ZjUzMzk0NTYxYTc3YTlhIiwid3JhcHBlZCI6ZmFsc2UsImxhc3RWYWx1ZSI6bnVsbCwibGFzdFBvc3RJZCI6bnVsbH0sImZhbGxiYWNrIjp7ImFuY2hvciI6IjIxODgyZWJhZjVkY2M3MGY3MmVlIiwid3JhcHBlZCI6ZmFsc2UsImxhc3RWYWx1ZSI6bnVsbCwibGFzdFBvc3RJZCI6bnVsbH0sInNlZW4iOlsiMmdIRkpGOE5nUUpwUW5aM2JyeHEiLCIyaExuUTFXdXViS0xXNlpKb2J5aiIsIjJoaHZIS0dsNTZFRXpXZVVMQnhsIiwiMml4eDBUU0ZEVzA0dFZnMllDRlIiLCIybzkxVnY2dXhIblVsaThHRU5sSSJdfQ",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 13328,
+      "startOffsetMs": 13327,
       "scheduledOffsetMs": 13326,
-      "endOffsetMs": 13384,
-      "latencyMs": 53.39,
-      "payloadBytes": 16985,
+      "endOffsetMs": 13418,
+      "latencyMs": 89.89,
+      "payloadBytes": 14528,
       "routeName": "feed.for_you_simple.get",
       "budgetViolations": [],
       "db": {
@@ -371,11 +331,11 @@
       "route": "/v2/posts/details:batch",
       "method": "POST",
       "status": 200,
-      "startOffsetMs": 13468,
+      "startOffsetMs": 13466,
       "scheduledOffsetMs": 13466,
-      "endOffsetMs": 13472,
-      "latencyMs": 2.62,
-      "payloadBytes": 21229,
+      "endOffsetMs": 13470,
+      "latencyMs": 2.3,
+      "payloadBytes": 11949,
       "routeName": "posts.detail.batch",
       "budgetViolations": [],
       "db": {
@@ -390,8 +350,8 @@
       "repeatedPayloadBytesForSamePostIds": null,
       "cursorCorrect": null,
       "firstPlayableMediaAvailable": true,
-      "selectedVideoVariant": "hls",
-      "selectedVideoUrlClass": "hls",
+      "selectedVideoVariant": "photo",
+      "selectedVideoUrlClass": "photo",
       "primaryAssetLatencyMs": 0,
       "overlapsWith": [],
       "hardFailures": [],
@@ -403,11 +363,11 @@
       "route": "/v2/posts/details:batch",
       "method": "POST",
       "status": 200,
-      "startOffsetMs": 14387,
+      "startOffsetMs": 14388,
       "scheduledOffsetMs": 14386,
-      "endOffsetMs": 14470,
-      "latencyMs": 81.89,
-      "payloadBytes": 45438,
+      "endOffsetMs": 14455,
+      "latencyMs": 64.99,
+      "payloadBytes": 23715,
       "routeName": "posts.detail.batch",
       "budgetViolations": [],
       "db": {
@@ -422,13 +382,11 @@
       "repeatedPayloadBytesForSamePostIds": null,
       "cursorCorrect": null,
       "firstPlayableMediaAvailable": true,
-      "selectedVideoVariant": "hls",
-      "selectedVideoUrlClass": "hls",
+      "selectedVideoVariant": "photo",
+      "selectedVideoUrlClass": "photo",
       "primaryAssetLatencyMs": 0,
       "overlapsWith": [],
-      "hardFailures": [
-        "payload_exceeded:45438>45000"
-      ],
+      "hardFailures": [],
       "warnings": []
     },
     {
@@ -437,17 +395,17 @@
       "route": "/v2/search/home-bootstrap",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 18002,
+      "startOffsetMs": 18001,
       "scheduledOffsetMs": 18000,
-      "endOffsetMs": 18606,
-      "latencyMs": 600.84,
-      "payloadBytes": 12009,
+      "endOffsetMs": 18011,
+      "latencyMs": 6.58,
+      "payloadBytes": 12008,
       "routeName": "search.home_bootstrap.v1",
       "budgetViolations": [],
       "db": {
-        "reads": 54,
+        "reads": 0,
         "writes": 0,
-        "queries": 9
+        "queries": 0
       },
       "requestGroup": "opened_screen",
       "hydrationMode": null,
@@ -459,19 +417,9 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "mix_preview_hiking",
-        "mix_preview_cafe",
-        "mix_preview_park",
-        "mix_preview_beach"
-      ],
-      "hardFailures": [
-        "reads_exceeded:54>40",
-        "queries_exceeded:9>8"
-      ],
-      "warnings": [
-        "latency_target_exceeded:600.84>500"
-      ]
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
     },
     {
       "id": "mix_preview_hiking",
@@ -479,11 +427,11 @@
       "route": "/v2/mixes/hiking/preview?limit=3&activity=hiking",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 18042,
+      "startOffsetMs": 18041,
       "scheduledOffsetMs": 18040,
-      "endOffsetMs": 18047,
-      "latencyMs": 3.89,
-      "payloadBytes": 37049,
+      "endOffsetMs": 18045,
+      "latencyMs": 1.32,
+      "payloadBytes": 37056,
       "routeName": "mixes.preview.get",
       "budgetViolations": [
         "payload_bytes_exceeded"
@@ -503,9 +451,7 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "search_home_bootstrap"
-      ],
+      "overlapsWith": [],
       "hardFailures": [],
       "warnings": []
     },
@@ -515,47 +461,11 @@
       "route": "/v2/mixes/cafe/preview?limit=3&activity=cafe",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 18049,
+      "startOffsetMs": 18048,
       "scheduledOffsetMs": 18048,
-      "endOffsetMs": 18170,
-      "latencyMs": 119.63,
-      "payloadBytes": 27758,
-      "routeName": "mixes.preview.get",
-      "budgetViolations": [],
-      "db": {
-        "reads": 10,
-        "writes": 0,
-        "queries": 1
-      },
-      "requestGroup": "preview_fanout",
-      "hydrationMode": null,
-      "routePriority": "P3_DEFERRED_SCREEN",
-      "duplicatePrefetchPostIds": [],
-      "repeatedPayloadBytesForSamePostIds": null,
-      "cursorCorrect": null,
-      "firstPlayableMediaAvailable": null,
-      "selectedVideoVariant": null,
-      "selectedVideoUrlClass": null,
-      "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "search_home_bootstrap",
-        "mix_preview_park",
-        "mix_preview_beach"
-      ],
-      "hardFailures": [],
-      "warnings": []
-    },
-    {
-      "id": "mix_preview_park",
-      "label": "mix preview park",
-      "route": "/v2/mixes/park/preview?limit=3&activity=park",
-      "method": "GET",
-      "status": 200,
-      "startOffsetMs": 18057,
-      "scheduledOffsetMs": 18056,
-      "endOffsetMs": 18061,
-      "latencyMs": 2.83,
-      "payloadBytes": 23105,
+      "endOffsetMs": 18050,
+      "latencyMs": 0.86,
+      "payloadBytes": 27762,
       "routeName": "mixes.preview.get",
       "budgetViolations": [],
       "db": {
@@ -573,30 +483,27 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "search_home_bootstrap",
-        "mix_preview_cafe"
-      ],
+      "overlapsWith": [],
       "hardFailures": [],
       "warnings": []
     },
     {
-      "id": "mix_preview_beach",
-      "label": "mix preview beach",
-      "route": "/v2/mixes/beach/preview?limit=3&activity=beach",
+      "id": "mix_preview_park",
+      "label": "mix preview park",
+      "route": "/v2/mixes/park/preview?limit=3&activity=park",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 18064,
-      "scheduledOffsetMs": 18064,
-      "endOffsetMs": 18159,
-      "latencyMs": 91.67,
-      "payloadBytes": 29684,
+      "startOffsetMs": 18057,
+      "scheduledOffsetMs": 18056,
+      "endOffsetMs": 18059,
+      "latencyMs": 0.87,
+      "payloadBytes": 23112,
       "routeName": "mixes.preview.get",
       "budgetViolations": [],
       "db": {
-        "reads": 10,
+        "reads": 0,
         "writes": 0,
-        "queries": 1
+        "queries": 0
       },
       "requestGroup": "preview_fanout",
       "hydrationMode": null,
@@ -608,10 +515,39 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "search_home_bootstrap",
-        "mix_preview_cafe"
-      ],
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "mix_preview_beach",
+      "label": "mix preview beach",
+      "route": "/v2/mixes/beach/preview?limit=3&activity=beach",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 18064,
+      "scheduledOffsetMs": 18064,
+      "endOffsetMs": 18066,
+      "latencyMs": 0.74,
+      "payloadBytes": 29689,
+      "routeName": "mixes.preview.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "preview_fanout",
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
       "hardFailures": [],
       "warnings": []
     },
@@ -621,19 +557,17 @@
       "route": "/v2/achievements/leaderboard/xp_league",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 24001,
+      "startOffsetMs": 24000,
       "scheduledOffsetMs": 24000,
-      "endOffsetMs": 24231,
-      "latencyMs": 227.87,
-      "payloadBytes": 3670,
+      "endOffsetMs": 24005,
+      "latencyMs": 1.15,
+      "payloadBytes": 3709,
       "routeName": "achievements.leaderboard.get",
-      "budgetViolations": [
-        "db_queries_exceeded"
-      ],
+      "budgetViolations": [],
       "db": {
-        "reads": 3,
+        "reads": 0,
         "writes": 0,
-        "queries": 2
+        "queries": 0
       },
       "requestGroup": null,
       "hydrationMode": null,
@@ -645,20 +579,9 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "achievements_leagues",
-        "achievements_hero",
-        "profile_following",
-        "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
-        "achievements_snapshot",
-        "social_suggested_friends"
-      ],
+      "overlapsWith": [],
       "hardFailures": [],
-      "warnings": [
-        "latency_target_exceeded:227.87>50",
-        "latency_hard_exceeded_background:227.87>120"
-      ]
+      "warnings": []
     },
     {
       "id": "achievements_leagues",
@@ -666,17 +589,17 @@
       "route": "/v2/achievements/leagues",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 24009,
+      "startOffsetMs": 24008,
       "scheduledOffsetMs": 24008,
-      "endOffsetMs": 24146,
-      "latencyMs": 135.55,
+      "endOffsetMs": 24012,
+      "latencyMs": 0.46,
       "payloadBytes": 2722,
       "routeName": "achievements.leagues.get",
       "budgetViolations": [],
       "db": {
-        "reads": 1,
+        "reads": 0,
         "writes": 0,
-        "queries": 1
+        "queries": 0
       },
       "requestGroup": null,
       "hydrationMode": null,
@@ -688,20 +611,9 @@
       "selectedVideoVariant": null,
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_hero",
-        "profile_following",
-        "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
-        "achievements_snapshot",
-        "social_suggested_friends"
-      ],
+      "overlapsWith": [],
       "hardFailures": [],
-      "warnings": [
-        "latency_target_exceeded:135.55>50",
-        "latency_hard_exceeded_background:135.55>120"
-      ]
+      "warnings": []
     },
     {
       "id": "achievements_hero",
@@ -709,20 +621,17 @@
       "route": "/v2/achievements/hero",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 24013,
+      "startOffsetMs": 24014,
       "scheduledOffsetMs": 24012,
-      "endOffsetMs": 24348,
-      "latencyMs": 334.07,
-      "payloadBytes": 495,
+      "endOffsetMs": 24019,
+      "latencyMs": 2.56,
+      "payloadBytes": 468,
       "routeName": "achievements.hero.get",
-      "budgetViolations": [
-        "latency_p95_exceeded",
-        "db_queries_exceeded"
-      ],
+      "budgetViolations": [],
       "db": {
-        "reads": 2,
+        "reads": 0,
         "writes": 0,
-        "queries": 2
+        "queries": 0
       },
       "requestGroup": null,
       "hydrationMode": null,
@@ -735,19 +644,10 @@
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "profile_following",
-        "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
-        "achievements_snapshot",
-        "social_suggested_friends"
+        "profile_following"
       ],
       "hardFailures": [],
-      "warnings": [
-        "latency_target_exceeded:334.07>50",
-        "latency_hard_exceeded_background:334.07>120"
-      ]
+      "warnings": []
     },
     {
       "id": "profile_following",
@@ -758,7 +658,7 @@
       "startOffsetMs": 24017,
       "scheduledOffsetMs": 24016,
       "endOffsetMs": 24370,
-      "latencyMs": 349.35,
+      "latencyMs": 350.93,
       "payloadBytes": 326,
       "routeName": "profile.following.get",
       "budgetViolations": [
@@ -780,8 +680,6 @@
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
         "achievements_hero",
         "achievements_bootstrap",
         "achievements_leaderboard_xp_global",
@@ -790,7 +688,7 @@
       ],
       "hardFailures": [],
       "warnings": [
-        "latency_target_exceeded:349.35>250"
+        "latency_target_exceeded:350.93>250"
       ]
     },
     {
@@ -801,56 +699,13 @@
       "status": 200,
       "startOffsetMs": 24022,
       "scheduledOffsetMs": 24020,
-      "endOffsetMs": 24348,
-      "latencyMs": 324.22,
-      "payloadBytes": 1661,
+      "endOffsetMs": 24371,
+      "latencyMs": 345.97,
+      "payloadBytes": 4154,
       "routeName": "achievements.bootstrap.get",
       "budgetViolations": [
         "latency_p95_exceeded"
       ],
-      "db": {
-        "reads": 0,
-        "writes": 0,
-        "queries": 0
-      },
-      "requestGroup": null,
-      "hydrationMode": null,
-      "routePriority": "P4_BACKGROUND",
-      "duplicatePrefetchPostIds": [],
-      "repeatedPayloadBytesForSamePostIds": null,
-      "cursorCorrect": null,
-      "firstPlayableMediaAvailable": null,
-      "selectedVideoVariant": null,
-      "selectedVideoUrlClass": null,
-      "primaryAssetLatencyMs": null,
-      "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
-        "profile_following",
-        "achievements_leaderboard_xp_global",
-        "achievements_snapshot",
-        "social_suggested_friends"
-      ],
-      "hardFailures": [],
-      "warnings": [
-        "latency_target_exceeded:324.22>50",
-        "latency_hard_exceeded_background:324.22>120"
-      ]
-    },
-    {
-      "id": "achievements_leaderboard_xp_global",
-      "label": "achievements xp global",
-      "route": "/v2/achievements/leaderboard/xp_global",
-      "method": "GET",
-      "status": 200,
-      "startOffsetMs": 24025,
-      "scheduledOffsetMs": 24024,
-      "endOffsetMs": 24174,
-      "latencyMs": 146.94,
-      "payloadBytes": 5738,
-      "routeName": "achievements.leaderboard.get",
-      "budgetViolations": [],
       "db": {
         "reads": 2,
         "writes": 0,
@@ -867,35 +722,30 @@
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
         "profile_following",
-        "achievements_bootstrap",
+        "achievements_leaderboard_xp_global",
         "achievements_snapshot",
         "social_suggested_friends"
       ],
       "hardFailures": [],
       "warnings": [
-        "latency_target_exceeded:146.94>50",
-        "latency_hard_exceeded_background:146.94>120"
+        "latency_target_exceeded:345.97>50",
+        "latency_hard_exceeded_background:345.97>120"
       ]
     },
     {
-      "id": "achievements_snapshot",
-      "label": "achievements snapshot",
-      "route": "/v2/achievements/snapshot",
+      "id": "achievements_leaderboard_xp_global",
+      "label": "achievements xp global",
+      "route": "/v2/achievements/leaderboard/xp_global",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 24028,
-      "scheduledOffsetMs": 24028,
-      "endOffsetMs": 24348,
-      "latencyMs": 317.6,
-      "payloadBytes": 1401,
-      "routeName": "achievements.snapshot.get",
-      "budgetViolations": [
-        "latency_p95_exceeded"
-      ],
+      "startOffsetMs": 24024,
+      "scheduledOffsetMs": 24024,
+      "endOffsetMs": 24033,
+      "latencyMs": 4.01,
+      "payloadBytes": 5777,
+      "routeName": "achievements.leaderboard.get",
+      "budgetViolations": [],
       "db": {
         "reads": 0,
         "writes": 0,
@@ -912,19 +762,49 @@
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
+        "profile_following",
+        "achievements_bootstrap",
+        "achievements_snapshot"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "achievements_snapshot",
+      "label": "achievements snapshot",
+      "route": "/v2/achievements/snapshot",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24030,
+      "scheduledOffsetMs": 24028,
+      "endOffsetMs": 24035,
+      "latencyMs": 0.36,
+      "payloadBytes": 1374,
+      "routeName": "achievements.snapshot.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
         "profile_following",
         "achievements_bootstrap",
         "achievements_leaderboard_xp_global",
         "social_suggested_friends"
       ],
       "hardFailures": [],
-      "warnings": [
-        "latency_target_exceeded:317.6>50",
-        "latency_hard_exceeded_background:317.6>120"
-      ]
+      "warnings": []
     },
     {
       "id": "social_suggested_friends",
@@ -934,15 +814,15 @@
       "status": 200,
       "startOffsetMs": 24033,
       "scheduledOffsetMs": 24032,
-      "endOffsetMs": 24234,
-      "latencyMs": 199.26,
-      "payloadBytes": 7516,
+      "endOffsetMs": 24036,
+      "latencyMs": 0.85,
+      "payloadBytes": 7500,
       "routeName": "social.suggested_friends.get",
       "budgetViolations": [],
       "db": {
-        "reads": 10,
+        "reads": 0,
         "writes": 0,
-        "queries": 1
+        "queries": 0
       },
       "requestGroup": null,
       "hydrationMode": null,
@@ -955,12 +835,8 @@
       "selectedVideoUrlClass": null,
       "primaryAssetLatencyMs": null,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
         "profile_following",
         "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
         "achievements_snapshot"
       ],
       "hardFailures": [],
@@ -972,13 +848,14 @@
       "route": "/v2/collections?limit=10",
       "method": "GET",
       "status": 200,
-      "startOffsetMs": 28002,
+      "startOffsetMs": 28000,
       "scheduledOffsetMs": 28000,
-      "endOffsetMs": 28129,
-      "latencyMs": 125.62,
+      "endOffsetMs": 28231,
+      "latencyMs": 229.43,
       "payloadBytes": 5966,
       "routeName": "collections.list.get",
       "budgetViolations": [
+        "latency_p95_exceeded",
         "db_reads_exceeded"
       ],
       "db": {
@@ -1008,8 +885,8 @@
       "status": 200,
       "startOffsetMs": 28321,
       "scheduledOffsetMs": 28320,
-      "endOffsetMs": 28793,
-      "latencyMs": 471.31,
+      "endOffsetMs": 28865,
+      "latencyMs": 543.12,
       "payloadBytes": 38387,
       "routeName": "collections.recommended.get",
       "budgetViolations": [
@@ -1040,11 +917,11 @@
       "route": "/v2/posts/details:batch",
       "method": "POST",
       "status": 200,
-      "startOffsetMs": 28826,
+      "startOffsetMs": 28866,
       "scheduledOffsetMs": 28660,
-      "endOffsetMs": 28886,
-      "latencyMs": 57.71,
-      "payloadBytes": 16800,
+      "endOffsetMs": 28921,
+      "latencyMs": 53.11,
+      "payloadBytes": 17183,
       "routeName": "posts.detail.batch",
       "budgetViolations": [],
       "db": {
@@ -1071,185 +948,123 @@
     {
       "id": "feed_page_1",
       "startOffsetMs": 0,
-      "endOffsetMs": 5846,
-      "overlapsWith": [
-        "auth_session",
-        "config_version",
-        "analytics_events",
-        "details_prefetch_2"
-      ]
+      "endOffsetMs": 80,
+      "overlapsWith": []
     },
     {
       "id": "auth_session",
       "startOffsetMs": 289,
-      "endOffsetMs": 370,
-      "overlapsWith": [
-        "feed_page_1"
-      ]
+      "endOffsetMs": 292,
+      "overlapsWith": []
     },
     {
       "id": "config_version",
-      "startOffsetMs": 1596,
-      "endOffsetMs": 4875,
-      "overlapsWith": [
-        "feed_page_1",
-        "analytics_events",
-        "details_prefetch_2"
-      ]
+      "startOffsetMs": 1595,
+      "endOffsetMs": 1597,
+      "overlapsWith": []
+    },
+    {
+      "id": "details_prefetch_1",
+      "startOffsetMs": 1958,
+      "endOffsetMs": 2030,
+      "overlapsWith": []
     },
     {
       "id": "analytics_events",
       "startOffsetMs": 3233,
-      "endOffsetMs": 4928,
-      "overlapsWith": [
-        "feed_page_1",
-        "config_version",
-        "details_prefetch_2"
-      ]
+      "endOffsetMs": 3234,
+      "overlapsWith": []
     },
     {
       "id": "details_prefetch_2",
-      "startOffsetMs": 3746,
-      "endOffsetMs": 4979,
-      "overlapsWith": [
-        "feed_page_1",
-        "config_version",
-        "analytics_events"
-      ]
-    },
-    {
-      "id": "details_prefetch_1",
-      "startOffsetMs": 5855,
-      "endOffsetMs": 6161,
+      "startOffsetMs": 3745,
+      "endOffsetMs": 3813,
       "overlapsWith": []
     },
     {
       "id": "details_prefetch_3",
-      "startOffsetMs": 8795,
-      "endOffsetMs": 8923,
-      "overlapsWith": [
-        "details_opened_post"
-      ]
+      "startOffsetMs": 8794,
+      "endOffsetMs": 8799,
+      "overlapsWith": []
     },
     {
       "id": "details_opened_post",
-      "startOffsetMs": 8807,
-      "endOffsetMs": 9104,
-      "overlapsWith": [
-        "details_prefetch_3"
-      ]
+      "startOffsetMs": 8806,
+      "endOffsetMs": 8941,
+      "overlapsWith": []
     },
     {
       "id": "push_token",
-      "startOffsetMs": 9316,
-      "endOffsetMs": 9320,
+      "startOffsetMs": 9315,
+      "endOffsetMs": 9319,
       "overlapsWith": []
     },
     {
       "id": "feed_page_2",
-      "startOffsetMs": 13328,
-      "endOffsetMs": 13384,
+      "startOffsetMs": 13327,
+      "endOffsetMs": 13418,
       "overlapsWith": []
     },
     {
       "id": "details_prefetch_4",
-      "startOffsetMs": 13468,
-      "endOffsetMs": 13472,
+      "startOffsetMs": 13466,
+      "endOffsetMs": 13470,
       "overlapsWith": []
     },
     {
       "id": "details_prefetch_5",
-      "startOffsetMs": 14387,
-      "endOffsetMs": 14470,
+      "startOffsetMs": 14388,
+      "endOffsetMs": 14455,
       "overlapsWith": []
     },
     {
       "id": "search_home_bootstrap",
-      "startOffsetMs": 18002,
-      "endOffsetMs": 18606,
-      "overlapsWith": [
-        "mix_preview_hiking",
-        "mix_preview_cafe",
-        "mix_preview_park",
-        "mix_preview_beach"
-      ]
+      "startOffsetMs": 18001,
+      "endOffsetMs": 18011,
+      "overlapsWith": []
     },
     {
       "id": "mix_preview_hiking",
-      "startOffsetMs": 18042,
-      "endOffsetMs": 18047,
-      "overlapsWith": [
-        "search_home_bootstrap"
-      ]
+      "startOffsetMs": 18041,
+      "endOffsetMs": 18045,
+      "overlapsWith": []
     },
     {
       "id": "mix_preview_cafe",
-      "startOffsetMs": 18049,
-      "endOffsetMs": 18170,
-      "overlapsWith": [
-        "search_home_bootstrap",
-        "mix_preview_park",
-        "mix_preview_beach"
-      ]
+      "startOffsetMs": 18048,
+      "endOffsetMs": 18050,
+      "overlapsWith": []
     },
     {
       "id": "mix_preview_park",
       "startOffsetMs": 18057,
-      "endOffsetMs": 18061,
-      "overlapsWith": [
-        "search_home_bootstrap",
-        "mix_preview_cafe"
-      ]
+      "endOffsetMs": 18059,
+      "overlapsWith": []
     },
     {
       "id": "mix_preview_beach",
       "startOffsetMs": 18064,
-      "endOffsetMs": 18159,
-      "overlapsWith": [
-        "search_home_bootstrap",
-        "mix_preview_cafe"
-      ]
+      "endOffsetMs": 18066,
+      "overlapsWith": []
     },
     {
       "id": "achievements_leaderboard_xp_league",
-      "startOffsetMs": 24001,
-      "endOffsetMs": 24231,
-      "overlapsWith": [
-        "achievements_leagues",
-        "achievements_hero",
-        "profile_following",
-        "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
-        "achievements_snapshot",
-        "social_suggested_friends"
-      ]
+      "startOffsetMs": 24000,
+      "endOffsetMs": 24005,
+      "overlapsWith": []
     },
     {
       "id": "achievements_leagues",
-      "startOffsetMs": 24009,
-      "endOffsetMs": 24146,
-      "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_hero",
-        "profile_following",
-        "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
-        "achievements_snapshot",
-        "social_suggested_friends"
-      ]
+      "startOffsetMs": 24008,
+      "endOffsetMs": 24012,
+      "overlapsWith": []
     },
     {
       "id": "achievements_hero",
-      "startOffsetMs": 24013,
-      "endOffsetMs": 24348,
+      "startOffsetMs": 24014,
+      "endOffsetMs": 24019,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "profile_following",
-        "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
-        "achievements_snapshot",
-        "social_suggested_friends"
+        "profile_following"
       ]
     },
     {
@@ -1257,8 +1072,6 @@
       "startOffsetMs": 24017,
       "endOffsetMs": 24370,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
         "achievements_hero",
         "achievements_bootstrap",
         "achievements_leaderboard_xp_global",
@@ -1269,11 +1082,8 @@
     {
       "id": "achievements_bootstrap",
       "startOffsetMs": 24022,
-      "endOffsetMs": 24348,
+      "endOffsetMs": 24371,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
         "profile_following",
         "achievements_leaderboard_xp_global",
         "achievements_snapshot",
@@ -1282,26 +1092,19 @@
     },
     {
       "id": "achievements_leaderboard_xp_global",
-      "startOffsetMs": 24025,
-      "endOffsetMs": 24174,
+      "startOffsetMs": 24024,
+      "endOffsetMs": 24033,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
         "profile_following",
         "achievements_bootstrap",
-        "achievements_snapshot",
-        "social_suggested_friends"
+        "achievements_snapshot"
       ]
     },
     {
       "id": "achievements_snapshot",
-      "startOffsetMs": 24028,
-      "endOffsetMs": 24348,
+      "startOffsetMs": 24030,
+      "endOffsetMs": 24035,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
         "profile_following",
         "achievements_bootstrap",
         "achievements_leaderboard_xp_global",
@@ -1311,45 +1114,38 @@
     {
       "id": "social_suggested_friends",
       "startOffsetMs": 24033,
-      "endOffsetMs": 24234,
+      "endOffsetMs": 24036,
       "overlapsWith": [
-        "achievements_leaderboard_xp_league",
-        "achievements_leagues",
-        "achievements_hero",
         "profile_following",
         "achievements_bootstrap",
-        "achievements_leaderboard_xp_global",
         "achievements_snapshot"
       ]
     },
     {
       "id": "collections_list",
-      "startOffsetMs": 28002,
-      "endOffsetMs": 28129,
+      "startOffsetMs": 28000,
+      "endOffsetMs": 28231,
       "overlapsWith": []
     },
     {
       "id": "collections_recommended",
       "startOffsetMs": 28321,
-      "endOffsetMs": 28793,
+      "endOffsetMs": 28865,
       "overlapsWith": []
     },
     {
       "id": "collection_details_prefetch",
-      "startOffsetMs": 28826,
-      "endOffsetMs": 28886,
+      "startOffsetMs": 28866,
+      "endOffsetMs": 28921,
       "overlapsWith": []
     }
   ],
   "duplicatePrefetchPostIds": [],
   "duplicatePrefetchPayloadWasteBytes": 0,
-  "firstVisibleAssetLatencyMs": 5810.99,
+  "firstVisibleAssetLatencyMs": 79.25,
   "openedPostPrimaryAssetLatencyMs": 0,
   "feedDetailsVariantMismatches": [],
   "diagnosticsFound": 28,
-  "failures": [
-    "hard_budget_failures_present",
-    "prefetch_payload_too_large"
-  ],
-  "verdict": "fail"
+  "failures": [],
+  "verdict": "pass"
 }

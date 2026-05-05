@@ -7,11 +7,12 @@ describe("LegendScopeDeriver", () => {
     const out = deriver.deriveFromPost({
       geohash: "drt2yzw9",
       activities: ["waterfall", "hiking", "coffee", "museum"],
-      state: "VT"
+      state: "VT",
+      country: "US"
     });
     expect(out.scopes.length).toBeLessThanOrEqual(8);
-    // Includes base cell scope.
-    expect(out.scopes.some((s) => s.startsWith("cell:geohash6:drt2yz"))).toBe(true);
+    expect(out.scopes).toContain("place:state:VT");
+    expect(out.scopes).toContain("place:country:US");
   });
 
   it("drops place scopes when disabled", () => {
@@ -19,27 +20,32 @@ describe("LegendScopeDeriver", () => {
     const out = deriver.deriveFromPost({
       geohash: "drt2yzw9",
       activities: ["waterfall"],
-      state: "VT"
+      state: "VT",
+      country: "US"
     });
     expect(out.scopes.some((s) => s.startsWith("place:"))).toBe(false);
     expect(out.scopes.some((s) => s.startsWith("placeActivity:"))).toBe(false);
+    expect(out.scopes).toContain("activity:waterfall");
   });
 
-  it("derives state and city location scopes", () => {
+  it("derives state and country location scopes only", () => {
     const deriver = new LegendScopeDeriver({ enablePlaceScopes: true, maxScopesPerPost: 20, maxActivitiesPerPost: 2 });
     const out = deriver.deriveFromPost({
       geohash: "drt2yzw9",
       activities: ["waterfall"],
       state: "VT",
-      city: "Burlington"
+      city: "Burlington",
+      country: "US"
     });
     expect(out.scopes.some((s) => s === "place:state:VT")).toBe(true);
-    expect(out.scopes.some((s) => s === "place:city:VT_burlington")).toBe(true);
+    expect(out.scopes.some((s) => s === "place:country:US")).toBe(true);
     expect(out.scopes.some((s) => s === "placeActivity:state:VT:waterfall")).toBe(true);
-    expect(out.scopes.some((s) => s === "placeActivity:city:VT_burlington:waterfall")).toBe(true);
+    expect(out.scopes.some((s) => s === "placeActivity:country:US:waterfall")).toBe(true);
+    expect(out.scopes.some((s) => s.includes(":city:"))).toBe(false);
+    expect(out.scopes.some((s) => s.startsWith("cell:") || s.startsWith("cellActivity:"))).toBe(false);
   });
 
-  it("normalizes full-name state + city scopes (country inputs do not mint country scopes)", () => {
+  it("normalizes full-name state and country scopes", () => {
     const deriver = new LegendScopeDeriver({ enablePlaceScopes: true, maxScopesPerPost: 24, maxActivitiesPerPost: 2 });
     const out = deriver.deriveFromPost({
       geohash: "drtju1m3b",
@@ -48,11 +54,10 @@ describe("LegendScopeDeriver", () => {
       country: "US",
       city: "Concord"
     });
-    expect(out.reasons).toContain("country_scopes_disabled_states_and_cities_only");
-    expect(out.scopes.some((s) => s.startsWith("place:country:"))).toBe(false);
-    expect(out.scopes.some((s) => s.startsWith("placeActivity:country:"))).toBe(false);
+    expect(out.scopes.some((s) => s.startsWith("place:country:"))).toBe(true);
+    expect(out.scopes.some((s) => s.startsWith("placeActivity:country:"))).toBe(true);
     expect(out.scopes).toContain("place:state:NEW_HAMPSHIRE");
-    expect(out.scopes).toContain("place:city:NEW_HAMPSHIRE_concord");
+    expect(out.scopes).not.toContain("place:city:NEW_HAMPSHIRE_concord");
     expect(out.scopes).toContain("placeActivity:state:NEW_HAMPSHIRE:restaurants");
   });
 });

@@ -34,7 +34,7 @@ describe("normalizeMasterPostV2", () => {
       rankingRollup: { likes: 0, comments: 0, saves: 1, shares: 0 },
       posterFiles: { newPosterUrl: "https://img/poster-new.jpg" },
       variantMetadata: { poster: { width: 640, height: 1138, aspectRatio: 0.5625 } },
-      playbackLab: { status: "ready", assets: { video_bf9d526574_2cbde8151b_0: { generated: { startup720FaststartAvc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/startup720_faststart_avc.mp4", startup1080FaststartAvc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/startup1080_faststart_avc.mp4", main720Avc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4", preview360Avc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/preview360_avc.mp4", main1080Avc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", main1080: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", upgrade1080FaststartAvc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", upgrade1080Faststart: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", posterHigh: "https://img/poster-high.jpg" }, lastVerifyResults: [{ variant: "startup720FaststartAvc", ok: true, moovHint: "moov_before_mdat_in_prefix" }] } } },
+      playbackLab: { status: "ready", assets: { video_bf9d526574_2cbde8151b_0: { generated: { startup720FaststartAvc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/startup720_faststart_avc.mp4", startup1080FaststartAvc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/startup1080_faststart_avc.mp4", main720Avc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4", preview360Avc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/preview360_avc.mp4", main1080Avc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", main1080: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", upgrade1080FaststartAvc: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", upgrade1080Faststart: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", posterHigh: "https://img/poster-high.jpg" }, lastVerifyResults: [{ variant: "main1080Avc", url: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4", ok: true, moovHint: "moov_before_mdat_in_prefix" }, { variant: "main720Avc", url: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4", ok: true, moovHint: "moov_before_mdat_in_prefix" }] } } },
       assets: [{ id: "video_bf9d526574_2cbde8151b_0", type: "video", original: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/original.mp4", poster: "https://img/poster.jpg", codecs: { video: "h264", audio: "none" } }],
       legacy: {
         photoLinks2: "https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/preview360_avc.mp4",
@@ -65,11 +65,11 @@ describe("normalizeMasterPostV2", () => {
     expect(result.canonical.media.assets[0]?.type).toBe("video");
     expect(result.canonical.classification.mediaKind).toBe("video");
     expect(result.canonical.compatibility.mediaType).toBe("video");
-    expect(result.canonical.media.assets[0]?.video?.playback.primaryUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4");
-    expect(result.canonical.media.assets[0]?.video?.playback.defaultUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4");
-    expect(result.canonical.media.assets[0]?.video?.playback.highQualityUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4");
-    expect(result.canonical.media.assets[0]?.video?.playback.startupUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/startup720_faststart_avc.mp4");
-    expect(result.canonical.media.assets[0]?.video?.playback.upgradeUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/upgrade1080_faststart_avc.mp4");
+    expect(result.canonical.media.assets[0]?.video?.playback.primaryUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4");
+    expect(result.canonical.media.assets[0]?.video?.playback.defaultUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4");
+    expect(result.canonical.media.assets[0]?.video?.playback.highQualityUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4");
+    expect(result.canonical.media.assets[0]?.video?.playback.startupUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4");
+    expect(result.canonical.media.assets[0]?.video?.playback.upgradeUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/main720_avc.mp4");
     expect(result.canonical.media.assets[0]?.video?.playback.previewUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/preview360_avc.mp4");
     expect(result.canonical.media.assets[0]?.video?.playback.fallbackUrl).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/original.mp4");
     expect(result.canonical.media.assets[0]?.video?.variants.preview360Avc).toBe("https://s3.wasabisys.com/locava.app/videos-lab/post_b937d784b8b13248/video_0e89a140f1_191b325ad4_0/preview360_avc.mp4");
@@ -163,6 +163,218 @@ describe("normalizeMasterPostV2", () => {
     expect(mixed.canonical.classification.mediaKind).toBe("mixed");
     expect(mixed.canonical.media.assets[0]?.type).toBe("image");
     expect(mixed.canonical.media.assets[1]?.type).toBe("video");
+  });
+
+  it("old reel picks verified main1080/main720 and keeps canonical fields isolated", () => {
+    const raw = {
+      id: "legacy-reel-1",
+      userId: "u",
+      createdAt: "2026-05-05T00:00:00.000Z",
+      title: "Legacy Reel",
+      mediaType: "video",
+      assets: [
+        {
+          id: "v1",
+          type: "video",
+          original: "https://cdn/original.mp4",
+          main1080Avc: "https://cdn/main1080.mp4",
+          main720Avc: "https://cdn/main720.mp4",
+          preview360Avc: "https://cdn/preview360.mp4",
+          poster: "https://cdn/poster.jpg"
+        }
+      ],
+      playbackLab: {
+        lastVerifyResults: [
+          { url: "https://cdn/main1080.mp4", ok: true, moovHint: "moov_before_mdat_in_prefix" },
+          { url: "https://cdn/main720.mp4", ok: true, moovHint: "moov_before_mdat_in_prefix" }
+        ]
+      },
+      activities: ["hike"],
+      likesCount: 4
+    };
+    const { canonical } = normalizeMasterPostV2(raw, { postId: "legacy-reel-1" });
+    const v = canonical.media.assets[0]?.video;
+    expect(v?.playback.startupUrl).toBe("https://cdn/main1080.mp4");
+    expect(v?.playback.defaultUrl).toBe("https://cdn/main1080.mp4");
+    expect(v?.playback.primaryUrl).toBe("https://cdn/main1080.mp4");
+    expect(v?.playback.fallbackUrl).toBe("https://cdn/original.mp4");
+    expect(canonical.media.instantPlaybackReady).toBe(true);
+    expect(v?.readiness.faststartVerified).toBe(true);
+    expect(canonical.classification.primaryActivity).toBe("hike");
+    expect(canonical.engagement.likeCount).toBe(4);
+  });
+
+  it("old production post without startup aliases selects verified main720Avc via probe shape", () => {
+    const raw = {
+      id: "legacy-reel-old-main720",
+      userId: "u",
+      createdAt: "2026-05-05T00:00:00.000Z",
+      mediaType: "video",
+      assets: [
+        {
+          id: "v1",
+          type: "video",
+          original: "https://cdn/original.mp4",
+          main1080Avc: "https://cdn/main1080.mp4",
+          main720Avc: "https://cdn/main720.mp4",
+          preview360Avc: "https://cdn/preview360.mp4",
+          poster: "https://cdn/poster.jpg"
+        }
+      ],
+      playbackLab: {
+        lastVerifyResults: [
+          {
+            result: { url: "https://cdn/main720.mp4" },
+            probe: { head: { ok: true }, moovHint: "moov_before_mdat_in_prefix" }
+          },
+          {
+            result: { url: "https://cdn/preview360.mp4" },
+            probe: { head: { ok: true }, moovHint: "moov_before_mdat_in_prefix" }
+          }
+        ]
+      }
+    };
+    const { canonical } = normalizeMasterPostV2(raw, { postId: "legacy-reel-old-main720" });
+    const v = canonical.media.assets[0]?.video;
+    expect(v?.playback.startupUrl).toBe("https://cdn/main720.mp4");
+    expect(v?.playback.defaultUrl).toBe("https://cdn/main720.mp4");
+    expect(v?.playback.primaryUrl).toBe("https://cdn/main720.mp4");
+    expect((v?.playback as Record<string, unknown>)?.goodNetworkUrl).toBe("https://cdn/main720.mp4");
+    expect((v?.playback as Record<string, unknown>)?.weakNetworkUrl).toBe("https://cdn/main720.mp4");
+    expect((v?.playback as Record<string, unknown>)?.poorNetworkUrl).toBe("https://cdn/preview360.mp4");
+    expect((v?.playback as Record<string, unknown>)?.selectedReason).toBe("verified_avc_faststart_720");
+    expect(v?.playback.previewUrl).toBe("https://cdn/preview360.mp4");
+    expect(canonical.media.instantPlaybackReady).toBe(true);
+    expect(v?.readiness.faststartVerified).toBe(true);
+  });
+
+  it("regression: exzi old non-startup shape selects verified main720 over verified original", () => {
+    const raw = {
+      id: "exziw1QFyoigUnlDFcCk",
+      userId: "u",
+      createdAt: "2026-05-05T00:00:00.000Z",
+      mediaType: "video",
+      assets: [
+        {
+          id: "video_1776294232596_0",
+          type: "video",
+          original: "https://s3.wasabisys.com/locava.app/admin-video-uploads/1776214907741_mbmsh1hngp.mp4",
+          poster: "https://s3.wasabisys.com/locava.app/videos/video_1776294232596_0_poster.jpg",
+          variants: {
+            main1080Avc: "https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_1080_avc.mp4",
+            main720Avc: "https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_720_avc.mp4",
+            preview360Avc: "https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_360_avc.mp4"
+          }
+        }
+      ],
+      playbackLab: {
+        lastVerifyResults: [
+          {
+            label: "main720Avc",
+            url: "https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_720_avc.mp4",
+            probe: {
+              head: { ok: true, status: 200, contentType: "video/mp4", acceptRanges: "bytes" },
+              moovHint: "moov_before_mdat_in_prefix"
+            }
+          },
+          {
+            label: "preview360",
+            url: "https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_360_avc.mp4",
+            probe: {
+              head: { ok: true, status: 200, contentType: "video/mp4", acceptRanges: "bytes" },
+              moovHint: "moov_before_mdat_in_prefix"
+            }
+          },
+          {
+            label: "original",
+            url: "https://s3.wasabisys.com/locava.app/admin-video-uploads/1776214907741_mbmsh1hngp.mp4",
+            probe: {
+              head: { ok: true, status: 200, contentType: "video/mp4", acceptRanges: "bytes" },
+              moovHint: "moov_before_mdat_in_prefix"
+            }
+          }
+        ]
+      }
+    };
+    const { canonical, warnings } = normalizeMasterPostV2(raw, { postId: "exziw1QFyoigUnlDFcCk" });
+    const v = canonical.media.assets[0]?.video;
+    expect(v?.playback.defaultUrl).toBe("https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_720_avc.mp4");
+    expect(v?.playback.startupUrl).toBe("https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_720_avc.mp4");
+    expect(v?.playback.primaryUrl).toBe("https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_720_avc.mp4");
+    expect(v?.playback.highQualityUrl).toBe("https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_720_avc.mp4");
+    expect(v?.playback.fallbackUrl).toBe("https://s3.wasabisys.com/locava.app/admin-video-uploads/1776214907741_mbmsh1hngp.mp4");
+    expect(v?.playback.previewUrl).toBe("https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_360_avc.mp4");
+    expect((v?.playback as Record<string, unknown>)?.poorNetworkUrl).toBe(
+      "https://s3.us-east-1.wasabisys.com/locava.app/videos/video_1776294232596_0_360_avc.mp4"
+    );
+    expect((v?.playback as Record<string, unknown>)?.selectedReason).toBe("verified_avc_faststart_720");
+    expect(canonical.media.instantPlaybackReady).toBe(true);
+    expect(v?.readiness.faststartVerified).toBe(true);
+    expect(warnings.some((w) => w.code === "preview_missing_while_variant_exists")).toBe(false);
+  });
+
+  it("native v2 nested playbackLab generated verification selects startup720 and poorNetwork startup540", () => {
+    const raw = {
+      id: "native-v2-720",
+      userId: "u",
+      createdAt: "2026-05-05T00:00:00.000Z",
+      mediaType: "video",
+      assets: [
+        {
+          id: "v1",
+          type: "video",
+          original: "https://cdn/original.mp4",
+          startup720FaststartAvc: "https://cdn/startup720.mp4",
+          startup540FaststartAvc: "https://cdn/startup540.mp4",
+          main720Avc: "https://cdn/main720.mp4",
+          preview360Avc: "https://cdn/preview360.mp4",
+          poster: "https://cdn/poster.jpg"
+        }
+      ],
+      playbackLab: {
+        assets: {
+          v1: {
+            generated: {
+              lastVerifyResults: [
+                { url: "https://cdn/startup720.mp4", ok: true, moovHint: "moov_before_mdat_in_prefix" },
+                { url: "https://cdn/startup540.mp4", ok: true, moovHint: "moov_before_mdat_in_prefix" }
+              ]
+            }
+          }
+        }
+      }
+    };
+    const { canonical } = normalizeMasterPostV2(raw, { postId: "native-v2-720" });
+    const v = canonical.media.assets[0]?.video;
+    expect(v?.playback.startupUrl).toBe("https://cdn/startup720.mp4");
+    expect(v?.playback.defaultUrl).toBe("https://cdn/startup720.mp4");
+    expect(v?.playback.primaryUrl).toBe("https://cdn/startup720.mp4");
+    expect(v?.playback.highQualityUrl).toBe("https://cdn/startup720.mp4");
+    expect(v?.playback.upgradeUrl).toBe("https://cdn/startup720.mp4");
+    expect((v?.playback as Record<string, unknown>)?.goodNetworkUrl).toBe("https://cdn/startup720.mp4");
+    expect((v?.playback as Record<string, unknown>)?.weakNetworkUrl).toBe("https://cdn/startup720.mp4");
+    expect((v?.playback as Record<string, unknown>)?.poorNetworkUrl).toBe("https://cdn/startup540.mp4");
+    expect(v?.playback.previewUrl).toBe("https://cdn/preview360.mp4");
+    expect((v?.playback as Record<string, unknown>)?.selectedReason).toBe("verified_startup_avc_faststart_720");
+    expect(canonical.media.instantPlaybackReady).toBe(true);
+    expect(v?.readiness.faststartVerified).toBe(true);
+  });
+
+  it("keeps instant playback false when no optimized verified URL exists", () => {
+    const raw = {
+      id: "legacy-reel-4",
+      userId: "u",
+      createdAt: "2026-05-05T00:00:00.000Z",
+      mediaType: "video",
+      assets: [{ id: "v1", type: "video", original: "https://cdn/original.mp4", poster: "https://cdn/poster.jpg" }]
+    };
+    const { canonical, warnings } = normalizeMasterPostV2(raw, { postId: "legacy-reel-4" });
+    const v = canonical.media.assets[0]?.video;
+    expect(v?.playback.fallbackUrl).toBe("https://cdn/original.mp4");
+    expect(canonical.media.instantPlaybackReady).toBe(false);
+    expect(v?.readiness.faststartVerified).toBe(false);
+    expect((v?.playback as Record<string, unknown>)?.selectedReason).toBe("original_unverified_fallback");
+    expect(warnings.some((w) => w.code === "video_instant_playback_not_verified_faststart")).toBe(true);
   });
 
   it("regression: multi-photo post keeps only real photo assets", () => {

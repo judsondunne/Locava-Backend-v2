@@ -8,6 +8,12 @@ import { getFirestoreSourceClient } from "../../repositories/source-of-truth/fir
 import { achievementCelebrationsService } from "../../services/surfaces/achievement-celebrations.service.js";
 
 type FirestoreMap = Record<string, unknown>;
+function isSupportedScopeId(scopeId: string): boolean {
+  if (scopeId.startsWith("activity:")) return true;
+  if (scopeId.startsWith("place:state:") || scopeId.startsWith("place:country:")) return true;
+  if (scopeId.startsWith("placeActivity:state:") || scopeId.startsWith("placeActivity:country:")) return true;
+  return false;
+}
 
 function asObject(value: unknown): FirestoreMap {
   if (value && typeof value === "object") return value as FirestoreMap;
@@ -49,13 +55,15 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       return success({
         routeName: legendsAfterPostContract.routeName,
         postId: "",
-        status: "failed",
+        status: "error",
+        hasNewAwards: false,
+        shouldShowAwardScreen: false,
+        retryAfterMs: 0,
         xpSettled: false,
         xpDelta: 0,
         xpClaim: null,
         leaguePassCelebration: null,
         pendingCelebrations: [],
-        pollAfterMs: 0,
         awards: []
       });
     }
@@ -104,8 +112,10 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       return success({
         routeName: legendsAfterPostContract.routeName,
         postId: params.postId,
-        status: "processing",
-        pollAfterMs: 500,
+        status: "pending",
+        hasNewAwards: false,
+        shouldShowAwardScreen: false,
+        retryAfterMs: 500,
         awards: [],
         reasonIfEmpty
       });
@@ -115,7 +125,7 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       event: "legends_afterpost_result_row_loaded",
       postId: params.postId,
       viewerId: viewer.viewerId,
-      status: String(row.status ?? "processing"),
+      status: String(row.status ?? "pending"),
       awardIdsCount: Array.isArray(row.awardIds) ? row.awardIds.length : 0,
       awardsCount: Array.isArray(row.awards) ? row.awards.length : 0,
       hasRewardsObject: Boolean(row.rewards && typeof row.rewards === "object")
@@ -167,8 +177,8 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
             typeof leaguePassCelebration.consumedAtMs === "number" ? Math.max(0, finiteInt(leaguePassCelebration.consumedAtMs, 0)) : null
         }
       : null;
-    const statusRaw = String(row.status ?? "processing");
-    const status = statusRaw === "complete" || statusRaw === "failed" || statusRaw === "processing" ? statusRaw : "processing";
+    const statusRaw = String(row.status ?? "pending");
+    const status = statusRaw === "ready" || statusRaw === "none" || statusRaw === "error" || statusRaw === "pending" ? statusRaw : "pending";
     const awards = Array.isArray(row.awards) ? (row.awards as any[]).map((a) => asObject(a)).map((a) => ({
       awardId: String(a.awardId ?? ""),
       awardType: String(a.awardType ?? ""),
@@ -185,6 +195,19 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       createdAt: a.createdAt,
       seen: a.seen === true
     })).filter((a) => Boolean(a.awardId) && Boolean(a.awardType) && Boolean(a.scopeId) && Boolean(a.scopeType) && Boolean(a.title)) : [];
+    const unseenAwards = awards.filter((a) => a.seen !== true && isSupportedScopeId(a.scopeId));
+    if (unseenAwards.length > 0 && typeof (db as { batch?: unknown }).batch === "function") {
+      const batch = db.batch();
+      for (const award of unseenAwards.slice(0, 20)) {
+        if (!award.awardId) continue;
+        batch.set(
+          db.collection("users").doc(viewer.viewerId).collection("legendAwards").doc(award.awardId),
+          { seen: true, seenAt: Date.now() },
+          { merge: true }
+        );
+      }
+      await batch.commit().catch(() => {});
+    }
     const rewards =
       row.rewards && typeof row.rewards === "object"
         ? (row.rewards as Record<string, unknown>)
@@ -213,7 +236,7 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
     const eventReturned = awards.length > 0 || displayCards.length > 0;
     const reasonIfEmpty = eventReturned
       ? null
-      : status === "processing"
+      : status === "pending"
         ? "computation_timeout"
         : "not_top_or_close";
     request.log.info({
@@ -228,6 +251,7 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       finalizedPostFound: true,
       eventCreated: Boolean(awards.length > 0),
       eventReturned,
+      unseenAwardCount: unseenAwards.length,
       becameLegend,
       currentRank,
       podiumRank,
@@ -239,6 +263,10 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
       routeName: legendsAfterPostContract.routeName,
       postId: params.postId,
       status,
+      hasNewAwards: unseenAwards.length > 0,
+      shouldShowAwardScreen: unseenAwards.length > 0,
+      retryAfterMs: status === "pending" ? 500 : 0,
+      processedAt: row.processedAt ?? row.completedAt ?? null,
       xpSettled: awardSnap.exists && (awardRow.delta != null || finiteInt(awardRow.xp, 0) > 0),
       xpDelta: Math.max(0, finiteInt(deltaRow.xpGained ?? awardRow.xp, 0)),
       xpClaim: awardSnap.exists
@@ -251,8 +279,7 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
         : null,
       leaguePassCelebration: directCelebration ?? fromPending,
       pendingCelebrations,
-      pollAfterMs: status === "processing" ? 500 : 0,
-      awards,
+      awards: unseenAwards,
       rewards,
       reasonIfEmpty,
       legendStatus: {

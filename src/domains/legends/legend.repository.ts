@@ -209,13 +209,15 @@ export class LegendRepository {
     incrementDbOps("writes", 1);
   }
 
-  async cancelStage(stageId: string): Promise<{ cancelled: boolean }> {
+  async cancelStage(stageId: string, viewerUserId: string): Promise<{ cancelled: boolean }> {
     const db = this.requireDb();
     const ref = db.collection("legendPostStages").doc(stageId);
     const snap = await ref.get();
     incrementDbOps("reads", snap.exists ? 1 : 0);
     if (!snap.exists) return { cancelled: false };
     const data = (snap.data() as FirestoreMap | undefined) ?? {};
+    const ownerId = asString(data.userId) ?? "";
+    if (!ownerId || ownerId !== viewerUserId) return { cancelled: false };
     const status = asString(data.status) ?? "";
     if (status === "committed") return { cancelled: false };
     await ref.set(

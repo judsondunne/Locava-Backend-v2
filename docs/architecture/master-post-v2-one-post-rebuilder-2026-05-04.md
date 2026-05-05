@@ -1,4 +1,4 @@
-# Master Post V2 One-Post Rebuilder
+# Master Post V2 Rebuilder
 
 ## Why standardize posts
 
@@ -83,7 +83,7 @@ Canonical object written additively:
 - **Post comments (subcollection):** `posts/{postId}/comments/{commentId}` — used by `CommentsRepository` when the post is in subcollection storage mode.
 - **Embedded legacy:** some posts still carry `likes[]` and/or `comments[]` arrays on the root post document; counts may also be denormalized as `likesCount`, `likeCount`, `commentsCount`, `commentCount`, plus `likesVersion` / `commentsVersion`.
 
-**One-post rebuilder behavior (no mass migration)**
+**Per-post rebuilder behavior (no mass migration)**
 
 1. `auditPostEngagementSourcesV2(db, postId, rawPost)` loads:
    - Root post engagement fields and array lengths
@@ -104,7 +104,7 @@ Canonical object written additively:
 
 Full `likes[]` remains in **raw backup** and summaries under `legacy`; it is **not** the long-term canonical source of truth when subcollection data is authoritative — counts and this small preview are.
 
-## One-post rebuild flow
+## Per-post rebuild flow
 
 1. Load raw post from Firestore
 2. Compute deterministic `rawHash`
@@ -133,16 +133,23 @@ Backup stores:
 
 Revert endpoint restores `rawBefore` exactly to `/posts/{postId}` with `set(..., { merge: false })`.
 
-## Testing one real production post
+## Debug UI modes
+
+The `/debug/post-rebuilder` page now supports:
+
+- **Manual mode:** same original one-post flow, but inside a multi-post queue. Select one post, then run raw / preview / write / backups / revert on that selected card.
+- **Auto mode:** sequential preview or preview+write queue processing with per-post status tracking. Each post still uses the same per-post backend preview/write safety logic.
+
+## Testing real posts in the debug UI
 
 Use debug UI:
 
 1. Open `/debug/post-rebuilder`
-2. Enter one `postId`
-3. Load raw
-4. Preview canonical + validation + diff
-5. Write only if hash still matches preview
-6. If needed, list backups and revert by backup ID
+2. Either paste one or many comma-separated `postId` values, or load the newest `N` posts
+3. In manual mode, select a post card and load raw / preview canonical + validation + diff
+4. Write only if the hash still matches preview and validation is clear
+5. In auto mode, preview or preview+write the queue sequentially with per-post status tracking
+6. If needed, list backups and revert by backup ID on the selected post
 
 ## What this does not do yet
 

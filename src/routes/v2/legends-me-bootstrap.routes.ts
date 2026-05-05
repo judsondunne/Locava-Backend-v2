@@ -8,6 +8,12 @@ import { getFirestoreSourceClient } from "../../repositories/source-of-truth/fir
 import { legendRepository } from "../../domains/legends/legend.repository.js";
 
 type FirestoreMap = Record<string, unknown>;
+function isSupportedScopeId(scopeId: string): boolean {
+  if (scopeId.startsWith("activity:")) return true;
+  if (scopeId.startsWith("place:state:") || scopeId.startsWith("place:country:")) return true;
+  if (scopeId.startsWith("placeActivity:state:") || scopeId.startsWith("placeActivity:country:")) return true;
+  return false;
+}
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
@@ -44,8 +50,8 @@ export async function registerV2LegendsMeBootstrapRoutes(app: FastifyInstance): 
     const stateSnap = await stateRef.get();
     incrementDbOps("reads", stateSnap.exists ? 1 : 0);
     const state = (stateSnap.data() as FirestoreMap | undefined) ?? {};
-    const activeScopeIds = asArray(state.activeScopeIds).map((v) => String(v ?? "")).filter(Boolean).slice(0, 4);
-    const closeScopeIds = asArray(state.closeScopeIds).map((v) => String(v ?? "")).filter(Boolean).slice(0, 4);
+    const activeScopeIds = asArray(state.activeScopeIds).map((v) => String(v ?? "")).filter((v) => Boolean(v) && isSupportedScopeId(v)).slice(0, 4);
+    const closeScopeIds = asArray(state.closeScopeIds).map((v) => String(v ?? "")).filter((v) => Boolean(v) && isSupportedScopeId(v)).slice(0, 4);
     const recentAwardIds = asArray(state.recentAwardIds).map((v) => String(v ?? "")).filter(Boolean).slice(0, 8);
     const defense = (state.defense as FirestoreMap | undefined) ?? {};
     const atRiskScopeIds = asArray(defense.atRiskScopeIds).map((v) => String(v ?? "")).filter(Boolean).slice(0, 6);
@@ -165,7 +171,7 @@ export async function registerV2LegendsMeBootstrapRoutes(app: FastifyInstance): 
         createdAt: row.createdAt,
         seen: row.seen === true
       }))
-      .filter((a) => Boolean(a.awardId));
+      .filter((a) => Boolean(a.awardId) && isSupportedScopeId(a.scopeId));
 
     const mapEventWire = (row: FirestoreMap, fallbackId: string) => ({
       eventId: String(row.eventId ?? fallbackId),

@@ -45,7 +45,7 @@ describe("v2 legends after-post", () => {
     "x-viewer-roles": "internal"
   };
 
-  it("returns processing when legendPostResults doc missing", async () => {
+  it("returns pending when legendPostResults doc missing", async () => {
     const { getFirestoreSourceClient } = await import("../../repositories/source-of-truth/firestore-client.js");
     (getFirestoreSourceClient as any).mockImplementation(() => buildDbWithDoc({}));
 
@@ -56,25 +56,25 @@ describe("v2 legends after-post", () => {
       headers: viewerHeaders
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data.status).toBe("processing");
+    expect(res.json().data.status).toBe("pending");
     expect(res.json().data.awards).toEqual([]);
-    expect(res.json().data.pollAfterMs).toBeGreaterThan(0);
+    expect(res.json().data.retryAfterMs).toBeGreaterThan(0);
   });
 
-  it("returns complete + awards from legendPostResults", async () => {
+  it("returns ready + awards from legendPostResults", async () => {
     const { getFirestoreSourceClient } = await import("../../repositories/source-of-truth/firestore-client.js");
     (getFirestoreSourceClient as any).mockImplementation(() =>
       buildDbWithDoc({
         "legendPostResults/post_abc": {
           postId: "post_abc",
           userId: "u1",
-          status: "complete",
+          status: "ready",
           awards: [
             {
               awardId: "a1",
               awardType: "new_leader",
-              scopeId: "cell:geohash6:drt2yz",
-              scopeType: "cell",
+              scopeId: "place:state:VT",
+              scopeType: "place",
               title: "Local Legend",
               subtitle: "Cell drt2yz",
               postId: "post_abc",
@@ -98,11 +98,12 @@ describe("v2 legends after-post", () => {
       headers: viewerHeaders
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data.status).toBe("complete");
+    expect(res.json().data.status).toBe("ready");
     expect(res.json().data.awards.length).toBe(1);
     expect(res.json().data.awards[0].awardId).toBe("a1");
-    expect(res.json().data.pollAfterMs).toBe(0);
+    expect(res.json().data.retryAfterMs).toBe(0);
     expect(res.json().data.reasonIfEmpty).toBeNull();
+    expect(res.json().data.shouldShowAwardScreen).toBe(true);
   });
 
   it("is idempotent for repeated after-post calls and exposes legend status", async () => {
@@ -112,7 +113,7 @@ describe("v2 legends after-post", () => {
         "legendPostResults/post_repeat": {
           postId: "post_repeat",
           userId: "internal-viewer",
-          status: "complete",
+          status: "ready",
           awards: [
             {
               awardId: "post_repeat_place:state:PA_new_leader",
@@ -158,7 +159,7 @@ describe("v2 legends after-post", () => {
         "legendPostResults/post_xp": {
           postId: "post_xp",
           userId: "internal-viewer",
-          status: "processing",
+          status: "pending",
           awards: []
         },
         "users/internal-viewer/achievements_awards/post_xp": {

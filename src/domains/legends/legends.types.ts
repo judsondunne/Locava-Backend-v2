@@ -1,11 +1,11 @@
 export type LegendScopeType =
+  | "cell"
   | "place"
   | "activity"
-  | "placeActivity"
-  | "cell"
-  | "cellActivity";
+  | "cellActivity"
+  | "placeActivity";
 
-export type LegendPlaceType = "state" | "city" | "country" | "region" | "campus";
+export type LegendPlaceType = "city" | "state" | "country";
 
 export type LegendGeohashPrecision = 6;
 
@@ -107,7 +107,7 @@ export type CanonicalFirstClaimDoc = {
   postId: string;
   claimedAt: unknown;
   createdAt: unknown;
-  locationScope?: "state" | "city" | "country" | null;
+  locationScope?: "city" | "state" | "country" | null;
   locationKey?: string | null;
   locationLabel?: string | null;
   activityKey?: string | null;
@@ -124,7 +124,7 @@ export type CanonicalRankAggregateDoc = {
   kind: Extract<CanonicalLegendKind, "location_rank" | "activity_rank" | "combo_rank">;
   family: "rank";
   dimension: CanonicalLegendDimension;
-  locationScope?: "state" | "city" | "country" | null;
+  locationScope?: "city" | "state" | "country" | null;
   locationKey?: string | null;
   locationLabel?: string | null;
   activityKey?: string | null;
@@ -196,6 +196,10 @@ export type LegendPostCreatedInput = {
   state?: string | null;
   country?: string | null;
   region?: string | null;
+  privacy?: string | null;
+  isHidden?: boolean | null;
+  isDeleted?: boolean | null;
+  finalized?: boolean | null;
   createdAt?: string | number | Date | null;
 };
 
@@ -244,4 +248,3 @@ export function buildLegendScopeId(parts: string[]): LegendScopeId {
     .replace(/[^a-zA-Z0-9:_-]/g, "_")
     .slice(0, 240);
 }
-

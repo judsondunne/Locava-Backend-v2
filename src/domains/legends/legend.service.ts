@@ -5,6 +5,7 @@ import { getFirestoreSourceClient } from "../../repositories/source-of-truth/fir
 import { LegendAwardService, capTopUsers, findRank } from "./legend-award.service.js";
 import { formatLegendAnchorPreferState, humanizeLegendPlace } from "./legend-place-humanize.js";
 import { LegendScopeDeriver } from "./legend-scope-deriver.js";
+import { isEligiblePostForLegends } from "./legend-post-eligibility.js";
 import { LegendRepository, legendRepository } from "./legend.repository.js";
 import {
   type CanonicalLegendKind,
@@ -22,6 +23,12 @@ import {
 } from "./legends.types.js";
 
 type FirestoreMap = Record<string, unknown>;
+function isSupportedLegendScopeId(scopeId: string): boolean {
+  if (scopeId.startsWith("activity:")) return true;
+  if (scopeId.startsWith("place:state:") || scopeId.startsWith("place:country:")) return true;
+  if (scopeId.startsWith("placeActivity:state:") || scopeId.startsWith("placeActivity:country:")) return true;
+  return false;
+}
 
 export function canonicalFromAwardType(
   awardType: string,
@@ -41,17 +48,17 @@ export function canonicalFromAwardType(
   return { kind: "location_rank", family: "rank", dimension: "location", priority: 90 };
 }
 
-function parseLocationFromScopeId(scopeId: string): { locationScope: "state" | "city" | "country" | null; locationKey: string | null } {
+function parseLocationFromScopeId(scopeId: string): { locationScope: "city" | "state" | "country" | null; locationKey: string | null } {
   const parts = scopeId.split(":").map((p) => p.trim());
   if (parts[0] !== "place" && parts[0] !== "placeActivity") return { locationScope: null, locationKey: null };
-  const locationScope = parts[1] === "state" || parts[1] === "city" || parts[1] === "country" ? parts[1] : null;
+  const locationScope = parts[1] === "city" || parts[1] === "state" || parts[1] === "country" ? parts[1] : null;
   const locationKey = parts[2] || null;
   return { locationScope, locationKey };
 }
 
 export function buildFirstClaimKey(params: {
   kind: "location_first" | "activity_first" | "combo_first";
-  locationScope?: "state" | "city" | "country" | null;
+  locationScope?: "city" | "state" | "country" | null;
   locationKey?: string | null;
   activityKey?: string | null;
 }): string | null {
@@ -348,13 +355,13 @@ export class LegendService {
     const postResultRef = this.repo.postResultRef(params.post.postId);
     const userStateRef = this.repo.userLegendsStateRef(params.post.userId);
 
-    // Best-effort: mark processing early for post-success polling.
+    // Best-effort: mark pending early for post-success polling.
     try {
       await postResultRef.set(
         {
           postId: params.post.postId,
           userId: params.post.userId,
-          status: "processing",
+          status: "pending",
           awards: [],
           awardIds: [],
           createdAt: FieldValue.serverTimestamp(),
@@ -394,7 +401,32 @@ export class LegendService {
         tx.set(stageRef, { status: "expired", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         throw new Error("legend_stage_expired");
       }
-      const derivedScopes = (stage.derivedScopes ?? []).filter(Boolean).slice(0, 8);
+      const derivedScopes = (stage.derivedScopes ?? []).filter((scopeId) => scopeId && isSupportedLegendScopeId(scopeId)).slice(0, 8);
+      const eligibility = isEligiblePostForLegends(legendPost);
+      if (!eligibility.eligible) {
+        tx.set(
+          postResultRef,
+          {
+            postId: params.post.postId,
+            userId: params.post.userId,
+            status: "none",
+            reasonIfEmpty: eligibility.reason,
+            awards: [],
+            awardIds: [],
+            updatedAt: FieldValue.serverTimestamp()
+          },
+          { merge: true }
+        );
+        tx.create(processedRef, {
+          postId: params.post.postId,
+          stageId: params.stageId,
+          userId: params.post.userId,
+          scopeCount: 0,
+          processedAt: FieldValue.serverTimestamp()
+        });
+        tx.set(stageRef, { status: "committed", committedPostId: params.post.postId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        return { committed: true, alreadyProcessed: false, awardsCreated: 0, derivedScopes: [] as LegendScopeId[] };
+      }
       const geoAnchorLine = formatLegendAnchorPreferState({
         city: legendPost.city ?? null,
         state: legendPost.state ?? null
@@ -934,7 +966,7 @@ export class LegendService {
         {
           postId: params.post.postId,
           userId: params.post.userId,
-          status: "complete",
+          status: displayCards.length > 0 ? "ready" : "none",
           awards: awardSummaries,
           awardIds: awardIdsThisCommit,
           rewards: {
@@ -949,6 +981,7 @@ export class LegendService {
             displayCards: sortLegendDisplayCards(displayCards)
           },
           completedAt: FieldValue.serverTimestamp(),
+          processedAt: FieldValue.serverTimestamp(),
           updatedAt: FieldValue.serverTimestamp()
         },
         { merge: true }
@@ -1071,6 +1104,28 @@ export class LegendService {
           : typeof data.geohash === "string"
             ? data.geohash
             : null;
+      const privacy =
+        typeof post.privacy === "string" && post.privacy.trim()
+          ? post.privacy
+          : typeof data.privacy === "string"
+            ? data.privacy
+            : null;
+      const isHidden =
+        typeof post.isHidden === "boolean"
+          ? post.isHidden
+          : typeof data.hidden === "boolean"
+            ? data.hidden
+            : typeof data.isHidden === "boolean"
+              ? data.isHidden
+              : null;
+      const isDeleted =
+        typeof post.isDeleted === "boolean"
+          ? post.isDeleted
+          : typeof data.deleted === "boolean"
+            ? data.deleted
+            : typeof data.isDeleted === "boolean"
+              ? data.isDeleted
+              : null;
       const activities =
         Array.isArray(post.activities) && post.activities.length > 0
           ? post.activities
@@ -1093,7 +1148,11 @@ export class LegendService {
         city,
         state,
         country,
-        region
+        region,
+        privacy,
+        isHidden,
+        isDeleted,
+        finalized: true
       };
     } catch {
       return post;
@@ -1102,4 +1161,3 @@ export class LegendService {
 }
 
 export const legendService = new LegendService();
-

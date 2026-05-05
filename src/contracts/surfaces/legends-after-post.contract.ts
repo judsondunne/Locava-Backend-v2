@@ -11,7 +11,11 @@ export const LegendsAfterPostParamsSchema = z.object({
 export const LegendsAfterPostResponseSchema = z.object({
   routeName: z.literal("legends.afterpost.get"),
   postId: z.string(),
-  status: z.enum(["processing", "complete", "failed"]),
+  status: z.enum(["pending", "ready", "none", "error"]),
+  hasNewAwards: z.boolean(),
+  shouldShowAwardScreen: z.boolean(),
+  retryAfterMs: z.number().int().nonnegative(),
+  processedAt: z.unknown().nullable().optional(),
   xpSettled: z.boolean().optional(),
   xpDelta: z.number().int().nonnegative().optional(),
   xpClaim: z
@@ -25,7 +29,6 @@ export const LegendsAfterPostResponseSchema = z.object({
     .optional(),
   leaguePassCelebration: AchievementLeaguePassCelebrationSchema.nullable().optional(),
   pendingCelebrations: z.array(AchievementLeaguePassCelebrationSchema).optional(),
-  pollAfterMs: z.number().int().nonnegative(),
   reasonIfEmpty: z.string().nullable().optional(),
   legendStatus: z
     .object({

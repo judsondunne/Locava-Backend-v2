@@ -20,12 +20,24 @@ export function diffMasterPostPreview(input: {
   const videoAssets = input.canonical.media.assets.filter((a) => a.type === "video");
   const selectedVideoUrls = videoAssets.map((asset) => ({
     assetId: asset.id,
+    defaultUrl: asset.video?.playback.defaultUrl ?? null,
     primaryUrl: asset.video?.playback.primaryUrl ?? null,
     startupUrl: asset.video?.playback.startupUrl ?? null,
+    weakNetworkUrl:
+      ((asset.video?.playback as Record<string, unknown> | null)?.weakNetworkUrl as string | null | undefined) ??
+      asset.video?.playback.startupUrl ??
+      null,
+    poorNetworkUrl:
+      ((asset.video?.playback as Record<string, unknown> | null)?.poorNetworkUrl as string | null | undefined) ??
+      asset.video?.playback.previewUrl ??
+      null,
     upgradeUrl: asset.video?.playback.upgradeUrl ?? null,
     hlsUrl: asset.video?.playback.hlsUrl ?? null,
     fallbackUrl: asset.video?.playback.fallbackUrl ?? null,
-    previewUrl: asset.video?.playback.previewUrl ?? null
+    previewUrl: asset.video?.playback.previewUrl ?? null,
+    faststartVerified: asset.video?.readiness?.faststartVerified ?? null,
+    instantPlaybackReady: asset.video?.readiness?.instantPlaybackReady ?? null,
+    selectedReason: ((asset.video?.playback as Record<string, unknown> | null)?.selectedReason as string | null | undefined) ?? null
   }));
 
   return {

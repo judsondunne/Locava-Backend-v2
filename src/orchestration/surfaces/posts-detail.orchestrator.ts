@@ -1126,6 +1126,15 @@ export class PostsDetailOrchestrator {
         };
       }),
     });
+    if (input.reason === "prefetch" && input.hydrationMode === "playback") {
+      for (const row of found) {
+        delete row.detail.debugHydrationSource;
+        delete row.detail.debugReads;
+        delete row.detail.debugPostIds;
+        delete row.detail.debugMissingIds;
+        delete row.detail.debugDurationMs;
+      }
+    }
     return {
       routeName: "posts.detail.batch",
       reason: input.reason,

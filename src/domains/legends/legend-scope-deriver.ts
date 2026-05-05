@@ -2,11 +2,48 @@ import {
   buildLegendScopeId,
   clampLegendMaxActivities,
   clampLegendMaxScopes,
-  geohash6,
   normalizeLegendActivityId,
   type LegendScopeId
 } from "./legends.types.js";
-import { normalizeLowerLocationKey, normalizeUpperLocationKey } from "./legend-location-keys.js";
+import { normalizeUpperLocationKey } from "./legend-location-keys.js";
+
+type LegendPostLike = {
+  activities?: string[] | null;
+  state?: string | null;
+  country?: string | null;
+};
+
+export function buildLegendScopesForPost(input: LegendPostLike): { scopes: LegendScopeId[]; reasons: string[] } {
+  const reasons: string[] = [];
+  const normalizedActivities = (Array.isArray(input.activities) ? input.activities : [])
+    .map((a) => normalizeLegendActivityId(a))
+    .filter((a): a is string => Boolean(a));
+  const activityIds = [...new Set(normalizedActivities)].slice(0, 3);
+  if (normalizedActivities.length > activityIds.length) reasons.push("activities_capped");
+
+  const state = normalizeUpperLocationKey(input.state);
+  const country = normalizeUpperLocationKey(input.country);
+  if (!state) reasons.push("missing_state");
+  if (!country) reasons.push("missing_country");
+
+  const scopes: LegendScopeId[] = [];
+  for (const activityId of activityIds) {
+    scopes.push(buildLegendScopeId(["activity", activityId]));
+  }
+  if (state) {
+    scopes.push(buildLegendScopeId(["place", "state", state]));
+    for (const activityId of activityIds) {
+      scopes.push(buildLegendScopeId(["placeActivity", "state", state, activityId]));
+    }
+  }
+  if (country) {
+    scopes.push(buildLegendScopeId(["place", "country", country]));
+    for (const activityId of activityIds) {
+      scopes.push(buildLegendScopeId(["placeActivity", "country", country, activityId]));
+    }
+  }
+  return { scopes: [...new Set(scopes)], reasons };
+}
 
 export class LegendScopeDeriver {
   constructor(
@@ -25,60 +62,29 @@ export class LegendScopeDeriver {
     country?: string | null;
     region?: string | null;
   }): { scopes: LegendScopeId[]; reasons: string[] } {
-    const reasons: string[] = [];
     const maxScopes = clampLegendMaxScopes(this.config.maxScopesPerPost, 8);
     const maxActivities = clampLegendMaxActivities(this.config.maxActivitiesPerPost, 3);
-    const enablePlace = this.config.enablePlaceScopes !== false;
+    void input.geohash;
+    void input.city;
+    void input.region;
+    const { scopes: baseScopes, reasons } = buildLegendScopesForPost({
+      activities: input.activities,
+      state: input.state,
+      country: input.country
+    });
+    const placeEnabled = this.config.enablePlaceScopes !== false;
+    const placeFiltered = placeEnabled
+      ? baseScopes
+      : baseScopes.filter((scopeId) => !scopeId.startsWith("place:") && !scopeId.startsWith("placeActivity:"));
 
-    const hash6 = geohash6(input.geohash);
-    const normalizedActivities = (Array.isArray(input.activities) ? input.activities : [])
+    const cappedActivities = [...new Set((Array.isArray(input.activities) ? input.activities : [])
       .map((a) => normalizeLegendActivityId(a))
-      .filter((a): a is string => Boolean(a));
-
-    const activityIds = [...new Set(normalizedActivities)].slice(0, maxActivities);
-    if (normalizedActivities.length > activityIds.length) {
-      reasons.push("activities_capped");
-    }
-
-    const scopes: LegendScopeId[] = [];
-    if (hash6) {
-      scopes.push(buildLegendScopeId(["cell", "geohash6", hash6]));
-    } else {
-      reasons.push("missing_geohash6");
-    }
-
-    for (const activityId of activityIds) {
-      scopes.push(buildLegendScopeId(["activity", activityId]));
-      if (hash6) {
-        scopes.push(buildLegendScopeId(["cellActivity", "geohash6", hash6, activityId]));
-      }
-    }
-
-    if (enablePlace) {
-      const state = normalizeUpperLocationKey(input.state);
-      const cityRaw = typeof input.city === "string" ? input.city.trim() : "";
-      const city = cityRaw ? normalizeLowerLocationKey(cityRaw) : "";
-      const hadCountryInput = Boolean(normalizeUpperLocationKey(input.country));
-      if (hadCountryInput) {
-        reasons.push("country_scopes_disabled_states_and_cities_only");
-      }
-      if (state) {
-        scopes.push(buildLegendScopeId(["place", "state", state]));
-        for (const activityId of activityIds) {
-          scopes.push(buildLegendScopeId(["placeActivity", "state", state, activityId]));
-        }
-      }
-      if (state && city) {
-        const cityKey = `${state}_${city}`;
-        scopes.push(buildLegendScopeId(["place", "city", cityKey]));
-        for (const activityId of activityIds) {
-          scopes.push(buildLegendScopeId(["placeActivity", "city", cityKey, activityId]));
-        }
-      }
-      if (!state) reasons.push("place_scopes_missing_state");
-    }
-
-    const unique = [...new Set(scopes)];
+      .filter((a): a is string => Boolean(a)))].slice(0, maxActivities);
+    const filtered = placeFiltered.filter((scopeId) => {
+      if (!scopeId.startsWith("activity:") && !scopeId.startsWith("placeActivity:")) return true;
+      return cappedActivities.some((activity) => scopeId.endsWith(`:${activity}`) || scopeId === `activity:${activity}`);
+    });
+    const unique = [...new Set(filtered)];
     if (unique.length > maxScopes) {
       reasons.push("scopes_capped");
     }

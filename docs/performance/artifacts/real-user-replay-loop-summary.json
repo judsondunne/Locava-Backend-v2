@@ -1,0 +1,100 @@
+[
+  {
+    "iteration": 1,
+    "verdict": "pass",
+    "failures": [],
+    "worst": [
+      {
+        "id": "achievements_bootstrap",
+        "route": "/v2/achievements/bootstrap",
+        "latencyMs": 216.5,
+        "payloadBytes": 4154,
+        "reads": 2,
+        "queries": 1,
+        "hardFailures": [],
+        "warnings": [
+          "latency_target_exceeded:216.5>50",
+          "latency_hard_exceeded_background:216.5>120"
+        ]
+      }
+    ]
+  },
+  {
+    "iteration": 2,
+    "verdict": "pass",
+    "failures": [],
+    "worst": [
+      {
+        "id": "search_home_bootstrap",
+        "route": "/v2/search/home-bootstrap",
+        "latencyMs": 536.94,
+        "payloadBytes": 12009,
+        "reads": 14,
+        "queries": 8,
+        "hardFailures": [],
+        "warnings": [
+          "latency_target_exceeded:536.94>500"
+        ]
+      },
+      {
+        "id": "achievements_bootstrap",
+        "route": "/v2/achievements/bootstrap",
+        "latencyMs": 285.83,
+        "payloadBytes": 4154,
+        "reads": 2,
+        "queries": 2,
+        "hardFailures": [],
+        "warnings": [
+          "latency_target_exceeded:285.83>50",
+          "latency_hard_exceeded_background:285.83>120"
+        ]
+      }
+    ]
+  },
+  {
+    "iteration": 3,
+    "verdict": "pass",
+    "failures": [],
+    "worst": [
+      {
+        "id": "achievements_hero",
+        "route": "/v2/achievements/hero",
+        "latencyMs": 228.83,
+        "payloadBytes": 468,
+        "reads": 2,
+        "queries": 1,
+        "hardFailures": [],
+        "warnings": [
+          "latency_target_exceeded:228.83>50",
+          "latency_hard_exceeded_background:228.83>120"
+        ]
+      },
+      {
+        "id": "achievements_bootstrap",
+        "route": "/v2/achievements/bootstrap",
+        "latencyMs": 220.74,
+        "payloadBytes": 4154,
+        "reads": 0,
+        "queries": 0,
+        "hardFailures": [],
+        "warnings": [
+          "latency_target_exceeded:220.74>50",
+          "latency_hard_exceeded_background:220.74>120"
+        ]
+      },
+      {
+        "id": "achievements_snapshot",
+        "route": "/v2/achievements/snapshot",
+        "latencyMs": 212.29,
+        "payloadBytes": 1374,
+        "reads": 0,
+        "queries": 0,
+        "hardFailures": [],
+        "warnings": [
+          "latency_target_exceeded:212.29>50",
+          "latency_hard_exceeded_background:212.29>120"
+        ]
+      }
+    ]
+  }
+]

@@ -434,7 +434,7 @@ export class PostingMutationService {
             {
               postId: input.postId,
               userId: input.userId,
-              status: "failed",
+              status: "error",
               errorCode: "legends_commit_failed",
               updatedAt: FieldValue.serverTimestamp()
             },
@@ -461,7 +461,7 @@ export class PostingMutationService {
           postId: input.postId,
           userId: input.userId,
           stageId: input.stageId,
-          status: "processing",
+          status: "pending",
           awards: [],
           awardIds: [],
           primeReason: input.reason,

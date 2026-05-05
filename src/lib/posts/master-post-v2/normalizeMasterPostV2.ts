@@ -299,6 +299,159 @@ function normalizeGradientCandidate(value: unknown): MasterPostLetterboxGradient
   return out;
 }
 
+type CanonicalVideoSelectionInput = {
+  playback: Record<string, string | null>;
+  originalUrl: string | null;
+  previewUrl: string | null;
+  verifiedFaststartUrls: Set<string>;
+};
+
+type CanonicalVideoSelectionResult = {
+  selectedGoodNetworkUrl: string | null;
+  selectedWeakNetworkUrl: string | null;
+  selectedPoorNetworkUrl: string | null;
+  selectedPreviewUrl: string | null;
+  fallbackUrl: string | null;
+  selectedReason:
+    | "verified_startup_avc_faststart_1080"
+    | "verified_startup_avc_faststart_720"
+    | "verified_avc_faststart_1080"
+    | "verified_avc_faststart_720"
+    | "verified_avc_faststart_540"
+    | "verified_avc_faststart_preview360"
+    | "verified_original_faststart_fallback"
+    | "preview_emergency_fallback"
+    | "original_unverified_fallback";
+  hasVerifiedOptimizedPlayback: boolean;
+  hasVerifiedPlayback: boolean;
+  aliasStartup1080FromMain: boolean;
+  aliasStartup720FromMain: boolean;
+};
+
+function normalizeVerifyUrl(...values: unknown[]): string | null {
+  return toTrimmed(...values);
+}
+
+function isMoovPrefixFaststartHint(value: unknown): boolean {
+  return (toTrimmed(value) ?? "").toLowerCase() === "moov_before_mdat_in_prefix";
+}
+
+function collectVerifiedFaststartUrls(
+  rows: Array<Record<string, any>>,
+  trustedContainers: Array<Record<string, any> | null>
+): Set<string> {
+  const verified = new Set<string>();
+  const isProbeHeadOk = (head: Record<string, any> | null): boolean => {
+    if (!head) return false;
+    if (head.ok === true) return true;
+    const status = typeof head.status === "number" ? head.status : null;
+    if (status == null || status < 200 || status >= 300) return false;
+    const contentType = (toTrimmed(head.contentType, head["content-type"]) ?? "").toLowerCase();
+    const acceptRanges = (toTrimmed(head.acceptRanges, head["accept-ranges"]) ?? "").toLowerCase();
+    return contentType.includes("video/mp4") && acceptRanges === "bytes";
+  };
+  const rowVerified = (row: Record<string, any>): boolean => {
+    if (row.ok === true && isMoovPrefixFaststartHint(row.moovHint)) return true;
+    const probe = toObject(row.probe);
+    if (probe && isProbeHeadOk(toObject(probe.head)) && isMoovPrefixFaststartHint(probe.moovHint)) return true;
+    return false;
+  };
+  for (const row of rows) {
+    const url = normalizeVerifyUrl(row.url, row.targetUrl, row.sourceUrl, toObject(row.result)?.url, toObject(row.probe)?.url);
+    if (!url) continue;
+    if (!rowVerified(row)) continue;
+    verified.add(url);
+  }
+  for (const container of trustedContainers) {
+    if (!container) continue;
+    const byUrl = toObject(container.byUrl) ?? toObject(container.urls) ?? null;
+    if (!byUrl) continue;
+    for (const [urlKey, rawValue] of Object.entries(byUrl)) {
+      const url = normalizeVerifyUrl(urlKey);
+      if (!url) continue;
+      if (rawValue === true) {
+        verified.add(url);
+        continue;
+      }
+      const row = toObject(rawValue);
+      if (!row) continue;
+      if (rowVerified(row)) verified.add(url);
+    }
+  }
+  return verified;
+}
+
+function selectCanonicalVideoPlaybackAsset(input: CanonicalVideoSelectionInput): CanonicalVideoSelectionResult {
+  const pick = (...values: Array<string | null>) => values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
+  const isVerified = (url: string | null): url is string => Boolean(url && input.verifiedFaststartUrls.has(url));
+  const p = input.playback;
+
+  const startup1080FaststartAvc = pick(p.startup1080FaststartAvc);
+  const startup1080Faststart = pick(p.startup1080Faststart);
+  const main1080Avc = pick(p.main1080Avc);
+  const startup720FaststartAvc = pick(p.startup720FaststartAvc);
+  const startup720Faststart = pick(p.startup720Faststart);
+  const main720Avc = pick(p.main720Avc);
+  const startup540FaststartAvc = pick(p.startup540FaststartAvc);
+  const preview360Avc = pick(input.previewUrl, p.preview360Avc, p.preview360);
+  const originalUrl = pick(input.originalUrl);
+
+  const verified1080 = [startup1080FaststartAvc, startup1080Faststart, main1080Avc].find((url) => isVerified(url ?? null)) ?? null;
+  const verified720 = [startup720FaststartAvc, startup720Faststart, main720Avc].find((url) => isVerified(url ?? null)) ?? null;
+  const verified540 = [startup540FaststartAvc].find((url) => isVerified(url ?? null)) ?? null;
+  const verifiedPreview = isVerified(preview360Avc) ? preview360Avc : null;
+  const verifiedOriginal = isVerified(originalUrl) ? originalUrl : null;
+
+  const selectedGoodNetworkUrl = verified1080 ?? verified720 ?? verified540 ?? verifiedPreview ?? originalUrl;
+  const selectedWeakNetworkUrl = verified720 ?? verified1080 ?? verified540 ?? selectedGoodNetworkUrl;
+  const selectedPoorNetworkUrl = verified540 ?? verifiedPreview ?? selectedWeakNetworkUrl ?? selectedGoodNetworkUrl;
+  const hasVerifiedOptimizedPlayback = Boolean(verified1080 || verified720 || verified540 || verifiedPreview);
+  const hasVerifiedPlayback = hasVerifiedOptimizedPlayback || Boolean(verifiedOriginal);
+
+  const selectedReason: CanonicalVideoSelectionResult["selectedReason"] = verified1080
+    ? selectedGoodNetworkUrl === startup1080FaststartAvc || selectedGoodNetworkUrl === startup1080Faststart
+      ? "verified_startup_avc_faststart_1080"
+      : "verified_avc_faststart_1080"
+    : verified720
+      ? selectedGoodNetworkUrl === startup720FaststartAvc || selectedGoodNetworkUrl === startup720Faststart
+        ? "verified_startup_avc_faststart_720"
+        : "verified_avc_faststart_720"
+      : verified540
+        ? "verified_avc_faststart_540"
+        : verifiedPreview
+          ? "verified_avc_faststart_preview360"
+          : verifiedOriginal
+            ? "verified_original_faststart_fallback"
+            : preview360Avc
+          ? "preview_emergency_fallback"
+          : "original_unverified_fallback";
+
+  return {
+    selectedGoodNetworkUrl,
+    selectedWeakNetworkUrl,
+    selectedPoorNetworkUrl,
+    selectedPreviewUrl: preview360Avc,
+    fallbackUrl: originalUrl ?? selectedGoodNetworkUrl,
+    selectedReason,
+    hasVerifiedOptimizedPlayback,
+    hasVerifiedPlayback,
+    aliasStartup1080FromMain: Boolean(!startup1080FaststartAvc && main1080Avc && isVerified(main1080Avc)),
+    aliasStartup720FromMain: Boolean(!startup720FaststartAvc && main720Avc && isVerified(main720Avc))
+  };
+}
+
+function parseGeneratedOutputs(value: unknown): Record<string, unknown> {
+  const direct = toObject(value);
+  if (direct) return direct;
+  if (typeof value !== "string") return {};
+  try {
+    const parsed = JSON.parse(value);
+    return toObject(parsed) ?? {};
+  } catch {
+    return {};
+  }
+}
+
 export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOptions = {}): CanonicalizationResult {
   const warnings: CanonicalizationWarning[] = [];
   const errors: CanonicalizationError[] = [];
@@ -474,6 +627,16 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     const fromLab = toObject(labAssets[row.id]) ?? {};
     const variants = toObject(row.variants) ?? {};
     const generated = toObject(fromLab.generated) ?? {};
+    const rowPlaybackLab = toObject(row.playbackLab) ?? {};
+    const rowPlaybackLabGenerated = toObject(rowPlaybackLab.generated) ?? {};
+    const postPlaybackLabAsset = toObject(toObject(playbackLab.assets)?.[toTrimmed(row.id) ?? ""]) ?? {};
+    const postPlaybackLabAssetGenerated = toObject(postPlaybackLabAsset.generated) ?? {};
+    const generatedOutputs = parseGeneratedOutputs(generated.outputs ?? generated.diagnosticsJson);
+    const rowGeneratedOutputs = parseGeneratedOutputs(rowPlaybackLabGenerated.outputs ?? rowPlaybackLabGenerated.diagnosticsJson);
+    const postAssetGeneratedOutputs = parseGeneratedOutputs(
+      postPlaybackLabAssetGenerated.outputs ?? postPlaybackLabAssetGenerated.diagnosticsJson
+    );
+    const pickPlaybackUrl = (...values: unknown[]): string | null => toTrimmed(...values);
     const displayImage =
       toTrimmed(
         toObject(variants.lg)?.webp,
@@ -488,31 +651,123 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     const explicitMain1080 = toTrimmed(row.main1080, variants.main1080);
     const explicitMain1080Avc = toTrimmed(row.main1080Avc, variants.main1080Avc);
     const playback = {
-      startup540Faststart: toTrimmed(generated.startup540Faststart, row.startup540Faststart),
-      startup720FaststartAvc: toTrimmed(generated.startup720FaststartAvc, row.startup720FaststartAvc),
-      startup720Faststart: toTrimmed(generated.startup720Faststart, row.startup720Faststart),
-      startup1080FaststartAvc: toTrimmed(generated.startup1080FaststartAvc, row.startup1080FaststartAvc),
-      startup1080Faststart: toTrimmed(generated.startup1080Faststart, row.startup1080Faststart),
-      startup540FaststartAvc: toTrimmed(generated.startup540FaststartAvc, row.startup540FaststartAvc),
-      main720Avc: toTrimmed(generated.main720Avc, row.main720Avc),
-      hlsAvcMaster: toTrimmed(generated.hlsAvcMaster, row.hlsAvcMaster),
-      hls: toTrimmed(generated.hls, row.hls),
+      startup540Faststart: pickPlaybackUrl(
+        row.startup540Faststart,
+        variants.startup540Faststart,
+        generated.startup540Faststart,
+        rowPlaybackLabGenerated.startup540Faststart,
+        postPlaybackLabAssetGenerated.startup540Faststart,
+        generatedOutputs.startup540Faststart,
+        rowGeneratedOutputs.startup540Faststart,
+        postAssetGeneratedOutputs.startup540Faststart
+      ),
+      startup720FaststartAvc: pickPlaybackUrl(
+        row.startup720FaststartAvc,
+        variants.startup720FaststartAvc,
+        generated.startup720FaststartAvc,
+        rowPlaybackLabGenerated.startup720FaststartAvc,
+        postPlaybackLabAssetGenerated.startup720FaststartAvc,
+        generatedOutputs.startup720FaststartAvc,
+        rowGeneratedOutputs.startup720FaststartAvc,
+        postAssetGeneratedOutputs.startup720FaststartAvc
+      ),
+      startup720Faststart: pickPlaybackUrl(
+        row.startup720Faststart,
+        variants.startup720Faststart,
+        generated.startup720Faststart,
+        rowPlaybackLabGenerated.startup720Faststart,
+        postPlaybackLabAssetGenerated.startup720Faststart,
+        generatedOutputs.startup720Faststart,
+        rowGeneratedOutputs.startup720Faststart,
+        postAssetGeneratedOutputs.startup720Faststart
+      ),
+      startup1080FaststartAvc: pickPlaybackUrl(
+        row.startup1080FaststartAvc,
+        variants.startup1080FaststartAvc,
+        generated.startup1080FaststartAvc,
+        rowPlaybackLabGenerated.startup1080FaststartAvc,
+        postPlaybackLabAssetGenerated.startup1080FaststartAvc,
+        generatedOutputs.startup1080FaststartAvc,
+        rowGeneratedOutputs.startup1080FaststartAvc,
+        postAssetGeneratedOutputs.startup1080FaststartAvc
+      ),
+      startup1080Faststart: pickPlaybackUrl(
+        row.startup1080Faststart,
+        variants.startup1080Faststart,
+        generated.startup1080Faststart,
+        rowPlaybackLabGenerated.startup1080Faststart,
+        postPlaybackLabAssetGenerated.startup1080Faststart,
+        generatedOutputs.startup1080Faststart,
+        rowGeneratedOutputs.startup1080Faststart,
+        postAssetGeneratedOutputs.startup1080Faststart
+      ),
+      startup540FaststartAvc: pickPlaybackUrl(
+        row.startup540FaststartAvc,
+        variants.startup540FaststartAvc,
+        generated.startup540FaststartAvc,
+        rowPlaybackLabGenerated.startup540FaststartAvc,
+        postPlaybackLabAssetGenerated.startup540FaststartAvc,
+        generatedOutputs.startup540FaststartAvc,
+        rowGeneratedOutputs.startup540FaststartAvc,
+        postAssetGeneratedOutputs.startup540FaststartAvc
+      ),
+      main720Avc: pickPlaybackUrl(
+        row.main720Avc,
+        variants.main720Avc,
+        generated.main720Avc,
+        rowPlaybackLabGenerated.main720Avc,
+        postPlaybackLabAssetGenerated.main720Avc,
+        generatedOutputs.main720Avc,
+        rowGeneratedOutputs.main720Avc,
+        postAssetGeneratedOutputs.main720Avc
+      ),
+      hlsAvcMaster: pickPlaybackUrl(
+        row.hlsAvcMaster,
+        variants.hlsAvcMaster,
+        generated.hlsAvcMaster,
+        rowPlaybackLabGenerated.hlsAvcMaster,
+        postPlaybackLabAssetGenerated.hlsAvcMaster
+      ),
+      hls: pickPlaybackUrl(row.hls, variants.hls, generated.hls, rowPlaybackLabGenerated.hls, postPlaybackLabAssetGenerated.hls),
       main1080Avc: explicitMain1080Avc,
-      main720: toTrimmed(generated.main720, row.main720),
+      main720: pickPlaybackUrl(row.main720, variants.main720, generated.main720, rowPlaybackLabGenerated.main720, postPlaybackLabAssetGenerated.main720),
       original: toTrimmed(row.original, row.url, fallbackVideo),
-      preview360Avc: toTrimmed(generated.preview360Avc, row.preview360Avc),
-      preview360: toTrimmed(generated.preview360, row.preview360),
-      upgrade1080FaststartAvc: toTrimmed(generated.upgrade1080FaststartAvc, row.upgrade1080FaststartAvc),
-      upgrade1080Faststart: toTrimmed(generated.upgrade1080Faststart, row.upgrade1080Faststart),
+      preview360Avc: pickPlaybackUrl(
+        row.preview360Avc,
+        variants.preview360Avc,
+        generated.preview360Avc,
+        rowPlaybackLabGenerated.preview360Avc,
+        postPlaybackLabAssetGenerated.preview360Avc,
+        generatedOutputs.preview360Avc,
+        rowGeneratedOutputs.preview360Avc,
+        postAssetGeneratedOutputs.preview360Avc
+      ),
+      preview360: pickPlaybackUrl(
+        row.preview360,
+        variants.preview360,
+        generated.preview360,
+        rowPlaybackLabGenerated.preview360,
+        postPlaybackLabAssetGenerated.preview360,
+        generatedOutputs.preview360,
+        rowGeneratedOutputs.preview360,
+        postAssetGeneratedOutputs.preview360
+      ),
+      upgrade1080FaststartAvc: pickPlaybackUrl(
+        row.upgrade1080FaststartAvc,
+        variants.upgrade1080FaststartAvc,
+        generated.upgrade1080FaststartAvc,
+        rowPlaybackLabGenerated.upgrade1080FaststartAvc,
+        postPlaybackLabAssetGenerated.upgrade1080FaststartAvc
+      ),
+      upgrade1080Faststart: pickPlaybackUrl(
+        row.upgrade1080Faststart,
+        variants.upgrade1080Faststart,
+        generated.upgrade1080Faststart,
+        rowPlaybackLabGenerated.upgrade1080Faststart,
+        postPlaybackLabAssetGenerated.upgrade1080Faststart
+      ),
       main1080: explicitMain1080
     };
-    const startupUrl =
-      playback.startup720FaststartAvc ??
-      playback.startup540FaststartAvc ??
-      playback.main720Avc ??
-      playback.startup1080FaststartAvc ??
-      playback.original ??
-      playback.preview360Avc;
     const rawCodecs = toObject(row.codecs);
     const preservedVariants: Record<string, unknown> = {};
     for (const [key, value] of Object.entries({ ...variants, ...generated })) {
@@ -538,29 +793,35 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     preservedVariants.main1080 = canonMain1080 ?? null;
     preservedVariants.main1080Avc = canonMain1080Avc ?? null;
 
+    const fromLabGenerated = toObject(fromLab.generated) ?? {};
     const verifyRows = [
+      ...(Array.isArray(rowPlaybackLab.lastVerifyResults) ? rowPlaybackLab.lastVerifyResults : []),
+      ...(Array.isArray(postPlaybackLabAsset.lastVerifyResults) ? postPlaybackLabAsset.lastVerifyResults : []),
       ...(Array.isArray(fromLab.lastVerifyResults) ? fromLab.lastVerifyResults : []),
+      ...(Array.isArray(fromLabGenerated.lastVerifyResults) ? fromLabGenerated.lastVerifyResults : []),
+      ...(Array.isArray(rowPlaybackLabGenerated.lastVerifyResults) ? rowPlaybackLabGenerated.lastVerifyResults : []),
+      ...(Array.isArray(postPlaybackLabAssetGenerated.lastVerifyResults) ? postPlaybackLabAssetGenerated.lastVerifyResults : []),
       ...(Array.isArray(playbackLab.lastVerifyResults) ? playbackLab.lastVerifyResults : [])
     ]
       .map((entry) => toObject(entry))
       .filter((entry): entry is Record<string, any> => Boolean(entry));
-    const faststartVerified = verifyRows.some((row) => {
-      const ok = row.ok === true;
-      const hint = toTrimmed(row.moovHint, row.moovEvidence, row.result) ?? "";
-      const variantLabel = (toTrimmed(row.variant, row.label, row.variantLabel) ?? "").toLowerCase();
-      const isFaststartLabel = /startup540|startup720|startup1080|upgrade1080/.test(variantLabel);
-      const hasMoovEvidence = /moov_before_mdat_in_prefix|moov/.test(hint.toLowerCase());
-      return ok && (isFaststartLabel || hasMoovEvidence);
+    const verifiedFaststartUrls = collectVerifiedFaststartUrls(verifyRows, [
+      toObject(playbackLab.verification),
+      toObject(fromLab.verification)
+    ]);
+    const selectedPlayback = selectCanonicalVideoPlaybackAsset({
+      playback,
+      originalUrl: playback.original,
+      previewUrl: playback.preview360Avc ?? playback.preview360,
+      verifiedFaststartUrls
     });
-
-    const upgradeUrl =
-      playback.upgrade1080FaststartAvc ??
-      playback.main1080Avc ??
-      playback.main1080 ??
-      playback.startup1080FaststartAvc ??
-      playback.main720Avc ??
-      playback.main720 ??
-      playback.original;
+    if (selectedPlayback.aliasStartup1080FromMain && preservedVariants.startup1080FaststartAvc == null) {
+      preservedVariants.startup1080FaststartAvc = playback.main1080Avc ?? null;
+    }
+    if (selectedPlayback.aliasStartup720FromMain && preservedVariants.startup720FaststartAvc == null) {
+      preservedVariants.startup720FaststartAvc = playback.main720Avc ?? null;
+    }
+    const playbackReady = selectedPlayback.hasVerifiedOptimizedPlayback && Boolean(playback.original || row.poster || rawPost.displayPhotoLink);
     const hasVideoHints = [
       row.hls,
       row.hlsAvcMaster,
@@ -583,6 +844,14 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
           isVideoUrl(toTrimmed(playback.original, playback.hls, playback.main720Avc))))
         ? "video"
         : "image";
+    if (!playbackReady && resolvedType === "video") {
+      pushWarning(
+        warnings,
+        "video_instant_playback_not_verified_faststart",
+        `Video asset ${toTrimmed(row.id) ?? generatedId} has no verified fast-start optimized AVC URL (reason=${selectedPlayback.selectedReason})`,
+        "media.assets.video.readiness"
+      );
+    }
     const generatedId = `${resolvedType}_${postId}_${index}`;
     const gradientByIndex = normalizeGradientCandidate(letterboxGradients[index]);
     const gradientFromSingleArrayEntry =
@@ -654,44 +923,20 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
                 ) ?? null,
               posterHighUrl: toTrimmed(generated.posterHigh, row.posterHigh),
               playback: {
-                defaultUrl:
-                  playback.upgrade1080FaststartAvc ??
-                  playback.main1080Avc ??
-                  playback.startup1080FaststartAvc ??
-                  playback.main720Avc ??
-                  playback.startup720FaststartAvc ??
-                  playback.main720 ??
-                  playback.original ??
-                  playback.preview360Avc ??
-                  null,
-                primaryUrl:
-                  playback.upgrade1080FaststartAvc ??
-                  playback.main1080Avc ??
-                  playback.startup1080FaststartAvc ??
-                  playback.main720Avc ??
-                  playback.startup720FaststartAvc ??
-                  playback.main720 ??
-                  playback.original ??
-                  playback.preview360Avc ??
-                  null,
-                startupUrl: startupUrl ?? null,
-                highQualityUrl:
-                  playback.upgrade1080FaststartAvc ??
-                  playback.main1080Avc ??
-                  playback.main1080 ??
-                  playback.startup1080FaststartAvc ??
-                  playback.main720Avc ??
-                  playback.main720 ??
-                  playback.original ??
-                  null,
-                upgradeUrl: upgradeUrl ?? null,
+                defaultUrl: selectedPlayback.selectedGoodNetworkUrl,
+                primaryUrl: selectedPlayback.selectedGoodNetworkUrl,
+                startupUrl: selectedPlayback.selectedGoodNetworkUrl,
+                highQualityUrl: selectedPlayback.selectedGoodNetworkUrl,
+                upgradeUrl: selectedPlayback.selectedGoodNetworkUrl,
                 hlsUrl: playback.hlsAvcMaster ?? playback.hls ?? null,
-                fallbackUrl: playback.original ?? null,
-                previewUrl:
-                  playback.preview360Avc ??
-                  playback.preview360 ??
-                  toTrimmed(preservedVariants.preview360Avc, preservedVariants.preview360) ??
-                  null
+                fallbackUrl: selectedPlayback.fallbackUrl,
+                previewUrl: selectedPlayback.selectedPreviewUrl,
+                ...( {
+                  goodNetworkUrl: selectedPlayback.selectedGoodNetworkUrl,
+                  weakNetworkUrl: selectedPlayback.selectedWeakNetworkUrl,
+                  poorNetworkUrl: selectedPlayback.selectedPoorNetworkUrl,
+                  selectedReason: selectedPlayback.selectedReason
+                } as Record<string, string | null> )
               },
               variants: preservedVariants,
               durationSec: pickNumericOrNull(row.durationSec),
@@ -705,11 +950,12 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
               bitrateKbps: pickNumericOrNull(row.bitrateKbps),
               sizeBytes: pickNumericOrNull(row.sizeBytes),
               readiness: {
-                assetsReady: typeof rawPost.assetsReady === "boolean" ? rawPost.assetsReady : null,
-                instantPlaybackReady:
-                  typeof rawPost.instantPlaybackReady === "boolean" ? rawPost.instantPlaybackReady : null,
-                faststartVerified: faststartVerified || Boolean(playbackLab.verification || playbackLab.moov || fromLab.verification),
-                processingStatus: toTrimmed(rawPost.videoProcessingStatus, playbackLab.status, rawPost.mediaStatus)
+                assetsReady: playbackReady,
+                instantPlaybackReady: playbackReady,
+                faststartVerified: selectedPlayback.hasVerifiedPlayback,
+                processingStatus: playbackReady
+                  ? toTrimmed(rawPost.videoProcessingStatus, playbackLab.status, rawPost.mediaStatus) ?? "completed"
+                  : toTrimmed(rawPost.videoProcessingStatus, playbackLab.status, rawPost.mediaStatus)
               }
             }
           : null,
@@ -1040,6 +1286,8 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   }
 
   const firstVideo = dedupe.deduped.find((a) => a.type === "video");
+  const firstVideoPlaybackReady = firstVideo?.video?.readiness?.instantPlaybackReady === true;
+  const firstVideoAssetsReady = firstVideo?.video?.readiness?.assetsReady === true;
 
   const mediaPresentationCarousel =
     typeof rawPost.carouselFitWidth === "boolean" ? rawPost.carouselFitWidth : null;
@@ -1082,9 +1330,13 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       privacyLabel: toTrimmed(rawPost.privacy, rawPost.visibility)
     },
     media: {
-      status: mediaStatus,
-      assetsReady: typeof rawPost.assetsReady === "boolean" ? rawPost.assetsReady : false,
-      instantPlaybackReady: typeof rawPost.instantPlaybackReady === "boolean" ? rawPost.instantPlaybackReady : false,
+      status: firstVideo && firstVideoPlaybackReady ? "ready" : mediaStatus,
+      assetsReady: firstVideo ? firstVideoAssetsReady : typeof rawPost.assetsReady === "boolean" ? rawPost.assetsReady : false,
+      instantPlaybackReady: firstVideo
+        ? firstVideoPlaybackReady
+        : typeof rawPost.instantPlaybackReady === "boolean"
+          ? rawPost.instantPlaybackReady
+          : false,
       completeness:
         dedupe.deduped.length === 0
           ? "missing"
