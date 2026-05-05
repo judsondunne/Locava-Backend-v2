@@ -139,7 +139,7 @@ export class FeedBootstrapOrchestrator {
             wireFeedCandidateToPostCardSummary(item, `rank-${viewer.viewerId.slice(0, 6)}-${idx + 1}`, {
               route: "feed.bootstrap.get"
             })
-          )
+          ) as FeedBootstrapResponse["firstRender"]["feed"]["items"]
         }
       },
       deferred: {

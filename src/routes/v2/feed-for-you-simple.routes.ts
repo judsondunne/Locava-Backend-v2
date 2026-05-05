@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { feedForYouSimpleContract, FeedForYouSimpleQuerySchema } from "../../contracts/surfaces/feed-for-you-simple.contract.js";
 import { failure, success } from "../../lib/response.js";
-import { getRequestContext, setRouteName } from "../../observability/request-context.js";
+import { getRequestContext, setOrchestrationMetadata, setRouteName } from "../../observability/request-context.js";
 import { FeedForYouSimpleRepository } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { FeedForYouSimpleService } from "../../services/surfaces/feed-for-you-simple.service.js";
 import {
@@ -20,6 +20,12 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
     const query = FeedForYouSimpleQuerySchema.parse(request.query);
     setRouteName(feedForYouSimpleContract.routeName);
     const viewerId = query.viewerId?.trim() || viewer.viewerId || null;
+    setOrchestrationMetadata({
+      surface: "home_feed",
+      requestGroup: query.cursor ? "pagination" : "first_paint",
+      priority: query.cursor ? "P1_NEXT_PLAYBACK" : "P0_VISIBLE_PLAYBACK",
+      hydrationMode: "card",
+    });
 
     try {
       const startedAt = Date.now();

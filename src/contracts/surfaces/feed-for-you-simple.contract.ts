@@ -74,7 +74,7 @@ export const FeedForYouSimpleDebugSchema = z.object({
   repeatedFromRecentCount: z.number().int().nonnegative().optional(),
   firstPaintCardReadyCount: z.number().int().nonnegative().optional(),
   detailBatchRequiredForFirstPaint: z.boolean().optional(),
-  durableServedWriteStatus: z.enum(["ok", "skipped", "error"]).optional(),
+  durableServedWriteStatus: z.enum(["ok", "skipped", "error", "deferred"]).optional(),
   firstPaintPlaybackReadyCount: z.number().int().nonnegative().optional(),
   firstVisiblePlaybackUrlPresent: z.boolean().optional(),
   firstVisiblePosterPresent: z.boolean().optional(),

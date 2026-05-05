@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../../app/createApp.js";
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
 import { FeedFirestoreAdapter } from "../../repositories/source-of-truth/feed-firestore.adapter.js";
+import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
 import { SearchRepository } from "../../repositories/surfaces/search.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
 
@@ -295,5 +296,106 @@ describe("v2 collections detail route", () => {
     expect(body.data.collectionId).toBe("collection-2");
     expect(body.data.items.map((item: { postId: string }) => item.postId)).toEqual(["post-4"]);
     expect(body.data.items[0].media.posterUrl).toBe("https://cdn.locava.test/posts/post-4.jpg");
+  });
+
+  it("recommended route primes post-card cache for immediate detail prefetch follow-ups", async () => {
+    vi.spyOn(CollectionsFirestoreAdapter.prototype, "getCollection").mockResolvedValue({
+      id: "collection-cache-prime",
+      ownerId: "internal-viewer",
+      userId: "internal-viewer",
+      name: "Recommended Cache Prime",
+      privacy: "private",
+      collaborators: [],
+      collaboratorInfo: [],
+      items: ["post-seed-1"],
+      itemsCount: 1,
+      mediaCount: 1,
+      tags: [],
+      openedAtByUserId: {},
+      createdAt: "2026-05-01T00:00:00.000Z",
+      updatedAt: "2026-05-01T00:00:00.000Z",
+      lastContentActivityAtMs: 1_777_000_000_000,
+      lastContentActivityByUserId: "internal-viewer",
+      isPublic: false,
+      permissions: {
+        isOwner: true,
+        isCollaborator: false,
+        canEdit: true,
+        canDelete: true,
+        canManageCollaborators: true,
+      },
+      kind: "backend",
+    });
+    vi.spyOn(FeedFirestoreAdapter.prototype, "isEnabled").mockReturnValue(true);
+    vi.spyOn(FeedFirestoreAdapter.prototype, "getCandidatesByPostIds").mockImplementation(async (postIds) => ({
+      items: postIds.map((postId) => ({
+        postId,
+        authorId: `author-${postId}`,
+        slot: 1,
+        updatedAtMs: 1_777_000_000_000,
+        createdAtMs: 1_776_999_000_000,
+        mediaType: "image" as const,
+        posterUrl: `https://cdn.locava.test/posts/${postId}.jpg`,
+        firstAssetUrl: `https://cdn.locava.test/posts/${postId}.jpg`,
+        title: `Title ${postId}`,
+        description: `Description ${postId}`,
+        captionPreview: `Caption ${postId}`,
+        tags: [],
+        authorHandle: `handle_${postId}`,
+        authorName: `Name ${postId}`,
+        authorPic: `https://cdn.locava.test/users/${postId}.jpg`,
+        activities: ["beach"],
+        address: "123 Ocean Ave",
+        geo: { lat: 1, long: 2, city: "Miami", state: "FL", country: "US", geohash: null },
+        assets: [
+          {
+            id: `${postId}-asset-1`,
+            type: "image" as const,
+            previewUrl: `https://cdn.locava.test/posts/${postId}.jpg`,
+            posterUrl: `https://cdn.locava.test/posts/${postId}.jpg`,
+            originalUrl: `https://cdn.locava.test/posts/${postId}.jpg`,
+            blurhash: null,
+            width: 1080,
+            height: 1350,
+            aspectRatio: 1080 / 1350,
+            orientation: "portrait",
+          },
+        ],
+        likeCount: 0,
+        commentCount: 0,
+        likedByUserIds: [],
+        sourcePost: { postId, thumbUrl: `https://cdn.locava.test/posts/${postId}.jpg`, displayPhotoLink: `https://cdn.locava.test/posts/${postId}.jpg` },
+        rawPost: { postId, thumbUrl: `https://cdn.locava.test/posts/${postId}.jpg`, displayPhotoLink: `https://cdn.locava.test/posts/${postId}.jpg` },
+      })),
+      queryCount: 1,
+      readCount: postIds.length,
+    }));
+    vi.spyOn(SearchRepository.prototype, "getSearchResultsPage").mockResolvedValue({
+      items: [{ postId: "post-seed-1" }, { postId: "post-cache-2" }, { postId: "post-cache-3" }],
+      hasMore: false,
+      nextCursor: null,
+    } as never);
+    vi.spyOn(FeedService.prototype, "loadFeedPage").mockResolvedValue({
+      items: [],
+      hasMore: false,
+      nextCursor: null,
+    } as never);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v2/collections/collection-cache-prime/recommended?limit=2",
+      headers,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const repoFetch = vi.spyOn(FeedRepository.prototype, "getPostCardSummariesByPostIds");
+    const cacheReader = new FeedService(new FeedRepository());
+    const cards = await cacheReader.loadPostCardSummaryBatchLightweight("internal-viewer", [
+      "post-cache-2",
+      "post-cache-3",
+    ]);
+
+    expect(cards.map((card) => card.postId)).toEqual(["post-cache-2", "post-cache-3"]);
+    expect(repoFetch).not.toHaveBeenCalled();
   });
 });

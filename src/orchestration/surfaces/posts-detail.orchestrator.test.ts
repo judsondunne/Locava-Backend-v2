@@ -423,7 +423,9 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(loadPostDetail).toHaveBeenCalledTimes(1);
     const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
     expect(Array.isArray(post.assets)).toBe(true);
-    expect((post.assets as unknown[]).length).toBe(4);
+    expect((post.assets as unknown[]).length).toBe(1);
+    expect(post.mediaCompleteness).toBe("cover_only");
+    expect(post.requiresAssetHydration).toBe(true);
   });
 
   it("playback batch upgrades slim carousel shells past index two when Firestore read cap allows", async () => {
@@ -493,9 +495,9 @@ describe("posts detail orchestrator missing author hardening", () => {
       });
       expect(loadPostDetail).toHaveBeenCalledTimes(3);
       const byPost = new Map(out.found.map((row) => [row.postId, row.detail.firstRender.post as { assets: unknown[] }]));
-      expect(byPost.get("g0")?.assets.length).toBe(4);
-      expect(byPost.get("g1")?.assets.length).toBe(4);
-      expect(byPost.get("g2")?.assets.length).toBe(4);
+      expect(byPost.get("g0")?.assets.length).toBe(1);
+      expect(byPost.get("g1")?.assets.length).toBe(1);
+      expect(byPost.get("g2")?.assets.length).toBe(1);
       expect(byPost.get("g3")?.assets.length).toBe(1);
       expect(byPost.get("g4")?.assets.length).toBe(1);
       expect((byPost.get("g3") as Record<string, unknown>).requiresAssetHydration).toBe(true);
@@ -580,7 +582,9 @@ describe("posts detail orchestrator missing author hardening", () => {
       expect(loadPostDetail.mock.calls[0]?.[0]).toBe("vis-a");
       const upgraded = svcOut.found.find((row) => row.postId === "vis-a")?.detail.firstRender.post as Record<string, unknown>;
       const cappedPref = svcOut.found.find((row) => row.postId === "pre-d")?.detail.firstRender.post as Record<string, unknown>;
-      expect(Array.isArray(upgraded?.assets) && (upgraded?.assets as unknown[]).length === 4).toBe(true);
+      expect(Array.isArray(upgraded?.assets) && (upgraded?.assets as unknown[]).length === 1).toBe(true);
+      expect(upgraded?.mediaCompleteness).toBe("cover_only");
+      expect(Boolean(upgraded?.requiresAssetHydration)).toBe(true);
       expect(Boolean(cappedPref?.requiresAssetHydration)).toBe(true);
       expect(cappedPref?.mediaCompleteness).toBe("cover_only");
     } finally {
@@ -639,11 +643,13 @@ describe("posts detail orchestrator missing author hardening", () => {
     });
     expect(loadPostDetail).not.toHaveBeenCalled();
     const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
-    expect((post.assets as unknown[]).length).toBe(3);
+    expect((post.assets as unknown[]).length).toBe(1);
+    expect(post.mediaCompleteness).toBe("cover_only");
+    expect(post.requiresAssetHydration).toBe(true);
     const originals = (post.assets as Array<{ original?: string | null; id?: string }>).map((a) =>
       String(a.original ?? a.id ?? ""),
     );
-    expect(new Set(originals).size).toBe(3);
+    expect(new Set(originals).size).toBe(1);
   });
 
   it("playback batch upgrades preview-only card cache using Firestore detail assets", async () => {
@@ -715,6 +721,62 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(loadPostDetail).toHaveBeenCalledTimes(1);
     const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
     expect(post.playbackUrl).toBe("https://cdn/main1080.mp4");
+  });
+
+  it("collection detail prefetch keeps renderable cards on cache-only playback shells", async () => {
+    const loadPostDetail = vi.fn(async () => {
+      throw new Error("should_not_upgrade_collection_prefetch");
+    });
+    const loadPostCardSummaryBatchLightweight = vi.fn(async () => [
+      {
+        postId: "collection-video-1",
+        rankToken: "rank-1",
+        author: { userId: "u1", handle: "u1", name: null, pic: null },
+        captionPreview: "c",
+        media: { type: "video" as const, posterUrl: "https://cdn/poster.jpg", aspectRatio: 9 / 16, startupHint: "poster_then_preview" as const },
+        social: { likeCount: 0, commentCount: 0 },
+        viewer: { liked: false, saved: false },
+        createdAtMs: 1,
+        updatedAtMs: 1,
+        assetCount: 2,
+        rawFirestoreAssetCount: 2,
+        assets: [
+          {
+            id: "a1",
+            type: "video" as const,
+            posterUrl: "https://cdn/poster.jpg",
+            previewUrl: "https://cdn/preview360.mp4",
+            mp4Url: null,
+            originalUrl: "https://cdn/original.mp4",
+            streamUrl: null,
+            blurhash: null,
+            width: null,
+            height: null,
+            aspectRatio: null,
+            orientation: null,
+          },
+        ],
+        assetsReady: true,
+        mediaStatus: "ready" as const,
+      },
+    ]);
+    const service = buildService({
+      loadPostDetail,
+      loadPostCardSummaryBatchLightweight,
+    });
+    const orchestrator = new PostsDetailOrchestrator(service);
+    const out = await orchestrator.runBatch({
+      viewerId: "viewer-1",
+      postIds: ["collection-video-1"],
+      reason: "prefetch",
+      hydrationMode: "playback",
+      surface: "collection_detail",
+    });
+
+    expect(loadPostDetail).not.toHaveBeenCalled();
+    const post = out.found[0]?.detail.firstRender.post as Record<string, unknown>;
+    expect(Boolean(post.playbackUrl || post.fallbackVideoUrl || post.posterUrl)).toBe(true);
+    expect(post.playbackUrl ?? post.fallbackVideoUrl).toBeTruthy();
   });
 
   it("playback cold fallback can return partial cached shells without blocking on misses", async () => {

@@ -44,6 +44,8 @@ export async function registerV2AuthPushTokenRoutes(app: FastifyInstance): Promi
         expoPushToken,
         pushToken,
         pushTokenPlatform: body.pushTokenPlatform
+      }, {
+        deferPersist: true
       });
       return success({
         routeName: authPushTokenContract.routeName,

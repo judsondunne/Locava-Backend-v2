@@ -115,6 +115,7 @@ export class SearchHomeV1Service {
     const candidates = suggestions.users
       .filter((u) => u.userId && u.userId !== viewerId && !u.isFollowing)
       .slice(0, 8);
+    const firstPostProbeUserIds = new Set(candidates.slice(0, 6).map((candidate) => candidate.userId));
 
     const userIds = candidates.map((c) => c.userId);
     const summaryMap = await this.usersRepo.loadUserSummaries(userIds).catch(() => new Map<string, SearchHomeV1UserSummary>());
@@ -123,9 +124,16 @@ export class SearchHomeV1Service {
       candidates.map(async (c) => {
         const userSummary = summaryMap.get(c.userId);
         if (!userSummary) return null;
-        const rows = await this.postsRepo.listRecentPostsByUserId(c.userId, 1).catch(() => []);
-        const top = rows[0];
-        const firstPost = top ? firstPostFromRow(top as Record<string, unknown>) : null;
+        const firstPost =
+          firstPostProbeUserIds.has(c.userId)
+            ? await this.postsRepo
+                .listRecentPostsByUserId(c.userId, 1)
+                .then((rows) => {
+                  const top = rows[0];
+                  return top ? firstPostFromRow(top as Record<string, unknown>) : null;
+                })
+                .catch(() => null)
+            : null;
         return {
           user: userSummary,
           firstPost,

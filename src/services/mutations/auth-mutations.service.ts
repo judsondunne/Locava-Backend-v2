@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { FieldValue } from "firebase-admin/firestore";
+import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { mergeUserDocumentWritePayload } from "../../repositories/source-of-truth/user-document-firestore.adapter.js";
 import { getFirebaseAuthClient } from "../../repositories/source-of-truth/firebase-auth.client.js";
@@ -278,7 +279,8 @@ export class AuthMutationsService {
    */
   async persistViewerDevicePushTokens(
     viewerId: string,
-    input: { expoPushToken: string; pushToken: string; pushTokenPlatform?: string }
+    input: { expoPushToken: string; pushToken: string; pushTokenPlatform?: string },
+    options?: { deferExclusiveClaim?: boolean; deferPersist?: boolean }
   ): Promise<{ persisted: boolean }> {
     if (!viewerId || viewerId === "anonymous") {
       throw new Error("viewer_id_required");
@@ -291,28 +293,69 @@ export class AuthMutationsService {
     if (!this.db) {
       throw new Error("firestore_unavailable");
     }
+    if (options?.deferPersist === true) {
+      scheduleBackgroundWork(
+        async () => {
+          try {
+            await this.persistViewerDevicePushTokensNow(
+              viewerId,
+              { expoPushToken, pushToken, pushTokenPlatform: input.pushTokenPlatform },
+              { deferExclusiveClaim: false }
+            );
+          } catch (error) {
+            console.warn("[AUTH_PUSH_TOKEN_BACKGROUND_PERSIST_FAILED]", {
+              viewerId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        },
+        0,
+        { label: `auth_push_token_persist:${viewerId}` }
+      );
+      return { persisted: true };
+    }
+    await this.persistViewerDevicePushTokensNow(
+      viewerId,
+      { expoPushToken, pushToken, pushTokenPlatform: input.pushTokenPlatform },
+      { deferExclusiveClaim: options?.deferExclusiveClaim === true }
+    );
+    return { persisted: true };
+  }
+
+  private async persistViewerDevicePushTokensNow(
+    viewerId: string,
+    input: { expoPushToken: string; pushToken: string; pushTokenPlatform?: string },
+    options?: { deferExclusiveClaim?: boolean }
+  ): Promise<void> {
     const platform =
       typeof input.pushTokenPlatform === "string" && input.pushTokenPlatform.trim().length > 0
         ? input.pushTokenPlatform.trim()
         : undefined;
-    await this.claimExclusivePushTokens(viewerId, { expoPushToken, pushToken });
     const nowMs = Date.now();
     const payload = mergeUserDocumentWritePayload({
-      expoPushToken,
-      pushToken,
+      expoPushToken: input.expoPushToken,
+      pushToken: input.pushToken,
       ...(platform ? { pushTokenPlatform: platform } : {}),
       pushTokenUpdatedAt: nowMs,
       updatedAt: nowMs
     });
-    await this.db.collection("users").doc(viewerId).set(
+    await this.db!.collection("users").doc(viewerId).set(
       {
         ...payload,
-        expoPushTokens: FieldValue.arrayUnion(expoPushToken),
-        pushTokens: FieldValue.arrayUnion(pushToken)
+        expoPushTokens: FieldValue.arrayUnion(input.expoPushToken),
+        pushTokens: FieldValue.arrayUnion(input.pushToken)
       },
       { merge: true }
     );
-    return { persisted: true };
+    if (options?.deferExclusiveClaim === true) {
+      scheduleBackgroundWork(
+        () => this.claimExclusivePushTokens(viewerId, { expoPushToken: input.expoPushToken, pushToken: input.pushToken }),
+        0,
+        { label: `auth_push_token_claim:${viewerId}` }
+      );
+    } else {
+      await this.claimExclusivePushTokens(viewerId, { expoPushToken: input.expoPushToken, pushToken: input.pushToken });
+    }
   }
 
   async isHandleAvailable(rawHandle: string): Promise<{ available: boolean; normalizedHandle: string }> {

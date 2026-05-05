@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MixesService } from "./mixes.service.js";
 
 const rows = [
@@ -154,6 +154,72 @@ describe("mixes service", () => {
     });
     expect(out.posts.map((p: any) => p.postId)).toEqual(["has-cover"]);
     expect(out.diagnostics.droppedForMissingMediaCount).toBe(1);
+  });
+
+  it("preview uses a tightly bounded activity fallback scan when the warm pool has no matching rows", async () => {
+    const emptyPoolRepo = {
+      async listFromPool() {
+        return { posts: [] as any[], ...poolMeta({ readCount: 0 }) };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
+      },
+    };
+    const pageByActivity = async (input: {
+      activity: string;
+      limit: number;
+      cursor: { lastTime: number | null; lastId: string | null } | null;
+      poolCapOverride?: number;
+    }) => ({
+      items: [
+        {
+          postId: "fallback-1",
+          time: 9000,
+          userId: "uf1",
+          userHandle: "fallback-1",
+          activities: ["beach"],
+          thumbUrl: "https://cdn/fallback-1.jpg",
+        },
+        {
+          postId: "fallback-2",
+          time: 8000,
+          userId: "uf2",
+          userHandle: "fallback-2",
+          activities: ["beach"],
+          thumbUrl: "https://cdn/fallback-2.jpg",
+        },
+        {
+          postId: "fallback-3",
+          time: 7000,
+          userId: "uf3",
+          userHandle: "fallback-3",
+          activities: ["beach"],
+          thumbUrl: "https://cdn/fallback-3.jpg",
+        },
+      ] as any[],
+      nextCursor: null,
+      hasMore: false,
+      debugInput: input,
+    });
+    const pageByActivitySpy = vi.fn(pageByActivity);
+    const fallbackService = new MixesService(emptyPoolRepo as any, {
+      pageByActivity: pageByActivitySpy as any,
+    });
+
+    const out = await fallbackService.preview({
+      mixKey: "beach",
+      filter: { activity: "beach" },
+      limit: 3,
+      viewerId: null,
+    });
+
+    expect(out.posts.map((p: any) => p.postId)).toEqual(["fallback-1", "fallback-2", "fallback-3"]);
+    expect(pageByActivitySpy).toHaveBeenCalledWith({
+      activity: "beach",
+      limit: 6,
+      cursor: null,
+      poolCapOverride: 10,
+    });
   });
 
   it("paginates stably with cursor and no duplicates", async () => {

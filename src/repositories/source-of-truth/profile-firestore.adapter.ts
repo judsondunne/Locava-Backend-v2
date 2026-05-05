@@ -175,21 +175,22 @@ export class ProfileFirestoreAdapter {
     if (!this.db) throw new Error("firestore_source_unavailable");
     const safeLimit = Math.max(10, Math.min(params.limit, 200));
     const userRef = this.db.collection("users").doc(params.userId);
-    const totalAgg = await userRef.collection("followers").count().get();
     let q = userRef.collection("followers").orderBy(FieldPath.documentId(), "asc").limit(safeLimit);
     if (params.cursor) {
       q = q.startAfter(params.cursor);
     }
     const snap = await q.get();
     const ids = snap.docs.map((d) => d.id);
-    const rows = await this.loadUserDiscoveryRows(params.viewerId, ids);
+    const rows = ids.length > 0 ? await this.loadUserDiscoveryRows(params.viewerId, ids) : [];
     const tailDoc = snap.docs[snap.docs.length - 1];
     const nextCursor = snap.docs.length === safeLimit && tailDoc ? tailDoc.id : null;
+    const needsTotalCount = params.cursor != null || nextCursor != null;
+    const totalCount = needsTotalCount ? Number((await userRef.collection("followers").count().get()).data().count ?? 0) : snap.docs.length;
     return {
       items: rows,
-      totalCount: Number(totalAgg.data().count ?? 0),
+      totalCount,
       nextCursor,
-      queryCount: 2 + 1, // count + list + user doc batch (approx)
+      queryCount: 1 + (ids.length > 0 ? 1 : 0) + (needsTotalCount ? 1 : 0),
       readCount: snap.docs.length + ids.length * 2
     };
   }
@@ -203,21 +204,22 @@ export class ProfileFirestoreAdapter {
     if (!this.db) throw new Error("firestore_source_unavailable");
     const safeLimit = Math.max(10, Math.min(params.limit, 200));
     const userRef = this.db.collection("users").doc(params.userId);
-    const totalAgg = await userRef.collection("following").count().get();
     let q = userRef.collection("following").orderBy(FieldPath.documentId(), "asc").limit(safeLimit);
     if (params.cursor) {
       q = q.startAfter(params.cursor);
     }
     const snap = await q.get();
     const ids = snap.docs.map((d) => d.id);
-    const rows = await this.loadUserDiscoveryRows(params.viewerId, ids);
+    const rows = ids.length > 0 ? await this.loadUserDiscoveryRows(params.viewerId, ids) : [];
     const tailDoc = snap.docs[snap.docs.length - 1];
     const nextCursor = snap.docs.length === safeLimit && tailDoc ? tailDoc.id : null;
+    const needsTotalCount = params.cursor != null || nextCursor != null;
+    const totalCount = needsTotalCount ? Number((await userRef.collection("following").count().get()).data().count ?? 0) : snap.docs.length;
     return {
       items: rows,
-      totalCount: Number(totalAgg.data().count ?? 0),
+      totalCount,
       nextCursor,
-      queryCount: 2 + 1,
+      queryCount: 1 + (ids.length > 0 ? 1 : 0) + (needsTotalCount ? 1 : 0),
       readCount: snap.docs.length + ids.length * 2
     };
   }

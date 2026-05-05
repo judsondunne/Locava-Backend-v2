@@ -226,7 +226,7 @@ describe("toAppPostV2FromAny", () => {
       expect(asset.presentation.letterboxGradient?.bottom).toBe("#111827");
     }
     const compare = buildSurfaceComparePayload(app);
-    expect(compare.projections.feedCard.validationWarnings).not.toContain("dropped_cover_gradient_from_full_app_post");
-    expect(compare.projections.profileDetail.validationWarnings).not.toContain("dropped_asset_gradients_from_full_app_post");
+    expect(compare.projections.feedCard?.validationWarnings ?? []).not.toContain("dropped_cover_gradient_from_full_app_post");
+    expect(compare.projections.profileDetail?.validationWarnings ?? []).not.toContain("dropped_asset_gradients_from_full_app_post");
   });
 });

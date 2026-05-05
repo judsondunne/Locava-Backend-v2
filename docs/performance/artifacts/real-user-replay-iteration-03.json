@@ -1,0 +1,1196 @@
+{
+  "generatedAt": "2026-05-05T13:16:14.457Z",
+  "baseUrl": "http://127.0.0.1:8080",
+  "runId": "real-user-replay-1777986945710",
+  "viewerId": "internal-viewer",
+  "collectionId": "YJCOaRVsAtapT1pUfZeU",
+  "events": [
+    {
+      "id": "feed_page_1",
+      "label": "home feed first page",
+      "route": "/v2/feed/for-you/simple?limit=5",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 1,
+      "scheduledOffsetMs": 0,
+      "endOffsetMs": 138,
+      "latencyMs": 131.63,
+      "payloadBytes": 13224,
+      "routeName": "feed.for_you_simple.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 1,
+        "writes": 0,
+        "queries": 1
+      },
+      "requestGroup": "first_paint",
+      "hydrationMode": "card",
+      "routePriority": "P0_VISIBLE_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "hls",
+      "selectedVideoUrlClass": "hls",
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "auth_session",
+      "label": "auth session",
+      "route": "/v2/auth/session",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 289,
+      "scheduledOffsetMs": 288,
+      "endOffsetMs": 350,
+      "latencyMs": 60.27,
+      "payloadBytes": 1092,
+      "routeName": "auth.session.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 1,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "startup_parallel",
+      "hydrationMode": null,
+      "routePriority": null,
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "config_version",
+      "label": "config version",
+      "route": "/api/config/version",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 1596,
+      "scheduledOffsetMs": 1595,
+      "endOffsetMs": 1598,
+      "latencyMs": 0.92,
+      "payloadBytes": 279,
+      "routeName": null,
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": null,
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_prefetch_1",
+      "label": "detail prefetch first window",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 1961,
+      "scheduledOffsetMs": 1958,
+      "endOffsetMs": 2106,
+      "latencyMs": 142.39,
+      "payloadBytes": 17615,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [],
+      "db": {
+        "reads": 3,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "hls",
+      "selectedVideoUrlClass": "hls",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "analytics_events",
+      "label": "analytics events",
+      "route": "/api/analytics/v2/events",
+      "method": "POST",
+      "status": 202,
+      "startOffsetMs": 3233,
+      "scheduledOffsetMs": 3232,
+      "endOffsetMs": 3239,
+      "latencyMs": 2.17,
+      "payloadBytes": 332,
+      "routeName": "analytics.events.post",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": null,
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_prefetch_2",
+      "label": "detail prefetch second window",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 3745,
+      "scheduledOffsetMs": 3744,
+      "endOffsetMs": 3839,
+      "latencyMs": 91,
+      "payloadBytes": 18123,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [],
+      "db": {
+        "reads": 2,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "hls",
+      "selectedVideoUrlClass": "hls",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_prefetch_3",
+      "label": "detail prefetch sliding window",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 8794,
+      "scheduledOffsetMs": 8793,
+      "endOffsetMs": 8820,
+      "latencyMs": 20.55,
+      "payloadBytes": 29476,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "hls",
+      "selectedVideoUrlClass": "hls",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [
+        "details_opened_post"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_opened_post",
+      "label": "opened post primary asset",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 8806,
+      "scheduledOffsetMs": 8805,
+      "endOffsetMs": 9102,
+      "latencyMs": 282.64,
+      "payloadBytes": 70245,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [
+        "latency_p95_exceeded"
+      ],
+      "db": {
+        "reads": 3,
+        "writes": 0,
+        "queries": 3
+      },
+      "requestGroup": "opened_post",
+      "hydrationMode": "open",
+      "routePriority": "P0_VISIBLE_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "hls",
+      "selectedVideoUrlClass": "hls",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [
+        "details_prefetch_3"
+      ],
+      "hardFailures": [
+        "payload_exceeded:70245>70000"
+      ],
+      "warnings": [
+        "latency_target_exceeded:282.64>220"
+      ]
+    },
+    {
+      "id": "push_token",
+      "label": "push token sync",
+      "route": "/v2/auth/push-token",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 9315,
+      "scheduledOffsetMs": 9314,
+      "endOffsetMs": 9318,
+      "latencyMs": 1.32,
+      "payloadBytes": 187,
+      "routeName": "auth.push_token.post",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "background_side_effect",
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "feed_page_2",
+      "label": "home feed next page",
+      "route": "/v2/feed/for-you/simple?limit=5&cursor=fys%3Av2%3AeyJ2IjoyLCJtb2RlIjoiZG9jSWQiLCJyZWVsIjp7ImFuY2hvciI6IjQ0ZGJhNzlmMTBiYjkyNGI0NTNjIiwid3JhcHBlZCI6ZmFsc2UsImxhc3RWYWx1ZSI6bnVsbCwibGFzdFBvc3RJZCI6bnVsbH0sImZhbGxiYWNrIjp7ImFuY2hvciI6IjEzNDUyZmMxN2IzYzg2NmM2NGUyIiwid3JhcHBlZCI6ZmFsc2UsImxhc3RWYWx1ZSI6bnVsbCwibGFzdFBvc3RJZCI6bnVsbH0sInNlZW4iOlsiMGY5a2FncE1xSmtGWUcyWGRVenIiLCIwZzkyTzIzY0FWNHQ1ZXFUVFYyaCIsIjBpNk5hRjFFbGVmZVhQajZiU296IiwiMGtpQ1FyM2Z4T2VqRHpUem9xZjIiLCIwbWIwajg0OWVFdmZpNVRsZlJFcSJdfQ",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 13327,
+      "scheduledOffsetMs": 13326,
+      "endOffsetMs": 13450,
+      "latencyMs": 115.85,
+      "payloadBytes": 12199,
+      "routeName": "feed.for_you_simple.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 2,
+        "writes": 0,
+        "queries": 2
+      },
+      "requestGroup": "pagination",
+      "hydrationMode": "card",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": true,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "photo",
+      "selectedVideoUrlClass": "photo",
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_prefetch_4",
+      "label": "detail prefetch overlapping page 2",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 13467,
+      "scheduledOffsetMs": 13466,
+      "endOffsetMs": 13475,
+      "latencyMs": 6.63,
+      "payloadBytes": 12311,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "hls",
+      "selectedVideoUrlClass": "hls",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "details_prefetch_5",
+      "label": "detail prefetch after page 2",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 14387,
+      "scheduledOffsetMs": 14386,
+      "endOffsetMs": 14686,
+      "latencyMs": 297.2,
+      "payloadBytes": 24724,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [
+        "latency_p95_exceeded"
+      ],
+      "db": {
+        "reads": 6,
+        "writes": 0,
+        "queries": 3
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "hls",
+      "selectedVideoUrlClass": "hls",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [],
+      "hardFailures": [
+        "reads_exceeded:6>3"
+      ],
+      "warnings": [
+        "latency_target_exceeded:297.2>180"
+      ]
+    },
+    {
+      "id": "search_home_bootstrap",
+      "label": "search home bootstrap",
+      "route": "/v2/search/home-bootstrap",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 18002,
+      "scheduledOffsetMs": 18000,
+      "endOffsetMs": 18413,
+      "latencyMs": 409.43,
+      "payloadBytes": 12009,
+      "routeName": "search.home_bootstrap.v1",
+      "budgetViolations": [],
+      "db": {
+        "reads": 14,
+        "writes": 0,
+        "queries": 8
+      },
+      "requestGroup": "opened_screen",
+      "hydrationMode": null,
+      "routePriority": "P2_CURRENT_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "mix_preview_hiking",
+        "mix_preview_cafe",
+        "mix_preview_park",
+        "mix_preview_beach"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "mix_preview_hiking",
+      "label": "mix preview hiking",
+      "route": "/v2/mixes/hiking/preview?limit=3&activity=hiking",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 18041,
+      "scheduledOffsetMs": 18040,
+      "endOffsetMs": 18049,
+      "latencyMs": 7.11,
+      "payloadBytes": 37057,
+      "routeName": "mixes.preview.get",
+      "budgetViolations": [
+        "payload_bytes_exceeded"
+      ],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "preview_fanout",
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "search_home_bootstrap"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "mix_preview_cafe",
+      "label": "mix preview cafe",
+      "route": "/v2/mixes/cafe/preview?limit=3&activity=cafe",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 18050,
+      "scheduledOffsetMs": 18048,
+      "endOffsetMs": 18216,
+      "latencyMs": 165,
+      "payloadBytes": 27766,
+      "routeName": "mixes.preview.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 10,
+        "writes": 0,
+        "queries": 1
+      },
+      "requestGroup": "preview_fanout",
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "search_home_bootstrap",
+        "mix_preview_park",
+        "mix_preview_beach"
+      ],
+      "hardFailures": [],
+      "warnings": [
+        "latency_target_exceeded:165>150"
+      ]
+    },
+    {
+      "id": "mix_preview_park",
+      "label": "mix preview park",
+      "route": "/v2/mixes/park/preview?limit=3&activity=park",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 18056,
+      "scheduledOffsetMs": 18056,
+      "endOffsetMs": 18067,
+      "latencyMs": 8.18,
+      "payloadBytes": 23113,
+      "routeName": "mixes.preview.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "preview_fanout",
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "search_home_bootstrap",
+        "mix_preview_cafe",
+        "mix_preview_beach"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "mix_preview_beach",
+      "label": "mix preview beach",
+      "route": "/v2/mixes/beach/preview?limit=3&activity=beach",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 18065,
+      "scheduledOffsetMs": 18064,
+      "endOffsetMs": 18162,
+      "latencyMs": 94.62,
+      "payloadBytes": 29692,
+      "routeName": "mixes.preview.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 10,
+        "writes": 0,
+        "queries": 1
+      },
+      "requestGroup": "preview_fanout",
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "search_home_bootstrap",
+        "mix_preview_cafe",
+        "mix_preview_park"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "achievements_leaderboard_xp_league",
+      "label": "achievements xp league",
+      "route": "/v2/achievements/leaderboard/xp_league",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24001,
+      "scheduledOffsetMs": 24000,
+      "endOffsetMs": 24004,
+      "latencyMs": 1.15,
+      "payloadBytes": 3670,
+      "routeName": "achievements.leaderboard.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "achievements_leagues",
+      "label": "achievements leagues",
+      "route": "/v2/achievements/leagues",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24009,
+      "scheduledOffsetMs": 24008,
+      "endOffsetMs": 24011,
+      "latencyMs": 1.07,
+      "payloadBytes": 2722,
+      "routeName": "achievements.leagues.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "achievements_hero",
+      "label": "achievements hero",
+      "route": "/v2/achievements/hero",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24013,
+      "scheduledOffsetMs": 24012,
+      "endOffsetMs": 24014,
+      "latencyMs": 1,
+      "payloadBytes": 495,
+      "routeName": "achievements.hero.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "profile_following",
+      "label": "profile following",
+      "route": "/v2/profiles/internal-viewer/following?limit=200",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24017,
+      "scheduledOffsetMs": 24016,
+      "endOffsetMs": 24263,
+      "latencyMs": 244.74,
+      "payloadBytes": 326,
+      "routeName": "profile.following.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 3,
+        "writes": 0,
+        "queries": 2
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "achievements_bootstrap",
+        "achievements_leaderboard_xp_global",
+        "achievements_snapshot",
+        "social_suggested_friends"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "achievements_bootstrap",
+      "label": "achievements bootstrap",
+      "route": "/v2/achievements/bootstrap",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24021,
+      "scheduledOffsetMs": 24020,
+      "endOffsetMs": 24397,
+      "latencyMs": 374.35,
+      "payloadBytes": 4154,
+      "routeName": "achievements.bootstrap.get",
+      "budgetViolations": [
+        "latency_p95_exceeded"
+      ],
+      "db": {
+        "reads": 2,
+        "writes": 0,
+        "queries": 2
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_leaderboard_xp_global",
+        "achievements_snapshot",
+        "social_suggested_friends"
+      ],
+      "hardFailures": [],
+      "warnings": [
+        "latency_target_exceeded:374.35>50",
+        "latency_hard_exceeded_background:374.35>120"
+      ]
+    },
+    {
+      "id": "achievements_leaderboard_xp_global",
+      "label": "achievements xp global",
+      "route": "/v2/achievements/leaderboard/xp_global",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24024,
+      "scheduledOffsetMs": 24024,
+      "endOffsetMs": 24029,
+      "latencyMs": 1.09,
+      "payloadBytes": 5738,
+      "routeName": "achievements.leaderboard.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_bootstrap",
+        "achievements_snapshot"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "achievements_snapshot",
+      "label": "achievements snapshot",
+      "route": "/v2/achievements/snapshot",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24028,
+      "scheduledOffsetMs": 24028,
+      "endOffsetMs": 24030,
+      "latencyMs": 0.74,
+      "payloadBytes": 1401,
+      "routeName": "achievements.snapshot.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P4_BACKGROUND",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_bootstrap",
+        "achievements_leaderboard_xp_global"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "social_suggested_friends",
+      "label": "suggested friends",
+      "route": "/v2/social/suggested-friends?surface=generic&limit=10&sortBy=postCount&userId=internal-viewer",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 24033,
+      "scheduledOffsetMs": 24032,
+      "endOffsetMs": 24035,
+      "latencyMs": 1.05,
+      "payloadBytes": 7515,
+      "routeName": "social.suggested_friends.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 0,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_bootstrap"
+      ],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "collections_list",
+      "label": "collections list",
+      "route": "/v2/collections?limit=10",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 28001,
+      "scheduledOffsetMs": 28000,
+      "endOffsetMs": 28139,
+      "latencyMs": 134.56,
+      "payloadBytes": 5966,
+      "routeName": "collections.list.get",
+      "budgetViolations": [
+        "db_reads_exceeded"
+      ],
+      "db": {
+        "reads": 20,
+        "writes": 1,
+        "queries": 2
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "collections_recommended",
+      "label": "collections recommended",
+      "route": "/v2/collections/YJCOaRVsAtapT1pUfZeU/recommended?limit=10",
+      "method": "GET",
+      "status": 200,
+      "startOffsetMs": 28321,
+      "scheduledOffsetMs": 28320,
+      "endOffsetMs": 28637,
+      "latencyMs": 312.32,
+      "payloadBytes": 38387,
+      "routeName": "collections.recommended.get",
+      "budgetViolations": [],
+      "db": {
+        "reads": 29,
+        "writes": 0,
+        "queries": 2
+      },
+      "requestGroup": null,
+      "hydrationMode": null,
+      "routePriority": "P3_DEFERRED_SCREEN",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": null,
+      "selectedVideoVariant": null,
+      "selectedVideoUrlClass": null,
+      "primaryAssetLatencyMs": null,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    },
+    {
+      "id": "collection_details_prefetch",
+      "label": "collection recommendation detail prefetch",
+      "route": "/v2/posts/details:batch",
+      "method": "POST",
+      "status": 200,
+      "startOffsetMs": 28662,
+      "scheduledOffsetMs": 28660,
+      "endOffsetMs": 28737,
+      "latencyMs": 71.75,
+      "payloadBytes": 17183,
+      "routeName": "posts.detail.batch",
+      "budgetViolations": [],
+      "db": {
+        "reads": 3,
+        "writes": 0,
+        "queries": 0
+      },
+      "requestGroup": "prefetch",
+      "hydrationMode": "playback",
+      "routePriority": "P1_NEXT_PLAYBACK",
+      "duplicatePrefetchPostIds": [],
+      "repeatedPayloadBytesForSamePostIds": null,
+      "cursorCorrect": null,
+      "firstPlayableMediaAvailable": true,
+      "selectedVideoVariant": "preview360",
+      "selectedVideoUrlClass": "preview360",
+      "primaryAssetLatencyMs": 0,
+      "overlapsWith": [],
+      "hardFailures": [],
+      "warnings": []
+    }
+  ],
+  "overlapTimeline": [
+    {
+      "id": "feed_page_1",
+      "startOffsetMs": 1,
+      "endOffsetMs": 138,
+      "overlapsWith": []
+    },
+    {
+      "id": "auth_session",
+      "startOffsetMs": 289,
+      "endOffsetMs": 350,
+      "overlapsWith": []
+    },
+    {
+      "id": "config_version",
+      "startOffsetMs": 1596,
+      "endOffsetMs": 1598,
+      "overlapsWith": []
+    },
+    {
+      "id": "details_prefetch_1",
+      "startOffsetMs": 1961,
+      "endOffsetMs": 2106,
+      "overlapsWith": []
+    },
+    {
+      "id": "analytics_events",
+      "startOffsetMs": 3233,
+      "endOffsetMs": 3239,
+      "overlapsWith": []
+    },
+    {
+      "id": "details_prefetch_2",
+      "startOffsetMs": 3745,
+      "endOffsetMs": 3839,
+      "overlapsWith": []
+    },
+    {
+      "id": "details_prefetch_3",
+      "startOffsetMs": 8794,
+      "endOffsetMs": 8820,
+      "overlapsWith": [
+        "details_opened_post"
+      ]
+    },
+    {
+      "id": "details_opened_post",
+      "startOffsetMs": 8806,
+      "endOffsetMs": 9102,
+      "overlapsWith": [
+        "details_prefetch_3"
+      ]
+    },
+    {
+      "id": "push_token",
+      "startOffsetMs": 9315,
+      "endOffsetMs": 9318,
+      "overlapsWith": []
+    },
+    {
+      "id": "feed_page_2",
+      "startOffsetMs": 13327,
+      "endOffsetMs": 13450,
+      "overlapsWith": []
+    },
+    {
+      "id": "details_prefetch_4",
+      "startOffsetMs": 13467,
+      "endOffsetMs": 13475,
+      "overlapsWith": []
+    },
+    {
+      "id": "details_prefetch_5",
+      "startOffsetMs": 14387,
+      "endOffsetMs": 14686,
+      "overlapsWith": []
+    },
+    {
+      "id": "search_home_bootstrap",
+      "startOffsetMs": 18002,
+      "endOffsetMs": 18413,
+      "overlapsWith": [
+        "mix_preview_hiking",
+        "mix_preview_cafe",
+        "mix_preview_park",
+        "mix_preview_beach"
+      ]
+    },
+    {
+      "id": "mix_preview_hiking",
+      "startOffsetMs": 18041,
+      "endOffsetMs": 18049,
+      "overlapsWith": [
+        "search_home_bootstrap"
+      ]
+    },
+    {
+      "id": "mix_preview_cafe",
+      "startOffsetMs": 18050,
+      "endOffsetMs": 18216,
+      "overlapsWith": [
+        "search_home_bootstrap",
+        "mix_preview_park",
+        "mix_preview_beach"
+      ]
+    },
+    {
+      "id": "mix_preview_park",
+      "startOffsetMs": 18056,
+      "endOffsetMs": 18067,
+      "overlapsWith": [
+        "search_home_bootstrap",
+        "mix_preview_cafe",
+        "mix_preview_beach"
+      ]
+    },
+    {
+      "id": "mix_preview_beach",
+      "startOffsetMs": 18065,
+      "endOffsetMs": 18162,
+      "overlapsWith": [
+        "search_home_bootstrap",
+        "mix_preview_cafe",
+        "mix_preview_park"
+      ]
+    },
+    {
+      "id": "achievements_leaderboard_xp_league",
+      "startOffsetMs": 24001,
+      "endOffsetMs": 24004,
+      "overlapsWith": []
+    },
+    {
+      "id": "achievements_leagues",
+      "startOffsetMs": 24009,
+      "endOffsetMs": 24011,
+      "overlapsWith": []
+    },
+    {
+      "id": "achievements_hero",
+      "startOffsetMs": 24013,
+      "endOffsetMs": 24014,
+      "overlapsWith": []
+    },
+    {
+      "id": "profile_following",
+      "startOffsetMs": 24017,
+      "endOffsetMs": 24263,
+      "overlapsWith": [
+        "achievements_bootstrap",
+        "achievements_leaderboard_xp_global",
+        "achievements_snapshot",
+        "social_suggested_friends"
+      ]
+    },
+    {
+      "id": "achievements_bootstrap",
+      "startOffsetMs": 24021,
+      "endOffsetMs": 24397,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_leaderboard_xp_global",
+        "achievements_snapshot",
+        "social_suggested_friends"
+      ]
+    },
+    {
+      "id": "achievements_leaderboard_xp_global",
+      "startOffsetMs": 24024,
+      "endOffsetMs": 24029,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_bootstrap",
+        "achievements_snapshot"
+      ]
+    },
+    {
+      "id": "achievements_snapshot",
+      "startOffsetMs": 24028,
+      "endOffsetMs": 24030,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_bootstrap",
+        "achievements_leaderboard_xp_global"
+      ]
+    },
+    {
+      "id": "social_suggested_friends",
+      "startOffsetMs": 24033,
+      "endOffsetMs": 24035,
+      "overlapsWith": [
+        "profile_following",
+        "achievements_bootstrap"
+      ]
+    },
+    {
+      "id": "collections_list",
+      "startOffsetMs": 28001,
+      "endOffsetMs": 28139,
+      "overlapsWith": []
+    },
+    {
+      "id": "collections_recommended",
+      "startOffsetMs": 28321,
+      "endOffsetMs": 28637,
+      "overlapsWith": []
+    },
+    {
+      "id": "collection_details_prefetch",
+      "startOffsetMs": 28662,
+      "endOffsetMs": 28737,
+      "overlapsWith": []
+    }
+  ],
+  "duplicatePrefetchPostIds": [],
+  "duplicatePrefetchPayloadWasteBytes": 0,
+  "firstVisibleAssetLatencyMs": 131.63,
+  "openedPostPrimaryAssetLatencyMs": 0,
+  "feedDetailsVariantMismatches": [],
+  "diagnosticsFound": 28,
+  "failures": [
+    "hard_budget_failures_present"
+  ],
+  "verdict": "fail"
+}

@@ -11,6 +11,18 @@ import type { FeedQueryContext } from "../../repositories/surfaces/feed.reposito
 export class FeedService {
   constructor(private readonly repository: FeedRepository) {}
 
+  async primePostCardSummaryCache(cards: FeedBootstrapCandidateRecord[], ttlMs = 20_000): Promise<void> {
+    const unique = new Map<string, FeedBootstrapCandidateRecord>();
+    for (const card of cards) {
+      const postId = card.postId.trim();
+      if (!postId || unique.has(postId)) continue;
+      unique.set(postId, card);
+    }
+    await Promise.all(
+      [...unique.values()].map((card) => globalCache.set(entityCacheKeys.postCard(card.postId), card, ttlMs))
+    );
+  }
+
   async loadBootstrapCandidates(viewerId: string, limit: number, context?: FeedQueryContext) {
     const tab = context?.tab ?? "explore";
     const geo = `${context?.lat ?? "_"}:${context?.lng ?? "_"}:${context?.radiusKm ?? "_"}`;

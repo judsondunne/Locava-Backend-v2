@@ -62,7 +62,7 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
           : "P2_CURRENT_SCREEN";
     setOrchestrationMetadata({
       hydrationMode: body.hydrationMode,
-      requestGroup: body.reason,
+      requestGroup: body.reason === "open" ? "opened_post" : body.reason,
       priority: inferredPriority
     });
     try {
@@ -70,7 +70,13 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
         viewerId: viewer.viewerId,
         postIds: body.postIds,
         reason: body.reason,
-        hydrationMode: body.hydrationMode
+        hydrationMode: body.hydrationMode,
+        surface:
+          typeof request.headers["x-locava-surface"] === "string"
+            ? request.headers["x-locava-surface"]
+            : Array.isArray(request.headers["x-locava-surface"])
+              ? String(request.headers["x-locava-surface"][0] ?? "")
+              : null,
       });
       return success(payload);
     } catch (error) {

@@ -99,7 +99,10 @@ export class PostingFinalizeOrchestrator {
           }
         : {}),
       ...("appPost" in result && result.appPost && typeof result.appPost === "object"
-        ? { appPost: result.appPost as Record<string, unknown>, postContractVersion: result.postContractVersion ?? 2 }
+        ? {
+            appPost: result.appPost as Record<string, unknown>,
+            postContractVersion: ("postContractVersion" in result ? result.postContractVersion : 2) ?? 2,
+          }
         : {}),
       idempotency: {
         replayed: result.idempotent

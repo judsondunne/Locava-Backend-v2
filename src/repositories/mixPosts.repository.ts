@@ -161,6 +161,7 @@ export class MixPostsRepository {
     aliases: string[];
     limit: number;
     cursor: { lastTime: number | null; lastId: string | null } | null;
+    poolCapOverride?: number;
   }): Promise<{ items: MixPostRow[]; nextCursor: { lastTime: number; lastId: string } | null; hasMore: boolean }> {
     const tags = [...new Set((input.aliases ?? []).map((a) => String(a ?? "").trim().toLowerCase()).filter(Boolean))].slice(
       0,
@@ -168,7 +169,11 @@ export class MixPostsRepository {
     );
     if (tags.length === 0) return { items: [], nextCursor: null, hasMore: false };
     const limit = Math.max(1, Math.min(36, Math.floor(input.limit)));
-    const poolCap = Math.max(72, Math.min(520, limit * 22));
+    const poolCapDefault = Math.max(72, Math.min(520, limit * 22));
+    const poolCap =
+      typeof input.poolCapOverride === "number" && Number.isFinite(input.poolCapOverride)
+        ? Math.max(limit, Math.min(120, Math.floor(input.poolCapOverride)))
+        : poolCapDefault;
     /** No composite index required — ordering is applied in-memory after fetch. */
     const pooled = await this.runQuery((db) => {
       if (tags.length === 1) {
@@ -192,10 +197,16 @@ export class MixPostsRepository {
     activity: string;
     limit: number;
     cursor: { lastTime: number | null; lastId: string | null } | null;
+    poolCapOverride?: number;
   }): Promise<{ items: MixPostRow[]; nextCursor: { lastTime: number; lastId: string } | null; hasMore: boolean }> {
     const activity = String(input.activity ?? "").trim().toLowerCase();
     if (!activity) return { items: [], nextCursor: null, hasMore: false };
-    return this.pageByActivityAliases({ aliases: [activity], limit: input.limit, cursor: input.cursor });
+    return this.pageByActivityAliases({
+      aliases: [activity],
+      limit: input.limit,
+      cursor: input.cursor,
+      poolCapOverride: input.poolCapOverride,
+    });
   }
 
   async pageByActivities(input: {

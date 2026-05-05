@@ -11,7 +11,8 @@ import type { MixesRepository, MixSourcePost } from "../../repositories/mixes/mi
 import { mixesRepository, parsePostTimeMs } from "../../repositories/mixes/mixes.repository.js";
 
 const MAX_MIX_RADIUS_KM = 500;
-const ACTIVITY_FALLBACK_POOL_CAP = 96;
+const ACTIVITY_FALLBACK_FETCH_LIMIT = 6;
+const ACTIVITY_FALLBACK_POOL_CAP = 10;
 const MIX_PREVIEW_WARM_WAIT_MS = 450;
 
 type CursorPayload = { v: 1; t: number; id: string };
@@ -449,8 +450,9 @@ export class MixesService {
       try {
         const fb = await this.postsRepo.pageByActivity({
           activity: normalizedActivity,
-          limit: ACTIVITY_FALLBACK_POOL_CAP,
+          limit: Math.max(ACTIVITY_FALLBACK_FETCH_LIMIT, limit * 2),
           cursor: null,
+          poolCapOverride: ACTIVITY_FALLBACK_POOL_CAP,
         });
         if (fb.items.length > 0) {
           activityFallbackUsed = true;

@@ -16,7 +16,7 @@ import {
   type FirestoreCollectionRecord
 } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
 import { FeedFirestoreAdapter, type FirestoreFeedCandidate } from "../../repositories/source-of-truth/feed-firestore.adapter.js";
-import { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
+import { FeedRepository, type FeedBootstrapCandidateRecord } from "../../repositories/surfaces/feed.repository.js";
 import { FeedService } from "../../services/surfaces/feed.service.js";
 import { SearchRepository } from "../../repositories/surfaces/search.repository.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
@@ -24,6 +24,8 @@ import { collectionTelemetryRepository } from "../../repositories/surfaces/colle
 import { wasabiPublicUrlForKey } from "../../services/storage/wasabi-config.js";
 import { getWasabiConfigOrNull, uploadPostSessionStagingFromBuffer } from "../../services/storage/wasabi-staging.service.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { toFeedCardDTO, type FeedCardDTO } from "../../dto/compact-surface-dto.js";
+import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
 
 const HttpsCoverUrlSchema = z
   .string()
@@ -209,6 +211,89 @@ type HydratedCollectionCard = Record<string, unknown> & {
   };
 };
 
+function stripCollectionRecommendationCard(card: Record<string, unknown>): Record<string, unknown> {
+  const assets = Array.isArray(card.assets) ? card.assets.slice(0, 1) : [];
+  const {
+    appPost: _appPost,
+    postContractVersion: _postContractVersion,
+    normalizedCard: _normalizedCard,
+    normalizedMedia: _normalizedMedia,
+    normalizedAuthor: _normalizedAuthor,
+    normalizedLocation: _normalizedLocation,
+    normalizedCounts: _normalizedCounts,
+    mediaResolutionSource: _mediaResolutionSource,
+    hasPlayableVideo: _hasPlayableVideo,
+    hasAssetsArray: _hasAssetsArray,
+    hasRawPost: _hasRawPost,
+    hasEmbeddedComments: _hasEmbeddedComments,
+    rawPost: _rawPost,
+    sourcePost: _sourcePost,
+    comments: _comments,
+    commentsPreview: _commentsPreview,
+    debugPostEnvelope: _debugPostEnvelope,
+    appPostAttached: _appPostAttached,
+    appPostWireAssetCount: _appPostWireAssetCount,
+    wireDeclaredMediaAssetCount: _wireDeclaredMediaAssetCount,
+    ...lean
+  } = card;
+  return {
+    ...lean,
+    ...(Array.isArray(card.assets) ? { assets } : {}),
+  };
+}
+
+function toCollectionCompactCard(
+  seed: Parameters<typeof toFeedCardDTO>[0],
+  rawPostLike?: Record<string, unknown> | null
+): FeedCardDTO {
+  const fullCard = toFeedCardDTO(seed);
+  const {
+    appPost: _appPost,
+    postContractVersion: _postContractVersion,
+    normalizedCard: _normalizedCard,
+    normalizedMedia: _normalizedMedia,
+    normalizedAuthor: _normalizedAuthor,
+    normalizedLocation: _normalizedLocation,
+    normalizedCounts: _normalizedCounts,
+    mediaResolutionSource: _mediaResolutionSource,
+    hasPlayableVideo: _hasPlayableVideo,
+    hasAssetsArray: _hasAssetsArray,
+    hasRawPost: _hasRawPost,
+    hasEmbeddedComments: _hasEmbeddedComments,
+    rawPost: _rawPost,
+    sourcePost: _sourcePost,
+    comments: _comments,
+    commentsPreview: _commentsPreview,
+    debugPostEnvelope: _debugPostEnvelope,
+    appPostAttached: _appPostAttached,
+    appPostWireAssetCount: _appPostWireAssetCount,
+    wireDeclaredMediaAssetCount: _wireDeclaredMediaAssetCount,
+    ...leanCard
+  } = fullCard as FeedCardDTO & Record<string, unknown>;
+  const mediaReadiness = buildPostMediaReadiness(rawPostLike ?? (seed as unknown as Record<string, unknown>), {
+    hydrationMode: "playback",
+    preferHlsFirst: true,
+  });
+  return {
+    ...(leanCard as FeedCardDTO),
+    ...(mediaReadiness.mediaStatus ? { mediaStatus: mediaReadiness.mediaStatus } : {}),
+    ...(typeof mediaReadiness.assetsReady === "boolean" ? { assetsReady: mediaReadiness.assetsReady } : {}),
+    ...(typeof mediaReadiness.posterReady === "boolean" ? { posterReady: mediaReadiness.posterReady } : {}),
+    ...(typeof mediaReadiness.playbackReady === "boolean" ? { playbackReady: mediaReadiness.playbackReady } : {}),
+    ...(typeof mediaReadiness.playbackUrlPresent === "boolean"
+      ? { playbackUrlPresent: mediaReadiness.playbackUrlPresent }
+      : {}),
+    ...(mediaReadiness.playbackUrl ? { playbackUrl: mediaReadiness.playbackUrl } : {}),
+    ...(mediaReadiness.fallbackVideoUrl ? { fallbackVideoUrl: mediaReadiness.fallbackVideoUrl } : {}),
+    ...(typeof mediaReadiness.hasVideo === "boolean" ? { hasVideo: mediaReadiness.hasVideo } : {}),
+    ...(typeof mediaReadiness.aspectRatio === "number" ? { aspectRatio: mediaReadiness.aspectRatio } : {}),
+    ...(typeof mediaReadiness.width === "number" ? { width: mediaReadiness.width } : {}),
+    ...(typeof mediaReadiness.height === "number" ? { height: mediaReadiness.height } : {}),
+    ...(typeof mediaReadiness.resizeMode === "string" ? { resizeMode: mediaReadiness.resizeMode } : {}),
+    ...(mediaReadiness.posterUrl ? { posterUrl: mediaReadiness.posterUrl } : {}),
+  };
+}
+
 function hasRenderableCardMedia(card: Record<string, unknown>): boolean {
   const media = card.media && typeof card.media === "object" ? (card.media as Record<string, unknown>) : null;
   const normalizedMedia =
@@ -236,7 +321,11 @@ function hasRenderableCardMedia(card: Record<string, unknown>): boolean {
   });
 }
 
-async function hydratePostCards(viewerId: string, postIds: string[]): Promise<HydratedCollectionCard[]> {
+async function hydratePostCards(
+  viewerId: string,
+  postIds: string[],
+  options?: { lean?: boolean }
+): Promise<HydratedCollectionCard[]> {
   const ordered = postIds.map((id) => id.trim()).filter(Boolean);
   const unique = [...new Set(ordered)];
   let directById = new Map<string, ReturnType<typeof projectCollectionCard>>();
@@ -245,19 +334,24 @@ async function hydratePostCards(viewerId: string, postIds: string[]): Promise<Hy
       const direct = await feedFirestoreAdapter.getCandidatesByPostIds(unique);
       incrementDbOps("queries", direct.queryCount);
       incrementDbOps("reads", direct.readCount);
-      directById = new Map(direct.items.map((row) => [row.postId, projectCollectionCard(row, viewerId)] as const));
+      await feedService.primePostCardSummaryCache(
+        direct.items.map((row) => toFeedCardCacheRecord(row, viewerId))
+      );
+      directById = new Map(direct.items.map((row) => [row.postId, projectCollectionCard(row, viewerId, options?.lean === true)] as const));
     } catch {
       directById = new Map();
     }
   }
   const missing = unique.filter((postId) => !directById.has(postId));
   const fallbackCards = missing.length > 0 ? await feedService.loadPostCardSummaryBatch(viewerId, missing) : [];
-  const fallbackById = new Map(fallbackCards.map((row) => [row.postId, projectCollectionFallbackCard(row)] as const));
+  const fallbackById = new Map(
+    fallbackCards.map((row) => [row.postId, projectCollectionFallbackCard(row, options?.lean === true)] as const)
+  );
   return ordered
     .map((postId) => directById.get(postId) ?? fallbackById.get(postId))
     .filter((row): row is NonNullable<typeof row> => Boolean(row))
     .map((row) => ({
-      ...(row as Record<string, unknown>),
+      ...((options?.lean === true ? stripCollectionRecommendationCard(row as Record<string, unknown>) : row) as Record<string, unknown>),
       postId: String((row as { postId?: string }).postId ?? ""),
       rankToken: `collection-rank-${String((row as { postId?: string }).postId ?? "")}`,
       viewer: {
@@ -267,7 +361,63 @@ async function hydratePostCards(viewerId: string, postIds: string[]): Promise<Hy
     })) as HydratedCollectionCard[];
 }
 
-function projectCollectionCard(row: FirestoreFeedCandidate, viewerId: string) {
+function toFeedCardCacheRecord(row: FirestoreFeedCandidate, viewerId: string): FeedBootstrapCandidateRecord {
+  const visibleAssets = Array.isArray(row.assets) ? row.assets.slice(0, 1) : [];
+  const posterUrl = row.posterUrl || row.firstAssetUrl || "";
+  return {
+    postId: row.postId,
+    rankToken: `collection-rank-${row.postId}`,
+    author: {
+      userId: row.authorId,
+      handle: row.authorHandle ?? (row.authorId ? row.authorId.replace(/^@+/, "") : "unknown"),
+      name: row.authorName,
+      pic: row.authorPic,
+    },
+    activities: row.activities,
+    address: row.address,
+    geo: row.geo,
+    assets: visibleAssets,
+    title: row.title,
+    description: row.description,
+    captionPreview: row.captionPreview,
+    tags: row.tags,
+    carouselFitWidth: row.carouselFitWidth,
+    layoutLetterbox: row.layoutLetterbox,
+    letterboxGradientTop: row.letterboxGradientTop ?? undefined,
+    letterboxGradientBottom: row.letterboxGradientBottom ?? undefined,
+    letterboxGradients: row.letterboxGradients ?? undefined,
+    createdAtMs: row.createdAtMs,
+    firstAssetUrl: row.firstAssetUrl,
+    media: {
+      type: row.mediaType,
+      posterUrl,
+      aspectRatio: row.assets[0]?.aspectRatio ?? 9 / 16,
+      startupHint: row.mediaType === "video" ? "poster_then_preview" : "poster_only",
+    },
+    social: {
+      likeCount: row.likeCount,
+      commentCount: row.commentCount,
+    },
+    viewer: {
+      liked: row.likedByUserIds.includes(viewerId),
+      saved: true,
+    },
+    updatedAtMs: row.updatedAtMs,
+    rawPost: row.rawPost ?? null,
+    sourcePost: row.sourcePost ?? row.rawPost ?? null,
+    comments: row.comments,
+    commentsPreview: row.commentsPreview,
+    assetCount: row.assets.length,
+    hasMultipleAssets: row.assets.length > 1,
+    rawFirestoreAssetCount: row.assets.length,
+    mediaCompleteness: row.assets.length > 1 ? "cover_only" : "full",
+    requiresAssetHydration: row.assets.length > 1,
+    photoLink: row.mediaType === "image" ? row.firstAssetUrl ?? row.posterUrl : null,
+    displayPhotoLink: row.posterUrl,
+  };
+}
+
+function projectCollectionCard(row: FirestoreFeedCandidate, viewerId: string, lean = false) {
   const seed = {
     postId: row.postId,
     rankToken: `collection-rank-${row.postId}`,
@@ -297,13 +447,36 @@ function projectCollectionCard(row: FirestoreFeedCandidate, viewerId: string) {
       liked: row.likedByUserIds.includes(viewerId),
       saved: true
     },
+    createdAtMs: row.createdAtMs,
     updatedAtMs: row.updatedAtMs
   };
+  if (lean) {
+    const visibleAssets = Array.isArray(row.assets) ? row.assets.slice(0, 1) : [];
+    return toCollectionCompactCard(
+      {
+        ...seed,
+        assets: visibleAssets,
+        compactAssetLimit: 1,
+        media: {
+          type: row.mediaType,
+          posterUrl: row.posterUrl,
+          aspectRatio: row.assets[0]?.aspectRatio ?? 9 / 16,
+          startupHint: row.mediaType === "video" ? "poster_then_preview" : "poster_only"
+        },
+        rawFirestoreAssetCount: row.assets.length,
+        assetCount: row.assets.length,
+        hasMultipleAssets: row.assets.length > 1,
+        photoLink: row.mediaType === "image" ? row.firstAssetUrl ?? row.posterUrl : undefined,
+        displayPhotoLink: row.posterUrl,
+      },
+      (row.rawPost ?? row.sourcePost ?? null) as Record<string, unknown> | null
+    );
+  }
   return buildPostEnvelope({
     postId: row.postId,
     seed,
-    sourcePost: row.sourcePost ?? row.rawPost ?? (row as unknown as Record<string, unknown>),
-    rawPost: row.rawPost ?? row.sourcePost ?? (row as unknown as Record<string, unknown>),
+    sourcePost: lean ? null : row.sourcePost ?? row.rawPost ?? (row as unknown as Record<string, unknown>),
+    rawPost: lean ? null : row.rawPost ?? row.sourcePost ?? (row as unknown as Record<string, unknown>),
     hydrationLevel: "card",
     sourceRoute: "collections.feed_projection",
     rankToken: seed.rankToken,
@@ -315,8 +488,58 @@ function projectCollectionCard(row: FirestoreFeedCandidate, viewerId: string) {
 }
 
 function projectCollectionFallbackCard(
-  row: Awaited<ReturnType<FeedService["loadPostCardSummaryBatch"]>>[number]
+  row: Awaited<ReturnType<FeedService["loadPostCardSummaryBatch"]>>[number],
+  lean = false
 ) {
+  if (lean) {
+    const playbackRow = row as typeof row & Partial<FeedCardDTO>;
+    const visibleAssets = Array.isArray(row.assets) ? row.assets.slice(0, 1) : [];
+    const rawPostLike =
+      (((playbackRow as unknown as { sourcePost?: Record<string, unknown> | null }).sourcePost) ??
+        ((playbackRow as unknown as { rawPost?: Record<string, unknown> | null }).rawPost) ??
+        null) as Record<string, unknown> | null;
+    return toCollectionCompactCard(
+      {
+        postId: row.postId,
+        rankToken: `collection-rank-${row.postId}`,
+        author: row.author,
+        activities: row.activities,
+        address: row.address,
+        geo: row.geo,
+        assets: visibleAssets,
+        compactAssetLimit: 1,
+        title: row.title,
+        captionPreview: row.captionPreview,
+        firstAssetUrl: row.firstAssetUrl,
+        media: row.media,
+        social: row.social,
+        viewer: row.viewer,
+        createdAtMs: row.createdAtMs,
+        updatedAtMs: row.updatedAtMs,
+        mediaStatus: playbackRow.mediaStatus,
+        assetsReady: playbackRow.assetsReady,
+        posterReady: playbackRow.posterReady,
+        playbackReady: playbackRow.playbackReady,
+        playbackUrlPresent: playbackRow.playbackUrlPresent,
+        playbackUrl: playbackRow.playbackUrl,
+        fallbackVideoUrl: playbackRow.fallbackVideoUrl,
+        posterUrl: playbackRow.posterUrl,
+        hasVideo: playbackRow.hasVideo,
+        aspectRatio: playbackRow.aspectRatio,
+        width: playbackRow.width,
+        height: playbackRow.height,
+        resizeMode: playbackRow.resizeMode,
+        assetCount: playbackRow.assetCount,
+        hasMultipleAssets: playbackRow.hasMultipleAssets,
+        rawFirestoreAssetCount: playbackRow.rawFirestoreAssetCount,
+        mediaCompleteness: playbackRow.mediaCompleteness,
+        requiresAssetHydration: playbackRow.requiresAssetHydration,
+        photoLink: playbackRow.photoLink,
+        displayPhotoLink: playbackRow.displayPhotoLink,
+      },
+      rawPostLike
+    );
+  }
   return buildPostEnvelope({
     postId: row.postId,
     seed: {
@@ -324,13 +547,17 @@ function projectCollectionFallbackCard(
       rankToken: `collection-rank-${row.postId}`,
     } as unknown as Record<string, unknown>,
     sourcePost:
-      ((row as unknown as { sourcePost?: Record<string, unknown> | null }).sourcePost) ??
-      ((row as unknown as { rawPost?: Record<string, unknown> | null }).rawPost) ??
-      (row as unknown as Record<string, unknown>),
+      lean
+        ? null
+        : ((row as unknown as { sourcePost?: Record<string, unknown> | null }).sourcePost) ??
+          ((row as unknown as { rawPost?: Record<string, unknown> | null }).rawPost) ??
+          (row as unknown as Record<string, unknown>),
     rawPost:
-      ((row as unknown as { rawPost?: Record<string, unknown> | null }).rawPost) ??
-      ((row as unknown as { sourcePost?: Record<string, unknown> | null }).sourcePost) ??
-      (row as unknown as Record<string, unknown>),
+      lean
+        ? null
+        : ((row as unknown as { rawPost?: Record<string, unknown> | null }).rawPost) ??
+          ((row as unknown as { sourcePost?: Record<string, unknown> | null }).sourcePost) ??
+          (row as unknown as Record<string, unknown>),
     hydrationLevel: "card",
     sourceRoute: "collections.fallback_projection",
     rankToken: `collection-rank-${row.postId}`,
@@ -407,6 +634,32 @@ function tallyActivityWeights(cards: Array<Record<string, unknown>>): Record<str
   return weights;
 }
 
+function buildCollectionRecommendationQuery(
+  collection: Pick<FirestoreCollectionRecord, "name" | "description" | "tags">,
+  activityWeights: Record<string, number>
+): string | null {
+  const activityQuery = Object.entries(activityWeights)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 4)
+    .map(([activity]) => activity)
+    .join(" ")
+    .trim();
+  if (activityQuery) return activityQuery;
+  const tagTerms = Array.isArray(collection.tags) ? collection.tags.map((tag) => String(tag ?? "").trim()) : [];
+  const normalizedName = String(collection.name ?? "").trim();
+  const nameTokenCount = normalizedName ? normalizedName.split(/\s+/g).filter(Boolean).length : 0;
+  const description = String(collection.description ?? "").trim();
+  const hasStructuredTextFallback = tagTerms.length > 0 || Boolean(description) || nameTokenCount >= 2;
+  if (!hasStructuredTextFallback) return null;
+  const textQuery = [collection.name, collection.description, ...tagTerms]
+    .map((value) => String(value ?? "").trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return textQuery || null;
+}
+
 async function buildCollectionPostsPage(input: {
   viewerId: string;
   collectionId: string;
@@ -462,14 +715,10 @@ async function buildCollectionRecommendedPage(input: {
 }) {
   const excluded = new Set((input.collection.items ?? []).map((postId) => postId.trim()).filter(Boolean));
   const sourceCursor = decodeRecommendedCursor(input.cursor ?? undefined);
-  const seedPostIds = (input.collection.items ?? []).slice(0, 24);
-  const seedCards = seedPostIds.length > 0 ? await hydratePostCards(input.viewerId, seedPostIds) : [];
+  const seedPostIds = (input.collection.items ?? []).slice(0, 8);
+  const seedCards = seedPostIds.length > 0 ? await hydratePostCards(input.viewerId, seedPostIds, { lean: true }) : [];
   const activityWeights = tallyActivityWeights(seedCards as Array<Record<string, unknown>>);
-  const queryTerms = Object.entries(activityWeights)
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-    .slice(0, 4)
-    .map(([activity]) => activity);
-  const query = queryTerms.join(" ").trim() || null;
+  const query = buildCollectionRecommendationQuery(input.collection, activityWeights);
 
   const deduped = new Set<string>();
   const hydratedItems: Array<Record<string, unknown>> = [];
@@ -477,6 +726,7 @@ async function buildCollectionRecommendedPage(input: {
   let searchHasMore = query != null;
   let feedCursor = sourceCursor?.source === "feed" ? sourceCursor.token : null;
   let feedHasMore = true;
+  let bootstrapFillUnavailable = false;
   let candidateCount = 0;
   let excludedAlreadyInCollection = 0;
 
@@ -508,7 +758,9 @@ async function buildCollectionRecommendedPage(input: {
           });
         candidateCount += candidateIds.length;
         if (candidateIds.length === 0) continue;
-        const cards = (await hydratePostCards(input.viewerId, candidateIds)).filter((card) =>
+        const remaining = Math.max(0, input.limit - hydratedItems.length);
+        const hydrationIds = candidateIds.slice(0, Math.min(candidateIds.length, Math.max(remaining + 2, remaining)));
+        const cards = (await hydratePostCards(input.viewerId, hydrationIds, { lean: true })).filter((card) =>
           hasRenderableCardMedia(card)
         );
         for (const card of cards) {
@@ -526,7 +778,36 @@ async function buildCollectionRecommendedPage(input: {
     }
   }
 
-  if (hydratedItems.length < input.limit) {
+  if (hydratedItems.length < input.limit && !sourceCursor) {
+    try {
+      const bootstrapCards = await feedService.loadBootstrapCandidates(input.viewerId, Math.min(8, input.limit), { tab: "explore" });
+      for (const item of bootstrapCards) {
+        const postId = String(item.postId ?? "").trim();
+        if (!postId) continue;
+        if (excluded.has(postId)) {
+          excludedAlreadyInCollection += 1;
+          continue;
+        }
+        if (deduped.has(postId)) continue;
+        deduped.add(postId);
+        candidateCount += 1;
+        const posterUrl = String(item.media?.posterUrl ?? "").trim();
+        if (!/^https?:\/\//i.test(posterUrl)) continue;
+        hydratedItems.push(stripCollectionRecommendationCard(item as unknown as Record<string, unknown>));
+        if (hydratedItems.length >= input.limit) break;
+      }
+      feedHasMore = false;
+      feedCursor = null;
+    } catch (error) {
+      bootstrapFillUnavailable = true;
+      devCollectionLog("recommended_bootstrap_unavailable", {
+        collectionId: input.collection.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  if (hydratedItems.length < input.limit && (sourceCursor?.source === "feed" || bootstrapFillUnavailable)) {
     try {
       for (let attempts = 0; attempts < 3 && hydratedItems.length < input.limit && feedHasMore; attempts += 1) {
         const page = await feedService.loadFeedPage(input.viewerId, feedCursor, Math.max(12, input.limit), { tab: "explore" });
@@ -544,7 +825,7 @@ async function buildCollectionRecommendedPage(input: {
           candidateCount += 1;
           const posterUrl = String(item.media?.posterUrl ?? "").trim();
           if (!/^https?:\/\//i.test(posterUrl)) continue;
-          hydratedItems.push(item as unknown as Record<string, unknown>);
+          hydratedItems.push(stripCollectionRecommendationCard(item as unknown as Record<string, unknown>));
           if (hydratedItems.length >= input.limit) break;
         }
         if (!feedHasMore) break;

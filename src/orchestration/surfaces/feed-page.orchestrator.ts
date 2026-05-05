@@ -53,7 +53,7 @@ export class FeedPageOrchestrator {
         wireFeedCandidateToPostCardSummary(item, `rank-${viewerId.slice(0, 6)}-p-${cursorPart}-${idx + 1}`, {
           route: "feed.page.get"
         })
-      ),
+      ) as FeedPageResponse["items"],
       degraded: false,
       fallbacks: []
     };

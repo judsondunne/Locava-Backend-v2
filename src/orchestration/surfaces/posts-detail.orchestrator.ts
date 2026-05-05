@@ -211,6 +211,8 @@ function normalizeCommentsPreview(value: unknown): DeferredCommentPreview {
 }
 
 export class PostsDetailOrchestrator {
+  private static readonly playbackCacheDecisionSample = new Map<string, number>();
+
   constructor(private readonly service: FeedService) {}
 
   private logEvent(event: string, payload: Record<string, unknown>): void {
@@ -219,6 +221,23 @@ export class PostsDetailOrchestrator {
     } catch {
       // best effort logging only
     }
+  }
+
+  private shouldLogPlaybackCacheDecision(input: {
+    postId: string;
+    selectedSource: string;
+    sourceUpgradeUsed: boolean;
+    upgradeSkippedReason: string | null;
+  }): boolean {
+    if (process.env.LOCAVA_POST_DETAILS_VERBOSE_CACHE_DECISIONS === "1") return true;
+    if (input.sourceUpgradeUsed) return true;
+    if (input.upgradeSkippedReason && input.upgradeSkippedReason !== "playback_cache_sufficient") return true;
+    const now = Date.now();
+    const key = `${input.postId}:${input.selectedSource}:${input.upgradeSkippedReason ?? "none"}`;
+    const last = PostsDetailOrchestrator.playbackCacheDecisionSample.get(key) ?? 0;
+    if (now - last < 10_000) return false;
+    PostsDetailOrchestrator.playbackCacheDecisionSample.set(key, now);
+    return true;
   }
 
   private buildFallbackDetailFromCard(input: {
@@ -476,6 +495,7 @@ export class PostsDetailOrchestrator {
     postIds: string[];
     reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
     hydrationMode: "card" | "playback" | "open" | "full";
+    surface?: string | null;
   }): Promise<{
     routeName: "posts.detail.batch";
     reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
@@ -502,7 +522,8 @@ export class PostsDetailOrchestrator {
           viewerId: input.viewerId,
           postIds: input.postIds,
           reason: input.reason,
-          hydrationMode: input.hydrationMode
+          hydrationMode: input.hydrationMode,
+          surface: input.surface ?? null,
         },
         unique,
         startedAt
@@ -662,6 +683,7 @@ export class PostsDetailOrchestrator {
       postIds: string[];
       reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
       hydrationMode: "card" | "playback";
+      surface?: string | null;
     },
     unique: string[],
     startedAt: number
@@ -702,8 +724,12 @@ export class PostsDetailOrchestrator {
             )
           ).filter((row): row is FeedBootstrapCandidateRecord => row !== null);
     const readCapParsed = Number(process.env.LOCAVA_BATCH_PLAYBACK_SOURCE_READ_CAP ?? "3");
-    const playbackFirestoreReadCap =
+    const basePlaybackFirestoreReadCap =
       Number.isFinite(readCapParsed) ? Math.min(32, Math.max(0, Math.floor(readCapParsed))) : 3;
+    const playbackFirestoreReadCap =
+      input.reason === "prefetch" && input.surface === "collection_detail"
+        ? Math.min(basePlaybackFirestoreReadCap, 1)
+        : basePlaybackFirestoreReadCap;
     let playbackFirestoreReadsPerformed = 0;
 
     const byId = new Map(cards.map((card) => [card.postId, this.ensureSafeCardSummary(card, card.postId)] as const));
@@ -712,6 +738,7 @@ export class PostsDetailOrchestrator {
     const visiblePlaybackHead = cappedIds.slice(0, Math.min(visibleHeadSlots, cappedIds.length));
     const prefetchTail = cappedIds.slice(visiblePlaybackHead.length);
     const visibleHeadSet = new Set(visiblePlaybackHead);
+    const isCollectionDetailPrefetch = input.reason === "prefetch" && input.surface === "collection_detail";
     if (prefetchTail.length > 0 && visiblePlaybackHead.length > 0) {
       this.logEvent("DETAIL_BATCH_SPLIT_VISIBLE_FROM_PREFETCH", {
         visibleHead: visiblePlaybackHead,
@@ -731,9 +758,25 @@ export class PostsDetailOrchestrator {
       });
       const shellRecord = playbackShell as Record<string, unknown>;
       const carouselProbe = enrichPlaybackShellRecordForCarouselProbe(playbackShell, card);
-      const videoNeed = input.hydrationMode === "playback" && playbackBatchShouldFetchFirestoreDetail(shellRecord);
+      const stagedReadiness =
+        input.hydrationMode === "playback"
+          ? buildPostMediaReadiness(shellRecord, { hydrationMode: "playback" })
+          : null;
+      const hasRenderablePrimaryAsset = Boolean(
+        stagedReadiness?.posterReady ||
+          stagedReadiness?.playbackReady ||
+          stagedReadiness?.posterUrl ||
+          stagedReadiness?.playbackUrl ||
+          stagedReadiness?.fallbackVideoUrl
+      );
+      const videoNeed =
+        input.hydrationMode === "playback" &&
+        playbackBatchShouldFetchFirestoreDetail(shellRecord) &&
+        (!isCollectionDetailPrefetch || !hasRenderablePrimaryAsset);
       const carouselNeed =
-        input.hydrationMode === "playback" && playbackBatchCarouselIncompleteMedia(carouselProbe);
+        input.hydrationMode === "playback" &&
+        playbackBatchCarouselIncompleteMedia(carouselProbe) &&
+        !isCollectionDetailPrefetch;
       if (carouselNeed || videoNeed) {
         upgradeIntents.push({ postId, batchIndex, carouselNeed, videoNeed });
       }
@@ -770,6 +813,14 @@ export class PostsDetailOrchestrator {
         userId: card.author.userId,
         card: toCompactPlaybackCard(card),
       });
+      if (input.reason === "prefetch" && Array.isArray(playbackShell.assets) && playbackShell.assets.length > 1) {
+        playbackShell = {
+          ...playbackShell,
+          assets: playbackShell.assets.slice(0, 1),
+          mediaCompleteness: "cover_only",
+          requiresAssetHydration: true,
+        };
+      }
       const assetCountBeforeUpgrade = Array.isArray(playbackShell.assets) ? playbackShell.assets.length : 0;
       let mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>, {
         hydrationMode: "playback",
@@ -780,10 +831,24 @@ export class PostsDetailOrchestrator {
       let debugReadsForPost = 0;
       const shellRecord = playbackShell as Record<string, unknown>;
       const carouselProbe = enrichPlaybackShellRecordForCarouselProbe(playbackShell, card);
+      const stagedReadiness = buildPostMediaReadiness(shellRecord, {
+        hydrationMode: "playback",
+      });
+      const hasRenderablePrimaryAsset = Boolean(
+        stagedReadiness.posterReady ||
+          stagedReadiness.playbackReady ||
+          stagedReadiness.posterUrl ||
+          stagedReadiness.playbackUrl ||
+          stagedReadiness.fallbackVideoUrl
+      );
       const wantsVideoFirestoreUpgrade =
-        input.hydrationMode === "playback" && playbackBatchShouldFetchFirestoreDetail(shellRecord);
+        input.hydrationMode === "playback" &&
+        playbackBatchShouldFetchFirestoreDetail(shellRecord) &&
+        (!isCollectionDetailPrefetch || !hasRenderablePrimaryAsset);
       const wantsCarouselFirestoreUpgrade =
-        input.hydrationMode === "playback" && playbackBatchCarouselIncompleteMedia(carouselProbe);
+        input.hydrationMode === "playback" &&
+        playbackBatchCarouselIncompleteMedia(carouselProbe) &&
+        !isCollectionDetailPrefetch;
       const wantsFirestoreMediaUpgrade =
         input.hydrationMode === "playback" &&
         (wantsCarouselFirestoreUpgrade || wantsVideoFirestoreUpgrade);
@@ -796,9 +861,17 @@ export class PostsDetailOrchestrator {
           const detail = await this.service.loadPostDetail(postId, input.viewerId);
           const cardSummaryRaw =
             (detail as { cardSummary?: FeedBootstrapCandidateRecord }).cardSummary ??
-            (await this.service.loadPostCardSummary(input.viewerId, postId));
+            card;
           const safeCard = this.ensureSafeCardSummary(cardSummaryRaw, postId, detail);
           playbackShell = mergePlaybackShellFromDetailRecord(detail, safeCard);
+          if (input.reason === "prefetch" && Array.isArray(playbackShell.assets) && playbackShell.assets.length > 1) {
+            playbackShell = {
+              ...playbackShell,
+              assets: playbackShell.assets.slice(0, 1),
+              mediaCompleteness: "cover_only",
+              requiresAssetHydration: true,
+            };
+          }
           const assetCountAfter = Array.isArray(playbackShell.assets) ? playbackShell.assets.length : 0;
           mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>, {
             hydrationMode: "playback",
@@ -901,30 +974,39 @@ export class PostsDetailOrchestrator {
               : null);
         const selectedSource =
           sourceUpgradeUsed ? "post_card_cache_upgraded" : "post_card_cache";
-        this.logEvent("POST_DETAILS_BATCH_PLAYBACK_CACHE_DECISION", {
-          postId,
-          selectedSource,
-          hydrationMode: input.hydrationMode,
-          rawAssetCountIfKnown,
-          cachedAssetCount: assetCountBeforeUpgrade,
-          returnedAssetCount: shellLenNow,
-          assetCount: effectiveAssetCountHint,
-          hasMultipleAssets:
-            cardBrief.hasMultipleAssets === true ||
-            carouselProbe.hasMultipleAssets === true,
-          mediaCompleteness:
-            (playbackShell as Record<string, unknown>).mediaCompleteness ??
-            cardBrief.mediaCompleteness ??
-            (wantsCarouselFirestoreUpgrade ? "cover_only" : "full"),
-          sourceUpgradeUsed,
-          upgradeSkippedReason,
-          visibleHead: visibleHeadSet.has(postId),
-          isCoverOnlyCard: Boolean(
-            cardBrief.requiresAssetHydration === true ||
-              cardBrief.mediaCompleteness === "cover_only" ||
-              wantsCarouselFirestoreUpgrade,
-          ),
-        });
+        if (
+          this.shouldLogPlaybackCacheDecision({
+            postId,
+            selectedSource,
+            sourceUpgradeUsed,
+            upgradeSkippedReason,
+          })
+        ) {
+          this.logEvent("POST_DETAILS_BATCH_PLAYBACK_CACHE_DECISION", {
+            postId,
+            selectedSource,
+            hydrationMode: input.hydrationMode,
+            rawAssetCountIfKnown,
+            cachedAssetCount: assetCountBeforeUpgrade,
+            returnedAssetCount: shellLenNow,
+            assetCount: effectiveAssetCountHint,
+            hasMultipleAssets:
+              cardBrief.hasMultipleAssets === true ||
+              carouselProbe.hasMultipleAssets === true,
+            mediaCompleteness:
+              (playbackShell as Record<string, unknown>).mediaCompleteness ??
+              cardBrief.mediaCompleteness ??
+              (wantsCarouselFirestoreUpgrade ? "cover_only" : "full"),
+            sourceUpgradeUsed,
+            upgradeSkippedReason,
+            visibleHead: visibleHeadSet.has(postId),
+            isCoverOnlyCard: Boolean(
+              cardBrief.requiresAssetHydration === true ||
+                cardBrief.mediaCompleteness === "cover_only" ||
+                wantsCarouselFirestoreUpgrade,
+            ),
+          });
+        }
         const effectiveHint = effectiveAssetCountHint;
         if (
           effectiveHint != null &&
@@ -1106,23 +1188,54 @@ export class PostsDetailOrchestrator {
       (detail as { cardSummary?: FeedBootstrapCandidateRecord }).cardSummary ??
       (await this.service.loadPostCardSummary(input.viewerId, input.postId));
     const cardSummary: SafeCardSummary = this.ensureSafeCardSummary(cardSummaryRaw, input.postId, detail);
+    const compactCard = toCompactPlaybackCard(cardSummary);
+    const trimmedCardSummary = toPlaybackPostShellDTO({
+      userId: cardSummary.author.userId,
+      card: compactCard,
+    }).cardSummary;
     const compatibilityDetail = {
       ...detail,
-      cardSummary,
+      cardSummary: trimmedCardSummary,
       mediaType: detail.mediaType ?? cardSummary.media.type,
       thumbUrl: detail.thumbUrl ?? cardSummary.media.posterUrl,
       assets: Array.isArray(detail.assets) ? detail.assets : [],
       letterboxGradients: Array.isArray(detail.letterboxGradients) ? detail.letterboxGradients : undefined
     };
+    const openPlaybackSelection = selectBestVideoPlaybackAsset(compatibilityDetail as Record<string, unknown>, {
+      hydrationMode: input.hydrationMode,
+      allowPreviewOnly: true,
+      includeDiagnostics: true,
+    });
+    const detailWithPlaybackSelection = {
+      ...compatibilityDetail,
+      ...(openPlaybackSelection.playbackUrl ? { playbackUrl: openPlaybackSelection.playbackUrl } : {}),
+      ...(openPlaybackSelection.fallbackVideoUrl ? { fallbackVideoUrl: openPlaybackSelection.fallbackVideoUrl } : {}),
+      ...(openPlaybackSelection.posterUrl ? { posterUrl: openPlaybackSelection.posterUrl } : {}),
+      ...(openPlaybackSelection.selectedVariantLabel
+        ? {
+            selectedVariantLabel: openPlaybackSelection.selectedVariantLabel,
+            selectedVariantHeight: openPlaybackSelection.selectedVariantHeight,
+            selectedVariantCodec: openPlaybackSelection.selectedVariantCodec,
+            selectedVideoSource: openPlaybackSelection.selectedVariantSource,
+            usedPreviewFallback: openPlaybackSelection.isPreviewOnly,
+            productionVariantAvailable: openPlaybackSelection.isProductionPlayback,
+            productionVariantSelected: openPlaybackSelection.productionPlaybackSelected,
+            selectedVideoVariant: openPlaybackSelection.selectedVideoVariant,
+            videoPlaybackDiagnostics: openPlaybackSelection.diagnostics,
+          }
+        : {}),
+    };
     if (input.hydrationMode === "open" || input.hydrationMode === "full") {
       const commentsPreview =
-        Array.isArray(detail.commentsPreview)
-          ? normalizeCommentsPreview(detail.commentsPreview)
-          : await this.service.loadCommentsPreview(input.postId, 0).catch(() => null);
+        input.hydrationMode === "open"
+          ? null
+          : Array.isArray(detail.commentsPreview)
+            ? normalizeCommentsPreview(detail.commentsPreview)
+            : await this.service.loadCommentsPreview(input.postId, 0).catch(() => null);
       return {
         routeName: "posts.detail.get",
         firstRender: {
-          post: compatibilityDetail,
+          post: detailWithPlaybackSelection,
           author: cardSummary.author,
           social: cardSummary.social,
           viewer: cardSummary.viewer
@@ -1141,7 +1254,7 @@ export class PostsDetailOrchestrator {
     return {
       routeName: "posts.detail.get",
       firstRender: {
-        post: compatibilityDetail,
+        post: detailWithPlaybackSelection,
         author: cardSummary.author,
         social: cardSummary.social,
         viewer: cardSummary.viewer

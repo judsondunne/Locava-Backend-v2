@@ -710,6 +710,59 @@ export function toPlaybackPostShellDTO(seed: {
   userId: string;
   card: FeedCardDTO;
 }): PlaybackPostShellDTO {
+  const detailCard = seed.card as FeedCardDTO & {
+    appPostAttached?: boolean;
+    appPostWireAssetCount?: number;
+    wireDeclaredMediaAssetCount?: number;
+  };
+  const trimmedCardSummary: FeedCardDTO = {
+    postId: detailCard.postId,
+    rankToken: detailCard.rankToken,
+    author: detailCard.author,
+    activities: detailCard.activities,
+    address: detailCard.address,
+    ...(typeof detailCard.carouselFitWidth === "boolean" ? { carouselFitWidth: detailCard.carouselFitWidth } : {}),
+    ...(typeof detailCard.layoutLetterbox === "boolean" ? { layoutLetterbox: detailCard.layoutLetterbox } : {}),
+    ...(detailCard.letterboxGradientTop != null ? { letterboxGradientTop: detailCard.letterboxGradientTop } : {}),
+    ...(detailCard.letterboxGradientBottom != null ? { letterboxGradientBottom: detailCard.letterboxGradientBottom } : {}),
+    ...(Array.isArray(detailCard.letterboxGradients) ? { letterboxGradients: detailCard.letterboxGradients } : {}),
+    geo: detailCard.geo,
+    assets: Array.isArray(detailCard.assets) ? detailCard.assets.slice(0, 1) : [],
+    title: detailCard.title,
+    captionPreview: detailCard.captionPreview,
+    firstAssetUrl: detailCard.firstAssetUrl,
+    media: detailCard.media,
+    social: detailCard.social,
+    viewer: detailCard.viewer,
+    createdAtMs: detailCard.createdAtMs,
+    updatedAtMs: detailCard.updatedAtMs,
+    ...(detailCard.mediaStatus ? { mediaStatus: detailCard.mediaStatus } : {}),
+    ...(typeof detailCard.assetsReady === "boolean" ? { assetsReady: detailCard.assetsReady } : {}),
+    ...(typeof detailCard.posterReady === "boolean" ? { posterReady: detailCard.posterReady } : {}),
+    ...(typeof detailCard.playbackReady === "boolean" ? { playbackReady: detailCard.playbackReady } : {}),
+    ...(typeof detailCard.playbackUrlPresent === "boolean" ? { playbackUrlPresent: detailCard.playbackUrlPresent } : {}),
+    ...(typeof detailCard.playbackUrl === "string" ? { playbackUrl: detailCard.playbackUrl } : {}),
+    ...(typeof detailCard.fallbackVideoUrl === "string" ? { fallbackVideoUrl: detailCard.fallbackVideoUrl } : {}),
+    ...(typeof detailCard.posterUrl === "string" ? { posterUrl: detailCard.posterUrl } : {}),
+    ...(typeof detailCard.hasVideo === "boolean" ? { hasVideo: detailCard.hasVideo } : {}),
+    ...(typeof detailCard.aspectRatio === "number" ? { aspectRatio: detailCard.aspectRatio } : {}),
+    ...(typeof detailCard.width === "number" ? { width: detailCard.width } : {}),
+    ...(typeof detailCard.height === "number" ? { height: detailCard.height } : {}),
+    ...(typeof detailCard.resizeMode === "string" ? { resizeMode: detailCard.resizeMode } : {}),
+    ...(typeof detailCard.assetCount === "number" ? { assetCount: detailCard.assetCount } : {}),
+    ...(typeof detailCard.hasMultipleAssets === "boolean" ? { hasMultipleAssets: detailCard.hasMultipleAssets } : {}),
+    ...(typeof detailCard.rawFirestoreAssetCount === "number" ? { rawFirestoreAssetCount: detailCard.rawFirestoreAssetCount } : {}),
+    ...(typeof detailCard.photoLink === "string" ? { photoLink: detailCard.photoLink } : {}),
+    ...(typeof detailCard.displayPhotoLink === "string" ? { displayPhotoLink: detailCard.displayPhotoLink } : {}),
+    ...(typeof detailCard.derivedAssetCount === "number" ? { derivedAssetCount: detailCard.derivedAssetCount } : {}),
+    ...(detailCard.mediaCompleteness === "cover_only" ? { mediaCompleteness: "cover_only" as const } : {}),
+    ...(detailCard.requiresAssetHydration === true ? { requiresAssetHydration: true } : {}),
+    ...(detailCard.appPostAttached === true ? { appPostAttached: true } : {}),
+    ...(typeof detailCard.appPostWireAssetCount === "number" ? { appPostWireAssetCount: detailCard.appPostWireAssetCount } : {}),
+    ...(typeof detailCard.wireDeclaredMediaAssetCount === "number"
+      ? { wireDeclaredMediaAssetCount: detailCard.wireDeclaredMediaAssetCount }
+      : {}),
+  };
   const firstAsset = seed.card.assets?.[0];
   const posterUrl = seed.card.media.posterUrl || firstAsset?.posterUrl || "";
   /** When false, mp4/firstAssetUrl may be the raw upload — do not pretend it is ladder main720. */
@@ -797,7 +850,7 @@ export function toPlaybackPostShellDTO(seed: {
     updatedAtMs: seed.card.updatedAtMs,
     assetsReady: seed.card.assetsReady === true,
     assets: shellAssets,
-    cardSummary: seed.card,
+    cardSummary: trimmedCardSummary,
     ...(typeof seed.card.assetCount === "number" ? { assetCount: seed.card.assetCount } : {}),
     ...(seed.card.hasMultipleAssets === true ? { hasMultipleAssets: true } : {}),
     ...(typeof seed.card.rawFirestoreAssetCount === "number" &&

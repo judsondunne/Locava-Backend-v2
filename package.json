@@ -95,7 +95,10 @@
     "audit:mixes:friends": "tsx scripts/audit-search-mixes.mts friends:from_people_you_follow 2 12",
     "audit:runtime-logs": "tsx scripts/audit-runtime-logs.mts",
     "debug:analytics:bigquery": "tsx scripts/check-bigquery-analytics-access.mts",
-    "debug:video:variant-selection": "tsx scripts/debug-video-variant-selection.mts"
+    "debug:video:variant-selection": "tsx scripts/debug-video-variant-selection.mts",
+    "perf:replay:real-user": "tsx scripts/perf/real-user-native-replay.ts",
+    "perf:replay:real-user:loop": "tsx scripts/perf/real-user-native-replay-loop.ts",
+    "perf:replay:analyze-logs": "tsx scripts/perf/analyze-backend-log.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1036.0",

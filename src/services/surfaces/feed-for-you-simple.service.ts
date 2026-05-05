@@ -22,6 +22,7 @@ const SERVED_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
 const READY_DECK_TARGET_SIZE = 30;
 const READY_DECK_MIN_REFILL_THRESHOLD = 10;
 const READY_DECK_TTL_MS = 30 * 60 * 1000;
+const BLOCKED_AUTHORS_CACHE_TTL_MS = 60_000;
 
 const LIMIT_DEFAULT = 5;
 const LIMIT_MIN = 1;
@@ -61,6 +62,7 @@ type ReadyDeckEntry = {
 };
 
 const readyDeckMemory = new Map<string, ReadyDeckEntry>();
+const blockedAuthorsMemory = new Map<string, { expiresAtMs: number; blocked: Set<string> }>();
 
 export type FeedForYouSimplePageDebug = {
   source: "firestore_random_simple";
@@ -124,7 +126,7 @@ export type FeedForYouSimplePageDebug = {
   repeatedFromRecentCount?: number;
   firstPaintCardReadyCount?: number;
   detailBatchRequiredForFirstPaint?: boolean;
-  durableServedWriteStatus?: "ok" | "skipped" | "error";
+  durableServedWriteStatus?: "ok" | "skipped" | "error" | "deferred";
   /** First two items playback-readiness tally (videos use feed-selected URLs). */
   firstPaintPlaybackReadyCount?: number;
   firstVisiblePlaybackUrlPresent?: boolean;
@@ -190,15 +192,16 @@ export class FeedForYouSimpleService {
     const mode = cursorState?.mode ?? (await this.repository.resolveSortMode());
     const cursorSeen = new Set((cursorState?.seen ?? []).filter(Boolean).slice(-MAX_SEEN_IDS));
 
+    const blockedAuthorsCached = durableViewerId ? blockedAuthorsMemory.get(durableViewerId) ?? null : null;
+    const blockedAuthorsPromise =
+      durableViewerId && blockedAuthorsCached && blockedAuthorsCached.expiresAtMs > Date.now()
+        ? Promise.resolve({ blocked: new Set(blockedAuthorsCached.blocked), readCount: 0 })
+        : durableViewerId
+          ? this.repository.loadBlockedAuthorIdsForViewer(durableViewerId)
+          : Promise.resolve({ blocked: new Set<string>(), readCount: 0 });
     const [{ blocked: blockedAuthors, readCount: blockedReads }, durableSeen, servedRecent] = await Promise.all([
-      durableViewerId ? this.repository.loadBlockedAuthorIdsForViewer(durableViewerId) : Promise.resolve({ blocked: new Set<string>(), readCount: 0 }),
-      durableViewerId
-        ? this.repository.listRecentSeenPostIdsForViewer({
-            viewerId: durableViewerId,
-            surface: FOR_YOU_SIMPLE_SURFACE,
-            limit: FOR_YOU_SIMPLE_SEEN_READ_CAP
-          })
-        : Promise.resolve({ postIds: new Set<string>(), readCount: 0 }),
+      blockedAuthorsPromise,
+      Promise.resolve({ postIds: new Set<string>(), readCount: 0 }),
       durableViewerId
         ? this.repository.readServedRecentForViewer({
             viewerId: durableViewerId,
@@ -208,8 +211,15 @@ export class FeedForYouSimpleService {
           })
         : Promise.resolve({ postIds: new Set<string>(), readCount: 0 })
     ]);
+    if (durableViewerId && (!blockedAuthorsCached || blockedAuthorsCached.expiresAtMs <= Date.now())) {
+      blockedAuthorsMemory.set(durableViewerId, {
+        blocked: new Set(blockedAuthors),
+        expiresAtMs: Date.now() + BLOCKED_AUTHORS_CACHE_TTL_MS
+      });
+    }
     diag.durableSeenReadCount = durableSeen.readCount + blockedReads + servedRecent.readCount;
     diag.cursorSeenCount = cursorSeen.size;
+    const effectiveDurableSeen = new Set<string>([...durableSeen.postIds, ...servedRecent.postIds]);
 
     const deckKey = `${durableViewerId || "anon"}_${FOR_YOU_SIMPLE_SURFACE}`;
     let deck = readyDeckMemory.get(deckKey) ?? null;
@@ -219,7 +229,7 @@ export class FeedForYouSimpleService {
     }
     const deckItemsBefore = deck?.items.length ?? 0;
     let deckSource: "memory" | "firestore" | "cold_refill" | "fallback" = deck ? "memory" : "fallback";
-    if (!deck && durableViewerId) {
+    if (durableViewerId && !noCursorRequest && (!deck || deck.items.length === 0)) {
       const persisted = await this.repository.readReadyDeck(durableViewerId, FOR_YOU_SIMPLE_SURFACE);
       if (persisted && persisted.expiresAtMs > Date.now() && persisted.items.length > 0) {
         deck = {
@@ -257,7 +267,7 @@ export class FeedForYouSimpleService {
         durableViewerId,
         mode,
         blockedAuthors,
-        durableSeen: durableSeen.postIds,
+        durableSeen: effectiveDurableSeen,
         servedRecent: servedRecent.postIds,
         reason: deck.items.length === 0 ? "cold_refill" : "low_deck"
       });
@@ -272,7 +282,7 @@ export class FeedForYouSimpleService {
       items,
       selectedIds,
       servedRecent: servedRecent.postIds,
-      durableSeen: durableSeen.postIds,
+      durableSeen: effectiveDurableSeen,
       cursorSeen,
       blockedAuthors,
       viewerId,
@@ -293,7 +303,7 @@ export class FeedForYouSimpleService {
       for (const candidate of emerg.items) {
         if (items.length >= limit) break;
         if (selectedIds.has(candidate.postId)) continue;
-        if (durableSeen.postIds.has(candidate.postId)) continue;
+        if (effectiveDurableSeen.has(candidate.postId)) continue;
         if (servedRecent.postIds.has(candidate.postId)) continue;
         if (blockedAuthors.has(candidate.authorId)) continue;
         if (viewerId && candidate.authorId === viewerId) continue;
@@ -315,7 +325,7 @@ export class FeedForYouSimpleService {
         durableViewerId,
         mode,
         blockedAuthors,
-        durableSeen: durableSeen.postIds,
+        durableSeen: effectiveDurableSeen,
         servedRecent: servedRecent.postIds,
         reason: "starvation_refill",
         omitServedRecentFromSessionSeen: true
@@ -326,7 +336,7 @@ export class FeedForYouSimpleService {
         items,
         selectedIds,
         servedRecent: servedRecent.postIds,
-        durableSeen: durableSeen.postIds,
+        durableSeen: effectiveDurableSeen,
         cursorSeen,
         blockedAuthors,
         viewerId,
@@ -341,7 +351,7 @@ export class FeedForYouSimpleService {
         items,
         selectedIds,
         servedRecent: servedRecent.postIds,
-        durableSeen: durableSeen.postIds,
+        durableSeen: effectiveDurableSeen,
         cursorSeen,
         blockedAuthors,
         viewerId,
@@ -354,7 +364,7 @@ export class FeedForYouSimpleService {
       for (const candidate of emergencySliceItems) {
         if (items.length >= limit) break;
         if (selectedIds.has(candidate.postId)) continue;
-        if (durableSeen.postIds.has(candidate.postId)) continue;
+        if (effectiveDurableSeen.has(candidate.postId)) continue;
         if (cursorSeen.has(candidate.postId)) {
           diag.cursorSeenFilteredCount += 1;
           continue;
@@ -378,42 +388,45 @@ export class FeedForYouSimpleService {
     let seenWriteAttempted = false;
     let seenWriteSucceeded = false;
     let blockingResponseWrites = 0;
+    let deferredWritesQueued = 0;
     if (durableViewerId && returnedIds.length > 0) {
       seenWriteAttempted = true;
-      try {
-        await this.repository.markPostsServedForViewer({
-          viewerId: durableViewerId,
-          postIds: returnedIds,
-          surface: FOR_YOU_SIMPLE_SURFACE
-        });
-        const servedWrite = await this.repository.markPostsServedRecentForViewer({
-          viewerId: durableViewerId,
-          surface: FOR_YOU_SIMPLE_SURFACE,
-          postIds: returnedIds,
-          maxEntries: SERVED_RECENT_MAX_IDS,
-          ttlMs: SERVED_RECENT_TTL_MS
-        });
-        seenWriteSucceeded = servedWrite.ok;
-        blockingResponseWrites = servedWrite.writes;
-      } catch {
-        seenWriteSucceeded = false;
-      }
+      deferredWritesQueued = 1;
+      setTimeout(() => {
+        void (async () => {
+          try {
+            await this.repository.markPostsServedRecentForViewer({
+              viewerId: durableViewerId,
+              surface: FOR_YOU_SIMPLE_SURFACE,
+              postIds: returnedIds,
+              maxEntries: SERVED_RECENT_MAX_IDS,
+              ttlMs: SERVED_RECENT_TTL_MS
+            });
+          } catch {
+            // Best effort deferred ledger update; request path intentionally stays unblocked.
+          }
+        })();
+      }, 0);
+      seenWriteSucceeded = true;
     }
     if (deck.items.length < READY_DECK_MIN_REFILL_THRESHOLD && !deck.refillInFlight) {
-      const refillPromise = this.refillDeck({
-        deckKey,
-        deck,
-        viewerId,
-        durableViewerId,
-        mode,
-        blockedAuthors,
-        durableSeen: durableSeen.postIds,
-        servedRecent: servedRecent.postIds,
-        reason: "post_serve_low_watermark"
-      }).finally(() => {
-        if (deck) deck.refillInFlight = null;
-      });
-      deck.refillInFlight = refillPromise;
+      deck.refillInFlight = Promise.resolve();
+      setTimeout(() => {
+        const refillPromise = this.refillDeck({
+          deckKey,
+          deck,
+          viewerId,
+          durableViewerId,
+          mode,
+          blockedAuthors,
+          durableSeen: effectiveDurableSeen,
+          servedRecent: servedRecent.postIds,
+          reason: "post_serve_low_watermark"
+        }).finally(() => {
+          if (deck) deck.refillInFlight = null;
+        });
+        deck.refillInFlight = refillPromise;
+      }, 0);
     }
 
     const emptyReason: null | "no_playable_posts" = items.length === 0 ? "no_playable_posts" : null;
@@ -436,7 +449,7 @@ export class FeedForYouSimpleService {
     diag.seenWriteAttempted = seenWriteAttempted;
     diag.seenWriteSucceeded = seenWriteSucceeded;
     diag.blockingResponseWrites = blockingResponseWrites;
-    diag.deferredWritesQueued = 0;
+    diag.deferredWritesQueued = deferredWritesQueued;
     diag.deferredWriterFlushAttempts = 0;
     diag.deferredWriterSucceededFlushes = 0;
     diag.deferredWriterFailedFlushes = 0;
@@ -463,7 +476,7 @@ export class FeedForYouSimpleService {
     diag.firstPaintCardReadyCount = items.length;
     diag.detailBatchRequiredForFirstPaint = false;
     applyFirstPaintPlaybackDiagnostics(items, diag);
-    diag.durableServedWriteStatus = seenWriteAttempted ? (seenWriteSucceeded ? "ok" : "error") : "skipped";
+    diag.durableServedWriteStatus = seenWriteAttempted ? (deferredWritesQueued > 0 ? "deferred" : seenWriteSucceeded ? "ok" : "error") : "skipped";
     const reelCount = items.filter((item) => item.reel).length;
     diag.reelReturnedCount = reelCount;
     diag.fallbackReturnedCount = Math.max(0, items.length - reelCount);
@@ -565,7 +578,9 @@ export class FeedForYouSimpleService {
         refillReason: input.reason,
         items: input.deck.items
       };
-      await this.repository.writeReadyDeck(persist);
+      setTimeout(() => {
+        void this.repository.writeReadyDeck(persist).catch(() => undefined);
+      }, 0);
     }
   }
 }
@@ -768,7 +783,7 @@ function simpleCandidateVideoVariants(a0: SimpleFeedCandidate["assets"][number])
 
 function carouselCompactAssetCap(assetCount: number): number {
   const n = Math.max(1, Math.floor(assetCount || 1));
-  return Math.min(12, n);
+  return Math.min(1, n);
 }
 
 function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
@@ -958,9 +973,9 @@ function clampLimit(raw: number): number {
 
 function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: string): FeedCardDTO {
   const sourceLen = candidate.sourceFirestoreAssetArrayLen ?? candidate.assets.length;
-  return toFeedCardDTO({
+  const visibleAssets = candidate.assets.slice(0, 1);
+  const fullCard = toFeedCardDTO({
     postId: candidate.postId,
-    sourceRawPost: candidate.rawFirestore ?? null,
     rankToken: `fys:${viewerId.slice(0, 8) || "anon"}:${index + 1}`,
     author: {
       userId: candidate.authorId,
@@ -976,8 +991,8 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     letterboxGradientBottom: candidate.letterboxGradientBottom,
     letterboxGradients: candidate.letterboxGradients,
     geo: candidate.geo,
-    assets: candidate.assets,
-    compactAssetLimit: carouselCompactAssetCap(candidate.assets.length),
+    assets: visibleAssets,
+    compactAssetLimit: carouselCompactAssetCap(visibleAssets.length),
     title: candidate.title,
     captionPreview: candidate.captionPreview,
     firstAssetUrl: candidate.firstAssetUrl,
@@ -1002,6 +1017,28 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     hasMultipleAssets: sourceLen > 1,
     ...augmentSimpleFeedVideoPlayback(candidate)
   });
+  const {
+    appPost: _appPost,
+    postContractVersion: _postContractVersion,
+    normalizedCard: _normalizedCard,
+    normalizedMedia: _normalizedMedia,
+    normalizedAuthor: _normalizedAuthor,
+    normalizedLocation: _normalizedLocation,
+    normalizedCounts: _normalizedCounts,
+    mediaResolutionSource: _mediaResolutionSource,
+    hasPlayableVideo: _hasPlayableVideo,
+    hasAssetsArray: _hasAssetsArray,
+    hasRawPost: _hasRawPost,
+    hasEmbeddedComments: _hasEmbeddedComments,
+    rawPost: _rawPost,
+    sourcePost: _sourcePost,
+    debugPostEnvelope: _debugPostEnvelope,
+    appPostAttached: _appPostAttached,
+    appPostWireAssetCount: _appPostWireAssetCount,
+    wireDeclaredMediaAssetCount: _wireDeclaredMediaAssetCount,
+    ...leanCard
+  } = fullCard as FeedCardDTO & Record<string, unknown>;
+  return leanCard as FeedCardDTO;
 }
 
 function encodeCursor(cursor: FeedForYouSimpleCursor): string {
