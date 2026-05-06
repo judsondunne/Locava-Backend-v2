@@ -70,6 +70,16 @@ export async function enterLowPriorityStartupGateIfNeeded(
   if (waitedMs > 0) {
     recordFallback(`startup_low_priority_gate_wait_${waitedMs}ms`);
     try {
+      console.info("[STARTUP_WORK_DEFERRED_FOR_FIRST_PLAYBACK]", {
+        workName: ctx?.routeName ?? "background_route",
+        reason: "startup_low_priority_gate",
+        activeCriticalRoute: ctx?.routeName ?? null,
+        firstPlaybackGateOpen: false,
+      });
+      console.info("[STARTUP_WORK_RESUMED_AFTER_FIRST_PLAYBACK]", {
+        workName: ctx?.routeName ?? "background_route",
+        delayMs: waitedMs,
+      });
       console.info("[BACKGROUND_ROUTE_DELAYED_DURING_FIRST_PLAYBACK]", {
         waitedMs,
         routeName: ctx?.routeName ?? null,

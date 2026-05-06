@@ -30,7 +30,15 @@ export function serializeCanonicalPost(input: SerializeCanonicalPostInput): Cano
   }) as CanonicalPost;
   // Ensure centralized media/social resolution is always exercised.
   resolveCanonicalPostMedia(canonical);
-  resolveCanonicalPostSocial(canonical, { viewerHasLiked: input.viewerState?.liked });
+  const social = resolveCanonicalPostSocial(canonical, { viewerHasLiked: input.viewerState?.liked });
+  (canonical as Record<string, unknown>).social = {
+    likeCount: social.likeCount,
+    commentCount: social.commentCount,
+    viewerHasLiked: social.viewerHasLiked,
+    commentsPreview: social.commentsPreview,
+    recentLikers: social.recentLikers,
+    source: social.source,
+  };
   return canonical;
 }
 

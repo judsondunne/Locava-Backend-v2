@@ -35,15 +35,30 @@ async function main() {
   const out = {
     postId,
     rawFirestore: {
+      "classification.mediaKind": pickPath(raw, "classification.mediaKind") ?? pickPath(raw, "mediaType") ?? null,
       "media.assetCount": pickPath(raw, "media.assetCount") ?? null,
       "media.assets.length": Array.isArray(pickPath(raw, "media.assets"))
         ? (pickPath(raw, "media.assets") as unknown[]).length
         : 0,
       "media.assets[0].type": pickPath(raw, "media.assets.0.type") ?? null,
+      "media.assets[0].image.displayUrl": pickPath(raw, "media.assets.0.image.displayUrl") ?? null,
+      "media.assets[0].image.originalUrl": pickPath(raw, "media.assets.0.image.originalUrl") ?? null,
+      "media.assets[0].image.thumbnailUrl": pickPath(raw, "media.assets.0.image.thumbnailUrl") ?? null,
+      "media.assets[0].image.width": pickPath(raw, "media.assets.0.image.width") ?? null,
+      "media.assets[0].image.height": pickPath(raw, "media.assets.0.image.height") ?? null,
+      "media.assets[0].presentation.letterboxGradient": pickPath(raw, "media.assets.0.presentation.letterboxGradient") ?? null,
       "media.assets[0].video.playback.startupUrl":
         pickPath(raw, "media.assets.0.video.playback.startupUrl") ?? null,
       "media.assets[0].video.readiness.instantPlaybackReady":
         pickPath(raw, "media.assets.0.video.readiness.instantPlaybackReady") ?? null,
+      "engagement.likeCount": pickPath(raw, "engagement.likeCount") ?? null,
+      "engagement.commentCount": pickPath(raw, "engagement.commentCount") ?? null,
+      "engagementPreview.recentComments.length": Array.isArray(pickPath(raw, "engagementPreview.recentComments"))
+        ? (pickPath(raw, "engagementPreview.recentComments") as unknown[]).length
+        : 0,
+      "engagementPreview.recentLikers.length": Array.isArray(pickPath(raw, "engagementPreview.recentLikers"))
+        ? (pickPath(raw, "engagementPreview.recentLikers") as unknown[]).length
+        : 0,
     },
     resolved: {
       kind: resolved.kind,

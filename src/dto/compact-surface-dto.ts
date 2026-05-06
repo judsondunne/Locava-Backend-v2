@@ -677,6 +677,48 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
         })
       );
     }
+    if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
+      const firstCanonicalImage = canonicalAssets.find((asset) => asset?.type === "image") ?? null;
+      const firstCanonicalImageBlock =
+        firstCanonicalImage && typeof firstCanonicalImage === "object"
+          ? (firstCanonicalImage.image as Record<string, unknown> | undefined)
+          : undefined;
+      const selectedFullscreenImageKind =
+        typeof firstCanonicalImageBlock?.fullUrl === "string" && firstCanonicalImageBlock.fullUrl
+          ? "full"
+          : typeof firstCanonicalImageBlock?.originalUrl === "string" && firstCanonicalImageBlock.originalUrl
+            ? "original"
+            : typeof firstCanonicalImageBlock?.largeUrl === "string" && firstCanonicalImageBlock.largeUrl
+              ? "large"
+              : typeof firstCanonicalImageBlock?.displayUrl === "string" && firstCanonicalImageBlock.displayUrl
+                ? "display"
+                : typeof firstCanonicalImageBlock?.thumbnailUrl === "string" && firstCanonicalImageBlock.thumbnailUrl
+                  ? "thumbnail"
+                  : "none";
+      // eslint-disable-next-line no-console
+      console.info(
+        "[WIRE_IMAGE_SERIALIZE_DEBUG]",
+        JSON.stringify({
+          postId: seed.postId,
+          mediaKind: asUnknownRecord(raw.classification)?.mediaKind ?? raw.mediaType ?? null,
+          assetCount: canonicalAssets.length,
+          firstAssetType: firstCanonicalImage?.type ?? null,
+          displayUrlPresent: Boolean(firstCanonicalImageBlock?.displayUrl),
+          thumbnailUrlPresent: Boolean(firstCanonicalImageBlock?.thumbnailUrl),
+          mediumUrlPresent: Boolean(firstCanonicalImageBlock?.mediumUrl),
+          largeUrlPresent: Boolean(firstCanonicalImageBlock?.largeUrl),
+          fullUrlPresent: Boolean(firstCanonicalImageBlock?.fullUrl),
+          originalUrlPresent: Boolean(firstCanonicalImageBlock?.originalUrl),
+          selectedFullscreenImageKind,
+          letterboxGradientPresent: Boolean(
+            (firstCanonicalImage as { presentation?: { letterboxGradient?: { top?: string; bottom?: string } } } | null)
+              ?.presentation?.letterboxGradient?.top ||
+              (firstCanonicalImage as { presentation?: { letterboxGradient?: { top?: string; bottom?: string } } } | null)
+                ?.presentation?.letterboxGradient?.bottom
+          ),
+        }),
+      );
+    }
     let fixed: Record<string, unknown> = appPost;
     if (media && typeof media.assetCount === "number" && Number.isFinite(media.assetCount) && media.assetCount !== apAssets.length) {
       logForYouFullMediaRepair({
