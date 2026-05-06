@@ -164,6 +164,7 @@ import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contr
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
 import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
 import { runFirebaseAdminPermissionProbe } from "../lib/firebase-admin.js";
+import { LOG_REQUEST_DEBUG, LOG_STARTUP_DEBUG } from "../lib/logging/log-config.js";
 
 function classifyError(error: unknown): { code: string; statusCode: number; details?: unknown } {
   if (error instanceof ZodError) {
@@ -318,7 +319,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         if (ctx?.orchestration && eventLoopDelayHistogram) {
           ctx.orchestration.eventLoopDelayMs = Math.round(eventLoopDelayHistogram.mean / 1e6);
         }
-        request.log.info({ event: "request_start" }, "incoming request");
+        if (LOG_REQUEST_DEBUG) {
+          request.log.debug({ event: "request_start" }, "incoming request");
+        }
         done();
       }
     );
@@ -671,16 +674,18 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
             credentialsLoaded: identity.credentialsLoaded,
             credentialPath: identity.credentialPath
           };
-    app.log.info(safeIdentity, "firestore admin runtime identity");
-    app.log.info(
-      {
-        event: "local_dev_identity_mode",
-        enabled: isLocalDevIdentityModeEnabled(),
-        nodeEnv: env.NODE_ENV,
-        debugViewerId: isLocalDevIdentityModeEnabled() ? resolveLocalDebugViewerId() : null
-      },
-      "local dev identity harness status"
-    );
+    if (LOG_STARTUP_DEBUG) {
+      app.log.info(safeIdentity, "firestore admin runtime identity");
+      app.log.info(
+        {
+          event: "local_dev_identity_mode",
+          enabled: isLocalDevIdentityModeEnabled(),
+          nodeEnv: env.NODE_ENV,
+          debugViewerId: isLocalDevIdentityModeEnabled() ? resolveLocalDebugViewerId() : null
+        },
+        "local dev identity harness status"
+      );
+    }
     if (env.NODE_ENV !== "production") {
       await runFirebaseAdminPermissionProbe().catch((error) => {
         app.log.error(

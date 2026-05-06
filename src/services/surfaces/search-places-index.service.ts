@@ -7,6 +7,8 @@ import {
   normalizeSearchText,
   resolveStateNameFromAny,
 } from "../../lib/search-query-intent.js";
+import { LOG_SEARCH_DEBUG } from "../../lib/logging/log-config.js";
+import { debugLog, warnOnce } from "../../lib/logging/debug-log.js";
 
 function distanceMilesApprox(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
   const dx = a.lat - b.lat;
@@ -312,18 +314,27 @@ class SearchPlacesIndexService {
       const totalMs = Date.now() - loopStart;
       this.lastLoadTotalMs = totalMs;
       this.lastIndexedWorkMs = blockedEventLoopMs;
-      if (process.env.NODE_ENV === "production") {
-        console.log(
-          `[SEARCH_PLACES_INDEX] loaded=true places=${this.exactMap.size} prefixes=${this.prefixMap.size} totalMs=${totalMs} indexedWorkMs=${blockedEventLoopMs}`
-        );
-      } else {
-        console.log(
-          `[SEARCH_PLACES_INDEX] loaded=true places=${this.exactMap.size} prefixes=${this.prefixMap.size} source=${dataPath} totalMs=${totalMs} indexedWorkMs=${blockedEventLoopMs}`
-        );
+      if (LOG_SEARCH_DEBUG && process.env.NODE_ENV === "production") {
+        debugLog("search", "SEARCH_PLACES_INDEX loaded", () => ({
+          loaded: true,
+          places: this.exactMap.size,
+          prefixes: this.prefixMap.size,
+          totalMs,
+          indexedWorkMs: blockedEventLoopMs
+        }));
+      } else if (LOG_SEARCH_DEBUG) {
+        debugLog("search", "SEARCH_PLACES_INDEX loaded", () => ({
+          loaded: true,
+          places: this.exactMap.size,
+          prefixes: this.prefixMap.size,
+          source: dataPath,
+          totalMs,
+          indexedWorkMs: blockedEventLoopMs
+        }));
       }
     } catch (error) {
       this.loadError = error instanceof Error ? error.message : String(error);
-      console.warn(`[SEARCH_PLACES_INDEX] load_failed error=${this.loadError}`);
+      warnOnce("search", "SEARCH_PLACES_INDEX load_failed", () => ({ error: this.loadError }));
     } finally {
       this.loading = false;
     }

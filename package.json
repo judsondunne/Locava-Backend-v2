@@ -32,6 +32,8 @@
     "debug:parity:path-coverage": "tsx scripts/native-path-coverage.mts",
     "debug:parity:search-mix-diff": "tsx scripts/search-mix-parity-diff.mts",
     "typecheck": "tsc --noEmit",
+    "check:logging": "node scripts/check-logging-cleanup.js",
+    "test:logging": "vitest run src/lib/logging/debug-log.test.ts",
     "audit:app-post-v2-grep": "tsx scripts/audits/app-post-v2-grep-inventory.mts",
     "audit:post-algorithm-inventory": "tsx scripts/audits/post-algorithm-backend-inventory.mts && tsx scripts/audits/post-algorithm-native-inventory.mts",
     "audit:post-algorithm-readiness": "tsx scripts/audits/post-canonical-algorithm-readiness.mts",

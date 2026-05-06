@@ -19,6 +19,7 @@ import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import type { FeedBootstrapCandidateRecord, FeedDetailRecord } from "../../repositories/surfaces/feed.repository.js";
 import { z } from "zod";
+import { debugLog, warnOnce } from "../../lib/logging/debug-log.js";
 
 type PostsDetailResponse = z.infer<typeof PostsDetailResponseSchema>;
 type SafeCardSummary = FeedBootstrapCandidateRecord & { rankToken: string };
@@ -262,11 +263,7 @@ export class PostsDetailOrchestrator {
   constructor(private readonly service: FeedService) {}
 
   private logEvent(event: string, payload: Record<string, unknown>): void {
-    try {
-      console.info(`[${event}]`, payload);
-    } catch {
-      // best effort logging only
-    }
+    debugLog("post", event, payload);
   }
 
   private shouldLogPlaybackCacheDecision(input: {
@@ -418,7 +415,7 @@ export class PostsDetailOrchestrator {
             processingButPlayable: Boolean(mediaReadiness.processingButPlayable),
           }
         : mediaReadiness;
-    console.info("[post.detail.media_readiness]", {
+    debugLog("post", "post.detail.media_readiness", {
       surface: "posts.detail",
       postId,
       ...resolutionSummary,
@@ -1150,12 +1147,12 @@ export class PostsDetailOrchestrator {
           !sourceUpgradeUsed &&
           (upgradeSkippedReason === "playback_firestore_read_cap" || wantsCarouselFirestoreUpgrade)
         ) {
-          console.warn("[POST_DETAILS_BATCH_PLAYBACK_CAROUSEL_PARTIAL]", {
+          warnOnce("post", "POST_DETAILS_BATCH_PLAYBACK_CAROUSEL_PARTIAL", () => ({
             postId,
             effectiveHint,
             shellLenNow,
             upgradeSkippedReason,
-          });
+          }));
         }
       }
       found.push({

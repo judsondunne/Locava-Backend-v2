@@ -1,3 +1,5 @@
+import { LOG_STARTUP_DEBUG } from "../lib/logging/log-config.js";
+import { debugLog } from "../lib/logging/debug-log.js";
 /**
  * Process boot clock + startup grace window.
  * P3/P4 routes must not contend with P1/P2 first paint during the grace period (see low-priority-request-gate).
@@ -34,8 +36,8 @@ const timeline: TimelineRow[] = [];
 export function logStartupTimeline(event: string, meta?: Record<string, unknown>): void {
   const row: TimelineRow = { event, ageMs: serverAgeMs(), ...(meta ? { meta } : {}) };
   timeline.push(row);
-  if (process.env.NODE_ENV !== "test" && process.env.VITEST !== "true") {
-    console.info(JSON.stringify({ kind: "startup_timeline", event, ageMs: row.ageMs, ...meta }));
+  if (LOG_STARTUP_DEBUG && process.env.NODE_ENV !== "test" && process.env.VITEST !== "true") {
+    debugLog("startup", "startup_timeline", () => ({ event, ageMs: row.ageMs, ...meta }));
   }
 }
 

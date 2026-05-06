@@ -58,6 +58,7 @@ import {
   resolveAppleToolkitFailureMessaging,
   resolveFirebaseToolkitContinueUri
 } from "../../lib/firebase-identity-toolkit.js";
+import { LOG_AUTH_DEBUG } from "../../lib/logging/log-config.js";
 
 const CheckHandleQuery = z.object({
   handle: z.string().trim().min(1).max(40)
@@ -89,6 +90,7 @@ function logOauthDecision(
     userDocumentCreated: boolean;
   }
 ): void {
+  if (!LOG_AUTH_DEBUG) return;
   log.info({
     routeName: input.routeName,
     authProvider: input.authProvider,
@@ -324,6 +326,7 @@ function logAuthIdCanonicalization(
     userDocFound: boolean;
   }
 ): void {
+  if (!LOG_AUTH_DEBUG) return;
   log.info({
     event: "AUTH_ID_CANONICALIZATION",
     routeName: input.routeName,
@@ -347,6 +350,7 @@ function logAuthLoginViewerHydration(
     source: string;
   }
 ): void {
+  if (!LOG_AUTH_DEBUG) return;
   log.info({
     event: "AUTH_LOGIN_VIEWER_HYDRATION",
     routeName: input.routeName,
@@ -489,6 +493,7 @@ function logAuthAcceptedFullyReady(params: {
   accountStatus: OauthAccountStatus;
   hydration: CanonicalViewerHydration;
 }): void {
+  if (!LOG_AUTH_DEBUG) return;
   params.log.info({
     event: "AUTH_SIGNIN_ACCEPTED_FULLY_READY",
     routeName: params.routeName,

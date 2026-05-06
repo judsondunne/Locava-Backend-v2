@@ -41,6 +41,8 @@ import type {
   PostEngagementSourceAuditV2
 } from "../../../contracts/master-post-v2.types.js";
 import { normalizeMasterPostV2 } from "../master-post-v2/normalizeMasterPostV2.js";
+import { debugLog } from "../../logging/debug-log.js";
+import { LOG_VIDEO_DEBUG } from "../../logging/log-config.js";
 
 type RawPost = Record<string, unknown>;
 
@@ -556,11 +558,8 @@ function assertPlayableVideoAssetOnWire(master: MasterPostV2, appPost: AppPostV2
   const canonicalInstantReady = canonicalVideoAssets.some((asset) => asset.video?.readiness.instantPlaybackReady === true);
   const startupOrDefaultPresent = Boolean(wireStartup ?? wireDefault);
   if (!wireVideo || !hasPlayable || (canonicalInstantReady && !startupOrDefaultPresent)) {
-    if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
-      // eslint-disable-next-line no-console
-      console.error(
-        "WIRE_VIDEO_ASSET_DROPPED",
-        JSON.stringify({
+    if (LOG_VIDEO_DEBUG) {
+      debugLog("video", "WIRE_VIDEO_ASSET_DROPPED", () => ({
           postId: master.id,
           sourceDocMediaKind: mediaKind,
           canonicalAssetPaths: canonicalPaths,
@@ -570,8 +569,7 @@ function assertPlayableVideoAssetOnWire(master: MasterPostV2, appPost: AppPostV2
             missingPlayableUrl: !hasPlayable,
             missingStartupDefaultWhenInstantReady: canonicalInstantReady && !startupOrDefaultPresent
           }
-        })
-      );
+        }));
     }
   }
 }

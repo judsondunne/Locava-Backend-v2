@@ -1,5 +1,7 @@
 import { BigQuery, type Table } from "@google-cloud/bigquery";
 import type { AppEnv } from "../../config/env.js";
+import { LOG_ANALYTICS_DEBUG } from "../../lib/logging/log-config.js";
+import { rateLimitedLog, warnOnce } from "../../lib/logging/debug-log.js";
 
 export type AnalyticsRow = {
   event: string;
@@ -88,16 +90,18 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
     try {
       this.logStartupDiagnosticsOnce();
       await table.insert(rows);
-      console.info("[analytics] bigquery_publish_ok", {
-        count: rows.length,
-        dataset: this.destination.dataset,
-        table: this.destination.table
-      });
+      if (LOG_ANALYTICS_DEBUG) {
+        rateLimitedLog("analytics", "analytics bigquery_publish_ok", () => ({
+          count: rows.length,
+          dataset: this.destination.dataset,
+          table: this.destination.table
+        }), 30_000);
+      }
     } catch (error) {
       const now = Date.now();
       if (now - this.lastFailureLogMs >= BigQueryAnalyticsPublisher.FAILURE_LOG_COOLDOWN_MS) {
         this.lastFailureLogMs = now;
-        console.error("[analytics] bigquery_publish_fail", {
+        warnOnce("analytics", "analytics bigquery_publish_fail", () => ({
           projectId: this.runtimeConfig.projectId,
           dataset: this.destination.dataset,
           table: this.destination.table,
@@ -106,7 +110,7 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
           nonBlocking: true,
           error: error instanceof Error ? error.message : String(error),
           checkCommand: "npm run debug:analytics:bigquery",
-        });
+        }));
       }
       throw error;
     }
@@ -129,7 +133,8 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
   private logStartupDiagnosticsOnce(): void {
     if (this.loggedStartupDiagnostic) return;
     this.loggedStartupDiagnostic = true;
-    console.info("[analytics] bigquery_runtime_config", {
+    if (LOG_ANALYTICS_DEBUG) {
+      rateLimitedLog("analytics", "analytics bigquery_runtime_config", () => ({
       enabled: this.runtimeConfig.enabled,
       projectId: this.runtimeConfig.projectId,
       dataset: this.runtimeConfig.dataset,
@@ -138,14 +143,15 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
       serviceAccountEmail: this.runtimeConfig.serviceAccountEmail,
       nonBlockingFailures: this.runtimeConfig.nonBlockingFailures,
       checkCommand: "npm run debug:analytics:bigquery",
-    });
+    }), 300_000);
+    }
     if (!this.runtimeConfig.enabled) {
-      console.info("[analytics] bigquery_publishing_disabled_by_env", {
+      warnOnce("analytics", "analytics bigquery_publishing_disabled_by_env", () => ({
         analyticsEnabled: this.env.ANALYTICS_ENABLED,
         hasProjectId: Boolean(this.env.GCP_PROJECT_ID),
         hasDataset: Boolean(this.env.ANALYTICS_DATASET),
         hasTable: Boolean(this.env.ANALYTICS_EVENTS_TABLE),
-      });
+      }));
     }
   }
 }

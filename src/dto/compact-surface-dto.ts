@@ -2,6 +2,8 @@ import { isBackendAppPostV2ResponsesEnabled } from "../lib/posts/app-post-v2/fla
 import { toAppPostV2FromAny } from "../lib/posts/app-post-v2/toAppPostV2.js";
 import { logForYouAssetTrace, logForYouFullMediaRepair } from "../observability/for-you-asset-trace.js";
 import type { CanonicalPost } from "../contracts/posts/canonical-post.contract.js";
+import { debugLog } from "../lib/logging/debug-log.js";
+import { LOG_VIDEO_DEBUG } from "../lib/logging/log-config.js";
 
 type Nullable<T> = T | null;
 
@@ -654,11 +656,8 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
       asUnknownRecord(asUnknownRecord(firstSerializedAsset?.video)?.playback) ??
         asUnknownRecord(firstSerializedAsset?.playback)
     );
-    if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
-      // eslint-disable-next-line no-console
-      console.info(
-        "[WIRE_VIDEO_SERIALIZE_DEBUG]",
-        JSON.stringify({
+    if (LOG_VIDEO_DEBUG) {
+      debugLog("video", "WIRE_VIDEO_SERIALIZE_DEBUG", () => ({
           postId: seed.postId,
           mediaKind: asUnknownRecord(raw.classification)?.mediaKind ?? raw.mediaType ?? null,
           canonicalAssetCount: canonicalAssets.length,
@@ -674,10 +673,9 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
             raw.fallbackVideoUrl ??
             null,
           selectedReason: serializedPlayback?.selectedReason ?? canonicalPlayback?.selectedReason ?? null
-        })
-      );
+        }));
     }
-    if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
+    if (LOG_VIDEO_DEBUG) {
       const firstCanonicalImage = canonicalAssets.find((asset) => asset?.type === "image") ?? null;
       const firstCanonicalImageBlock =
         firstCanonicalImage && typeof firstCanonicalImage === "object"
@@ -695,10 +693,7 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
                 : typeof firstCanonicalImageBlock?.thumbnailUrl === "string" && firstCanonicalImageBlock.thumbnailUrl
                   ? "thumbnail"
                   : "none";
-      // eslint-disable-next-line no-console
-      console.info(
-        "[WIRE_IMAGE_SERIALIZE_DEBUG]",
-        JSON.stringify({
+      debugLog("video", "WIRE_IMAGE_SERIALIZE_DEBUG", () => ({
           postId: seed.postId,
           mediaKind: asUnknownRecord(raw.classification)?.mediaKind ?? raw.mediaType ?? null,
           assetCount: canonicalAssets.length,
@@ -716,8 +711,7 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
               (firstCanonicalImage as { presentation?: { letterboxGradient?: { top?: string; bottom?: string } } } | null)
                 ?.presentation?.letterboxGradient?.bottom
           ),
-        }),
-      );
+        }));
     }
     let fixed: Record<string, unknown> = appPost;
     if (media && typeof media.assetCount === "number" && Number.isFinite(media.assetCount) && media.assetCount !== apAssets.length) {

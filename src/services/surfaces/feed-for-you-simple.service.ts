@@ -13,6 +13,8 @@ import {
   FOR_YOU_SIMPLE_SEEN_READ_CAP,
   FOR_YOU_SIMPLE_SURFACE
 } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
+import { debugLog } from "../../lib/logging/debug-log.js";
+import { LOG_FEED_DEBUG, LOG_VIDEO_DEBUG } from "../../lib/logging/log-config.js";
 
 const CURSOR_PREFIX = "fys:v2:";
 const LEGACY_CURSOR_PREFIX = "fys:v1:";
@@ -1164,14 +1166,11 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
       (!outgoingPlayback.startupUrl ||
         !/startup(?:540|720|1080)_faststart_avc\.mp4/i.test(outgoingPlayback.startupUrl))
   );
-  if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
+  if (LOG_FEED_DEBUG || LOG_VIDEO_DEBUG) {
     const cacheWasStale = Boolean(canonicalFaststartPresent && outgoingDroppedFaststart);
     const refreshedFromCanonical = Boolean(canonicalFaststartPresent && !outgoingDroppedFaststart);
     try {
-      // eslint-disable-next-line no-console
-      console.info(
-        "[FEED_WIRE_APPPOST_PLAYBACK_DEBUG]",
-        JSON.stringify({
+      debugLog("video", "FEED_WIRE_APPPOST_PLAYBACK_DEBUG", () => ({
           postId: candidate.postId,
           source: candidate.rawFirestore ? "fresh_post_doc" : "post_card_cache",
           canonicalDocStartupUrl: firstCanonicalVideoPlayback?.startupUrl ?? null,
@@ -1184,18 +1183,13 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
           outgoingAppPostSelectedReason: outgoingPlayback.selectedReason,
           cacheWasStale,
           refreshedFromCanonical
-        })
-      );
+        }));
       if (outgoingDroppedFaststart) {
-        // eslint-disable-next-line no-console
-        console.error(
-          "[FEED_CANONICAL_PLAYBACK_DROPPED_ERROR]",
-          JSON.stringify({
+        debugLog("video", "FEED_CANONICAL_PLAYBACK_DROPPED_ERROR", () => ({
             postId: candidate.postId,
             canonicalDocStartupUrl: firstCanonicalVideoPlayback?.startupUrl ?? null,
             outgoingAppPostStartupUrl: outgoingPlayback.startupUrl ?? null
-          })
-        );
+          }));
       }
     } catch {
       // no-op
