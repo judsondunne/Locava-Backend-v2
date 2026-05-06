@@ -583,7 +583,7 @@ export function toAppPostV2FromAny(rawPost: RawPost, options: ToAppPostV2Options
 
 export function toAppPostCardV2(appPost: AppPostV2): AppPostFeedCardV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "feedCard",
     derivesFromAppPostV2: true,
     appPost: {
@@ -605,7 +605,7 @@ export function toAppPostCardV2(appPost: AppPostV2): AppPostFeedCardV2 {
 
 export function toAppPostDetailV2(appPost: AppPostV2): AppPostDetailProjectionV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "profileDetail",
     derivesFromAppPostV2: true,
     appPost
@@ -614,7 +614,7 @@ export function toAppPostDetailV2(appPost: AppPostV2): AppPostDetailProjectionV2
 
 export function toAppMapMarkerPostV2(appPost: AppPostV2): AppPostMapMarkerProjectionV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "mapMarker",
     derivesFromAppPostV2: true,
     appPost: {
@@ -636,7 +636,7 @@ export function toAppMapMarkerPostV2(appPost: AppPostV2): AppPostMapMarkerProjec
 
 export function toAppSearchResultPostV2(appPost: AppPostV2): AppPostSearchResultProjectionV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "searchResult",
     derivesFromAppPostV2: true,
     appPost: {
@@ -657,7 +657,7 @@ export function toAppSearchResultPostV2(appPost: AppPostV2): AppPostSearchResult
 
 export function toAppCollectionPostV2(appPost: AppPostV2): AppPostCollectionPostProjectionV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "collectionPost",
     derivesFromAppPostV2: true,
     appPost
@@ -666,7 +666,7 @@ export function toAppCollectionPostV2(appPost: AppPostV2): AppPostCollectionPost
 
 export function toAppChatSharedPostV2(appPost: AppPostV2): AppPostChatSharedPostProjectionV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "chatSharedPost",
     derivesFromAppPostV2: true,
     appPost: {
@@ -688,7 +688,7 @@ export function toAppChatSharedPostV2(appPost: AppPostV2): AppPostChatSharedPost
 
 export function toAppNotificationPostPreviewV2(appPost: AppPostV2): AppPostNotificationPreviewProjectionV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "notificationPreview",
     derivesFromAppPostV2: true,
     appPost: {
@@ -708,7 +708,7 @@ export function toAppNotificationPostPreviewV2(appPost: AppPostV2): AppPostNotif
 
 export function toAppProfileGridPostV2(appPost: AppPostV2): AppPostProfileGridProjectionV2 {
   return {
-    postContractVersion: 2,
+    postContractVersion: 3,
     projection: "profileGrid",
     derivesFromAppPostV2: true,
     appPost: {
@@ -735,7 +735,7 @@ export type SurfaceCompareLegacyCompatSliceV2 = Pick<
 export type SurfaceCompareRowV2 = {
   projection: string;
   derivesFromAppPostV2: boolean;
-  postContractVersion: 2;
+  postContractVersion: 3;
   viewerState: AppPostViewerStateV2;
   legacyCompat: SurfaceCompareLegacyCompatSliceV2;
   mediaAssetCount: number;
@@ -782,7 +782,7 @@ export function buildSurfaceComparePayload(appPost: AppPostV2): {
     return {
       projection,
       derivesFromAppPostV2: true,
-      postContractVersion: 2,
+      postContractVersion: 3,
       viewerState: { ...appPost.viewerState },
       legacyCompat: {
         photoLink: compat.photoLink,

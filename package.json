@@ -96,6 +96,7 @@
     "audit:runtime-logs": "tsx scripts/audit-runtime-logs.mts",
     "debug:analytics:bigquery": "tsx scripts/check-bigquery-analytics-access.mts",
     "debug:video:variant-selection": "tsx scripts/debug-video-variant-selection.mts",
+    "debug:post-media": "tsx scripts/debug-post-media-contract.mts",
     "perf:replay:real-user": "tsx scripts/perf/real-user-native-replay.ts",
     "perf:replay:real-user:loop": "tsx scripts/perf/real-user-native-replay-loop.ts",
     "perf:replay:analyze-logs": "tsx scripts/perf/analyze-backend-log.ts"

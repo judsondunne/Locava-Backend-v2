@@ -303,7 +303,7 @@ export type AppPostV2 = {
 
 /** Marks a projection payload as derived from {@link AppPostV2}. */
 export type AppPostProjectionMetaV2 = {
-  postContractVersion: 2;
+  postContractVersion: 2 | 3;
   projection: string;
   derivesFromAppPostV2: true;
 };

@@ -11,6 +11,10 @@ import {
   playbackBatchShouldFetchFirestoreDetail,
   selectBestVideoPlaybackAsset,
 } from "../../lib/posts/video-playback-selection.js";
+import {
+  classifyCanonicalMediaTruth,
+  isPlayableVideoMedia,
+} from "../../lib/posts/canonical-media-truth.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import type { FeedBootstrapCandidateRecord, FeedDetailRecord } from "../../repositories/surfaces/feed.repository.js";
@@ -821,10 +825,11 @@ export class PostsDetailOrchestrator {
         input.hydrationMode === "playback" &&
         playbackBatchShouldFetchFirestoreDetail(shellRecord) &&
         (!isCollectionDetailPrefetch || !hasRenderablePrimaryAsset);
+      const stagedTruth = classifyCanonicalMediaTruth(shellRecord);
       const mandatoryVideoRepair =
         input.hydrationMode === "playback" &&
-        stagedReadiness?.hasVideo === true &&
-        stagedReadiness?.playbackUrlPresent !== true;
+        stagedTruth.hasVideoLikeSignals === true &&
+        isPlayableVideoMedia(shellRecord) !== true;
       const malformedVideoAsImageRepair =
         input.hydrationMode === "playback" &&
         hasVideoLikeImageAsset(shellRecord.assets) &&
@@ -963,8 +968,16 @@ export class PostsDetailOrchestrator {
       const wantsFirestoreMediaUpgrade =
         input.hydrationMode === "playback" &&
         (wantsCarouselFirestoreUpgrade || wantsVideoFirestoreUpgrade);
+      const truthBeforeUpgrade = classifyCanonicalMediaTruth(shellRecord);
+      const visibleMandatoryVideoRead =
+        input.hydrationMode === "playback" &&
+        visibleHeadSet.has(postId) &&
+        truthBeforeUpgrade.hasVideoLikeSignals &&
+        !isPlayableVideoMedia(shellRecord);
       const fetchAllowed =
-        wantsFirestoreMediaUpgrade && grantedFirestoreUpgrade.has(postId) && playbackFirestoreReadCap > 0;
+        wantsFirestoreMediaUpgrade &&
+        (visibleMandatoryVideoRead ||
+          (grantedFirestoreUpgrade.has(postId) && playbackFirestoreReadCap > 0));
       if (wantsFirestoreMediaUpgrade && fetchAllowed) {
         try {
           playbackFirestoreReadsPerformed += 1;
@@ -1079,6 +1092,7 @@ export class PostsDetailOrchestrator {
           typeof cardBrief.assetCount === "number" && Number.isFinite(cardBrief.assetCount)
             ? Math.floor(cardBrief.assetCount as number)
             : hinted;
+        const upgradedTruth = classifyCanonicalMediaTruth(playbackShell as Record<string, unknown>);
         const upgradeSkippedReason =
           skippedReadCap ??
           (wantsFirestoreMediaUpgrade && !fetchAllowed
@@ -1087,7 +1101,9 @@ export class PostsDetailOrchestrator {
               ? "playback_cache_sufficient"
               : null);
         const selectedSource =
-          sourceUpgradeUsed ? "post_card_cache_upgraded" : "post_card_cache";
+          sourceUpgradeUsed
+            ? "source_of_truth_detail"
+            : "post_card_cache";
         if (
           this.shouldLogPlaybackCacheDecision({
             postId,
@@ -1108,11 +1124,17 @@ export class PostsDetailOrchestrator {
               cardBrief.hasMultipleAssets === true ||
               carouselProbe.hasMultipleAssets === true,
             mediaCompleteness:
-              (playbackShell as Record<string, unknown>).mediaCompleteness ??
-              cardBrief.mediaCompleteness ??
-              (wantsCarouselFirestoreUpgrade ? "cover_only" : "full"),
+              upgradedTruth.kind === "PLAYABLE_VIDEO" ||
+              upgradedTruth.kind === "PLAYABLE_FASTSTART_VIDEO" ||
+              upgradedTruth.kind === "PLAYABLE_CANONICAL_FASTSTART_VIDEO"
+                ? "full_playable_video"
+                : (playbackShell as Record<string, unknown>).mediaCompleteness ??
+                  cardBrief.mediaCompleteness ??
+                  (wantsCarouselFirestoreUpgrade ? "cover_only" : "full"),
             sourceUpgradeUsed,
             upgradeSkippedReason,
+            selectedPlaybackUrlPresent: Boolean(mediaReadiness.playbackUrl),
+            selectedVideoVariant: mediaReadiness.selectedVideoVariant ?? "none",
             visibleHead: visibleHeadSet.has(postId),
             isCoverOnlyCard: Boolean(
               cardBrief.requiresAssetHydration === true ||
@@ -1451,6 +1473,14 @@ function classifyPayloadCategory(
 function shouldTrimPlaybackShellToCoverOnlyForPrefetch(
   playbackShell: PlaybackPostShellDTO,
 ): boolean {
+  const truth = classifyCanonicalMediaTruth(playbackShell as Record<string, unknown>);
+  if (truth.hasVideoLikeSignals) return false;
+  const hasPlayableVideo =
+    selectBestVideoPlaybackAsset(playbackShell as Record<string, unknown>, {
+      hydrationMode: "playback",
+      allowPreviewOnly: true,
+    }).playbackUrl != null;
+  if (hasPlayableVideo) return false;
   const assetsLen = Array.isArray(playbackShell.assets) ? playbackShell.assets.length : 0;
   if (assetsLen <= 1) return false;
   const completeness = String((playbackShell as Record<string, unknown>).mediaCompleteness ?? "").toLowerCase();

@@ -1,6 +1,7 @@
 import { isBackendAppPostV2ResponsesEnabled } from "../lib/posts/app-post-v2/flags.js";
 import { toAppPostV2FromAny } from "../lib/posts/app-post-v2/toAppPostV2.js";
 import { logForYouAssetTrace, logForYouFullMediaRepair } from "../observability/for-you-asset-trace.js";
+import type { CanonicalPost } from "../contracts/posts/canonical-post.contract.js";
 
 type Nullable<T> = T | null;
 
@@ -104,7 +105,10 @@ export const DEFAULT_CARD_CAROUSEL_ASSET_CAP = 12;
 export type FeedCardDTO = {
   /** Canonical app-facing post (locava.appPost v2). */
   appPost?: Record<string, unknown>;
-  postContractVersion?: 2;
+  appPostV2?: Record<string, unknown>;
+  canonicalPost?: Record<string, unknown>;
+  post?: Record<string, unknown>;
+  postContractVersion?: 2 | 3;
   postId: string;
   rankToken: string;
   author: {
@@ -446,6 +450,84 @@ function normalizeAspectRatio(value: number | null | undefined, fallback = 9 / 1
 
 function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unknown> {
   const assets = Array.isArray(seed.assets) ? seed.assets : [];
+  const canonicalMediaAssets = assets.map((a, index) => {
+    const playbackUrl = a.mp4Url ?? a.originalUrl ?? null;
+    if (a.type === "video") {
+      return {
+        id: a.id ?? `${seed.postId}-asset-${index + 1}`,
+        index,
+        type: "video",
+        image: null,
+        video: {
+          originalUrl: playbackUrl,
+          posterUrl: a.posterUrl ?? null,
+          posterHighUrl: a.posterUrl ?? null,
+          thumbnailUrl: a.previewUrl ?? a.posterUrl ?? null,
+          playback: {
+            startupUrl: playbackUrl,
+            defaultUrl: playbackUrl,
+            primaryUrl: playbackUrl,
+            goodNetworkUrl: playbackUrl,
+            weakNetworkUrl: playbackUrl,
+            poorNetworkUrl: playbackUrl,
+            highQualityUrl: playbackUrl,
+            upgradeUrl: playbackUrl,
+            hlsUrl: a.streamUrl ?? null,
+            previewUrl: a.previewUrl ?? null,
+            fallbackUrl: playbackUrl,
+            selectedReason: "synthetic_seed_playback"
+          },
+          variants: {
+            ...(a.streamUrl ? { hls: a.streamUrl } : {}),
+            ...(a.mp4Url ? { main720Avc: a.mp4Url, main720: a.mp4Url } : {}),
+          },
+          readiness: {
+            assetsReady: true,
+            instantPlaybackReady: true,
+            faststartVerified: true,
+            processingStatus: "completed"
+          },
+          technical: {
+            sourceCodec: null,
+            playbackCodec: null,
+            audioCodec: null,
+            width: a.width ?? null,
+            height: a.height ?? null,
+            bitrateKbps: null,
+            sizeBytes: null
+          }
+        },
+        presentation: {
+          letterboxGradient:
+            Array.isArray(seed.letterboxGradients) && seed.letterboxGradients[index]
+              ? seed.letterboxGradients[index]
+              : null
+        }
+      };
+    }
+    return {
+      id: a.id ?? `${seed.postId}-asset-${index + 1}`,
+      index,
+      type: "image",
+      image: {
+        originalUrl: a.originalUrl ?? null,
+        displayUrl: a.previewUrl ?? a.originalUrl ?? null,
+        thumbnailUrl: a.previewUrl ?? a.posterUrl ?? null,
+        blurhash: a.blurhash ?? null,
+        width: a.width ?? null,
+        height: a.height ?? null,
+        aspectRatio: a.aspectRatio ?? null,
+        orientation: a.orientation ?? null
+      },
+      video: null,
+      presentation: {
+        letterboxGradient:
+          Array.isArray(seed.letterboxGradients) && seed.letterboxGradients[index]
+            ? seed.letterboxGradients[index]
+            : null
+      }
+    };
+  });
   return {
     id: seed.postId,
     postId: seed.postId,
@@ -491,6 +573,38 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
     commentsCount: seed.social?.commentCount,
     commentCount: seed.social?.commentCount,
     mediaType: seed.media.type,
+    classification: {
+      mediaKind: seed.media.type === "video" ? "video" : "image",
+      reel: false,
+      visibility: "public",
+      source: "user",
+    },
+    media: {
+      status: "ready",
+      assetsReady: true,
+      instantPlaybackReady: seed.media.type === "video",
+      completeness: "full",
+      assetCount: canonicalMediaAssets.length,
+      rawAssetCount: canonicalMediaAssets.length,
+      hasMultipleAssets: canonicalMediaAssets.length > 1,
+      primaryAssetId: canonicalMediaAssets[0]?.id ?? null,
+      coverAssetId: canonicalMediaAssets[0]?.id ?? null,
+      cover: {
+        type: seed.media.type,
+        url: seed.media.posterUrl,
+        posterUrl: seed.media.posterUrl,
+        thumbUrl: seed.media.posterUrl,
+        width: assets[0]?.width ?? null,
+        height: assets[0]?.height ?? null,
+        aspectRatio: assets[0]?.aspectRatio ?? null,
+        assetId: canonicalMediaAssets[0]?.id ?? null,
+        gradient:
+          Array.isArray(seed.letterboxGradients) && seed.letterboxGradients.length > 0
+            ? seed.letterboxGradients[0]
+            : null
+      },
+      assets: canonicalMediaAssets
+    },
     thumbUrl: seed.media.posterUrl,
     displayPhotoLink: seed.media.posterUrl,
     photoLink: seed.photoLink ?? seed.displayPhotoLink,
@@ -582,9 +696,14 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
         reason: "appPost_fewer_assets_than_firestore_top_level"
       });
     }
+    const canonical = fixed as unknown as CanonicalPost;
     return {
-      appPost: fixed as unknown as Record<string, unknown>,
-      postContractVersion: 2
+      // Compatibility mirrors: all point to the same canonical object.
+      appPost: canonical as unknown as Record<string, unknown>,
+      appPostV2: canonical as unknown as Record<string, unknown>,
+      canonicalPost: canonical as unknown as Record<string, unknown>,
+      post: canonical as unknown as Record<string, unknown>,
+      postContractVersion: 3
     };
   } catch {
     return {};

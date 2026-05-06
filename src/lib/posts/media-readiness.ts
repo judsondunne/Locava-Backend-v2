@@ -146,6 +146,11 @@ export function buildPostMediaReadiness(
   const post = asRecord(postLike) ?? {};
   const assets = Array.isArray(post.assets) ? (post.assets as PostRecord[]) : [];
   const firstVideo = assets.find((asset) => pickString(asset?.type, asset?.mediaType) === "video") ?? null;
+  const appPost = asRecord(post.appPostV2) ?? asRecord(post.appPost);
+  const appPostAssets =
+    Array.isArray(asRecord(appPost?.media)?.assets) ? ((asRecord(appPost?.media)?.assets ?? []) as PostRecord[]) : [];
+  const firstCanonicalVideo =
+    appPostAssets.find((asset) => pickString(asset?.type, asset?.mediaType) === "video") ?? null;
   const hasVideo = firstVideo != null || pickString(post.mediaType) === "video";
   const posterUrl = pickString(firstVideo?.poster, firstVideo?.thumbnail, asRecord(firstVideo?.variants)?.poster);
 
@@ -175,9 +180,19 @@ export function buildPostMediaReadiness(
     };
   }
 
-  const instantPlaybackReady = pickBoolean(post.instantPlaybackReady, firstVideo?.instantPlaybackReady) === true;
-  const videoProcessingStatus = pickString(post.videoProcessingStatus);
-  const assetsReady = pickBoolean(post.assetsReady) === true;
+  const canonicalReadiness = asRecord(firstCanonicalVideo?.video)?.readiness as PostRecord | null;
+  const instantPlaybackReady =
+    pickBoolean(
+      canonicalReadiness?.instantPlaybackReady,
+      post.instantPlaybackReady,
+      firstVideo?.instantPlaybackReady
+    ) === true;
+  const videoProcessingStatus = pickString(
+    canonicalReadiness?.processingStatus,
+    post.videoProcessingStatus
+  );
+  const assetsReady =
+    pickBoolean(canonicalReadiness?.assetsReady, post.assetsReady) === true;
 
   const selection = selectBestVideoPlaybackAsset(postLike, {
     hydrationMode: opts?.hydrationMode ?? "detail",

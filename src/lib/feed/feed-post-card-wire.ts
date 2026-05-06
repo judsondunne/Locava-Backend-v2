@@ -2,7 +2,10 @@ import type { FeedBootstrapCandidateRecord } from "../../repositories/surfaces/f
 
 export type FeedCardWireInput = FeedBootstrapCandidateRecord & {
   appPost?: unknown;
-  postContractVersion?: 2;
+  appPostV2?: unknown;
+  canonicalPost?: unknown;
+  post?: unknown;
+  postContractVersion?: 2 | 3;
   appPostBuildError?: string;
 };
 
@@ -79,7 +82,14 @@ export function wireFeedCandidateToPostCardSummary(
     comments: item.comments,
     commentsPreview: item.commentsPreview,
     ...(rec.appPost !== undefined ? { appPost: rec.appPost } : {}),
-    ...(rec.postContractVersion === 2 ? { postContractVersion: 2 as const } : {}),
+    ...(rec.appPostV2 !== undefined ? { appPostV2: rec.appPostV2 } : {}),
+    ...(rec.canonicalPost !== undefined ? { canonicalPost: rec.canonicalPost } : {}),
+    ...(rec.post !== undefined ? { post: rec.post } : {}),
+    ...(rec.postContractVersion === 3
+      ? { postContractVersion: 3 as const }
+      : rec.postContractVersion === 2
+        ? { postContractVersion: 2 as const }
+        : {}),
     ...(typeof item.assetCount === "number" && Number.isFinite(item.assetCount) ? { assetCount: item.assetCount } : {}),
     ...(typeof item.hasMultipleAssets === "boolean" ? { hasMultipleAssets: item.hasMultipleAssets } : {}),
     ...(typeof item.rawFirestoreAssetCount === "number" && Number.isFinite(item.rawFirestoreAssetCount)

@@ -289,8 +289,24 @@ function mergeVideoVariantsPreferExisting(base: PostRecord | null, extra: PostRe
 }
 
 function firstVideoAsset(post: PostRecord): PostRecord | null {
-  const assets = Array.isArray(post.assets) ? (post.assets as PostRecord[]) : [];
-  const fromArr = assets.find((a) => pickString(a?.type, a?.mediaType) === "video") ?? null;
+  const collectAssets = (holder: PostRecord | null | undefined): PostRecord[] => {
+    if (!holder) return [];
+    const media = asRecord(holder.media);
+    if (Array.isArray(media?.assets)) return media.assets as PostRecord[];
+    if (Array.isArray(holder.assets)) return holder.assets as PostRecord[];
+    return [];
+  };
+  const sources = [
+    collectAssets(post),
+    collectAssets(asRecord(post.appPostV2)),
+    collectAssets(asRecord(post.appPost)),
+    collectAssets(asRecord(post.post)),
+    collectAssets(asRecord(post.canonicalPost)),
+  ];
+  const fromArr =
+    sources
+      .flat()
+      .find((a) => pickString(a?.type, a?.mediaType) === "video") ?? null;
   const synthetic = syntheticVideoAssetFromMediaRoot(post);
   if (fromArr && synthetic) return mergeVideoVariantsPreferExisting(fromArr, synthetic);
   return fromArr ?? synthetic;

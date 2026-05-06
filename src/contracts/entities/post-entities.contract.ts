@@ -91,7 +91,10 @@ const PostEnvelopeFieldsSchema = z.object({
 export const PostCardSummarySchema = z.object({
   /** Canonical app-facing post contract (Master Post V2 derived). */
   appPost: z.record(z.unknown()).optional(),
-  postContractVersion: z.literal(2).optional(),
+  appPostV2: z.record(z.unknown()).optional(),
+  canonicalPost: z.record(z.unknown()).optional(),
+  post: z.record(z.unknown()).optional(),
+  postContractVersion: z.union([z.literal(2), z.literal(3)]).optional(),
   postId: z.string(),
   rankToken: z.string(),
   author: AuthorSummarySchema,

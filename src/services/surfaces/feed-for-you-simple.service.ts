@@ -1204,7 +1204,9 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
   if (fullCard.appPost && typeof fullCard.appPost === "object") {
     (leanCard as Record<string, unknown>).appPost = fullCard.appPost;
     (leanCard as Record<string, unknown>).appPostV2 = fullCard.appPost;
-    (leanCard as Record<string, unknown>).postContractVersion = 2 as const;
+    (leanCard as Record<string, unknown>).canonicalPost = fullCard.appPost;
+    (leanCard as Record<string, unknown>).post = fullCard.appPost;
+    (leanCard as Record<string, unknown>).postContractVersion = 3 as const;
   }
   return leanCard as FeedCardDTO;
 }

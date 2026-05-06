@@ -1,4 +1,5 @@
 import type { AppPostV2 } from "../../../contracts/app-post-v2.contract.js";
+import type { CanonicalPost } from "../../../contracts/posts/canonical-post.contract.js";
 import type { PostEngagementSourceAuditV2 } from "../../../contracts/master-post-v2.types.js";
 import { isBackendAppPostV2ResponsesEnabled } from "./flags.js";
 import { hydrateAppPostsViewerState } from "./hydrateAppPostViewerState.js";
@@ -39,8 +40,11 @@ export function attachAppPostV2ToRecord(
     const canonicalAssets = Array.isArray(appPost.media?.assets)
       ? (appPost.media!.assets as unknown as Array<Record<string, unknown>>)
       : [];
-    target.appPostV2 = appPost as unknown as Record<string, unknown>;
-    target.appPost = appPost as unknown as Record<string, unknown>;
+    const canonical = appPost as unknown as CanonicalPost;
+    target.appPostV2 = canonical as unknown as Record<string, unknown>;
+    target.appPost = canonical as unknown as Record<string, unknown>;
+    target.canonicalPost = canonical as unknown as Record<string, unknown>;
+    target.post = canonical as unknown as Record<string, unknown>;
     target.media = canonicalMedia;
     target.assets = canonicalAssets;
     target.id = target.id ?? appPost.id;
@@ -55,7 +59,7 @@ export function attachAppPostV2ToRecord(
       (appPost.engagementPreview as unknown as Record<string, unknown>) ?? target.engagementPreview;
     target.viewerState =
       (appPost.viewerState as unknown as Record<string, unknown>) ?? target.viewerState;
-    target.postContractVersion = 2;
+    target.postContractVersion = 3;
     return appPost;
   } catch {
     return null;
