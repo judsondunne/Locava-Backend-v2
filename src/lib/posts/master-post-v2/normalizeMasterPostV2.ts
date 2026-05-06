@@ -382,7 +382,8 @@ function collectVerifiedFaststartUrls(
 }
 
 function selectCanonicalVideoPlaybackAsset(input: CanonicalVideoSelectionInput): CanonicalVideoSelectionResult {
-  const pick = (...values: Array<string | null>) => values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
+  const pick = (...values: Array<string | null | undefined>) =>
+    values.find((value) => typeof value === "string" && value.trim().length > 0) ?? null;
   const isVerified = (url: string | null): url is string => Boolean(url && input.verifiedFaststartUrls.has(url));
   const p = input.playback;
 
@@ -543,18 +544,28 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   };
 
   const lifecycleCreatedAtMsDerivation = deriveLifecycleCreatedAtMs(rawPost);
+  const rawLc = toObject(rawPost.lifecycle) ?? {};
+  const nestedLifecycleStatus = toTrimmed(rawLc.status)?.toLowerCase();
+  const lifecycleIsDeleted =
+    toBool(rawPost.deleted, false) ||
+    toBool(rawPost.isDeleted, false) ||
+    toBool(rawLc.isDeleted, false) ||
+    nestedLifecycleStatus === "deleted";
   const lifecycle: MasterPostV2["lifecycle"] = {
     status: "active" as MasterPostLifecycleStatusV2,
-    isDeleted: toBool(rawPost.deleted, false) || toBool(rawPost.isDeleted, false),
-    deletedAt: toIso(rawPost.deletedAt),
-    createdAt: toIso(rawPost.createdAt ?? rawPost.time),
+    isDeleted: lifecycleIsDeleted,
+    deletedAt: toIso(rawLc.deletedAt ?? rawPost.deletedAt),
+    createdAt: toIso(rawLc.createdAt ?? rawPost.createdAt ?? rawPost.time),
     createdAtMs: lifecycleCreatedAtMsDerivation.ms,
-    updatedAt: toIso(rawPost.updatedAt ?? rawPost.lastUpdated),
-    lastMediaUpdatedAt: toIso(rawPost.reelUpdatedAt ?? rawPost.updatedAt),
-    lastUserVisibleAt: toIso(rawPost.updatedAt ?? rawPost.time)
+    updatedAt: toIso(rawLc.updatedAt ?? rawPost.updatedAt ?? rawPost.lastUpdated),
+    lastMediaUpdatedAt: toIso(rawLc.lastMediaUpdatedAt ?? rawPost.reelUpdatedAt ?? rawPost.updatedAt),
+    lastUserVisibleAt: toIso(rawLc.lastUserVisibleAt ?? rawPost.updatedAt ?? rawPost.time)
   };
-  if (lifecycle.isDeleted) lifecycle.status = "deleted";
-  else {
+  if (lifecycle.isDeleted) {
+    lifecycle.status = "deleted";
+  } else if (nestedLifecycleStatus === "processing" || nestedLifecycleStatus === "failed") {
+    lifecycle.status = nestedLifecycleStatus as MasterPostV2["lifecycle"]["status"];
+  } else {
     const mediaStatus = toTrimmed(rawPost.mediaStatus, rawPost.videoProcessingStatus);
     if (mediaStatus === "processing") lifecycle.status = "processing";
     else if (mediaStatus === "failed") lifecycle.status = "failed";
@@ -567,7 +578,35 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
 
   const rawAssets = Array.isArray(rawPost.assets) ? rawPost.assets : [];
   const mediaAssets = Array.isArray(mediaObj.assets) ? mediaObj.assets : [];
-  const allAssets: Array<any> = rawAssets.length > 0 ? [...rawAssets] : [...mediaAssets];
+  const schemaObj = toObject(rawPost.schema) ?? {};
+  const isStoredCanonicalShape =
+    toTrimmed(schemaObj.name) === "locava.post" &&
+    (typeof schemaObj.version === "number" ? schemaObj.version === 2 : Number(schemaObj.version) === 2);
+  const mediaAssetsHaveCanonicalVideoPlayback = mediaAssets.some((asset) => {
+    const row = toObject(asset) ?? {};
+    if (toTrimmed(row.type) !== "video") return false;
+    const rowVideo = toObject(row.video) ?? {};
+    const playback = toObject(rowVideo.playback) ?? {};
+    return Boolean(
+      toTrimmed(
+        playback.startupUrl,
+        playback.defaultUrl,
+        playback.primaryUrl,
+        playback.goodNetworkUrl,
+        playback.weakNetworkUrl,
+        playback.poorNetworkUrl,
+        playback.selectedReason
+      )
+    );
+  });
+  const shouldPreferMediaAssets =
+    mediaAssets.length > 0 &&
+    (isStoredCanonicalShape || mediaAssetsHaveCanonicalVideoPlayback);
+  const allAssets: Array<any> = shouldPreferMediaAssets
+    ? [...mediaAssets]
+    : rawAssets.length > 0
+      ? [...rawAssets]
+      : [...mediaAssets];
 
   const posterFiles = toObject(rawPost.posterFiles) ?? {};
   const labAssets = toObject(playbackLab.assets) ?? {};
@@ -624,12 +663,14 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   const normalizedAssets: any[] = allAssets.map((asset, index) => {
     const row = toObject(asset) ?? {};
     const declaredType = toTrimmed(row.type, row.mediaType);
-    const fromLab = toObject(labAssets[row.id]) ?? {};
-    const variants = toObject(row.variants) ?? {};
+    const rowId = toTrimmed(row.id, row.assetId) ?? "";
+    const fromLab = toObject(labAssets[rowId]) ?? toObject(labAssets[String(row.id ?? "")]) ?? {};
+    const rowVideo = toObject(row.video) ?? {};
+    const variants = { ...toObject(rowVideo.variants), ...toObject(row.variants) };
     const generated = toObject(fromLab.generated) ?? {};
     const rowPlaybackLab = toObject(row.playbackLab) ?? {};
     const rowPlaybackLabGenerated = toObject(rowPlaybackLab.generated) ?? {};
-    const postPlaybackLabAsset = toObject(toObject(playbackLab.assets)?.[toTrimmed(row.id) ?? ""]) ?? {};
+    const postPlaybackLabAsset = toObject(toObject(playbackLab.assets)?.[rowId]) ?? {};
     const postPlaybackLabAssetGenerated = toObject(postPlaybackLabAsset.generated) ?? {};
     const generatedOutputs = parseGeneratedOutputs(generated.outputs ?? generated.diagnosticsJson);
     const rowGeneratedOutputs = parseGeneratedOutputs(rowPlaybackLabGenerated.outputs ?? rowPlaybackLabGenerated.diagnosticsJson);
@@ -637,8 +678,13 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       postPlaybackLabAssetGenerated.outputs ?? postPlaybackLabAssetGenerated.diagnosticsJson
     );
     const pickPlaybackUrl = (...values: unknown[]): string | null => toTrimmed(...values);
+    const rowImage = toObject(row.image) ?? {};
+    const nestedPlayback = toObject(rowVideo.playback) ?? {};
     const displayImage =
       toTrimmed(
+        rowImage.displayUrl,
+        rowImage.originalUrl,
+        rowImage.thumbnailUrl,
         toObject(variants.lg)?.webp,
         toObject(variants.md)?.webp,
         toObject(variants.fallbackJpg)?.jpg,
@@ -646,7 +692,16 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
         row.url
       ) ?? null;
     const thumbImage =
-      toTrimmed(toObject(variants.thumb)?.webp, toObject(variants.sm)?.webp, toObject(variants.md)?.webp, row.original) ?? null;
+      toTrimmed(
+        rowImage.thumbnailUrl,
+        rowImage.displayUrl,
+        rowImage.originalUrl,
+        toObject(variants.thumb)?.webp,
+        toObject(variants.sm)?.webp,
+        toObject(variants.md)?.webp,
+        row.original,
+        row.url
+      ) ?? null;
     const fallbackVideo = toTrimmed(rawPost.fallbackVideoUrl);
     const explicitMain1080 = toTrimmed(row.main1080, variants.main1080);
     const explicitMain1080Avc = toTrimmed(row.main1080Avc, variants.main1080Avc);
@@ -731,7 +786,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       hls: pickPlaybackUrl(row.hls, variants.hls, generated.hls, rowPlaybackLabGenerated.hls, postPlaybackLabAssetGenerated.hls),
       main1080Avc: explicitMain1080Avc,
       main720: pickPlaybackUrl(row.main720, variants.main720, generated.main720, rowPlaybackLabGenerated.main720, postPlaybackLabAssetGenerated.main720),
-      original: toTrimmed(row.original, row.url, fallbackVideo),
+      original: toTrimmed(rowVideo.originalUrl, nestedPlayback.defaultUrl, nestedPlayback.primaryUrl, row.original, row.url, fallbackVideo),
       preview360Avc: pickPlaybackUrl(
         row.preview360Avc,
         variants.preview360Avc,
@@ -815,13 +870,39 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       previewUrl: playback.preview360Avc ?? playback.preview360,
       verifiedFaststartUrls
     });
-    if (selectedPlayback.aliasStartup1080FromMain && preservedVariants.startup1080FaststartAvc == null) {
+    const nestedPreferredPlaybackUrl = toTrimmed(
+      nestedPlayback.goodNetworkUrl,
+      nestedPlayback.startupUrl,
+      nestedPlayback.defaultUrl,
+      nestedPlayback.primaryUrl
+    );
+    const nestedSelectedReason = toTrimmed(nestedPlayback.selectedReason);
+    const shouldTrustNestedCanonicalPlayback = Boolean(
+      nestedPreferredPlaybackUrl &&
+        (nestedSelectedReason ||
+          /startup(?:540|720|1080)_faststart_avc\.mp4/i.test(nestedPreferredPlaybackUrl))
+    );
+    const selectedPlaybackResolved = shouldTrustNestedCanonicalPlayback
+      ? {
+          ...selectedPlayback,
+          selectedGoodNetworkUrl: nestedPreferredPlaybackUrl,
+          selectedWeakNetworkUrl: toTrimmed(nestedPlayback.weakNetworkUrl, nestedPreferredPlaybackUrl),
+          selectedPoorNetworkUrl: toTrimmed(nestedPlayback.poorNetworkUrl, nestedPreferredPlaybackUrl),
+          fallbackUrl: toTrimmed(nestedPlayback.fallbackUrl, selectedPlayback.fallbackUrl),
+          selectedPreviewUrl: toTrimmed(nestedPlayback.previewUrl, selectedPlayback.selectedPreviewUrl),
+          selectedReason: nestedSelectedReason ?? selectedPlayback.selectedReason,
+          hasVerifiedPlayback: true,
+          hasVerifiedOptimizedPlayback: true
+        }
+      : selectedPlayback;
+    if (selectedPlaybackResolved.aliasStartup1080FromMain && preservedVariants.startup1080FaststartAvc == null) {
       preservedVariants.startup1080FaststartAvc = playback.main1080Avc ?? null;
     }
-    if (selectedPlayback.aliasStartup720FromMain && preservedVariants.startup720FaststartAvc == null) {
+    if (selectedPlaybackResolved.aliasStartup720FromMain && preservedVariants.startup720FaststartAvc == null) {
       preservedVariants.startup720FaststartAvc = playback.main720Avc ?? null;
     }
-    const playbackReady = selectedPlayback.hasVerifiedOptimizedPlayback && Boolean(playback.original || row.poster || rawPost.displayPhotoLink);
+    const playbackReady =
+      selectedPlaybackResolved.hasVerifiedOptimizedPlayback && Boolean(playback.original || row.poster || rawPost.displayPhotoLink);
     const hasVideoHints = [
       row.hls,
       row.hlsAvcMaster,
@@ -844,15 +925,15 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
           isVideoUrl(toTrimmed(playback.original, playback.hls, playback.main720Avc))))
         ? "video"
         : "image";
+    const generatedId = `${resolvedType}_${postId}_${index}`;
     if (!playbackReady && resolvedType === "video") {
       pushWarning(
         warnings,
         "video_instant_playback_not_verified_faststart",
-        `Video asset ${toTrimmed(row.id) ?? generatedId} has no verified fast-start optimized AVC URL (reason=${selectedPlayback.selectedReason})`,
+        `Video asset ${toTrimmed(row.id) ?? generatedId} has no verified fast-start optimized AVC URL (reason=${selectedPlaybackResolved.selectedReason})`,
         "media.assets.video.readiness"
       );
     }
-    const generatedId = `${resolvedType}_${postId}_${index}`;
     const gradientByIndex = normalizeGradientCandidate(letterboxGradients[index]);
     const gradientFromSingleArrayEntry =
       letterboxGradients.length === 1 ? normalizeGradientCandidate(letterboxGradients[0]) : null;
@@ -897,7 +978,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       image:
         resolvedType === "image"
           ? {
-              originalUrl: toTrimmed(row.original, row.url),
+              originalUrl: toTrimmed(rowImage.originalUrl, rowImage.displayUrl, row.original, row.url),
               displayUrl: displayImage,
               thumbnailUrl: thumbImage,
               blurhash: toTrimmed(row.blurhash),
@@ -923,19 +1004,19 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
                 ) ?? null,
               posterHighUrl: toTrimmed(generated.posterHigh, row.posterHigh),
               playback: {
-                defaultUrl: selectedPlayback.selectedGoodNetworkUrl,
-                primaryUrl: selectedPlayback.selectedGoodNetworkUrl,
-                startupUrl: selectedPlayback.selectedGoodNetworkUrl,
-                highQualityUrl: selectedPlayback.selectedGoodNetworkUrl,
-                upgradeUrl: selectedPlayback.selectedGoodNetworkUrl,
+                defaultUrl: selectedPlaybackResolved.selectedGoodNetworkUrl,
+                primaryUrl: selectedPlaybackResolved.selectedGoodNetworkUrl,
+                startupUrl: selectedPlaybackResolved.selectedGoodNetworkUrl,
+                highQualityUrl: selectedPlaybackResolved.selectedGoodNetworkUrl,
+                upgradeUrl: selectedPlaybackResolved.selectedGoodNetworkUrl,
                 hlsUrl: playback.hlsAvcMaster ?? playback.hls ?? null,
-                fallbackUrl: selectedPlayback.fallbackUrl,
-                previewUrl: selectedPlayback.selectedPreviewUrl,
+                fallbackUrl: selectedPlaybackResolved.fallbackUrl,
+                previewUrl: selectedPlaybackResolved.selectedPreviewUrl,
                 ...( {
-                  goodNetworkUrl: selectedPlayback.selectedGoodNetworkUrl,
-                  weakNetworkUrl: selectedPlayback.selectedWeakNetworkUrl,
-                  poorNetworkUrl: selectedPlayback.selectedPoorNetworkUrl,
-                  selectedReason: selectedPlayback.selectedReason
+                  goodNetworkUrl: selectedPlaybackResolved.selectedGoodNetworkUrl,
+                  weakNetworkUrl: selectedPlaybackResolved.selectedWeakNetworkUrl,
+                  poorNetworkUrl: selectedPlaybackResolved.selectedPoorNetworkUrl,
+                  selectedReason: selectedPlaybackResolved.selectedReason
                 } as Record<string, string | null> )
               },
               variants: preservedVariants,
@@ -952,7 +1033,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
               readiness: {
                 assetsReady: playbackReady,
                 instantPlaybackReady: playbackReady,
-                faststartVerified: selectedPlayback.hasVerifiedPlayback,
+                faststartVerified: selectedPlaybackResolved.hasVerifiedPlayback,
                 processingStatus: playbackReady
                   ? toTrimmed(rawPost.videoProcessingStatus, playbackLab.status, rawPost.mediaStatus) ?? "completed"
                   : toTrimmed(rawPost.videoProcessingStatus, playbackLab.status, rawPost.mediaStatus)
@@ -1157,8 +1238,35 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   const coverRawAsset = coverAsset ? toObject(allAssets[coverAsset.index]) ?? null : null;
   const coverRawVariantMetadata = toObject(coverRawAsset?.variantMetadata) ?? {};
   const coverRawPosterMetadata = toObject(coverRawVariantMetadata.poster) ?? {};
-  const coverUrl = (coverAsset?.type === "image" ? coverAsset.image?.displayUrl : coverAsset?.video?.posterUrl) ?? null;
-  const coverThumb = (coverAsset?.type === "image" ? coverAsset.image?.thumbnailUrl : coverAsset?.video?.posterUrl) ?? null;
+  let coverUrl = (coverAsset?.type === "image" ? coverAsset.image?.displayUrl : coverAsset?.video?.posterUrl) ?? null;
+  let coverThumb = (coverAsset?.type === "image" ? coverAsset.image?.thumbnailUrl : coverAsset?.video?.posterUrl) ?? null;
+  const rawMediaCover = toObject(mediaObj.cover) ?? {};
+  const rawCompat = toObject(rawPost.compatibility) ?? {};
+  if (!toTrimmed(coverUrl)) {
+    coverUrl =
+      toTrimmed(
+        rawMediaCover.url,
+        rawMediaCover.thumbUrl,
+        rawMediaCover.posterUrl,
+        rawCompat.photoLink,
+        rawCompat.displayPhotoLink,
+        rawCompat.thumbUrl,
+        rawPost.photoLink,
+        rawPost.displayPhotoLink,
+        rawPost.thumbUrl
+      ) ?? null;
+  }
+  if (!toTrimmed(coverThumb)) {
+    coverThumb =
+      toTrimmed(
+        rawMediaCover.thumbUrl,
+        rawMediaCover.posterUrl,
+        rawMediaCover.url,
+        coverUrl,
+        rawCompat.thumbUrl,
+        rawCompat.photoLink
+      ) ?? null;
+  }
   const coverPoster = (coverAsset?.type === "video" ? coverAsset.video?.posterUrl : null) ?? null;
   const coverWidth =
     (toNum(
@@ -1288,6 +1396,16 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   const firstVideo = dedupe.deduped.find((a) => a.type === "video");
   const firstVideoPlaybackReady = firstVideo?.video?.readiness?.instantPlaybackReady === true;
   const firstVideoAssetsReady = firstVideo?.video?.readiness?.assetsReady === true;
+  const startup720Variant =
+    (typeof firstVideo?.video?.variants?.startup720FaststartAvc === "string"
+      ? firstVideo.video.variants.startup720FaststartAvc.trim()
+      : "") ||
+    (typeof firstVideo?.video?.variants?.startup720Faststart === "string"
+      ? firstVideo.video.variants.startup720Faststart.trim()
+      : "") ||
+    null;
+  const photoLinksFaststartTier =
+    firstVideo?.video?.readiness?.faststartVerified === true && startup720Variant ? startup720Variant : null;
 
   const mediaPresentationCarousel =
     typeof rawPost.carouselFitWidth === "boolean" ? rawPost.carouselFitWidth : null;
@@ -1390,8 +1508,16 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     },
     compatibility: {
       photoLink: coverUrl ?? null,
-      photoLinks2: firstVideo?.video?.playback.primaryUrl ?? toTrimmed(rawPost.photoLinks2) ?? null,
-      photoLinks3: firstVideo?.video?.playback.upgradeUrl ?? toTrimmed(rawPost.photoLinks3) ?? null,
+      photoLinks2:
+        photoLinksFaststartTier ??
+        firstVideo?.video?.playback.primaryUrl ??
+        toTrimmed(rawPost.photoLinks2) ??
+        null,
+      photoLinks3:
+        photoLinksFaststartTier ??
+        firstVideo?.video?.playback.upgradeUrl ??
+        toTrimmed(rawPost.photoLinks3) ??
+        null,
       displayPhotoLink: coverUrl ?? null,
       thumbUrl: coverThumb ?? null,
       posterUrl: coverPoster ?? null,

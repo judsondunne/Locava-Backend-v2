@@ -1238,6 +1238,13 @@ export class PostingMutationService {
       }
     }).firestoreWrite;
 
+    if (assembled.hasVideo) {
+      const audit = firestoreWrite.audit as Record<string, unknown> | undefined;
+      if (audit && "normalizationDebug" in audit) {
+        delete audit.normalizationDebug;
+      }
+    }
+
     const firstVideo = assembled.assets.find((a) => String((a as { type?: string }).type).toLowerCase() === "video") as
       | {
           poster?: string;

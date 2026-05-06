@@ -2,18 +2,34 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { FieldValue, Timestamp, type DocumentReference } from "firebase-admin/firestore";
+import { Timestamp, type DocumentReference } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { readWasabiConfigFromEnv } from "../storage/wasabi-config.js";
 import { buildPostMediaReadiness } from "../../lib/posts/media-readiness.js";
+import { normalizeMasterPostV2 } from "../../lib/posts/master-post-v2/normalizeMasterPostV2.js";
+import {
+  collectTrustedStartupUrlsForNativeComplete,
+  mergeEncodedIntoVideoAssetRow,
+  playbackLabVerificationFromUrls,
+  slimPlaybackLabAssetNode,
+  writeCompactLivePostAfterNativeVideoProcessing
+} from "../posting/native-async-video-post-complete.js";
 import {
   encodeAndUploadVideoAsset,
   LAB_ARTIFACT_KEYS,
-  type VideoAssetJob,
+  type EncodedVideoAssetResult,
+  type VideoAssetJob
 } from "./video-post-encoding.pipeline.js";
 import { verifyRemoteMp4Faststart } from "./remote-url-verify.js";
 import { verifyS3ObjectMp4Faststart } from "./s3-mp4-verify.js";
-import { shouldGenerate1080Ladder } from "./video-source-policy.js";
+import { normalizeVideoLabPostFolder } from "./normalizeVideoLabPostFolder.js";
+import { enqueueDeferred1080UpgradeCloudTask } from "../posting/video-processing-cloud-task.service.js";
+import {
+  buildNativeFastPathEncodeOnly,
+  evaluateDeferred1080UpgradeEligibility,
+  getRequiredVariantsForPostReady,
+  hasConfidentPosterUrl
+} from "./post-ready-variant-plan.js";
 
 export type VideoProcessorPayload = {
   postId: string;
@@ -25,10 +41,19 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
 
+function trimStr(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function num(v: unknown): number {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
 async function emitAsyncPipelinePhase(
   postRef: DocumentReference,
   asyncExtras: Record<string, unknown>,
-  progressExtras?: Record<string, unknown>,
+  progressExtras?: Record<string, unknown>
 ): Promise<void> {
   const snap = await postRef.get();
   const doc = (snap.data() ?? {}) as Record<string, unknown>;
@@ -84,16 +109,35 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
   const snap = await postRef.get();
   if (!snap.exists) return { ok: false, error: "post_not_found" };
   const post = (snap.data() ?? {}) as Record<string, unknown>;
+  const snapshotRaw = { ...post } as Record<string, unknown>;
   const assets = Array.isArray(post.assets) ? [...(post.assets as Record<string, unknown>[])] : [];
   const nowMs = Date.now();
   const nowTs = Timestamp.fromMillis(nowMs);
 
-  const videoProc = String(post.videoProcessingStatus ?? "").toLowerCase();
-  if (post.assetsReady === true && videoProc === "completed") {
+  const normalizedProbe = normalizeMasterPostV2(post, {
+    postId: payload.postId,
+    postingFinalizeV2: true,
+    now: new Date(nowMs)
+  });
+  const fvProbe = normalizedProbe.canonical.media.assets.find((a) => a.type === "video");
+  const completed = String(post.videoProcessingStatus ?? "").toLowerCase() === "completed";
+  const mediaReady = normalizedProbe.canonical.media.status === "ready";
+  const vidReady =
+    fvProbe &&
+    fvProbe.video?.readiness?.instantPlaybackReady === true &&
+    fvProbe.video?.readiness?.assetsReady === true &&
+    fvProbe.video?.readiness?.faststartVerified === true;
+  if (completed && mediaReady && vidReady) {
     return { ok: true };
   }
 
   const enableRemoteUploadVerify = process.env.VIDEO_ENABLE_REMOTE_UPLOAD_VERIFY === "1";
+  const includePreview360 = process.env.NATIVE_POST_READY_INCLUDE_PREVIEW360 === "1";
+  const includeMain720 = process.env.NATIVE_POST_READY_INCLUDE_MAIN720 === "1";
+  const variantPlan = getRequiredVariantsForPostReady({
+    includePreview360Avc: includePreview360,
+    includeMain720Avc: includeMain720
+  });
 
   await postRef.set(
     {
@@ -113,23 +157,25 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
       },
       videoProcessingStatus: "processing"
     },
-    { merge: true },
+    { merge: true }
   );
 
   await emitAsyncPipelinePhase(
     postRef,
     { status: "processing", phase: "worker_started" },
-    { phase: "encode", totalVideos: payload.videoAssets.length, processedVideos: 0 },
+    { phase: "encode", totalVideos: payload.videoAssets.length, processedVideos: 0 }
   ).catch(() => {});
 
   const workRoot = path.join(os.tmpdir(), `locava-v2-video-${payload.postId}-${randomUUID()}`);
   await fs.mkdir(workRoot, { recursive: true });
 
-  const playbackLabAssets: Record<string, unknown> = {
+  const playbackLabAssetsFull: Record<string, unknown> = {
     ...asRecord(asRecord(post.playbackLab)?.assets)
   };
+  const slimLabAssets: Record<string, unknown> = {};
   const generateErrors: string[] = [];
   let assetsEncodedAndVerified = 0;
+  const allTrustUrls: string[] = [];
 
   try {
     for (const job of payload.videoAssets) {
@@ -146,65 +192,90 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
       const poster =
         String(assetRow.poster ?? "").trim() ||
         String((asRecord(assetRow.variants)?.poster as string | undefined) ?? "").trim();
+      const variants = asRecord(assetRow.variants) ?? {};
+      const existing540 = trimStr(variants.startup540FaststartAvc);
+      const existing720 = trimStr(variants.startup720FaststartAvc);
+      const existingKeys = new Set<string>();
+      if (existing540) existingKeys.add("startup540FaststartAvc");
+      if (existing720) existingKeys.add("startup720FaststartAvc");
+      if (trimStr(variants.preview360Avc)) existingKeys.add("preview360Avc");
+      if (trimStr(variants.main720Avc)) existingKeys.add("main720Avc");
+      if (trimStr(variants.posterHigh)) existingKeys.add("posterHigh");
+
+      const needsPosterHigh = !hasConfidentPosterUrl({
+        poster: assetRow.poster,
+        variantPoster: variants.poster
+      });
+
+      const encodeOnly = buildNativeFastPathEncodeOnly({
+        plan: variantPlan,
+        needsPosterHigh,
+        includePreview360Avc: includePreview360,
+        includeMain720Avc: includeMain720,
+        existingEncodedKeys: existingKeys
+      });
+      const needsEncode = Object.values(encodeOnly).some(Boolean);
+
       const workDir = path.join(workRoot, job.id.replace(/[^\w-]+/g, "_"));
       await fs.mkdir(workDir, { recursive: true });
       await emitAsyncPipelinePhase(
         postRef,
         { status: "processing", phase: "encode_transcode", encodeAssetId: job.id },
-        { phase: "encode_transcode", currentAssetId: job.id },
+        { phase: "encode_transcode", currentAssetId: job.id }
       ).catch(() => {});
-      const encoded = await encodeAndUploadVideoAsset({
-        cfg,
-        postId: payload.postId,
-        asset: job,
-        workDir,
-        enableMain720Hevc: process.env.VIDEO_MAIN720_HEVC_ENABLED === "1"
-      });
 
-      const vPrev = asRecord(assetRow.variants) ?? {};
-      const mergedVariants: Record<string, unknown> = {
-        ...vPrev,
-        ...encoded.variants,
-        poster: String(vPrev.poster ?? poster ?? "")
-      };
-      if (!shouldGenerate1080Ladder(encoded.sourceWidth, encoded.sourceHeight)) {
-        delete mergedVariants.main1080;
-        delete mergedVariants.main1080Avc;
+      let encoded: EncodedVideoAssetResult | null = null;
+      if (needsEncode) {
+        encoded = await encodeAndUploadVideoAsset({
+          cfg,
+          postId: payload.postId,
+          asset: job,
+          workDir,
+          enableMain720Hevc: false,
+          encodeOnly
+        });
       }
-      if (!mergedVariants.poster) delete mergedVariants.poster;
+
+      const mergedRow = mergeEncodedIntoVideoAssetRow({
+        assetRow,
+        encoded,
+        existingStartup540: existing540,
+        existingStartup720: existing720
+      });
+      const mergedVariantsPreview = asRecord(mergedRow.variants) ?? {};
 
       await emitAsyncPipelinePhase(
         postRef,
         { status: "processing", phase: "verify_lab_outputs", encodeAssetId: job.id },
-        { phase: "verify", currentAssetId: job.id },
+        { phase: "verify", currentAssetId: job.id }
       ).catch(() => {});
 
       const remoteChecks: Array<Record<string, unknown>> = [];
-      const prefix = String(encoded.videosLabKeyPrefix ?? "").trim();
+      const prefix = encoded ? String(encoded.videosLabKeyPrefix ?? "").trim() : "";
       const check = async (label: string, url: string) => {
         const u = String(url ?? "").trim();
-        /** Default: trust local ffmpeg moov/faststart checks in the encoder (no HEAD/Range/SigV4 after PUT). Opt-in strict remote verify via env. */
+        if (!u) return;
         if (!enableRemoteUploadVerify) {
           remoteChecks.push({
             label,
             verifyMode: "trust_local_encode",
             ok: true,
             skipped: true,
-            ...(u ? { url } : {}),
+            url: u
           });
           return;
         }
         const suffix = labArtifactSuffixForVerifyLabel(label);
         const useS3Lab = Boolean(prefix && suffix);
         const variantHintForDedup =
-          u || `https://videos-lab.internal/${encodeURIComponent(payload.postId)}/${suffix}`;
+          u ||
+          `https://videos-lab.internal/${encodeURIComponent(normalizeVideoLabPostFolder(payload.postId))}/${suffix}`;
         let verifyMode: "s3_lab" | "remote" | "s3_lab_then_https" = useS3Lab ? "s3_lab" : "remote";
         const moovOpts = { requireMoovBeforeMdat: true as const };
 
         let r: Awaited<ReturnType<typeof verifyRemoteMp4Faststart>>;
         if (useS3Lab) {
           r = await verifyS3ObjectMp4Faststart(cfg, `${prefix}/${suffix}`, original, variantHintForDedup, moovOpts);
-          /** Lab objects are reachable at public CDN URLs — anonymous Range GET succeeds where SigV4 ranged GetObject fails. */
           if (!r.ok && /^https?:\/\//i.test(u)) {
             const rHttp = await verifyRemoteMp4Faststart(u, original, moovOpts);
             if (rHttp.ok) {
@@ -218,53 +289,56 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
         remoteChecks.push({
           label,
           verifyMode,
-          ...r,
+          ...r
         });
         if (!r.ok) throw new Error(`remote_verify_failed:${label}:${"reason" in r ? r.reason : "unknown"}`);
       };
-      await check("preview360Avc", String(mergedVariants.preview360Avc ?? ""));
-      await check("main720Avc", String(mergedVariants.main720Avc ?? ""));
-      const main720Url = String(mergedVariants.main720 ?? "").trim();
-      if (main720Url && main720Url !== String(mergedVariants.main720Avc ?? "").trim()) {
-        await check("main720", main720Url);
-      }
-      await check("startup540", encoded.playbackLabGenerated.startup540FaststartAvc ?? "");
-      await check("startup720", encoded.playbackLabGenerated.startup720FaststartAvc ?? "");
-      if (encoded.playbackLabGenerated.startup1080FaststartAvc) {
-        await check("startup1080", encoded.playbackLabGenerated.startup1080FaststartAvc);
-        await check("upgrade1080", encoded.playbackLabGenerated.upgrade1080FaststartAvc ?? "");
-      }
 
-      const labNode = {
-        generated: {
-          ...encoded.playbackLabGenerated,
-          diagnosticsJson: encoded.diagnosticsJson
-        },
-        generationMetadata: encoded.generationMetadata,
-        lastVerifyResults: [...encoded.lastVerifyResults, ...remoteChecks],
-        lastVerifyAllOk: true
-      };
-      playbackLabAssets[job.id] = labNode;
+      const u540 = trimStr(mergedVariantsPreview.startup540FaststartAvc);
+      const u720 = trimStr(mergedVariantsPreview.startup720FaststartAvc);
+      const u360 = trimStr(mergedVariantsPreview.preview360Avc);
+      const uMain = trimStr(mergedVariantsPreview.main720Avc);
+      await check("startup540", u540);
+      await check("startup720", u720);
+      if (u360) await check("preview360Avc", u360);
+      if (uMain) await check("main720Avc", uMain);
 
-      const nextMeta = { ...(asRecord(assetRow.variantMetadata) ?? {}), ...encoded.variantMetadata };
-      delete (nextMeta as { processing?: unknown }).processing;
+      const labNodeFull: Record<string, unknown> = encoded
+        ? {
+            generated: {
+              ...encoded.playbackLabGenerated,
+              diagnosticsJson: encoded.diagnosticsJson
+            },
+            generationMetadata: encoded.generationMetadata,
+            lastVerifyResults: [...encoded.lastVerifyResults, ...remoteChecks],
+            lastVerifyAllOk: true
+          }
+        : {
+            generated: {
+              ...(u540 ? { startup540FaststartAvc: u540 } : {}),
+              ...(u720 ? { startup720FaststartAvc: u720 } : {}),
+              ...(u360 ? { preview360Avc: u360 } : {}),
+              ...(uMain ? { main720Avc: uMain } : {})
+            },
+            lastVerifyResults: remoteChecks,
+            lastVerifyAllOk: true
+          };
 
-      const mergedAsset = {
-        ...assetRow,
-        width: encoded.sourceWidth,
-        height: encoded.sourceHeight,
-        durationSec: encoded.durationSec,
-        aspectRatio: encoded.sourceHeight > 0 ? encoded.sourceWidth / encoded.sourceHeight : assetRow.aspectRatio,
-        variants: mergedVariants,
-        variantMetadata: nextMeta,
-        playbackLab: {
-          ...(asRecord(assetRow.playbackLab) ?? {}),
-          status: "ready",
-          generated: labNode.generated,
-          generationMetadata: labNode.generationMetadata
-        },
-        instantPlaybackReady: true,
-        presentation: (assetRow as { presentation?: unknown }).presentation
+      playbackLabAssetsFull[job.id] = labNodeFull;
+      slimLabAssets[job.id] = slimPlaybackLabAssetNode(labNodeFull);
+
+      const trustUrls = collectTrustedStartupUrlsForNativeComplete({
+        remoteChecks,
+        encoded,
+        existingStartup540: existing540,
+        existingStartup720: existing720
+      });
+      allTrustUrls.push(...trustUrls);
+
+      const mergedAsset = { ...mergedRow };
+      mergedAsset.playbackLab = {
+        ...(asRecord(assetRow.playbackLab) ?? {}),
+        ...slimPlaybackLabAssetNode(labNodeFull)
       };
 
       const idx = assets.findIndex((a) => String(a.id ?? "") === job.id.trim());
@@ -276,14 +350,14 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
         {
           status: "processing",
           phase: "asset_encoded_verified",
-          encodeAssetId: job.id,
+          encodeAssetId: job.id
         },
         {
           phase: "asset_encoded_verified",
           processedVideos: assetsEncodedAndVerified,
           totalVideos: payload.videoAssets.length,
-          lastCompletedAssetId: job.id,
-        },
+          lastCompletedAssetId: job.id
+        }
       ).catch(() => {});
     }
 
@@ -293,31 +367,55 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
 
     const firstVideo = assets.find((a) => String(a.type ?? "").toLowerCase() === "video");
     const v0 = asRecord(firstVideo?.variants);
-    const preview360Avc = String(v0?.preview360Avc ?? "").trim();
-    const main720Avc = String(v0?.main720Avc ?? "").trim();
-    const posterUrl =
-      String(firstVideo?.poster ?? "").trim() || String(v0?.poster ?? "").trim() || undefined;
-    const mergedPost: Record<string, unknown> = {
+    const startup720 = trimStr(v0?.startup720FaststartAvc);
+    const startup540 = trimStr(v0?.startup540FaststartAvc);
+    if (!startup720 || !startup540) {
+      throw new Error("native_video_fastpath_missing_startup_variants");
+    }
+
+    const posterHigh =
+      trimStr(v0?.posterHigh) ||
+      trimStr(firstVideo?.poster) ||
+      trimStr(v0?.poster) ||
+      trimStr(post.displayPhotoLink);
+    const preview360Avc = trimStr(v0?.preview360Avc);
+    const main720Avc = trimStr(v0?.main720Avc);
+
+    const verification = playbackLabVerificationFromUrls([...new Set(allTrustUrls)]);
+
+    const prevLc = asRecord(post.lifecycle) ?? {};
+    const workingPost: Record<string, unknown> = {
       ...post,
       assets,
       assetsReady: true,
       videoProcessingStatus: "completed",
-      videoProcessingProgress: FieldValue.delete(),
       instantPlaybackReady: true,
       mediaStatus: "ready",
-      posterReady: Boolean(posterUrl),
-      posterPresent: Boolean(posterUrl),
-      ...(posterUrl ? { posterUrl } : {}),
+      lifecycle: {
+        ...prevLc,
+        status: "active"
+      },
+      posterReady: Boolean(posterHigh),
+      posterPresent: Boolean(posterHigh),
+      ...(posterHigh ? { posterUrl: posterHigh } : {}),
       playbackReady: true,
       playbackUrlPresent: true,
-      photoLinks2: preview360Avc || posterUrl,
-      photoLinks3: main720Avc || preview360Avc || posterUrl,
+      photoLink: posterHigh || post.photoLink,
+      displayPhotoLink: posterHigh || post.displayPhotoLink,
+      thumbUrl: posterHigh || post.thumbUrl,
+      photoLinks2: startup720,
+      photoLinks3: startup720,
       legacy: {
         ...(asRecord(post.legacy) ?? {}),
-        photoLink: posterUrl ?? post.photoLink,
-        photoLinks2: preview360Avc,
-        photoLinks3: main720Avc
+        photoLink: posterHigh || (asRecord(post.legacy)?.photoLink ?? post.photoLink),
+        displayPhotoLink: posterHigh || (asRecord(post.legacy)?.displayPhotoLink ?? post.displayPhotoLink),
+        thumbUrl: posterHigh || (asRecord(post.legacy)?.thumbUrl ?? post.thumbUrl),
+        posterUrl: posterHigh || (asRecord(post.legacy)?.posterUrl ?? post.posterUrl),
+        photoLinks2: startup720,
+        photoLinks3: startup720,
+        fallbackVideoUrl: trimStr(firstVideo?.original) || trimStr(post.fallbackVideoUrl)
       },
+      fallbackVideoUrl: trimStr(firstVideo?.original) || trimStr(post.fallbackVideoUrl),
       playbackLabUpdatedAt: nowTs,
       playbackLabStatus: "ready",
       playbackLab: {
@@ -326,7 +424,8 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
         version: 1,
         generatedAt: nowTs,
         lastVerifyAllOk: true,
-        assets: playbackLabAssets,
+        assets: slimLabAssets,
+        verification,
         asyncPipeline: {
           status: "ready",
           source: "native_v2_finalize",
@@ -342,21 +441,92 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
     };
 
     const readiness = buildPostMediaReadiness({
-      ...mergedPost,
+      ...workingPost,
       assetsReady: true,
       videoProcessingStatus: "completed",
       instantPlaybackReady: true
     });
-    mergedPost.playbackReady = readiness.playbackReady;
-    mergedPost.playbackUrlPresent = readiness.playbackUrlPresent;
-    if (readiness.playbackUrl) mergedPost.playbackUrl = readiness.playbackUrl;
-    if (readiness.fallbackVideoUrl) mergedPost.fallbackVideoUrl = readiness.fallbackVideoUrl;
+    workingPost.playbackReady = readiness.playbackReady;
+    workingPost.playbackUrlPresent = readiness.playbackUrlPresent;
+    if (readiness.playbackUrl) workingPost.playbackUrl = readiness.playbackUrl;
+    if (readiness.fallbackVideoUrl) workingPost.fallbackVideoUrl = readiness.fallbackVideoUrl;
 
-    for (const k of Object.keys(mergedPost)) {
-      if (mergedPost[k] === undefined) delete mergedPost[k];
+    for (const k of Object.keys(workingPost)) {
+      if (workingPost[k] === undefined) delete workingPost[k];
     }
 
-    await postRef.set(mergedPost, { merge: true });
+    const w = num(firstVideo?.width);
+    const h = num(firstVideo?.height);
+    const durationSec = num(firstVideo?.durationSec);
+    const sizeBytes = firstVideo?.sizeBytes != null ? num(firstVideo.sizeBytes) : null;
+    const meta = asRecord(firstVideo?.variantMetadata);
+    const brFromMeta = meta ? num((meta as { aggregateBitrateKbps?: unknown }).aggregateBitrateKbps) : 0;
+    let sourceBitrateKbps: number | null = brFromMeta > 0 ? brFromMeta : null;
+    if (sourceBitrateKbps == null && sizeBytes != null && durationSec > 0.05) {
+      sourceBitrateKbps = (sizeBytes * 8) / durationSec / 1000;
+    }
+    const elig = evaluateDeferred1080UpgradeEligibility({
+      width: w,
+      height: h,
+      durationSec,
+      sizeBytes,
+      sourceBitrateKbps
+    });
+    const upgradeExisting = trimStr(v0?.upgrade1080FaststartAvc);
+    let extraLiveTopLevel: Record<string, unknown> | undefined;
+    if (!upgradeExisting) {
+      if (!elig.eligible) {
+        extraLiveTopLevel = {
+          deferred1080Upgrade: {
+            phase: "skipped",
+            uiStatus: "1080_upgrade_skipped_source_too_low",
+            skippedReason: elig.skippedReason ?? "source_below_1080_quality",
+            checkedAt: new Date().toISOString()
+          }
+        };
+      } else {
+        const enq = await enqueueDeferred1080UpgradeCloudTask({
+          postId: payload.postId,
+          userId: payload.userId,
+          videoAssets: payload.videoAssets.map((a) => ({ id: a.id, original: a.original.trim() }))
+        });
+        extraLiveTopLevel = {
+          deferred1080Upgrade: enq.ok
+            ? {
+                phase: "pending",
+                uiStatus: "1080_upgrade_pending",
+                enqueuedAt: new Date().toISOString(),
+                taskName: enq.taskName
+              }
+            : {
+                phase: "pending",
+                uiStatus: "1080_upgrade_pending",
+                enqueueWarning: enq.reason,
+                enqueuedAt: new Date().toISOString()
+              }
+        };
+      }
+    }
+
+    const writeResult = await writeCompactLivePostAfterNativeVideoProcessing({
+      db,
+      postRef,
+      postId: payload.postId,
+      snapshotRaw,
+      workingPost,
+      playbackLabDiagnosticsAssets: playbackLabAssetsFull,
+      diagnosticsExtra: {
+        variantPlan: variantPlan.requiredForReady,
+        includePreview360,
+        includeMain720,
+        encodedNewOutputs: assetsEncodedAndVerified
+      },
+      ...(extraLiveTopLevel ? { extraLiveTopLevel } : {})
+    });
+    if (!writeResult.ok) {
+      throw new Error(writeResult.error);
+    }
+
     return { ok: true };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -366,7 +536,7 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
       ...latest,
       videoProcessingStatus: "failed",
       assetsReady: false,
-      instantPlaybackReady: false,
+      instantPlaybackReady: false
     });
 
     await postRef.set(
@@ -379,7 +549,7 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
           lastVerifyAllOk: false,
           lastError: msg.slice(0, 1500),
           lastGenerateErrors: [msg.slice(0, 500)],
-          assets: playbackLabAssets,
+          assets: playbackLabAssetsFull,
           asyncPipeline: {
             ...(asRecord(asRecord(latest.playbackLab)?.asyncPipeline) ?? {}),
             status: "failed",
@@ -388,8 +558,8 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
             lastVerifyAllOk: false,
             lastException: msg.slice(0, 1500),
             lastGenerateErrors: generateErrors.length > 0 ? generateErrors : [msg.slice(0, 500)],
-            phase: "failed",
-          },
+            phase: "failed"
+          }
         },
         videoProcessingStatus: "failed",
         videoProcessingFailureReason: msg.slice(0, 500),
@@ -407,9 +577,9 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
         instantPlaybackReady: false,
         updatedAtMs: nowMs,
         lastUpdated: nowTs,
-        updatedAt: nowTs,
+        updatedAt: nowTs
       },
-      { merge: true },
+      { merge: true }
     );
     return { ok: false, error: msg };
   } finally {

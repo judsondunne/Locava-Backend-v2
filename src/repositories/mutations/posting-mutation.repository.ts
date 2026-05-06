@@ -91,7 +91,7 @@ class PostingMutationRepository {
     const existingSessionId = state.sessionsByViewerKey[viewerKey];
     if (existingSessionId) {
       const existing = state.sessionsById[existingSessionId];
-      if (existing && existing.expiresAtMs > nowMs && existing.state !== "expired") {
+      if (existing && existing.expiresAtMs > nowMs && existing.state === "open") {
         return { session: existing, idempotent: true };
       }
     }

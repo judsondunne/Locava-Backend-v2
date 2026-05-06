@@ -94,6 +94,10 @@ describe("debug post rebuilder", () => {
       expect(res.body).toContain("Build Queue From IDs");
       expect(res.body).toContain("Load by rank");
       expect(res.body).toContain("Firestore rank");
+      expect(res.body).toContain("compactCheck");
+      expect(res.body).toContain("Already compact · skipped");
+      expect(res.body).toContain("Video faststart pending");
+      expect(res.body).toContain("LIVE OK");
     } finally {
       await app.close();
     }

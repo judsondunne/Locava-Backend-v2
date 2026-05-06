@@ -35,7 +35,26 @@ export function attachAppPostV2ToRecord(
       },
       engagementSourceAudit: opts.engagementSourceAudit ?? null
     });
+    const canonicalMedia = appPost.media as unknown as Record<string, unknown>;
+    const canonicalAssets = Array.isArray(appPost.media?.assets)
+      ? (appPost.media!.assets as unknown as Array<Record<string, unknown>>)
+      : [];
+    target.appPostV2 = appPost as unknown as Record<string, unknown>;
     target.appPost = appPost as unknown as Record<string, unknown>;
+    target.media = canonicalMedia;
+    target.assets = canonicalAssets;
+    target.id = target.id ?? appPost.id;
+    target.postId = target.postId ?? appPost.id;
+    target.classification =
+      (appPost.classification as unknown as Record<string, unknown>) ?? target.classification;
+    target.author = (appPost.author as unknown as Record<string, unknown>) ?? target.author;
+    target.text = (appPost.text as unknown as Record<string, unknown>) ?? target.text;
+    target.location = (appPost.location as unknown as Record<string, unknown>) ?? target.location;
+    target.engagement = (appPost.engagement as unknown as Record<string, unknown>) ?? target.engagement;
+    target.engagementPreview =
+      (appPost.engagementPreview as unknown as Record<string, unknown>) ?? target.engagementPreview;
+    target.viewerState =
+      (appPost.viewerState as unknown as Record<string, unknown>) ?? target.viewerState;
     target.postContractVersion = 2;
     return appPost;
   } catch {

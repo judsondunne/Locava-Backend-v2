@@ -166,11 +166,31 @@ type VideoAssetCandidates = {
   original: string | null;
 };
 
+/**
+ * Same rule as normalizeMasterPostV2: use legacy `assets` when non-empty, otherwise `media.assets`.
+ * Returns the live array from the post (mutate only through merge helpers that clone first).
+ */
+export function getFastStartRawAssetRows(rawPost: RawPost): RawAsset[] {
+  const rawAssets = Array.isArray(rawPost.assets) ? rawPost.assets : [];
+  const media = toObject(rawPost.media) ?? {};
+  const mediaAssets = Array.isArray(media.assets) ? media.assets : [];
+  const list = rawAssets.length > 0 ? rawAssets : mediaAssets;
+  return list as RawAsset[];
+}
+
+export function rawPostUsesLegacyAssetsBranch(rawPost: RawPost): boolean {
+  return Array.isArray(rawPost.assets) && rawPost.assets.length > 0;
+}
+
 function resolveVideoAssetCandidates(asset: RawAsset): VideoAssetCandidates {
-  const variants = toObject(asset.variants) ?? {};
+  const video = toObject(asset.video) ?? {};
+  const playback = toObject(video.playback) ?? {};
+  const videoVariants = toObject(video.variants) ?? {};
+  const topVariants = toObject(asset.variants) ?? {};
+  const variants = { ...videoVariants, ...topVariants };
   const generated = toObject(toObject(asset.playbackLab)?.generated) ?? {};
   return {
-    posterHigh: toTrimmed(asset.posterHigh, generated.posterHigh),
+    posterHigh: toTrimmed(asset.posterHigh, generated.posterHigh, video.posterHighUrl, video.posterUrl),
     preview360Avc: toTrimmed(asset.preview360Avc, variants.preview360Avc, generated.preview360Avc, variants.preview360),
     main720Avc: toTrimmed(asset.main720Avc, variants.main720Avc, generated.main720Avc, variants.main720),
     startup540FaststartAvc: toTrimmed(
@@ -197,12 +217,12 @@ function resolveVideoAssetCandidates(asset: RawAsset): VideoAssetCandidates {
       generated.upgrade1080FaststartAvc,
       variants.upgrade1080Faststart
     ),
-    original: toTrimmed(asset.original, asset.url)
+    original: toTrimmed(asset.original, asset.url, video.originalUrl, playback.defaultUrl, playback.primaryUrl)
   };
 }
 
 export function analyzeVideoFastStartNeeds(rawPost: RawPost, options?: { postId?: string }): FastStartAnalyzeResult {
-  const assets = Array.isArray(rawPost.assets) ? rawPost.assets : [];
+  const assets = getFastStartRawAssetRows(rawPost);
   const postId = options?.postId ?? toTrimmed(rawPost.id, rawPost.postId) ?? "unknown";
   const assetNeeds: FastStartAssetNeeds[] = [];
   const postSkipReasons = new Set<FastStartSkipReason>();
@@ -214,8 +234,9 @@ export function analyzeVideoFastStartNeeds(rawPost: RawPost, options?: { postId?
     if (!isVideo) continue;
     const candidates = resolveVideoAssetCandidates(asset);
     const verifyRows = collectVerifyRows(rawPost, asset);
-    const sourceWidth = toNum(asset.width, toObject(asset.variantMetadata)?.width);
-    const sourceHeight = toNum(asset.height, toObject(asset.variantMetadata)?.height);
+    const videoObj = toObject(asset.video) ?? {};
+    const sourceWidth = toNum(asset.width, toObject(asset.variantMetadata)?.width, videoObj.width);
+    const sourceHeight = toNum(asset.height, toObject(asset.variantMetadata)?.height, videoObj.height);
     const supports1080 = shouldGenerate1080Ladder(sourceWidth ?? 0, sourceHeight ?? 0);
     const needs = {
       posterHigh: !candidates.posterHigh,
@@ -311,7 +332,13 @@ export async function generateMissingFastStartVariantsForAsset(
     const trimmed = toTrimmed(url);
     if (!trimmed) continue;
     options.onProgress?.({ phase: "verify_url", assetId, detail: label });
-    const verify = await verifier({ label, url: trimmed, originalUrl: toTrimmed(rawAsset.original, rawAsset.url) });
+    const vid = toObject(rawAsset.video) ?? {};
+    const pb = toObject(vid.playback) ?? {};
+    const verify = await verifier({
+      label,
+      url: trimmed,
+      originalUrl: toTrimmed(rawAsset.original, rawAsset.url, vid.originalUrl, pb.fallbackUrl, pb.defaultUrl, pb.primaryUrl)
+    });
     verifyResults.push(verify);
     if (!verify.ok) errors.push(`verification_failed:${label}`);
   }
@@ -342,7 +369,7 @@ export async function generateMissingFastStartVariantsForPost(
     errors: string[];
     skipped: boolean;
   }> = [];
-  const assets = Array.isArray(rawPost.assets) ? rawPost.assets : [];
+  const assets = getFastStartRawAssetRows(rawPost);
   const workable = analyze.assetNeeds.filter((need) => {
     const asset = assets.find((row: any) => String(row?.id ?? "") === need.assetId);
     return Boolean(asset && !need.alreadyOptimized && need.sourceUrl);
@@ -392,6 +419,68 @@ export async function generateMissingFastStartVariantsForPost(
   return { analyze, generationResults };
 }
 
+/**
+ * Firestore/native raw rows often carry ladder URLs on `variants` / top-level asset fields while
+ * `video.playback` still points at the original MP4. After verified encodes merge, mirror URLs into
+ * nested `video` so `normalizeMasterPostV2` + strict validation see promoted playback (not only lab maps).
+ */
+function promoteVerifiedLadderIntoNestedVideo(
+  asset: Record<string, unknown>,
+  variants: Record<string, unknown>,
+  verifiedGenerated: Record<string, string>
+): void {
+  const u720 = toTrimmed(
+    verifiedGenerated.startup720FaststartAvc,
+    variants.startup720FaststartAvc as string | undefined
+  );
+  if (!u720) return;
+  const u540 = toTrimmed(
+    verifiedGenerated.startup540FaststartAvc,
+    variants.startup540FaststartAvc as string | undefined
+  );
+  let video = toObject(asset.video) ?? {};
+  if (Object.keys(video).length === 0 && String(asset.type ?? "").toLowerCase() === "video") {
+    video = {
+      originalUrl: toTrimmed(asset.original as string | undefined, asset.url as string | undefined)
+    };
+  }
+  const prevPb = toObject(video.playback) ?? {};
+  video.variants = { ...toObject(video.variants), ...variants };
+  const originalSource = toTrimmed(
+    video.originalUrl as string | undefined,
+    prevPb.fallbackUrl as string | undefined,
+    asset.original as string | undefined,
+    asset.url as string | undefined
+  );
+  const fallbackUrl =
+    toTrimmed(prevPb.fallbackUrl as string | undefined) ||
+    originalSource ||
+    toTrimmed(prevPb.defaultUrl as string | undefined);
+  video.playback = {
+    ...prevPb,
+    defaultUrl: u720,
+    primaryUrl: u720,
+    startupUrl: u720,
+    goodNetworkUrl: u720,
+    weakNetworkUrl: u720,
+    poorNetworkUrl: u540 || u720,
+    highQualityUrl: toTrimmed(prevPb.highQualityUrl as string | undefined) || u720,
+    upgradeUrl: toTrimmed(prevPb.upgradeUrl as string | undefined) || u720,
+    previewUrl: toTrimmed(prevPb.previewUrl as string | undefined),
+    fallbackUrl: fallbackUrl || null,
+    selectedReason: "verified_startup_avc_faststart_720"
+  };
+  const rd = toObject(video.readiness) ?? {};
+  video.readiness = {
+    ...rd,
+    assetsReady: true,
+    instantPlaybackReady: true,
+    faststartVerified: true,
+    processingStatus: (rd.processingStatus as string | undefined) || "ready"
+  };
+  asset.video = video;
+}
+
 export function mergePlaybackLabResultsIntoRawPost(
   rawPost: RawPost,
   generationResults: Array<{
@@ -403,10 +492,13 @@ export function mergePlaybackLabResultsIntoRawPost(
   }>
 ): RawPost {
   const next = { ...rawPost };
-  const assets = Array.isArray(rawPost.assets) ? [...rawPost.assets] : [];
+  const usesLegacy = rawPostUsesLegacyAssetsBranch(rawPost);
+  const sourceList = getFastStartRawAssetRows(rawPost);
+  const assets = [...sourceList];
   const postPlaybackLab = toObject(rawPost.playbackLab) ?? {};
   const postPlaybackLabAssets = { ...(toObject(postPlaybackLab.assets) ?? {}) };
   const postVerifyRows = [...(Array.isArray(postPlaybackLab.lastVerifyResults) ? postPlaybackLab.lastVerifyResults : [])];
+  let promotedVerifiedStartup720 = false;
   for (const result of generationResults) {
     const hasGenerated = Object.keys(result.generated ?? {}).length > 0;
     const hasVerifyRows = Array.isArray(result.verifyResults) && result.verifyResults.length > 0;
@@ -419,7 +511,8 @@ export function mergePlaybackLabResultsIntoRawPost(
     const idx = assets.findIndex((row: any) => String(row?.id ?? "") === result.assetId);
     if (idx < 0) continue;
     const asset = { ...(toObject(assets[idx]) ?? {}) };
-    const variants = { ...(toObject(asset.variants) ?? {}) };
+    const videoShell = toObject(asset.video) ?? {};
+    const variants = { ...toObject(videoShell.variants), ...(toObject(asset.variants) ?? {}) };
     const verifiedLabels = new Set(
       (result.verifyResults ?? [])
         .filter((row) => row.ok)
@@ -446,6 +539,9 @@ export function mergePlaybackLabResultsIntoRawPost(
       lastVerifyAllOk: result.errors.length === 0
     };
     asset.playbackLab = nextAssetPlaybackLab;
+    promoteVerifiedLadderIntoNestedVideo(asset, variants, verifiedGenerated);
+    asset.variants = variants;
+    if (toTrimmed(verifiedGenerated.startup720FaststartAvc)) promotedVerifiedStartup720 = true;
     postPlaybackLabAssets[result.assetId] = {
       ...(toObject(postPlaybackLabAssets[result.assetId]) ?? {}),
       generated: {
@@ -459,7 +555,22 @@ export function mergePlaybackLabResultsIntoRawPost(
     postVerifyRows.push(...result.verifyResults);
     assets[idx] = asset;
   }
-  next.assets = assets;
+  if (usesLegacy) {
+    next.assets = assets;
+  } else {
+    const mo = toObject(rawPost.media) ?? {};
+    next.media = {
+      ...mo,
+      assets,
+      ...(promotedVerifiedStartup720
+        ? { assetsReady: true, instantPlaybackReady: true, status: "ready" as const }
+        : {})
+    };
+  }
+  if (promotedVerifiedStartup720) {
+    next.assetsReady = true;
+    next.instantPlaybackReady = true;
+  }
   next.playbackLab = {
     ...postPlaybackLab,
     assets: postPlaybackLabAssets,

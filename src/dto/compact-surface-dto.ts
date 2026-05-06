@@ -521,6 +521,7 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
   try {
     const appPost = toAppPostV2FromAny(raw, {
       postId: seed.postId,
+      forceNormalize: true,
       viewerState: {
         liked: viewer.liked,
         saved: viewer.saved,
@@ -530,6 +531,38 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
     }) as unknown as Record<string, unknown>;
     const media = appPost.media as Record<string, unknown> | undefined;
     const apAssets = Array.isArray(media?.assets) ? (media.assets as unknown[]) : [];
+    const canonicalMedia = asUnknownRecord(raw.media);
+    const canonicalAssets = Array.isArray(canonicalMedia?.assets) ? (canonicalMedia?.assets as Record<string, unknown>[]) : [];
+    const firstCanonicalAsset = canonicalAssets[0] ?? null;
+    const firstSerializedAsset = (apAssets[0] as Record<string, unknown> | undefined) ?? null;
+    const canonicalPlayback = asUnknownRecord(asUnknownRecord(firstCanonicalAsset?.video)?.playback);
+    const serializedPlayback = asUnknownRecord(
+      asUnknownRecord(asUnknownRecord(firstSerializedAsset?.video)?.playback) ??
+        asUnknownRecord(firstSerializedAsset?.playback)
+    );
+    if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
+      // eslint-disable-next-line no-console
+      console.info(
+        "[WIRE_VIDEO_SERIALIZE_DEBUG]",
+        JSON.stringify({
+          postId: seed.postId,
+          mediaKind: asUnknownRecord(raw.classification)?.mediaKind ?? raw.mediaType ?? null,
+          canonicalAssetCount: canonicalAssets.length,
+          serializedAssetCount: apAssets.length,
+          firstCanonicalAssetType: firstCanonicalAsset?.type ?? null,
+          firstSerializedAssetType: firstSerializedAsset?.type ?? null,
+          canonicalStartupUrl: canonicalPlayback?.startupUrl ?? null,
+          serializedStartupUrl: serializedPlayback?.startupUrl ?? null,
+          serializedVideoUrl:
+            firstSerializedAsset?.videoUrl ??
+            firstSerializedAsset?.url ??
+            asUnknownRecord(raw.compatibility)?.photoLinks2 ??
+            raw.fallbackVideoUrl ??
+            null,
+          selectedReason: serializedPlayback?.selectedReason ?? canonicalPlayback?.selectedReason ?? null
+        })
+      );
+    }
     let fixed: Record<string, unknown> = appPost;
     if (media && typeof media.assetCount === "number" && Number.isFinite(media.assetCount) && media.assetCount !== apAssets.length) {
       logForYouFullMediaRepair({

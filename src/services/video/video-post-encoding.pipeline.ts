@@ -9,6 +9,7 @@ import { moovHintFromMp4Prefix } from "./mp4-moov-hint.js";
 import { uploadFileToWasabiKey } from "./wasabi-upload-file.js";
 import type { WasabiRuntimeConfig } from "../storage/wasabi-config.js";
 import { shouldGenerate1080Ladder } from "./video-source-policy.js";
+import { normalizeVideoLabPostFolder } from "./normalizeVideoLabPostFolder.js";
 
 export type VideoAssetJob = { id: string; original: string };
 
@@ -61,7 +62,7 @@ async function runEncodeJobsConcurrent(jobs: Array<() => Promise<void>>, concurr
 
 export type EncodedVideoAssetResult = {
   assetId: string;
-  /** `videos-lab/{postId}/{assetId}` — verify lab MP4s with authenticated S3, not anonymous HTTP. */
+  /** `videos-lab/{normalizedPostFolder}/{assetId}` — verify lab MP4s with authenticated S3, not anonymous HTTP. */
   videosLabKeyPrefix: string;
   variants: Record<string, string>;
   variantMetadata: Record<string, unknown>;
@@ -74,10 +75,11 @@ export type EncodedVideoAssetResult = {
   durationSec: number;
 };
 
-function labKeyPrefix(postId: string, assetId: string): string {
-  const safePost = postId.replace(/^\/+/, "");
+/** S3 key prefix for lab outputs: `videos-lab/{normalizedPostFolder}/{assetId}`. */
+export function videosLabKeyPrefix(postIdOrKey: string, assetId: string): string {
+  const folder = normalizeVideoLabPostFolder(postIdOrKey);
   const safeAsset = assetId.replace(/^\/+/, "");
-  return `videos-lab/${safePost}/${safeAsset}`;
+  return `videos-lab/${folder}/${safeAsset}`;
 }
 
 /** Object key suffixes under `videosLabKeyPrefix` (must match uploadOne calls). Used by worker S3 verification. */
@@ -105,7 +107,8 @@ export function buildPlaybackLabScaleFilter(
   return `scale=${targetWPortrait}:-2:flags=lanczos,format=yuv420p`;
 }
 
-async function downloadToFile(url: string, dest: string): Promise<void> {
+/** Download remote source MP4 (or other container) to a local path for ffprobe/encode. */
+export async function downloadVideoSourceToFile(url: string, dest: string): Promise<void> {
   const res = await fetch(url);
   if (!res.ok || !res.body) throw new Error(`download_failed:${res.status}`);
   const body = Readable.fromWeb(res.body as import("node:stream/web").ReadableStream);
@@ -244,6 +247,8 @@ export async function encodeAndUploadVideoAsset(input: {
   ffmpegBin?: string;
   enableMain720Hevc?: boolean;
   encodeOnly?: VideoEncodeOnlySelection;
+  /** When set, skips HTTP download and uses this file as `source_in` (same as default layout under `workDir`). */
+  preDownloadedSourcePath?: string;
   onProgress?: (evt: VideoEncoderProgress) => void;
 }): Promise<EncodedVideoAssetResult> {
   const ffmpeg = input.ffmpegBin ?? "ffmpeg";
@@ -253,13 +258,23 @@ export async function encodeAndUploadVideoAsset(input: {
   const emit = (phase: string, detail?: string) => {
     input.onProgress?.({ phase, detail });
   };
-  emit("encoder_pipeline_open", `post=${input.postId} asset=${input.asset.id}`);
+  const postFolder = normalizeVideoLabPostFolder(input.postId);
+  emit("encoder_pipeline_open", `post=${postFolder} asset=${input.asset.id}`);
   const t0 = Date.now();
   const originalUrl = input.asset.original.trim();
   const localIn = path.join(input.workDir, "source_in.mp4");
   const srcHint = originalUrl.length > 140 ? `${originalUrl.slice(0, 140)}…` : originalUrl;
   emit("encoder_download_start", srcHint);
-  await downloadToFile(originalUrl, localIn);
+  const pre = input.preDownloadedSourcePath?.trim();
+  if (pre) {
+    const absPre = path.resolve(pre);
+    const absIn = path.resolve(localIn);
+    if (absPre !== absIn) {
+      await fs.copyFile(absPre, absIn);
+    }
+  } else {
+    await downloadVideoSourceToFile(originalUrl, localIn);
+  }
   const stIn = await fs.stat(localIn);
   timings.downloadMs = Date.now() - t0;
   emit(
@@ -290,7 +305,7 @@ export async function encodeAndUploadVideoAsset(input: {
   const main720Preset = partial ? "veryfast" : "medium";
   const upgrade1080Preset = partial ? "veryfast" : "medium";
 
-  const prefix = labKeyPrefix(input.postId, input.asset.id);
+  const prefix = videosLabKeyPrefix(input.postId, input.asset.id);
   const variants: Record<string, string> = {};
   const variantMetadata: Record<string, unknown> = {};
   const playbackLabGenerated: Record<string, string> = {};

@@ -6,13 +6,15 @@ import {
 
 export type VideoProcessingAssetPayload = { id: string; original: string };
 
+export type VideoProcessingJobType = "faststart" | "deferred_1080_upgrade";
+
 export type EnqueueVideoProcessingCloudTaskResult =
   | { ok: true; taskName: string }
   | { ok: false; reason: string; failureCode?: string };
 
 /**
  * Enqueues the same Cloud Task payload the classic monolith uses: HTTP POST to the
- * `video-processor` worker with `{ postId, videoAssets, userId }`.
+ * `video-processor` worker with `{ postId, videoAssets, userId, jobType? }`.
  * Requires GCP credentials with `cloudtasks.tasks.create` on the target queue.
  */
 export async function enqueueVideoProcessingCloudTask(input: {
@@ -20,6 +22,7 @@ export async function enqueueVideoProcessingCloudTask(input: {
   userId: string;
   videoAssets: VideoProcessingAssetPayload[];
   correlationId?: string;
+  jobType?: VideoProcessingJobType;
 }): Promise<EnqueueVideoProcessingCloudTaskResult> {
   const cfg = resolveVideoProcessingCloudTasksConfig();
   if (!cfg.gcpProjectId) {
@@ -36,6 +39,7 @@ export async function enqueueVideoProcessingCloudTask(input: {
     };
   }
 
+  const jobType: VideoProcessingJobType = input.jobType ?? "faststart";
   const taskPayload = {
     postId: input.postId,
     userId: input.userId,
@@ -43,6 +47,7 @@ export async function enqueueVideoProcessingCloudTask(input: {
       id: a.id,
       original: a.original.trim()
     })),
+    jobType,
     ...(input.correlationId ? { correlationId: input.correlationId } : {})
   };
 
@@ -78,11 +83,22 @@ export async function enqueueVideoProcessingCloudTask(input: {
   }
 }
 
+/** Non-blocking 1080 quality pass (`upgrade1080FaststartAvc` only) after faststart readiness. */
+export async function enqueueDeferred1080UpgradeCloudTask(input: {
+  postId: string;
+  userId: string;
+  videoAssets: VideoProcessingAssetPayload[];
+  correlationId?: string;
+}): Promise<EnqueueVideoProcessingCloudTaskResult> {
+  return enqueueVideoProcessingCloudTask({ ...input, jobType: "deferred_1080_upgrade" });
+}
+
 export async function triggerVideoProcessingSynchronously(input: {
   postId: string;
   userId: string;
   videoAssets: VideoProcessingAssetPayload[];
   correlationId?: string;
+  jobType?: VideoProcessingJobType;
   timeoutMs?: number;
 }): Promise<{ ok: true } | { ok: false; reason: string }> {
   const cfg = resolveVideoProcessingCloudTasksConfig();
@@ -105,6 +121,7 @@ export async function triggerVideoProcessingSynchronously(input: {
         postId: input.postId,
         userId: input.userId,
         videoAssets: input.videoAssets,
+        jobType: input.jobType ?? "faststart",
         ...(input.correlationId ? { correlationId: input.correlationId } : {})
       }),
       signal: controller.signal

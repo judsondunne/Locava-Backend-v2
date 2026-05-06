@@ -83,6 +83,12 @@ function pickStr(v: unknown): string | null {
   return t.length ? t : null;
 }
 
+function isLikelyVideoUrl(value: unknown): boolean {
+  const raw = pickStr(value);
+  if (!raw) return false;
+  return /\.(mp4|mov|m4v|webm|m3u8)(\?|$)/i.test(raw);
+}
+
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
@@ -91,7 +97,26 @@ function isStoredCanonicalMasterPostV2(raw: RawPost): boolean {
   const schema = asRecord(raw.schema);
   const ver = schema?.version;
   const versionNum = typeof ver === "number" ? ver : typeof ver === "string" ? Number(ver) : NaN;
-  return schema?.name === "locava.post" && versionNum === 2 && Array.isArray(asRecord(raw.media)?.assets);
+  if (!(schema?.name === "locava.post" && versionNum === 2 && Array.isArray(asRecord(raw.media)?.assets))) {
+    return false;
+  }
+  // Feed/list projections can carry schema+media but omit required canonical sections.
+  // Only bypass normalize when core canonical blocks are present.
+  const lifecycle = asRecord(raw.lifecycle);
+  const classification = asRecord(raw.classification);
+  const engagement = asRecord(raw.engagement);
+  const author = asRecord(raw.author);
+  return Boolean(
+    lifecycle &&
+      typeof lifecycle.status === "string" &&
+      classification &&
+      typeof classification.mediaKind === "string" &&
+      engagement &&
+      typeof engagement.likeCount === "number" &&
+      typeof engagement.commentCount === "number" &&
+      author &&
+      typeof author.userId === "string"
+  );
 }
 
 /**
@@ -99,6 +124,10 @@ function isStoredCanonicalMasterPostV2(raw: RawPost): boolean {
  */
 function refineVideoPlayback(video: MasterPostVideoBlockV2): AppPostVideoPlaybackV2 {
   const p = video.playback;
+  const pAny = p as unknown as Record<string, unknown>;
+  const goodNetworkUrl = pickStr(pAny.goodNetworkUrl);
+  const weakNetworkUrl = pickStr(pAny.weakNetworkUrl);
+  const poorNetworkUrl = pickStr(pAny.poorNetworkUrl);
   const hq =
     pickStr(p.highQualityUrl) ??
     pickStr(p.upgradeUrl) ??
@@ -109,17 +138,23 @@ function refineVideoPlayback(video: MasterPostVideoBlockV2): AppPostVideoPlaybac
     pickStr(p.primaryUrl) ??
     pickStr(p.defaultUrl) ??
     pickStr(p.fallbackUrl);
-  const startup = pickStr(p.startupUrl);
+  const startup = goodNetworkUrl ?? pickStr(p.startupUrl);
+  const defaultUrl = goodNetworkUrl ?? pickStr(p.defaultUrl) ?? primary;
+  const primaryUrl = goodNetworkUrl ?? primary;
   const preview = pickStr(p.previewUrl);
   return {
-    defaultUrl: pickStr(p.defaultUrl) ?? primary,
-    primaryUrl: primary,
+    defaultUrl,
+    primaryUrl,
     startupUrl: startup,
     highQualityUrl: pickStr(p.highQualityUrl) ?? pickStr(p.upgradeUrl) ?? primary,
     upgradeUrl: pickStr(p.upgradeUrl),
     hlsUrl: pickStr(p.hlsUrl),
     fallbackUrl: pickStr(p.fallbackUrl),
-    previewUrl: preview
+    previewUrl: preview,
+    goodNetworkUrl,
+    weakNetworkUrl,
+    poorNetworkUrl,
+    selectedReason: pickStr(pAny.selectedReason)
   };
 }
 
@@ -176,13 +211,68 @@ function mapAsset(a: MasterPostAssetV2): AppPostAssetV2 {
       ? { resizeMode: a.presentation.resizeMode as "cover" | "contain" }
       : {})
   };
-  if (a.type === "video" && a.video) {
+  const imageOriginal = pickStr(a.image?.originalUrl);
+  const imageDisplay = pickStr(a.image?.displayUrl);
+  const imageThumb = pickStr(a.image?.thumbnailUrl);
+  const fallbackVideoLikeUrl =
+    (isLikelyVideoUrl(imageOriginal) ? imageOriginal : null) ??
+    (isLikelyVideoUrl(imageDisplay) ? imageDisplay : null) ??
+    (isLikelyVideoUrl(imageThumb) ? imageThumb : null) ??
+    null;
+  const treatAsVideo = (a.type === "video" && Boolean(a.video)) || Boolean(a.video) || Boolean(fallbackVideoLikeUrl);
+  if (treatAsVideo) {
+    const video = a.video
+      ? mapVideoBlock(a.video)
+      : mapVideoBlock({
+          originalUrl: fallbackVideoLikeUrl,
+          posterUrl: imageDisplay ?? imageThumb,
+          posterHighUrl: imageDisplay ?? imageThumb,
+          playback: {
+            defaultUrl: fallbackVideoLikeUrl,
+            primaryUrl: fallbackVideoLikeUrl,
+            startupUrl: fallbackVideoLikeUrl,
+            highQualityUrl: fallbackVideoLikeUrl,
+            upgradeUrl: null,
+            hlsUrl: null,
+            fallbackUrl: fallbackVideoLikeUrl,
+            previewUrl: imageThumb ?? imageDisplay
+          },
+          variants: {},
+          durationSec: null,
+          hasAudio: null,
+          codecs: null,
+          technical: {
+            sourceCodec: null,
+            playbackCodec: null,
+            audioCodec: null
+          },
+          bitrateKbps: null,
+          sizeBytes: null,
+          readiness: {
+            assetsReady: null,
+            instantPlaybackReady: null,
+            faststartVerified: null,
+            processingStatus: null
+          }
+        });
+    const startup = pickStr(video.playback.startupUrl);
+    const playbackDefault = pickStr(video.playback.defaultUrl);
+    const playbackPrimary = pickStr(video.playback.primaryUrl);
+    const compatibilityUrl = startup ?? playbackDefault ?? playbackPrimary ?? pickStr(video.originalUrl) ?? null;
     const row: AppPostVideoAssetV2 = {
       id: a.id,
       index: a.index,
       type: "video",
+      mediaType: "video",
+      posterUrl: pickStr(video.posterUrl),
+      thumbUrl: pickStr(video.thumbnailUrl),
+      imageUrl: pickStr(video.posterUrl) ?? pickStr(video.thumbnailUrl) ?? null,
       image: null,
-      video: mapVideoBlock(a.video),
+      video,
+      playback: { ...video.playback },
+      url: compatibilityUrl,
+      videoUrl: compatibilityUrl,
+      fallbackVideoUrl: pickStr(video.playback.fallbackUrl) ?? pickStr(video.originalUrl),
       presentation
     };
     return row;
@@ -409,7 +499,7 @@ export function toAppPostV2(master: MasterPostV2, options: ToAppPostV2CoreOption
     typeof options.normalizedFromLegacy === "boolean"
       ? options.normalizedFromLegacy
       : master.schema.sourceShape !== "unknown" && master.schema.sourceShape.startsWith("legacy_");
-  return {
+  const appPost: AppPostV2 = {
     id: master.id,
     schema: buildAppSchema(master, normalizedFromLegacy),
     lifecycle: mapLifecycle(master.lifecycle),
@@ -423,6 +513,67 @@ export function toAppPostV2(master: MasterPostV2, options: ToAppPostV2CoreOption
     viewerState,
     compatibility: mapCompatibility(master.compatibility)
   };
+  const firstVideo = appPost.media.assets.find((asset): asset is AppPostVideoAssetV2 => asset.type === "video");
+  const compatibilityPlaybackUrl =
+    pickStr(firstVideo?.video?.playback?.startupUrl) ??
+    pickStr(firstVideo?.video?.playback?.defaultUrl) ??
+    pickStr(firstVideo?.video?.playback?.primaryUrl) ??
+    pickStr(firstVideo?.video?.playback?.fallbackUrl) ??
+    pickStr(firstVideo?.video?.originalUrl) ??
+    null;
+  if (firstVideo) {
+    appPost.mediaType = "video";
+    appPost.photoLinks2 = compatibilityPlaybackUrl;
+    appPost.photoLinks3 = compatibilityPlaybackUrl;
+    appPost.fallbackVideoUrl = pickStr(firstVideo.video.playback.fallbackUrl) ?? pickStr(firstVideo.video.originalUrl) ?? null;
+    appPost.assets = appPost.media.assets;
+  }
+  assertPlayableVideoAssetOnWire(master, appPost);
+  return appPost;
+}
+
+function assertPlayableVideoAssetOnWire(master: MasterPostV2, appPost: AppPostV2): void {
+  const mediaKind = master.classification.mediaKind;
+  const canonicalVideoAssets = master.media.assets.filter((asset) => asset.type === "video" && asset.video);
+  const mustCarryVideo = (mediaKind === "video" || mediaKind === "mixed") && canonicalVideoAssets.length > 0;
+  if (!mustCarryVideo) return;
+  const wireVideo = appPost.media.assets.find((asset): asset is AppPostVideoAssetV2 => asset.type === "video");
+  const wireStartup = pickStr(wireVideo?.video?.playback?.startupUrl) ?? pickStr(wireVideo?.playback?.startupUrl);
+  const wireDefault = pickStr(wireVideo?.video?.playback?.defaultUrl) ?? pickStr(wireVideo?.playback?.defaultUrl);
+  const wirePrimary = pickStr(wireVideo?.video?.playback?.primaryUrl) ?? pickStr(wireVideo?.playback?.primaryUrl);
+  const wireFallback =
+    pickStr(wireVideo?.video?.playback?.fallbackUrl) ??
+    pickStr(wireVideo?.video?.originalUrl) ??
+    pickStr(appPost.compatibility.fallbackVideoUrl);
+  const hasPlayable = Boolean(wireStartup ?? wireDefault ?? wirePrimary ?? wireFallback);
+  const canonicalPaths = canonicalVideoAssets.map((asset) => ({
+    id: asset.id,
+    startupUrl: pickStr(asset.video?.playback.startupUrl),
+    defaultUrl: pickStr(asset.video?.playback.defaultUrl),
+    primaryUrl: pickStr(asset.video?.playback.primaryUrl),
+    selectedReason: pickStr((asset.video?.playback as unknown as Record<string, unknown>)?.selectedReason)
+  }));
+  const canonicalInstantReady = canonicalVideoAssets.some((asset) => asset.video?.readiness.instantPlaybackReady === true);
+  const startupOrDefaultPresent = Boolean(wireStartup ?? wireDefault);
+  if (!wireVideo || !hasPlayable || (canonicalInstantReady && !startupOrDefaultPresent)) {
+    if (process.env.NODE_ENV !== "production" || process.env.FEED_WIRE_APPPOST_PLAYBACK_DEBUG === "1") {
+      // eslint-disable-next-line no-console
+      console.error(
+        "WIRE_VIDEO_ASSET_DROPPED",
+        JSON.stringify({
+          postId: master.id,
+          sourceDocMediaKind: mediaKind,
+          canonicalAssetPaths: canonicalPaths,
+          serializedAsset: wireVideo ?? null,
+          missingPaths: {
+            missingVideoAsset: !wireVideo,
+            missingPlayableUrl: !hasPlayable,
+            missingStartupDefaultWhenInstantReady: canonicalInstantReady && !startupOrDefaultPresent
+          }
+        })
+      );
+    }
+  }
 }
 
 export function toAppPostV2FromAny(rawPost: RawPost, options: ToAppPostV2Options = {}): AppPostV2 {

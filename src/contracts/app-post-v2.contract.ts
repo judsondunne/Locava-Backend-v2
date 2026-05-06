@@ -26,11 +26,15 @@ export type AppPostVideoPlaybackV2 = {
   defaultUrl: string | null;
   primaryUrl: string | null;
   startupUrl: string | null;
+  goodNetworkUrl?: string | null;
+  weakNetworkUrl?: string | null;
+  poorNetworkUrl?: string | null;
   highQualityUrl: string | null;
   upgradeUrl: string | null;
   hlsUrl: string | null;
   fallbackUrl: string | null;
   previewUrl: string | null;
+  selectedReason?: string | null;
 };
 
 export type AppPostVideoVariantsV2 = {
@@ -105,8 +109,16 @@ export type AppPostVideoAssetV2 = {
   id: string;
   index: number;
   type: "video";
+  mediaType?: "video";
+  posterUrl?: string | null;
+  thumbUrl?: string | null;
+  imageUrl?: string | null;
   image: null;
   video: AppPostVideoBlockV2;
+  playback?: AppPostVideoPlaybackV2;
+  url?: string | null;
+  videoUrl?: string | null;
+  fallbackVideoUrl?: string | null;
   presentation: AppPostPresentationV2;
 };
 
@@ -271,6 +283,11 @@ export type AppPostSchemaV2 = {
 
 export type AppPostV2 = {
   id: string;
+  mediaType?: AppPostMediaKindV2;
+  photoLinks2?: string | null;
+  photoLinks3?: string | null;
+  fallbackVideoUrl?: string | null;
+  assets?: AppPostAssetV2[];
   schema: AppPostSchemaV2;
   lifecycle: AppPostLifecycleV2;
   author: AppPostAuthorV2;

@@ -176,6 +176,13 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
         lastGenerateErrors: []
       }
     };
+    base.lifecycle = {
+      status: "processing",
+      createdAt: input.nowTs,
+      updatedAt: input.nowTs,
+      createdAtMs: input.nowMs,
+      lastUserVisibleAt: input.nowTs
+    };
   } else {
     base.posterReady = true;
     base.posterPresent = true;

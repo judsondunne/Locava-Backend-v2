@@ -31,6 +31,72 @@ describe("videoFastStartRepair", () => {
     expect(rebuilt.canonical.classification.mediaKind).toBe("image");
   });
 
+  it("Master Post V2 shape (media.assets + nested video) is analyzed like legacy assets", () => {
+    const raw = {
+      id: "p-v2-media",
+      userId: "u",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      media: {
+        assets: [
+          {
+            id: "v1",
+            type: "video",
+            video: {
+              originalUrl: "https://cdn/original.mp4",
+              variants: {},
+              playback: {
+                defaultUrl: "https://cdn/original.mp4",
+                primaryUrl: "https://cdn/original.mp4",
+                startupUrl: "https://cdn/original.mp4"
+              }
+            }
+          }
+        ]
+      }
+    };
+    const analyze = analyzeVideoFastStartNeeds(raw, { postId: "p-v2-media" });
+    expect(analyze.videoAssetCount).toBe(1);
+    expect(analyze.needsGenerationCount).toBe(1);
+    expect(analyze.assetNeeds[0]?.sourceUrl).toBe("https://cdn/original.mp4");
+  });
+
+  it("merge writes generated variants onto media.assets when legacy assets array is absent", async () => {
+    const raw = {
+      id: "p-v2-merge",
+      userId: "u",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      media: {
+        assets: [
+          {
+            id: "v1",
+            type: "video",
+            video: {
+              originalUrl: "https://cdn/original.mp4",
+              variants: {},
+              playback: { defaultUrl: "https://cdn/original.mp4" }
+            }
+          }
+        ]
+      }
+    };
+    const generated = await generateMissingFastStartVariantsForPost("p-v2-merge", raw, {
+      generateMissingForAsset: async () => ({
+        generated: {
+          preview360Avc: "https://cdn/preview360.mp4",
+          main720Avc: "https://cdn/main720.mp4",
+          startup540FaststartAvc: "https://cdn/startup540.mp4",
+          startup720FaststartAvc: "https://cdn/startup720.mp4"
+        }
+      }),
+      verifyGeneratedUrl: async ({ label, url }) => okVerify(label, url)
+    });
+    const merged = mergePlaybackLabResultsIntoRawPost(raw, generated.generationResults);
+    const row = (merged as { media?: { assets?: Array<Record<string, unknown>> } }).media?.assets?.[0];
+    expect(row?.startup720FaststartAvc).toBe("https://cdn/startup720.mp4");
+    const rebuilt = rebuildPostAfterFastStartRepair(merged, { postId: "p-v2-merge" });
+    expect(rebuilt.canonical.media.assets[0]?.video?.playback.startupUrl).toBe("https://cdn/startup720.mp4");
+  });
+
   it("single video already optimized skips generation and keeps startup selection", async () => {
     const raw = {
       id: "p-ready",

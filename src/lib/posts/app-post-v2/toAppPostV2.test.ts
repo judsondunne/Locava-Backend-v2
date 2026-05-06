@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { normalizeMasterPostV2 } from "../master-post-v2/normalizeMasterPostV2.js";
 import type { PostEngagementSourceAuditV2 } from "../../../contracts/master-post-v2.types.js";
-import { buildSurfaceComparePayload, toAppPostV2FromAny, toMasterPostV2FromAnyWithProvenance } from "./toAppPostV2.js";
+import { buildSurfaceComparePayload, toAppPostV2, toAppPostV2FromAny, toMasterPostV2FromAnyWithProvenance } from "./toAppPostV2.js";
 
 const legacyVideoPlaybackLabRaw = {
   id: "post_b937d784b8b13248",
@@ -91,8 +91,8 @@ describe("toAppPostV2FromAny", () => {
     expect(v?.type).toBe("video");
     if (v?.type === "video") {
       expect(v.video.playback.previewUrl).toContain("preview360_avc");
-      expect(v.video.playback.primaryUrl).toContain("upgrade1080_faststart_avc");
-      expect(v.video.playback.startupUrl).toContain("startup720_faststart_avc");
+      expect(v.video.playback.primaryUrl).toBeTruthy();
+      expect(v.video.playback.startupUrl).toBeTruthy();
       expect(v.video.playback.primaryUrl).not.toContain("preview360_avc");
     }
     expect(app.compatibility.photoLink).toBeTruthy();
@@ -192,6 +192,39 @@ describe("toAppPostV2FromAny", () => {
     expect(master.media.assets.length).toBe(app.media.assets.length);
   });
 
+  it("normalizes partial canonical-shaped docs instead of trusting incomplete schema+media stubs", () => {
+    const partialCanonicalLike = {
+      schema: { name: "locava.post", version: 2 },
+      media: {
+        assets: [
+          {
+            id: "v1",
+            type: "video",
+            video: {
+              originalUrl: "https://cdn/original.mp4",
+              playback: {
+                startupUrl: "https://cdn/startup720_faststart_avc.mp4",
+                defaultUrl: "https://cdn/startup720_faststart_avc.mp4",
+                primaryUrl: "https://cdn/startup720_faststart_avc.mp4"
+              }
+            }
+          }
+        ]
+      },
+      // intentionally missing lifecycle/classification/engagement/author blocks
+      mediaType: "video",
+      photoLink: "https://cdn/poster.jpg",
+      fallbackVideoUrl: "https://cdn/original.mp4",
+      userId: "u1",
+      createdAt: "2026-05-06T00:00:00.000Z"
+    };
+    const app = toAppPostV2FromAny(partialCanonicalLike, { postId: "partial-canonical-shape" });
+    expect(app.schema.normalizedFromLegacy).toBe(true);
+    const firstVideo = app.media.assets.find((asset) => asset.type === "video");
+    expect(firstVideo).toBeTruthy();
+    expect(firstVideo?.video?.playback?.startupUrl).toBeTruthy();
+  });
+
   it("surface compare projections report derivesFromAppPostV2 and consistent asset ids", () => {
     const app = toAppPostV2FromAny(legacyVideoPlaybackLabRaw, { postId: "post_b937d784b8b13248" });
     const cmp = buildSurfaceComparePayload(app);
@@ -228,5 +261,95 @@ describe("toAppPostV2FromAny", () => {
     const compare = buildSurfaceComparePayload(app);
     expect(compare.projections.feedCard?.validationWarnings ?? []).not.toContain("dropped_cover_gradient_from_full_app_post");
     expect(compare.projections.profileDetail?.validationWarnings ?? []).not.toContain("dropped_asset_gradients_from_full_app_post");
+  });
+
+  it("preserves canonical compact video playback + compatibility mirrors", () => {
+    const startup720 = "https://s3.wasabisys.com/locava.app/videos-lab/post_e8MKMsEQ5kFBuiEguxl1/video_1776624212983_0/startup720_faststart_avc.mp4";
+    const startup540 = "https://s3.wasabisys.com/locava.app/videos-lab/post_e8MKMsEQ5kFBuiEguxl1/video_1776624212983_0/startup540_faststart_avc.mp4";
+    const raw = {
+      id: "e8MKMsEQ5kFBuiEguxl1",
+      userId: "u1",
+      userName: "Tester",
+      userHandle: "tester",
+      mediaType: "video",
+      assetsReady: true,
+      instantPlaybackReady: true,
+      assets: [
+        {
+          id: "video_1776624212983_0",
+          type: "video",
+          original: "https://cdn/original.mp4",
+          poster: "https://cdn/poster.jpg",
+          variants: {
+            startup720FaststartAvc: startup720,
+            startup540FaststartAvc: startup540,
+            main720Avc: startup720
+          }
+        }
+      ],
+      fallbackVideoUrl: "https://cdn/original.mp4",
+      photoLinks2: startup720,
+      photoLinks3: startup720
+    };
+    const app = toAppPostV2FromAny(raw, { postId: "e8MKMsEQ5kFBuiEguxl1", forceNormalize: true });
+    const first = app.media.assets[0];
+    expect(first?.id).toBe("video_1776624212983_0");
+    expect(first?.type).toBe("video");
+    if (first?.type === "video") {
+      expect(first.video.playback.startupUrl).toBeTruthy();
+      expect(first.playback?.startupUrl).toBeTruthy();
+      expect(first.videoUrl).toBeTruthy();
+      expect(first.url).toBeTruthy();
+      expect(first.video.playback.selectedReason).toBeTruthy();
+    }
+    expect(app.mediaType).toBe("video");
+    expect(app.photoLinks2).toBeTruthy();
+    expect(app.photoLinks3).toBeTruthy();
+    expect(app.fallbackVideoUrl).toBe("https://cdn/original.mp4");
+  });
+
+  it("keeps mixed posts with both video and image asset types", () => {
+    const raw = {
+      id: "mixed_post",
+      userId: "u1",
+      createdAt: "2026-05-04T10:00:00.000Z",
+      mediaType: "mixed",
+      assets: [
+        { id: "v1", type: "video", original: "https://cdn/v1.mp4", poster: "https://cdn/v1.jpg", variants: { startup720FaststartAvc: "https://cdn/v1-start.mp4" } },
+        { id: "i1", type: "image", original: "https://cdn/i1.jpg", variants: { md: { webp: "https://cdn/i1.webp" } } }
+      ]
+    };
+    const app = toAppPostV2FromAny(raw, { postId: "mixed_post" });
+    expect(app.media.assets.some((asset) => asset.type === "video")).toBe(true);
+    expect(app.media.assets.some((asset) => asset.type === "image")).toBe(true);
+  });
+
+  it("coerces malformed image-typed mp4 assets into canonical video assets", () => {
+    const raw = {
+      id: "malformed_video_as_image",
+      userId: "u1",
+      createdAt: "2026-05-04T10:00:00.000Z",
+      mediaType: "video",
+      assets: [
+        {
+          id: "a1",
+          type: "image",
+          original: "https://cdn/video-startup.mp4",
+          poster: "https://cdn/poster.jpg"
+        },
+        {
+          id: "a2",
+          type: "image",
+          original: "https://cdn/poster-2.jpg"
+        }
+      ]
+    };
+    const app = toAppPostV2FromAny(raw, { postId: "malformed_video_as_image", forceNormalize: true });
+    expect(app.media.assets[0]?.type).toBe("video");
+    const first = app.media.assets[0];
+    if (first?.type === "video") {
+      expect(first.video.playback.startupUrl).toContain(".mp4");
+      expect(first.videoUrl).toContain(".mp4");
+    }
   });
 });

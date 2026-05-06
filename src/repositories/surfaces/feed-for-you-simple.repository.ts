@@ -103,6 +103,10 @@ export type SimpleReadyDeckDoc = {
 };
 
 const SIMPLE_FEED_SELECT_FIELDS = [
+  "schema",
+  "classification",
+  "compatibility",
+  "media",
   "randomKey",
   "userId",
   "reel",
@@ -662,7 +666,17 @@ function tryMapSimpleFeedCandidate(
   } else {
     sortValue = postId;
   }
-  const mediaType = String(data.mediaType ?? "").toLowerCase() === "video" ? "video" : inferFromAssets(assets);
+  const mediaObj = (data.media as Record<string, unknown> | undefined) ?? undefined;
+  const classObj = (data.classification as Record<string, unknown> | undefined) ?? undefined;
+  const canonicalMediaAssets = Array.isArray(mediaObj?.assets) ? (mediaObj?.assets as Record<string, unknown>[]) : [];
+  const canonicalHasVideo = canonicalMediaAssets.some((asset) => String(asset?.type ?? "").toLowerCase() === "video");
+  const canonicalMediaKind = String(classObj?.mediaKind ?? "").toLowerCase();
+  const mediaType =
+    canonicalHasVideo || canonicalMediaKind === "video" || canonicalMediaKind === "mixed"
+      ? "video"
+      : String(data.mediaType ?? "").toLowerCase() === "video"
+        ? "video"
+        : inferFromAssets(assets);
   try {
     const candidate: SimpleFeedCandidate = {
       postId,

@@ -548,15 +548,17 @@ export class SearchDiscoveryService {
 
     const rows: SuggestLocationRow[] = [];
     const stateName = resolveStateNameFromAny(normalized);
+    let stateSynonymRow: SuggestLocationRow | null = null;
     if (stateName) {
-      rows.push({
+      stateSynonymRow = {
         text: stateName,
         cityRegionId: "",
         stateRegionId: buildStateRegionId("US", stateName),
         stateName,
         lat: null,
         lng: null,
-      });
+      };
+      rows.push(stateSynonymRow);
     }
 
     const indexed = searchPlacesIndexService.search(normalized, limit + 2, {
@@ -572,6 +574,24 @@ export class SearchDiscoveryService {
         lat: place.lat,
         lng: place.lng,
       });
+    }
+
+    if (stateSynonymRow && stateSynonymRow.lat == null && stateSynonymRow.lng == null && stateSynonymRow.stateName) {
+      const anchor = indexed.find(
+        (p) =>
+          p.stateName === stateSynonymRow?.stateName &&
+          p.lat != null &&
+          p.lng != null &&
+          Number.isFinite(p.lat) &&
+          Number.isFinite(p.lng),
+      );
+      const centroid = anchor
+        ? { lat: anchor.lat as number, lng: anchor.lng as number }
+        : searchPlacesIndexService.approxPopulationWeightedCentroidForUsState(stateSynonymRow.stateName);
+      if (centroid) {
+        stateSynonymRow.lat = centroid.lat;
+        stateSynonymRow.lng = centroid.lng;
+      }
     }
 
     const deduped = uniqByText(rows).slice(0, Math.max(1, Math.min(12, limit)));

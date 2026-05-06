@@ -3,6 +3,7 @@ import type { PostEngagementSourceAuditV2 } from "../../../contracts/master-post
 import { normalizeMasterPostV2 } from "./normalizeMasterPostV2.js";
 import { validateMasterPostV2 } from "./validateMasterPostV2.js";
 import { extractMediaProcessingDebugV2 } from "./extractMediaProcessingDebugV2.js";
+import { compactCanonicalPostForLiveWrite } from "./compactCanonicalPostV2.js";
 
 describe("normalizeMasterPostV2", () => {
   it("regression: post_b937d784b8b13248 keeps previewUrl and no main1080 aliasing", () => {
@@ -360,6 +361,45 @@ describe("normalizeMasterPostV2", () => {
     expect(v?.readiness.faststartVerified).toBe(true);
   });
 
+  it("prefers canonical media.assets over legacy top-level assets when both exist", () => {
+    const raw = {
+      id: "canonical_over_legacy_assets",
+      schema: { name: "locava.post", version: 2 },
+      mediaType: "video",
+      assets: [
+        {
+          id: "legacy_1",
+          type: "image",
+          original: "https://cdn/poster.jpg",
+          url: "https://cdn/poster.jpg",
+        },
+      ],
+      media: {
+        assets: [
+          {
+            id: "video_1",
+            index: 0,
+            type: "video",
+            video: {
+              originalUrl: "https://cdn/original.mp4",
+              posterUrl: "https://cdn/poster.jpg",
+              playback: {
+                startupUrl: "https://cdn/startup720.mp4",
+                defaultUrl: "https://cdn/startup720.mp4",
+                primaryUrl: "https://cdn/startup720.mp4",
+              },
+            },
+          },
+        ],
+      },
+    };
+    const { canonical } = normalizeMasterPostV2(raw, { postId: "canonical_over_legacy_assets" });
+    expect(canonical.media.assets[0]?.type).toBe("video");
+    expect(canonical.media.assets[0]?.id).toBe("video_1");
+    expect(canonical.media.assets[0]?.video?.playback?.startupUrl).toBeTruthy();
+    expect(canonical.media.assets[0]?.video?.playback?.fallbackUrl).toBe("https://cdn/original.mp4");
+  });
+
   it("keeps instant playback false when no optimized verified URL exists", () => {
     const raw = {
       id: "legacy-reel-4",
@@ -643,5 +683,55 @@ describe("normalizeMasterPostV2", () => {
     const validation = validateMasterPostV2(canonical, { engagementSourceAudit: audit });
     expect(validation.blockingErrors.length).toBe(0);
     expect(validation.warnings.some((w) => w.code === "comments_embedded_exist_while_subcollection_empty")).toBe(true);
+  });
+
+  it("post rebuilder: nested media.assets[].image URLs do not trip image_missing_display_url / missing_cover_url", () => {
+    const raw = {
+      id: "post_45d3e0147c080b6a",
+      userId: "u1",
+      createdAt: "2026-05-04T00:00:00.000Z",
+      title: "Pic",
+      mediaType: "photo",
+      media: {
+        assetCount: 1,
+        assets: [
+          {
+            id: "a1",
+            type: "image",
+            index: 0,
+            image: {
+              displayUrl: "https://img.example/display.jpg",
+              originalUrl: "https://img.example/original.jpg",
+              thumbnailUrl: "https://img.example/thumb.jpg"
+            }
+          }
+        ],
+        cover: { url: "https://img.example/cover.jpg", thumbUrl: "https://img.example/cover-thumb.jpg" }
+      }
+    };
+    const { canonical } = normalizeMasterPostV2(raw, { postId: raw.id });
+    const v = validateMasterPostV2(canonical);
+    const codes = v.blockingErrors.map((e) => e.code);
+    expect(codes).not.toContain("image_missing_display_url");
+    expect(codes).not.toContain("missing_cover_url");
+  });
+
+  it("post rebuilder: deleted lifecycle stays deleted through compact live projection", () => {
+    const raw = {
+      id: "post_del_img",
+      userId: "u1",
+      createdAt: "2026-05-04T00:00:00.000Z",
+      lifecycle: { status: "deleted", isDeleted: true, deletedAt: "2026-05-05T00:00:00.000Z" },
+      assets: [{ id: "i1", type: "image", original: "https://img/x.jpg", variants: { md: { webp: "https://img/x.webp" } } }]
+    };
+    const { canonical } = normalizeMasterPostV2(raw, { postId: raw.id });
+    expect(canonical.lifecycle.status).toBe("deleted");
+    expect(canonical.lifecycle.isDeleted).toBe(true);
+    const { livePost } = compactCanonicalPostForLiveWrite({
+      canonical,
+      rawBefore: raw as Record<string, unknown>,
+      postId: raw.id
+    });
+    expect((livePost as { lifecycle: { status: string } }).lifecycle.status).toBe("deleted");
   });
 });

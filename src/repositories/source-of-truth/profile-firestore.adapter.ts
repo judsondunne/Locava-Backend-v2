@@ -699,22 +699,6 @@ export class ProfileFirestoreAdapter {
       .where("userId", "==", userId)
       .orderBy("time", "desc")
       .orderBy(FieldPath.documentId(), "desc")
-      .select(
-        "time",
-        "createdAtMs",
-        "updatedAtMs",
-        "displayPhotoLink",
-        "photoLink",
-        "thumbUrl",
-        "mediaType",
-        "aspectRatio",
-        "processing",
-        "processingFailed",
-        "imageProcessingStatus",
-        "assetsReady",
-        "deleted",
-        "isDeleted"
-      )
       // Small bounded over-fetch allows skipping tombstoned rows without exploding reads for heavy profiles.
       .limit(Math.min(32, safeLimit + 1 + 4));
 
@@ -761,20 +745,6 @@ export class ProfileFirestoreAdapter {
         .where("userId", "==", userId)
         .orderBy("time", "desc")
         .orderBy(FieldPath.documentId(), "desc")
-        .select(
-          "time",
-          "createdAtMs",
-          "updatedAtMs",
-          "displayPhotoLink",
-          "photoLink",
-          "thumbUrl",
-          "mediaType",
-          "aspectRatio",
-          "processing",
-          "processingFailed",
-          "imageProcessingStatus",
-          "assetsReady"
-        )
         .limit(scanLimit)
         .get(),
       ProfileFirestoreAdapter.FIRESTORE_TIMEOUT_MS,

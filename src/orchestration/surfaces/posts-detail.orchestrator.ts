@@ -22,6 +22,15 @@ type DeferredCommentPreview = NonNullable<PostsDetailResponse["deferred"]["comme
 type DeferredCommentPreviewItem = DeferredCommentPreview[number];
 type BatchItemStatus = "ready" | "partial_cached" | "processing" | "missing";
 
+/** Map Firestore/card strings into the compact DTO union ("complete" → "full"). */
+function normalizeShellMediaCompleteness(value: unknown): "full" | "cover_only" | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const lower = value.toLowerCase();
+  if (lower === "full" || lower === "cover_only") return lower;
+  if (lower === "complete") return "full";
+  return undefined;
+}
+
 function postMediaSummaryForLog(
   post: Record<string, unknown>,
   opts?: { hydrationMode?: "card" | "playback" | "detail" | "open" | "full" },
@@ -49,6 +58,38 @@ function postMediaSummaryForLog(
 
 function videoPlaybackDebugEnabled(): boolean {
   return process.env.LOCAVA_VIDEO_MEDIA_DEBUG === "1";
+}
+
+function isLikelyVideoUrl(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const v = value.trim();
+  if (!v) return false;
+  return /\.(mp4|mov|m4v|webm|m3u8)(\?|$)/i.test(v);
+}
+
+function hasVideoLikeImageAsset(assets: unknown): boolean {
+  if (!Array.isArray(assets)) return false;
+  return assets.some((asset) => {
+    if (!asset || typeof asset !== "object") return false;
+    const row = asset as Record<string, unknown>;
+    const type = String(row.type ?? "").toLowerCase();
+    if (type !== "image") return false;
+    return (
+      isLikelyVideoUrl(row.original) ||
+      isLikelyVideoUrl(row.url) ||
+      isLikelyVideoUrl(row.videoUrl) ||
+      isLikelyVideoUrl(row.fallbackVideoUrl)
+    );
+  });
+}
+
+function hasTypedVideoAsset(assets: unknown): boolean {
+  if (!Array.isArray(assets)) return false;
+  return assets.some((asset) => {
+    if (!asset || typeof asset !== "object") return false;
+    const row = asset as Record<string, unknown>;
+    return String(row.type ?? "").toLowerCase() === "video";
+  });
 }
 
 function mergePlaybackShellFromDetailRecord(detail: FeedDetailRecord, card: SafeCardSummary): PlaybackPostShellDTO {
@@ -155,10 +196,10 @@ function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFe
     ...(typeof (summary as Record<string, unknown>).rawFirestoreAssetCount === "number"
       ? { rawFirestoreAssetCount: (summary as Record<string, unknown>).rawFirestoreAssetCount as number }
       : {}),
-    ...((typeof (summary as Record<string, unknown>).mediaCompleteness === "string" &&
-      String((summary as Record<string, unknown>).mediaCompleteness).trim().length > 0)
-      ? { mediaCompleteness: (summary as Record<string, unknown>).mediaCompleteness as string }
-      : {}),
+    ...((): { mediaCompleteness: "full" | "cover_only" } | Record<string, never> => {
+      const mc = normalizeShellMediaCompleteness((summary as Record<string, unknown>).mediaCompleteness);
+      return mc !== undefined ? { mediaCompleteness: mc } : {};
+    })(),
     ...((summary as Record<string, unknown>).requiresAssetHydration === true
       ? { requiresAssetHydration: true as const }
       : {}),
@@ -747,7 +788,13 @@ export class PostsDetailOrchestrator {
       });
     }
 
-    type UpgradeIntent = { postId: string; batchIndex: number; carouselNeed: boolean; videoNeed: boolean };
+    type UpgradeIntent = {
+      postId: string;
+      batchIndex: number;
+      carouselNeed: boolean;
+      videoNeed: boolean;
+      mandatoryVideoRepair: boolean;
+    };
     const upgradeIntents: UpgradeIntent[] = [];
     for (let batchIndex = 0; batchIndex < cappedIds.length; batchIndex += 1) {
       const postId = cappedIds[batchIndex]!;
@@ -774,12 +821,26 @@ export class PostsDetailOrchestrator {
         input.hydrationMode === "playback" &&
         playbackBatchShouldFetchFirestoreDetail(shellRecord) &&
         (!isCollectionDetailPrefetch || !hasRenderablePrimaryAsset);
+      const mandatoryVideoRepair =
+        input.hydrationMode === "playback" &&
+        stagedReadiness?.hasVideo === true &&
+        stagedReadiness?.playbackUrlPresent !== true;
+      const malformedVideoAsImageRepair =
+        input.hydrationMode === "playback" &&
+        hasVideoLikeImageAsset(shellRecord.assets) &&
+        !hasTypedVideoAsset(shellRecord.assets);
       const carouselNeed =
         input.hydrationMode === "playback" &&
         playbackBatchCarouselIncompleteMedia(carouselProbe) &&
         !isCollectionDetailPrefetch;
-      if (carouselNeed || videoNeed) {
-        upgradeIntents.push({ postId, batchIndex, carouselNeed, videoNeed });
+      if (carouselNeed || videoNeed || malformedVideoAsImageRepair) {
+        upgradeIntents.push({
+          postId,
+          batchIndex,
+          carouselNeed,
+          videoNeed,
+          mandatoryVideoRepair: mandatoryVideoRepair || malformedVideoAsImageRepair,
+        });
       }
     }
     upgradeIntents.sort((a, b) => {
@@ -796,6 +857,10 @@ export class PostsDetailOrchestrator {
     {
       let reserved = 0;
       for (const intent of upgradeIntents) {
+        if (intent.mandatoryVideoRepair) {
+          grantedFirestoreUpgrade.add(intent.postId);
+          continue;
+        }
         if (reserved >= playbackFirestoreReadCap) {
           playbackUpgradeSkippedReason.set(intent.postId, "playback_firestore_read_cap");
           continue;
@@ -821,27 +886,29 @@ export class PostsDetailOrchestrator {
         Array.isArray(card.assets) &&
         card.assets.length > 1
       ) {
+        const shellMediaCompleteness = normalizeShellMediaCompleteness(cardRecord.mediaCompleteness);
         playbackShell = {
           ...playbackShell,
-          assets: card.assets.map((asset, idx) => ({
-            id: asset.id ?? `${card.postId}-asset-${idx + 1}`,
-            type: asset.type,
-            original: (asset as { originalUrl?: string | null; mp4Url?: string | null }).originalUrl ??
-              (asset as { mp4Url?: string | null }).mp4Url ??
-              null,
-            poster: asset.posterUrl ?? null,
-            thumbnail: asset.posterUrl ?? null,
-            aspectRatio: asset.aspectRatio ?? undefined,
-            width: asset.width ?? undefined,
-            height: asset.height ?? undefined,
-            orientation: asset.orientation ?? undefined,
-            variants: {
-              ...(asset.previewUrl ? { preview360: asset.previewUrl, preview360Avc: asset.previewUrl } : {}),
-              ...(asset.streamUrl ? { hls: asset.streamUrl } : {}),
-              ...(asset.mp4Url ? { main720Avc: asset.mp4Url, main720: asset.mp4Url } : {}),
-            },
-          })),
-          mediaCompleteness: cardRecord.mediaCompleteness,
+          assets: card.assets.map((asset, idx) => {
+            const ext = asset as typeof asset & { streamUrl?: string | null; mp4Url?: string | null };
+            return {
+              id: asset.id ?? `${card.postId}-asset-${idx + 1}`,
+              type: asset.type,
+              original: ext.originalUrl ?? ext.mp4Url ?? null,
+              poster: asset.posterUrl ?? null,
+              thumbnail: asset.posterUrl ?? null,
+              aspectRatio: asset.aspectRatio ?? undefined,
+              width: asset.width ?? undefined,
+              height: asset.height ?? undefined,
+              orientation: asset.orientation ?? undefined,
+              variants: {
+                ...(asset.previewUrl ? { preview360: asset.previewUrl, preview360Avc: asset.previewUrl } : {}),
+                ...(ext.streamUrl ? { hls: ext.streamUrl } : {}),
+                ...(ext.mp4Url ? { main720Avc: ext.mp4Url, main720: ext.mp4Url } : {}),
+              },
+            };
+          }),
+          ...(shellMediaCompleteness !== undefined ? { mediaCompleteness: shellMediaCompleteness } : {}),
           hasMultipleAssets: cardRecord.hasMultipleAssets === true,
           assetCount:
             typeof cardRecord.assetCount === "number" && Number.isFinite(cardRecord.assetCount)

@@ -1,8 +1,19 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import type { MasterPostV2 } from "../../contracts/master-post-v2.types.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { normalizeMasterPostV2 } from "../../lib/posts/master-post-v2/normalizeMasterPostV2.js";
 import { validateMasterPostV2 } from "../../lib/posts/master-post-v2/validateMasterPostV2.js";
+import {
+  compactCanonicalPostForLiveWrite,
+  detectPlaybackLabGeneratedNotPromoted,
+  isCompactCanonicalPostV2
+} from "../../lib/posts/master-post-v2/compactCanonicalPostV2.js";
+import { classifyPostRebuildFailure } from "../../lib/posts/master-post-v2/postRebuildFailureClassification.js";
+import { evaluatePosterRepairNeed } from "../../lib/posts/master-post-v2/posterRepair.js";
+import { mediaUrlSanityCheckOnSavedCompactPost } from "../../lib/posts/master-post-v2/savedCompactPostHealth.js";
+import { buildStrictGenerationFailureDetail } from "../../lib/posts/master-post-v2/strictGenerationFailureDetail.js";
+import { encodeFirestoreTimestampsInPostWrite } from "../../lib/posts/master-post-v2/encodeFirestoreTimestampsInPostWrite.js";
 import { extractMediaProcessingDebugV2 } from "../../lib/posts/master-post-v2/extractMediaProcessingDebugV2.js";
 import { hashPostForRebuild } from "../../lib/posts/master-post-v2/hashPostForRebuild.js";
 import { diffMasterPostPreview } from "../../lib/posts/master-post-v2/diffMasterPostPreview.js";
@@ -15,13 +26,27 @@ import {
   type VerifyOutput
 } from "../../lib/posts/master-post-v2/videoFastStartRepair.js";
 import { encodeAndUploadVideoAsset } from "../../services/video/video-post-encoding.pipeline.js";
+import { downloadVideoSourceToFile } from "../../services/video/video-post-encoding.pipeline.js";
+import {
+  normalizeVideoLabPostFolder,
+  repairVideosLabDoublePostPrefixUrlsDeep
+} from "../../services/video/normalizeVideoLabPostFolder.js";
 import { readWasabiConfigFromEnv } from "../../services/storage/wasabi-config.js";
-import { verifyRemoteMp4Faststart } from "../../services/video/remote-url-verify.js";
+import { verifyRemoteImage, verifyRemoteMp4Faststart } from "../../services/video/remote-url-verify.js";
+import { uploadFileToWasabiKey } from "../../services/video/wasabi-upload-file.js";
+import { runFfmpeg } from "../../services/video/ffmpeg-runner.js";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
+
+/**
+ * Upper bound for `/debug/post-rebuilder/posts` (rank-ordered load). Admin-only; keep finite so
+ * accidental "count=999999999" does not OOM the worker. Paste-IDs / append loads are not capped here.
+ */
+const POST_REBUILDER_RANK_QUERY_LIMIT_MAX = 50_000;
+const POST_REBUILDER_RANK_QUERY_OFFSET_MAX = 200_000;
 
 const ParamsSchema = z.object({ postId: z.string().min(1) });
 const WriteSchema = z.object({
@@ -34,9 +59,9 @@ const PreviewQuerySchema = z.object({
   dryRunMode: z.enum(["default", "singleVideoCheck"]).optional().default("default")
 });
 const LoadNewestPostsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(200).optional().default(12),
+  limit: z.coerce.number().int().min(1).max(POST_REBUILDER_RANK_QUERY_LIMIT_MAX).optional().default(12),
   /** Number of docs to skip after ordering (0 = start at newest). */
-  offset: z.coerce.number().int().min(0).max(10_000).optional().default(0)
+  offset: z.coerce.number().int().min(0).max(POST_REBUILDER_RANK_QUERY_OFFSET_MAX).optional().default(0)
 });
 const OptimizeAndWriteQuerySchema = z.object({
   /** When "1", response is NDJSON stream: progress lines then a final done/error line. */
@@ -71,11 +96,58 @@ function selectedVideoUrlsFromCanonical(canonical: any) {
     }));
 }
 
+/** Same playback summary as canonical, but read from a Firestore-shaped doc (e.g. compact `livePost` after read). */
+function selectedVideoUrlsFromPostDocument(post: UnknownRecord) {
+  return selectedVideoUrlsFromCanonical({ media: post.media } as MasterPostV2);
+}
+
 function firstNonEmptyString(...values: unknown[]): string | null {
   for (const value of values) {
     if (typeof value === "string" && value.trim().length > 0) return value.trim();
   }
   return null;
+}
+
+function buildOptimizeFailureClassification(input: {
+  compactPre: ReturnType<typeof isCompactCanonicalPostV2>;
+  status: string;
+  lastStep?: string;
+  repairedRaw: UnknownRecord;
+  canonical: MasterPostV2 | null;
+  validation: { blockingErrors?: Array<{ code?: string; message?: string; path?: string }> } | null;
+  generationFailureDetail?: Record<string, unknown> | null;
+  analyzeAfterRepair: ReturnType<typeof analyzeVideoFastStartNeeds> | null;
+}) {
+  const classified = classifyPostRebuildFailure({
+    rawPost: input.repairedRaw as Record<string, unknown>,
+    normalizedPost: input.canonical ? (input.canonical as unknown as Record<string, unknown>) : undefined,
+    validation: input.validation,
+    compactCheck: input.compactPre as unknown as Record<string, unknown>,
+    context: {
+      status: input.status,
+      lastStep: input.lastStep,
+      generationFailureDetail: input.generationFailureDetail ?? null,
+      analyze: input.analyzeAfterRepair
+        ? {
+            missingSourceCount: input.analyzeAfterRepair.missingSourceCount,
+            needsGenerationCount: input.analyzeAfterRepair.needsGenerationCount
+          }
+        : null
+    }
+  });
+  return {
+    ...classified,
+    lastStep: input.lastStep ?? null,
+    optimizeStatus: input.status
+  };
+}
+
+function estimateJsonUtf8Bytes(value: unknown): number {
+  try {
+    return Buffer.byteLength(JSON.stringify(value), "utf8");
+  } catch {
+    return 0;
+  }
 }
 
 function getNestedRecord(value: unknown): UnknownRecord | null {
@@ -119,6 +191,26 @@ function coerceIsoDate(value: unknown): string | null {
   return null;
 }
 
+/** Human-readable post time for queue UI (never mix dateStyle + timeZoneName in one Intl call). */
+function formatPostTimeDisplayLabel(isoOrNull: string | null): string | null {
+  if (!isoOrNull) return null;
+  const ms = Date.parse(isoOrNull);
+  if (!Number.isFinite(ms)) return isoOrNull;
+  try {
+    return new Date(ms).toLocaleString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short"
+    });
+  } catch {
+    return isoOrNull;
+  }
+}
+
 function summarizeQueueCandidate(postId: string, raw: UnknownRecord) {
   const text = getNestedRecord(raw.text);
   const classification = getNestedRecord(raw.classification);
@@ -126,9 +218,12 @@ function summarizeQueueCandidate(postId: string, raw: UnknownRecord) {
   const display = getNestedRecord(location?.display);
   const author = getNestedRecord(raw.author);
   const rawSchema = getNestedRecord(raw.schema);
+  const lifecycle = getNestedRecord(raw.lifecycle);
+  const timeIso = coerceIsoDate(raw.time ?? lifecycle?.createdAt ?? raw.createdAt);
   return {
     postId,
-    time: coerceIsoDate(raw.time ?? raw.createdAt),
+    time: timeIso,
+    timeDisplay: formatPostTimeDisplayLabel(timeIso),
     userId: firstNonEmptyString(raw.userId, author?.userId, raw.uid),
     title: firstNonEmptyString(
       text?.title,
@@ -160,6 +255,22 @@ async function defaultVerifyGeneratedVideoUrl(input: {
   url: string;
   originalUrl: string | null;
 }): Promise<VerifyOutput> {
+  const isPoster = input.label === "posterHigh" || input.label === "poster";
+  if (isPoster) {
+    const img = await verifyRemoteImage(input.url);
+    return {
+      label: input.label,
+      url: input.url,
+      ok: img.ok,
+      moovHint: img.ok ? img.moovHint : undefined,
+      probe: img.ok
+        ? {
+            head: { ok: true, status: 200, contentType: img.contentType, acceptRanges: "" },
+            moovHint: img.moovHint
+          }
+        : undefined
+    };
+  }
   const headRes = await fetch(input.url, { method: "HEAD" }).catch(() => null);
   const contentType = (String(headRes?.headers.get("content-type") ?? "")
     .split(";")
@@ -202,17 +313,38 @@ async function defaultGenerateMissingForAsset(input: {
   const cfg = readWasabiConfigFromEnv();
   if (!cfg) throw new Error("wasabi_unavailable");
   const assetId = firstNonEmptyString(input.asset.id) ?? `video_${Date.now()}`;
-  const original = firstNonEmptyString(input.asset.original, input.asset.url);
+  const video = getNestedRecord(input.asset.video);
+  const playback = getNestedRecord(video?.playback);
+  const original = firstNonEmptyString(
+    input.asset.original,
+    input.asset.url,
+    video?.originalUrl,
+    playback?.defaultUrl,
+    playback?.primaryUrl
+  );
   if (!original) throw new Error("source_missing");
   const workDir = path.join(os.tmpdir(), `rebuilder-faststart-${input.postId}-${assetId}-${randomUUID()}`);
   await fs.mkdir(workDir, { recursive: true });
   try {
+    /** Rebuilder fast path: never request 1080 ladder encodes here (540/720 + optional poster/preview/main720 only). */
+    const encodeOnly: Partial<{
+      posterHigh: boolean;
+      preview360Avc: boolean;
+      main720Avc: boolean;
+      startup540FaststartAvc: boolean;
+      startup720FaststartAvc: boolean;
+    }> = {};
+    if (input.needs.posterHigh) encodeOnly.posterHigh = true;
+    if (input.needs.preview360Avc) encodeOnly.preview360Avc = true;
+    if (input.needs.main720Avc) encodeOnly.main720Avc = true;
+    if (input.needs.startup540FaststartAvc) encodeOnly.startup540FaststartAvc = true;
+    if (input.needs.startup720FaststartAvc) encodeOnly.startup720FaststartAvc = true;
     const encoded = await encodeAndUploadVideoAsset({
       cfg,
-      postId: `post_${input.postId}`,
+      postId: normalizeVideoLabPostFolder(input.postId),
       asset: { id: assetId, original },
       workDir,
-      encodeOnly: input.needs,
+      encodeOnly,
       onProgress: input.onEncoderProgress
     });
     const generated: Record<string, string> = {};
@@ -224,12 +356,6 @@ async function defaultGenerateMissingForAsset(input: {
     }
     if (input.needs.startup720FaststartAvc && encoded.playbackLabGenerated.startup720FaststartAvc) {
       generated.startup720FaststartAvc = encoded.playbackLabGenerated.startup720FaststartAvc;
-    }
-    if (input.needs.startup1080FaststartAvc && encoded.playbackLabGenerated.startup1080FaststartAvc) {
-      generated.startup1080FaststartAvc = encoded.playbackLabGenerated.startup1080FaststartAvc;
-    }
-    if (input.needs.upgrade1080FaststartAvc && encoded.playbackLabGenerated.upgrade1080FaststartAvc) {
-      generated.upgrade1080FaststartAvc = encoded.playbackLabGenerated.upgrade1080FaststartAvc;
     }
     return {
       generated,
@@ -243,6 +369,253 @@ async function defaultGenerateMissingForAsset(input: {
   }
 }
 
+function pickVideoPosterAsset(raw: UnknownRecord): UnknownRecord | null {
+  const media = getNestedRecord(raw.media);
+  const assets = Array.isArray(media?.assets) ? (media.assets as unknown[]) : [];
+  for (const row of assets) {
+    const ar = getNestedRecord(row);
+    if (!ar || ar.type !== "video") continue;
+    return ar;
+  }
+  const legacy = Array.isArray(raw.assets) ? (raw.assets as unknown[]) : [];
+  for (const row of legacy) {
+    const ar = getNestedRecord(row);
+    if (!ar || ar.type !== "video") continue;
+    return ar;
+  }
+  return null;
+}
+
+function collectPosterAndVideoCandidates(raw: UnknownRecord, preferredAssetId: string | null): {
+  posterUrls: string[];
+  videoUrls: string[];
+} {
+  const urlsPoster: string[] = [];
+  const urlsVideo: string[] = [];
+  const push = (out: string[], value: unknown) => {
+    if (typeof value !== "string") return;
+    const t = value.trim();
+    if (!/^https?:\/\//i.test(t)) return;
+    out.push(t);
+  };
+  const media = getNestedRecord(raw.media);
+  const cover = getNestedRecord(media?.cover);
+  const compatibility = getNestedRecord(raw.compatibility);
+  push(urlsPoster, cover?.posterUrl);
+  push(urlsPoster, cover?.url);
+  push(urlsPoster, cover?.thumbUrl);
+  push(urlsPoster, compatibility?.posterUrl);
+  push(urlsPoster, compatibility?.photoLink);
+  push(urlsPoster, compatibility?.displayPhotoLink);
+  push(urlsPoster, compatibility?.thumbUrl);
+  push(urlsPoster, raw.posterUrl);
+  push(urlsPoster, raw.photoLink);
+  push(urlsPoster, raw.displayPhotoLink);
+  push(urlsPoster, raw.thumbUrl);
+  const assets: UnknownRecord[] = [];
+  if (Array.isArray(media?.assets)) {
+    for (const v of media.assets as unknown[]) {
+      const r = getNestedRecord(v);
+      if (r) assets.push(r);
+    }
+  }
+  if (Array.isArray(raw.assets)) {
+    for (const v of raw.assets as unknown[]) {
+      const r = getNestedRecord(v);
+      if (r) assets.push(r);
+    }
+  }
+  const sorted = assets.sort((a, b) => {
+    if (preferredAssetId && String(a.id ?? "") === preferredAssetId) return -1;
+    if (preferredAssetId && String(b.id ?? "") === preferredAssetId) return 1;
+    return 0;
+  });
+  for (const ar of sorted) {
+    if (ar.type !== "video") continue;
+    const vv = getNestedRecord(ar.video);
+    const pb = getNestedRecord(vv?.playback);
+    const variants = getNestedRecord(vv?.variants);
+    push(urlsPoster, pb?.posterUrl);
+    push(urlsPoster, variants?.poster);
+    push(urlsPoster, vv?.posterUrl);
+    push(urlsVideo, pb?.startupUrl);
+    push(urlsVideo, pb?.defaultUrl);
+    push(urlsVideo, pb?.primaryUrl);
+    push(urlsVideo, variants?.startup720FaststartAvc);
+    push(urlsVideo, variants?.startup540FaststartAvc);
+    push(urlsVideo, pb?.fallbackUrl);
+    push(urlsVideo, vv?.originalUrl);
+  }
+  push(urlsVideo, compatibility?.fallbackVideoUrl);
+  push(urlsVideo, raw.fallbackVideoUrl);
+  push(urlsVideo, raw.photoLinks2);
+  push(urlsVideo, raw.photoLinks3);
+  return { posterUrls: [...new Set(urlsPoster)], videoUrls: [...new Set(urlsVideo)] };
+}
+
+function applyDurablePosterToRawPost(raw: UnknownRecord, assetId: string, posterUrl: string): UnknownRecord {
+  const next: UnknownRecord = JSON.parse(JSON.stringify(raw));
+  const setRec = (base: UnknownRecord, key: string) => {
+    const cur = getNestedRecord(base[key]);
+    if (cur) return cur;
+    const created: UnknownRecord = {};
+    base[key] = created;
+    return created;
+  };
+  const media = setRec(next, "media");
+  const cover = setRec(media, "cover");
+  cover.url = posterUrl;
+  cover.posterUrl = posterUrl;
+  cover.thumbUrl = posterUrl;
+  const compatibility = setRec(next, "compatibility");
+  compatibility.photoLink = posterUrl;
+  compatibility.displayPhotoLink = posterUrl;
+  compatibility.thumbUrl = posterUrl;
+  compatibility.posterUrl = posterUrl;
+  next.photoLink = posterUrl;
+  next.displayPhotoLink = posterUrl;
+  next.thumbUrl = posterUrl;
+  next.posterUrl = posterUrl;
+  const patchAsset = (list: unknown[]) => {
+    for (const row of list) {
+      const ar = getNestedRecord(row);
+      if (!ar || String(ar.id ?? "") !== assetId || ar.type !== "video") continue;
+      const v = setRec(ar, "video");
+      const pb = setRec(v, "playback");
+      const variants = setRec(v, "variants");
+      pb.posterUrl = posterUrl;
+      variants.poster = posterUrl;
+      v.posterUrl = posterUrl;
+      ar.posterHigh = posterUrl;
+    }
+  };
+  if (Array.isArray(media.assets)) patchAsset(media.assets as unknown[]);
+  if (Array.isArray(next.assets)) patchAsset(next.assets as unknown[]);
+  return next;
+}
+
+async function repairPosterForRawPost(input: {
+  postId: string;
+  raw: UnknownRecord;
+  onProgress?: (evt: OptimizeProgress) => void;
+}): Promise<{
+  repairedRaw: UnknownRecord;
+  posterRepairApplied: boolean;
+  posterRepairReason: string;
+  posterRepairSource: string | null;
+  posterRepairUrl: string | null;
+  diagnostics: Record<string, unknown>;
+  failure?: {
+    failureClass: string;
+    message: string;
+  };
+}> {
+  const { postId, raw, onProgress } = input;
+  const evaluation = evaluatePosterRepairNeed(raw, {
+    configuredPublicBases: [
+      process.env.LOCAVA_PUBLIC_ASSET_BASE ?? "",
+      process.env.WASABI_ENDPOINT ?? "",
+      process.env.NEXT_PUBLIC_WASABI_ENDPOINT ?? ""
+    ].filter(Boolean)
+  });
+  if (!evaluation.needsPosterRepair) {
+    return {
+      repairedRaw: raw,
+      posterRepairApplied: false,
+      posterRepairReason: evaluation.reason,
+      posterRepairSource: null,
+      posterRepairUrl: evaluation.durablePosterUrl ?? null,
+      diagnostics: { evaluation }
+    };
+  }
+  const cfg = readWasabiConfigFromEnv();
+  if (!cfg) {
+    return {
+      repairedRaw: raw,
+      posterRepairApplied: false,
+      posterRepairReason: "poster_unreachable",
+      posterRepairSource: null,
+      posterRepairUrl: null,
+      diagnostics: { evaluation, error: "wasabi_unavailable" }
+    };
+  }
+  const asset = pickVideoPosterAsset(raw);
+  const assetId = firstNonEmptyString(asset?.id) ?? "video_0";
+  const candidates = collectPosterAndVideoCandidates(raw, assetId);
+  const workDir = path.join(os.tmpdir(), `rebuilder-poster-${postId}-${assetId}-${randomUUID()}`);
+  await fs.mkdir(workDir, { recursive: true });
+  const folder = normalizeVideoLabPostFolder(postId);
+  const key = `videos-lab/${folder}/${assetId}/poster_high.jpg`;
+  try {
+    for (const posterUrl of candidates.posterUrls) {
+      const v = await verifyRemoteImage(posterUrl).catch(() => ({ ok: false, reason: "probe_failed" }));
+      if (!v.ok) continue;
+      onProgress?.({ stage: "poster_ingest", detail: posterUrl, assetId });
+      const imgRes = await fetch(posterUrl).catch(() => null);
+      if (!imgRes?.ok || !imgRes.body) continue;
+      const posterLocal = path.join(workDir, "poster_ingested.jpg");
+      const arr = Buffer.from(await imgRes.arrayBuffer());
+      await fs.writeFile(posterLocal, arr);
+      const up = await uploadFileToWasabiKey({ cfg, localPath: posterLocal, key, contentType: "image/jpeg" });
+      return {
+        repairedRaw: applyDurablePosterToRawPost(raw, assetId, up.publicUrl),
+        posterRepairApplied: true,
+        posterRepairReason: evaluation.reason,
+        posterRepairSource: "ingested_external_poster",
+        posterRepairUrl: up.publicUrl,
+        diagnostics: { evaluation, candidatePosterUrl: posterUrl, uploadedKey: key }
+      };
+    }
+    for (const videoUrl of candidates.videoUrls) {
+      if (!/^https?:\/\//i.test(videoUrl) || /\.(jpe?g|png|webp)(\?|$)/i.test(videoUrl)) continue;
+      const verifyVideo = await verifyRemoteMp4Faststart(videoUrl, "", { requireMoovBeforeMdat: false }).catch(() => null);
+      if (!verifyVideo?.ok) continue;
+      onProgress?.({ stage: "poster_derive_from_video", detail: videoUrl, assetId });
+      const source = path.join(workDir, "source.mp4");
+      const posterLocal = path.join(workDir, "poster_derived.jpg");
+      await downloadVideoSourceToFile(videoUrl, source);
+      await runFfmpeg([
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        "0.25",
+        "-i",
+        source,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "3",
+        posterLocal
+      ]);
+      const up = await uploadFileToWasabiKey({ cfg, localPath: posterLocal, key, contentType: "image/jpeg" });
+      return {
+        repairedRaw: applyDurablePosterToRawPost(raw, assetId, up.publicUrl),
+        posterRepairApplied: true,
+        posterRepairReason: evaluation.reason,
+        posterRepairSource: "derived_first_frame_from_video",
+        posterRepairUrl: up.publicUrl,
+        diagnostics: { evaluation, videoSourceUrl: videoUrl, uploadedKey: key }
+      };
+    }
+    return {
+      repairedRaw: raw,
+      posterRepairApplied: false,
+      posterRepairReason: "poster_unreachable",
+      posterRepairSource: null,
+      posterRepairUrl: null,
+      diagnostics: { evaluation, candidates },
+      failure: {
+        failureClass: "poster_and_video_source_unreachable",
+        message: "poster_and_video_source_unreachable"
+      }
+    };
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 type OptimizeProgress = {
   stage: string;
   detail?: string;
@@ -250,6 +623,60 @@ type OptimizeProgress = {
   index?: number;
   total?: number;
 };
+
+async function persistCompactCanonicalPost(input: {
+  db: NonNullable<ReturnType<typeof getFirestoreSourceClient>>;
+  postId: string;
+  rawBefore: UnknownRecord;
+  repairedRaw: UnknownRecord;
+  canonical: MasterPostV2;
+  engagementSourceAudit: Awaited<ReturnType<typeof auditPostEngagementSourcesV2>>;
+  actorRoute: string;
+}): Promise<{
+  backupId: string;
+  backupPath: string;
+  byteEstimateBefore: number;
+  byteEstimateAfter: number;
+  removedPaths: string[];
+}> {
+  const { db, postId, rawBefore, repairedRaw, canonical, engagementSourceAudit, actorRoute } = input;
+  const ts = Date.now();
+  const backupId = `${postId}_${ts}`;
+  const backupPath = `postCanonicalBackups/${backupId}`;
+  const compact = compactCanonicalPostForLiveWrite({ canonical, rawBefore, postId });
+  await db.collection("postCanonicalBackups").doc(backupId).set({
+    postId,
+    createdAt: new Date().toISOString(),
+    rawBefore,
+    rawHash: hashPostForRebuild(rawBefore),
+    optimizedRaw: repairedRaw,
+    canonicalPreview: canonical,
+    compactLivePost: compact.livePost,
+    compactionDiagnostics: JSON.parse(JSON.stringify(compact.diagnostics)),
+    engagementSourceAudit,
+    actor: { route: actorRoute }
+  });
+  await db.collection("postCanonicalDiagnostics").doc(backupId).set(
+    JSON.parse(
+      JSON.stringify({
+        postId,
+        createdAt: new Date().toISOString(),
+        backupPath,
+        diagnosticsDoc: `postCanonicalDiagnostics/${backupId}`,
+        ...compact.diagnostics
+      })
+    )
+  );
+  const liveForFirestore = encodeFirestoreTimestampsInPostWrite(compact.livePost as Record<string, unknown>);
+  await db.collection("posts").doc(postId).set(liveForFirestore, { merge: false });
+  return {
+    backupId,
+    backupPath,
+    byteEstimateBefore: compact.byteEstimateBefore,
+    byteEstimateAfter: compact.byteEstimateAfter,
+    removedPaths: compact.removedPaths
+  };
+}
 
 async function optimizeAndWritePost(input: {
   db: NonNullable<ReturnType<typeof getFirestoreSourceClient>>;
@@ -271,7 +698,83 @@ async function optimizeAndWritePost(input: {
   emit("loading_latest_raw", "firestore_get_post");
   const snap = await postRef.get();
   if (!snap.exists) return { status: "post_not_found", stages, warnings, errors: ["post_not_found"] };
-  const raw = (snap.data() ?? {}) as UnknownRecord;
+  /** Immutable Firestore snapshot for backups / audit (`raw` may be replaced after legacy URL repair). */
+  const snapshotRaw = (snap.data() ?? {}) as UnknownRecord;
+  let raw = snapshotRaw;
+
+  const compactPre = isCompactCanonicalPostV2(raw as Record<string, unknown>);
+  emit(
+    "compact_precheck",
+    JSON.stringify({
+      ok: compactPre.canSkipWrite,
+      compactOk: compactPre.compactOk,
+      canSkipWrite: compactPre.canSkipWrite,
+      mediaNeedsRepair: compactPre.mediaNeedsRepair,
+      videoNeedsFaststart: compactPre.videoNeedsFaststart,
+      posterNeedsRepair: compactPre.posterNeedsRepair === true,
+      posterRepairReason: compactPre.posterRepairReason ?? null,
+      videoIssueCount:
+        typeof compactPre.videoIssueCount === "number"
+          ? compactPre.videoIssueCount
+          : Array.isArray(compactPre.videoIssues)
+            ? compactPre.videoIssues.length
+            : 0
+    })
+  );
+  if (compactPre.canSkipWrite) {
+    stages.push("already_compact_canonical");
+    const bytes = estimateJsonUtf8Bytes(raw);
+    const savedMediaSanity = mediaUrlSanityCheckOnSavedCompactPost(raw);
+    const videoUrls = selectedVideoUrlsFromPostDocument(raw);
+    return {
+      status: "already_compact_canonical",
+      postId,
+      stages,
+      warnings,
+      errors: [],
+      compactCheck: compactPre,
+      savedMediaUrlSanity: savedMediaSanity,
+      raw,
+      generatedAssets: [] as Array<{ assetId: string; generated: Record<string, string> }>,
+      skippedAssets: [] as string[],
+      selectedVideoUrlsBefore: videoUrls,
+      selectedVideoUrlsAfterGeneration: videoUrls,
+      selectedVideoUrlsSaved: videoUrls,
+      validation: null,
+      repairedRaw: raw,
+      canonicalPreview: null,
+      diffSummary: {},
+      generationErrors: [] as string[],
+      backupPath: "",
+      byteEstimateBefore: bytes,
+      byteEstimateAfter: bytes,
+      removedPaths: [] as string[]
+    };
+  }
+
+  const cfgLabUrlRepair = readWasabiConfigFromEnv();
+  if (cfgLabUrlRepair) {
+    const rep = await repairVideosLabDoublePostPrefixUrlsDeep(cfgLabUrlRepair, raw as Record<string, unknown>);
+    raw = rep.value as UnknownRecord;
+    for (const w of rep.warnings) {
+      if (!warnings.includes(w)) warnings.push(w);
+    }
+  }
+
+  const baselineAnalyze = analyzeVideoFastStartNeeds(raw, { postId });
+  const shouldRunFaststartRepair =
+    Boolean(compactPre.videoNeedsFaststart) ||
+    detectPlaybackLabGeneratedNotPromoted(raw as Record<string, unknown>) ||
+    baselineAnalyze.needsGenerationCount > 0;
+  emit(
+    "fast_start_repair_plan",
+    JSON.stringify({
+      shouldRunFaststartRepair,
+      posterNeedsRepair: compactPre.posterNeedsRepair === true,
+      needsGenerationCount: baselineAnalyze.needsGenerationCount,
+      missingSourceCount: baselineAnalyze.missingSourceCount
+    })
+  );
 
   emit("normalize_baseline", "before_fast_start_repair");
   const beforeNormalized = normalizeMasterPostV2(raw, { postId });
@@ -279,12 +782,22 @@ async function optimizeAndWritePost(input: {
 
   stages.push("analyzing_fast_start_needs");
   emit("analyzing_fast_start_needs", "scan_assets_and_urls");
-  const run = await generateMissingFastStartVariantsForPost(postId, raw, {
-    generateMissingForAsset: defaultGenerateMissingForAsset,
-    verifyGeneratedUrl: defaultVerifyGeneratedVideoUrl,
-    onProgress: (evt) =>
-      emit(evt.phase, evt.detail, { assetId: evt.assetId, index: evt.index, total: evt.total })
-  });
+  let run: Awaited<ReturnType<typeof generateMissingFastStartVariantsForPost>>;
+  if (shouldRunFaststartRepair) {
+    run = await generateMissingFastStartVariantsForPost(postId, raw, {
+      generateMissingForAsset: defaultGenerateMissingForAsset,
+      verifyGeneratedUrl: defaultVerifyGeneratedVideoUrl,
+      onProgress: (evt) =>
+        emit(evt.phase, evt.detail, { assetId: evt.assetId, index: evt.index, total: evt.total })
+    });
+  } else {
+    stages.push("fast_start_generation_skipped");
+    warnings.push("fast_start_generation_skipped_not_needed");
+    run = {
+      analyze: baselineAnalyze,
+      generationResults: []
+    };
+  }
   const generatedAssets = run.generationResults
     .filter((row) => !row.skipped && Object.keys(row.generated ?? {}).length > 0)
     .map((row) => ({ assetId: row.assetId, generated: row.generated }));
@@ -299,14 +812,73 @@ async function optimizeAndWritePost(input: {
   if (generatedAssets.length > 0) stages.push("generating_missing_fast_starts");
   stages.push("merging_generated_assets");
   emit("merging_generated_assets", `rows=${run.generationResults.length}`);
-  const repairedRaw = mergePlaybackLabResultsIntoRawPost(raw, run.generationResults);
+  let repairedRaw = mergePlaybackLabResultsIntoRawPost(raw, run.generationResults);
+  stages.push("poster_repair_check");
+  const posterRepair = await repairPosterForRawPost({
+    postId,
+    raw: repairedRaw,
+    onProgress: (evt) => emit(evt.stage, evt.detail, { assetId: evt.assetId })
+  });
+  if (posterRepair.posterRepairApplied) {
+    emit("poster_repair_applied", `${posterRepair.posterRepairSource ?? "unknown"} ${posterRepair.posterRepairUrl ?? ""}`);
+    warnings.push(`poster_repaired:${posterRepair.posterRepairSource ?? "unknown"}`);
+  }
+  if (posterRepair.failure) {
+    errors.push("poster_repair_failed");
+    return {
+      status: "poster_repair_failed",
+      stages,
+      warnings,
+      errors,
+      generatedAssets,
+      skippedAssets,
+      selectedVideoUrlsBefore,
+      selectedVideoUrlsAfterGeneration: selectedVideoUrlsBefore,
+      validation: null,
+      raw,
+      repairedRaw,
+      canonicalPreview: null,
+      diffSummary: {
+        posterRepairDiagnostics: posterRepair.diagnostics
+      },
+      generationErrors,
+      unresolvedAfterRepair: baselineAnalyze,
+      generationFailureDetail: {
+        reason: "poster_and_video_source_unreachable",
+        posterRepairDiagnostics: posterRepair.diagnostics
+      },
+      failureClassification: {
+        failureClass: "poster_and_video_source_unreachable",
+        isRepairable: false,
+        shouldAttemptFaststartRepair: false,
+        shouldFallbackToOriginalIfVerifiedFaststart: false,
+        shouldQuarantine: true,
+        reasons: ["poster_and_video_source_unreachable"],
+        sourceUrls: [],
+        assetIds: [],
+        suggestedNextAction:
+          "Poster URL is external/expired and no reachable video source could be probed. Restore either poster image or video source URL.",
+        precheckValidationContradiction: false,
+        optimizeStatus: "poster_repair_failed",
+        lastStep: "poster_repair_check"
+      }
+    };
+  }
+  repairedRaw = posterRepair.repairedRaw;
 
   stages.push("rebuilding_canonical_preview");
   emit("engagement_source_audit", "firestore_subcollections");
   const engagementSourceAudit = await auditPostEngagementSourcesV2(db, postId, repairedRaw);
   emit("normalize_master_post_v2", "strict_after_repair");
   const normalized = normalizeMasterPostV2(repairedRaw, { postId, strict: true, engagementSourceAudit });
-  const selectedVideoUrlsAfterGeneration = selectedVideoUrlsFromCanonical(normalized.canonical);
+  const compactPlaybackBaseline = compactCanonicalPostForLiveWrite({
+    canonical: normalized.canonical,
+    rawBefore: raw,
+    postId
+  });
+  const selectedVideoUrlsAfterGeneration = selectedVideoUrlsFromPostDocument(
+    compactPlaybackBaseline.livePost as UnknownRecord
+  );
   const analyzeAfterRepair = analyzeVideoFastStartNeeds(repairedRaw, { postId });
   const previewDiffSummary = diffMasterPostPreview({
     raw: repairedRaw,
@@ -338,7 +910,21 @@ async function optimizeAndWritePost(input: {
       canonicalPreview: normalized.canonical,
       diffSummary: previewDiffSummary,
       generationErrors,
-      unresolvedAfterRepair: analyzeAfterRepair
+      posterRepairApplied: posterRepair.posterRepairApplied,
+      posterRepairSource: posterRepair.posterRepairSource,
+      posterRepairUrl: posterRepair.posterRepairUrl,
+      posterRepairDiagnostics: posterRepair.diagnostics,
+      unresolvedAfterRepair: analyzeAfterRepair,
+      failureClassification: buildOptimizeFailureClassification({
+        compactPre,
+        status: "validation_failed",
+        lastStep: "validate_after_repair",
+        repairedRaw,
+        canonical: normalized.canonical,
+        validation,
+        generationFailureDetail: null,
+        analyzeAfterRepair
+      })
     };
   }
   const unresolvedRequiredAssets = analyzeAfterRepair.assetNeeds.filter(
@@ -346,12 +932,20 @@ async function optimizeAndWritePost(input: {
       asset.sourceUrl &&
       (asset.needs.startup540FaststartAvc ||
         asset.needs.startup720FaststartAvc ||
+        asset.needs.posterHigh ||
         asset.needs.preview360Avc ||
-        asset.needs.main720Avc ||
-        (asset.supports1080 && asset.needs.startup1080FaststartAvc))
+        asset.needs.main720Avc)
   );
   if (strict && unresolvedRequiredAssets.length > 0) {
     errors.push("generation_failed");
+    const generationFailureDetail = buildStrictGenerationFailureDetail({
+      postId,
+      unresolvedRequiredAssets,
+      analyzeAfterRepair,
+      generationErrors,
+      generatedAssets,
+      skippedAssets
+    });
     return {
       status: "generation_failed",
       stages,
@@ -367,7 +961,22 @@ async function optimizeAndWritePost(input: {
       canonicalPreview: normalized.canonical,
       diffSummary: previewDiffSummary,
       generationErrors,
-      unresolvedAfterRepair: analyzeAfterRepair
+      posterRepairApplied: posterRepair.posterRepairApplied,
+      posterRepairSource: posterRepair.posterRepairSource,
+      posterRepairUrl: posterRepair.posterRepairUrl,
+      posterRepairDiagnostics: posterRepair.diagnostics,
+      unresolvedAfterRepair: analyzeAfterRepair,
+      generationFailureDetail,
+      failureClassification: buildOptimizeFailureClassification({
+        compactPre,
+        status: "generation_failed",
+        lastStep: "strict_unresolved_after_repair",
+        repairedRaw,
+        canonical: normalized.canonical,
+        validation,
+        generationFailureDetail,
+        analyzeAfterRepair
+      })
     };
   }
   if (generationErrors.length > 0) {
@@ -375,50 +984,111 @@ async function optimizeAndWritePost(input: {
   }
 
   stages.push("creating_backup");
-  const ts = Date.now();
-  const backupId = `${postId}_${ts}`;
-  const backupPath = `postCanonicalBackups/${backupId}`;
-  emit("creating_backup", backupPath);
-  const canonicalToWrite = {
-    ...normalized.canonical,
-    audit: {
-      ...normalized.canonical.audit,
-      backupDocPath: backupPath
-    }
-  };
-  await db.collection("postCanonicalBackups").doc(backupId).set({
+  emit("creating_backup", "postCanonicalBackups + compact live set");
+  const persisted = await persistCompactCanonicalPost({
+    db,
     postId,
-    createdAt: new Date().toISOString(),
-    rawBefore: raw,
-    rawHash: hashPostForRebuild(raw),
-    optimizedRaw: repairedRaw,
-    canonicalPreview: canonicalToWrite,
+    rawBefore: snapshotRaw,
+    repairedRaw,
+    canonical: normalized.canonical,
     engagementSourceAudit,
-    actor: { route: "debug/post-rebuilder/optimize-and-write" }
+    actorRoute: "debug/post-rebuilder/optimize-and-write"
   });
+  const backupPath = persisted.backupPath;
 
   stages.push("writing_firestore");
-  emit("writing_firestore", "merge_post_and_raw_assets");
-  // normalizeMasterPostV2 prefers top-level raw `assets` when non-empty over nested
-  // `media.assets`. A merge write of only the canonical block leaves stale root `assets`
-  // / `playbackLab`, so re-read + normalize disagrees with the in-memory preview.
-  const firestoreWritePayload: UnknownRecord = {
-    ...canonicalToWrite,
-    ...(Array.isArray(repairedRaw.assets) && repairedRaw.assets.length > 0
-      ? { assets: repairedRaw.assets }
-      : {}),
-    ...(repairedRaw.playbackLab && typeof repairedRaw.playbackLab === "object"
-      ? { playbackLab: repairedRaw.playbackLab as UnknownRecord }
-      : {})
-  };
-  await postRef.set(firestoreWritePayload, { merge: true });
+  emit("writing_firestore", "compact_replace_document");
 
   stages.push("verifying_saved_doc");
-  emit("verifying_saved_doc", "re_read_and_compare_urls");
+  emit("verifying_saved_doc", "compact_check_and_urls");
   const savedSnap = await postRef.get();
   const savedRaw = (savedSnap.data() ?? {}) as UnknownRecord;
-  const savedNormalized = normalizeMasterPostV2(savedRaw, { postId });
-  const selectedVideoUrlsSaved = selectedVideoUrlsFromCanonical(savedNormalized.canonical);
+  const savedCompact = isCompactCanonicalPostV2(savedRaw as Record<string, unknown>);
+  if (!savedCompact.ok) {
+    errors.push("post_write_compact_validation_failed");
+    const savedMediaSanityOnFail = mediaUrlSanityCheckOnSavedCompactPost(savedRaw);
+    return {
+      status: "write_failed_compact_validation",
+      stages,
+      backupPath,
+      generatedAssets,
+      skippedAssets,
+      selectedVideoUrlsBefore,
+      selectedVideoUrlsAfterGeneration,
+      validation,
+      warnings,
+      errors,
+      raw,
+      repairedRaw,
+      canonicalPreview: normalized.canonical,
+      diffSummary: previewDiffSummary,
+      generationErrors,
+      posterRepairApplied: posterRepair.posterRepairApplied,
+      posterRepairSource: posterRepair.posterRepairSource,
+      posterRepairUrl: posterRepair.posterRepairUrl,
+      posterRepairDiagnostics: posterRepair.diagnostics,
+      unresolvedAfterRepair: analyzeAfterRepair,
+      compactValidation: savedCompact,
+      savedCompactCheck: savedCompact,
+      savedMediaUrlSanity: savedMediaSanityOnFail,
+      savedRaw,
+      byteEstimateBefore: persisted.byteEstimateBefore,
+      byteEstimateAfter: persisted.byteEstimateAfter,
+      failureClassification: buildOptimizeFailureClassification({
+        compactPre,
+        status: "write_failed_compact_validation",
+        lastStep: "verify_saved_doc",
+        repairedRaw: savedRaw,
+        canonical: normalized.canonical,
+        validation,
+        generationFailureDetail: null,
+        analyzeAfterRepair
+      })
+    };
+  }
+  const savedMediaSanity = mediaUrlSanityCheckOnSavedCompactPost(savedRaw);
+  if (!savedMediaSanity.ok) {
+    errors.push("post_write_media_url_sanity_failed");
+    return {
+      status: "write_failed_media_url_sanity",
+      stages,
+      backupPath,
+      generatedAssets,
+      skippedAssets,
+      selectedVideoUrlsBefore,
+      selectedVideoUrlsAfterGeneration,
+      validation,
+      warnings,
+      errors,
+      raw,
+      repairedRaw,
+      canonicalPreview: normalized.canonical,
+      diffSummary: previewDiffSummary,
+      generationErrors,
+      posterRepairApplied: posterRepair.posterRepairApplied,
+      posterRepairSource: posterRepair.posterRepairSource,
+      posterRepairUrl: posterRepair.posterRepairUrl,
+      posterRepairDiagnostics: posterRepair.diagnostics,
+      unresolvedAfterRepair: analyzeAfterRepair,
+      compactValidation: savedCompact,
+      savedCompactCheck: savedCompact,
+      savedMediaUrlSanity: savedMediaSanity,
+      savedRaw,
+      byteEstimateBefore: persisted.byteEstimateBefore,
+      byteEstimateAfter: persisted.byteEstimateAfter,
+      failureClassification: buildOptimizeFailureClassification({
+        compactPre,
+        status: "write_failed_media_url_sanity",
+        lastStep: "media_url_sanity_saved_doc",
+        repairedRaw: savedRaw,
+        canonical: normalized.canonical,
+        validation,
+        generationFailureDetail: null,
+        analyzeAfterRepair
+      })
+    };
+  }
+  const selectedVideoUrlsSaved = selectedVideoUrlsFromPostDocument(savedRaw);
   if (JSON.stringify(selectedVideoUrlsSaved) !== JSON.stringify(selectedVideoUrlsAfterGeneration)) {
     errors.push("post_write_verification_failed");
     return {
@@ -438,7 +1108,26 @@ async function optimizeAndWritePost(input: {
       canonicalPreview: normalized.canonical,
       diffSummary: previewDiffSummary,
       generationErrors,
-      unresolvedAfterRepair: analyzeAfterRepair
+      posterRepairApplied: posterRepair.posterRepairApplied,
+      posterRepairSource: posterRepair.posterRepairSource,
+      posterRepairUrl: posterRepair.posterRepairUrl,
+      posterRepairDiagnostics: posterRepair.diagnostics,
+      unresolvedAfterRepair: analyzeAfterRepair,
+      savedCompactCheck: savedCompact,
+      savedMediaUrlSanity: savedMediaSanity,
+      savedRaw,
+      byteEstimateBefore: persisted.byteEstimateBefore,
+      byteEstimateAfter: persisted.byteEstimateAfter,
+      failureClassification: buildOptimizeFailureClassification({
+        compactPre,
+        status: "post_write_verification_failed",
+        lastStep: "selected_video_urls_mismatch",
+        repairedRaw: savedRaw,
+        canonical: normalized.canonical,
+        validation,
+        generationFailureDetail: null,
+        analyzeAfterRepair
+      })
     };
   }
 
@@ -461,7 +1150,19 @@ async function optimizeAndWritePost(input: {
     canonicalPreview: normalized.canonical,
     diffSummary: previewDiffSummary,
     generationErrors,
-    unresolvedAfterRepair: analyzeAfterRepair
+    posterRepairApplied: posterRepair.posterRepairApplied,
+    posterRepairSource: posterRepair.posterRepairSource,
+    posterRepairUrl: posterRepair.posterRepairUrl,
+    posterRepairDiagnostics: posterRepair.diagnostics,
+    unresolvedAfterRepair: analyzeAfterRepair,
+    compactWrite: true,
+    byteEstimateBefore: persisted.byteEstimateBefore,
+    byteEstimateAfter: persisted.byteEstimateAfter,
+    removedPaths: persisted.removedPaths,
+    savedRaw,
+    savedRawHash: hashPostForRebuild(savedRaw),
+    savedCompactCheck: savedCompact,
+    savedMediaUrlSanity: savedMediaSanity
   };
 }
 
@@ -663,6 +1364,14 @@ const htmlPage = `<!doctype html>
       display:block;
       font-size:26px;
       line-height:1;
+    }
+    .migration-gate.safe{
+      border-color:#7ab87a;
+      background:#f0faf0;
+    }
+    .migration-gate.unsafe{
+      border-color:#c46a5c;
+      background:#fdf2f0;
     }
     .controls{
       display:grid;
@@ -895,13 +1604,37 @@ const htmlPage = `<!doctype html>
           Exact same per-post rebuild flow, now wrapped in a multi-post queue. Paste a comma-separated list of post IDs,
           pull the newest posts from Firestore, inspect one selected post in detail, or run clean sequential auto previews and writes.
         </p>
+        <p class="muted" style="margin-top:12px;font-size:13px;line-height:1.45">
+          <strong>Live compact</strong> means the Firestore doc already matches the tight production shape — Optimize/Write will <em>skip</em> safely.
+          <strong>Needs work</strong> means compact check failed (bloat, bad video URLs, missing fields) — run Optimize + Write to repair.
+          Normalize <strong>preview</strong> can show blocking errors even when live is already OK; trust the <strong>Compact canonical check</strong> panel and green <strong>LIVE OK</strong> badges.
+        </p>
       </div>
       <div class="hero-card hero-stats">
         <div class="stat"><span>Queue Size</span><strong id="queueCount">0</strong></div>
         <div class="stat"><span>Preview Ready</span><strong id="previewReadyCount">0</strong></div>
-        <div class="stat"><span>Writes Completed</span><strong id="writeCompleteCount">0</strong></div>
-        <div class="stat"><span>Blocked / Errors</span><strong id="problemCount">0</strong></div>
+        <div class="stat"><span>Compact writes OK</span><strong id="compactWriteOkCount">0</strong></div>
+        <div class="stat"><span>Already compact · skipped</span><strong id="compactSkipCount">0</strong></div>
+        <div class="stat"><span>Media repaired (queue)</span><strong id="mediaRepairCount">0</strong></div>
+        <div class="stat"><span>Poster repaired</span><strong id="posterRepairCount">0</strong></div>
+        <div class="stat"><span>Poster repair failed</span><strong id="posterRepairFailedCount">0</strong></div>
+        <div class="stat"><span>External poster pending</span><strong id="externalPosterSkippedCount">0</strong></div>
+        <div class="stat"><span>Video faststart pending (live)</span><strong id="videoFaststartPendingCount">0</strong></div>
+        <div class="stat"><span>Blocked / errors (live or write)</span><strong id="problemCount">0</strong></div>
       </div>
+      <div id="migrationGateBanner" class="migration-gate" style="display:none;margin-top:14px;padding:14px 16px;border-radius:14px;border:1px solid var(--line);background:var(--surface-strong);font-size:14px;line-height:1.45"></div>
+    </section>
+
+    <section id="queueRunReportSection" class="panel" style="display:none;margin-top:0">
+      <h2>Last queue run — failures & export</h2>
+      <p class="muted">After a batch, download a JSON report, copy failed IDs only, or retry repairable failures (skips missing source / external-only sources).</p>
+      <div class="button-row" style="margin-top:10px">
+        <button id="downloadFailureReport" type="button">Download failure report JSON</button>
+        <button id="copyFailureReport" type="button">Copy report JSON</button>
+        <button id="retryFailedRepairable" type="button">Retry failed (repairable only)</button>
+      </div>
+      <label class="muted" style="display:block;margin-top:12px">Failed post IDs only (comma-separated)</label>
+      <textarea id="failedIdsOnly" class="compact" style="min-height:64px;margin-top:6px" readonly placeholder="Run a queue batch with failures to populate."></textarea>
     </section>
 
     <section class="controls">
@@ -923,11 +1656,11 @@ const htmlPage = `<!doctype html>
         <h2>Load posts by Firestore rank</h2>
         <p class="muted">Rank is global recency in the <code>posts</code> collection (<code>time</code> desc), not a slot in your queue below.</p>
         <div class="inline-row" style="margin-top:12px">
-          <input id="newestFromRank" type="number" min="1" max="10000" value="1" title="1 = newest document"/>
-          <input id="newestCount" type="number" min="1" max="200" value="12"/>
+          <input id="newestFromRank" type="number" min="1" max="${POST_REBUILDER_RANK_QUERY_OFFSET_MAX}" value="1" title="1 = newest document"/>
+          <input id="newestCount" type="number" min="1" max="${POST_REBUILDER_RANK_QUERY_LIMIT_MAX}" value="12"/>
           <button id="loadNewest">Load by rank</button>
         </div>
-        <div class="hint">Example: From #20 + Count 10 loads the 20th–29th newest posts. This only fills the queue — nothing previews or writes until you run an action.</div>
+        <div class="hint">Example: From #20 + Count 10 loads the 20th–29th newest posts. Server accepts up to ${POST_REBUILDER_RANK_QUERY_LIMIT_MAX.toLocaleString()} per request (very large batches may be slow or hit HTTP timeouts). Paste IDs / append are not limited by this cap.</div>
       </div>
 
       <div class="panel">
@@ -1025,6 +1758,10 @@ const htmlPage = `<!doctype html>
             <pre id="location"></pre>
           </div>
           <div class="detail-card span-2">
+            <h3>Compact canonical check</h3>
+            <pre id="compactCheck"></pre>
+          </div>
+          <div class="detail-card span-2">
             <h3>Raw JSON</h3>
             <textarea id="raw"></textarea>
           </div>
@@ -1054,7 +1791,9 @@ const htmlPage = `<!doctype html>
       log: [],
       auto: { running: false, kind: null, generateFastStarts: false },
       manualQueue: { running: false },
-      inFlightAbort: null
+      inFlightAbort: null,
+      lastFailureReport: null,
+      lastFailureReportFilename: ''
     };
 
     const el = (id) => document.getElementById(id);
@@ -1094,6 +1833,85 @@ const htmlPage = `<!doctype html>
       return new Date().toLocaleTimeString();
     }
 
+    /** Normalize Firestore timestamp / ISO / epoch to a single display string (user locale + short TZ). */
+    function formatQueueTime(value) {
+      if (value == null || value === '') return '';
+      var v = value;
+      if (typeof v === 'object' && v !== null && typeof v.toDate === 'function') {
+        try {
+          v = v.toDate().toISOString();
+        } catch (_e) {
+          return '';
+        }
+      }
+      if (typeof v === 'object' && v !== null) {
+        var sec =
+          typeof v.seconds === 'number'
+            ? v.seconds
+            : typeof v._seconds === 'number'
+              ? v._seconds
+              : null;
+        if (sec != null) v = new Date(sec * 1000).toISOString();
+      }
+      var s = String(v).trim();
+      if (!s) return '';
+      var ms = Date.parse(s);
+      if (!Number.isFinite(ms)) return s;
+      var d = new Date(ms);
+      try {
+        // Do not mix dateStyle/timeStyle with timeZoneName — that throws in ECMA-402 (Invalid option).
+        return d.toLocaleString(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          second: '2-digit',
+          timeZoneName: 'short'
+        });
+      } catch (_err) {
+        try {
+          return d.toLocaleString(undefined, {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            second: '2-digit'
+          });
+        } catch (_err2) {
+          return d.toISOString().replace('T', ' ').replace(/\\.\\d{3}Z$/, ' UTC');
+        }
+      }
+    }
+
+    function pickTimeFromRawOrCanonical(data) {
+      if (!data) return '';
+      var raw = data.raw;
+      if (raw && raw.time != null && raw.time !== '') {
+        var t0 = coerceAnyTimeToIsoString(raw.time);
+        if (t0) return t0;
+      }
+      if (raw && raw.lifecycle && raw.lifecycle.createdAt != null && raw.lifecycle.createdAt !== '') {
+        var t1 = coerceAnyTimeToIsoString(raw.lifecycle.createdAt);
+        if (t1) return t1;
+      }
+      if (raw && raw.lifecycle && raw.lifecycle.createdAtMs != null && Number.isFinite(Number(raw.lifecycle.createdAtMs))) {
+        return new Date(Number(raw.lifecycle.createdAtMs)).toISOString();
+      }
+      var c = data.canonicalPreview;
+      if (c && c.lifecycle) {
+        if (c.lifecycle.createdAt != null && c.lifecycle.createdAt !== '') {
+          var t2 = coerceAnyTimeToIsoString(c.lifecycle.createdAt);
+          if (t2) return t2;
+        }
+        if (c.lifecycle.createdAtMs != null && Number.isFinite(Number(c.lifecycle.createdAtMs))) {
+          return new Date(Number(c.lifecycle.createdAtMs)).toISOString();
+        }
+      }
+      return '';
+    }
+
     function addLog(message, postId) {
       const line = '[' + nowLabel() + '] ' + (postId ? postId + ' - ' : '') + message;
       state.log = [line].concat(state.log).slice(0, 220);
@@ -1120,6 +1938,7 @@ const htmlPage = `<!doctype html>
         locationName: '',
         userId: '',
         time: '',
+        timeDisplay: '',
         schemaVersion: '',
         hasCanonicalSchema: false,
         exists: null,
@@ -1152,15 +1971,250 @@ const htmlPage = `<!doctype html>
         backupId: '',
         lastPreviewedAt: '',
         lastWrittenAt: '',
-        generatedRepairPendingWrite: false
+        generatedRepairPendingWrite: false,
+        compactCheck: null,
+        compactLivePreviewSummary: null,
+        lastWriteOutcome: null,
+        mediaRepairHappened: false,
+        faststartVerifyFailed: false,
+        lastBackupPath: '',
+        lastDiagnosticsPath: '',
+        previewNormalizeMismatch: false,
+        lifecycleDeleted: false,
+        generationFailureDetail: null,
+        savedMediaUrlSanity: null,
+        failureClassification: null,
+        posterNeedsRepair: false,
+        posterRepairReason: "",
+        posterRepairApplied: false,
+        posterRepairSource: "",
+        posterRepairUrl: ""
       };
+    }
+
+    function collectMissingRequiredPathsFromItem(item) {
+      const g = item.generationFailureDetail;
+      if (!g || !Array.isArray(g.perAsset)) return [];
+      const out = [];
+      g.perAsset.forEach(function (row) {
+        const id = row && row.assetId ? String(row.assetId) : '?';
+        const needs = row && row.needs && typeof row.needs === 'object' ? row.needs : {};
+        Object.keys(needs).forEach(function (k) {
+          if (needs[k] === true) out.push(id + '.' + k);
+        });
+      });
+      return out;
+    }
+
+    function buildFailureReportRow(item) {
+      const fc = item.failureClassification || null;
+      const ve =
+        item.validation && Array.isArray(item.validation.blockingErrors) ? item.validation.blockingErrors : [];
+      return {
+        postId: item.postId,
+        title: item.title || null,
+        mediaKind: item.mediaKind || null,
+        failureClass: fc ? fc.failureClass : 'unknown',
+        isRepairable: fc ? Boolean(fc.isRepairable) : false,
+        shouldAttemptFaststartRepair: fc ? Boolean(fc.shouldAttemptFaststartRepair) : false,
+        shouldFallbackToOriginalIfVerifiedFaststart: fc ? Boolean(fc.shouldFallbackToOriginalIfVerifiedFaststart) : false,
+        shouldQuarantine: fc ? Boolean(fc.shouldQuarantine) : false,
+        reasons: fc && Array.isArray(fc.reasons) ? fc.reasons : [],
+        precheckValidationContradiction: fc ? Boolean(fc.precheckValidationContradiction) : false,
+        sourceUrls: fc && Array.isArray(fc.sourceUrls) ? fc.sourceUrls : [],
+        assetIds: fc && Array.isArray(fc.assetIds) ? fc.assetIds : [],
+        missingRequiredPaths: collectMissingRequiredPathsFromItem(item),
+        validationErrors: ve,
+        compactCheck: item.compactCheck || null,
+        lastStep: fc && fc.lastStep != null ? fc.lastStep : null,
+        optimizeStatus: fc && fc.optimizeStatus != null ? fc.optimizeStatus : null,
+        lastWriteOutcome: item.lastWriteOutcome,
+        lastError: item.lastError || null,
+        lastMessage: item.lastMessage || null,
+        generationFailureDetail: item.generationFailureDetail || null,
+        posterNeedsRepair: item.compactCheck ? Boolean(item.compactCheck.posterNeedsRepair) : false,
+        posterRepairReason: item.compactCheck ? item.compactCheck.posterRepairReason || null : null,
+        posterRepairApplied: Boolean(item.posterRepairApplied),
+        posterRepairSource: item.posterRepairSource || null,
+        posterRepairUrl: item.posterRepairUrl || null,
+        suggestedNextAction: fc
+          ? fc.suggestedNextAction
+          : 'Inspect validation + generationFailureDetail; re-run preview after upstream fix.'
+      };
+    }
+
+    function captureQueueRunFailureReport() {
+      const failures = state.queue
+        .filter(function (item) {
+          return item.lastWriteOutcome === 'error' || item.status.write === 'error';
+        })
+        .map(buildFailureReportRow);
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = 'postRebuilderFailures_' + ts + '.json';
+      const acted = state.queue.filter(function (i) {
+        return (
+          i.lastWriteOutcome === 'complete' ||
+          i.lastWriteOutcome === 'already_compact' ||
+          i.lastWriteOutcome === 'compacted_manual' ||
+          i.lastWriteOutcome === 'error'
+        );
+      });
+      const n = acted.length;
+      const ok = acted.filter(function (i) {
+        return i.lastWriteOutcome === 'complete' || i.lastWriteOutcome === 'compacted_manual';
+      }).length;
+      const skipped = acted.filter(function (i) {
+        return i.lastWriteOutcome === 'already_compact';
+      }).length;
+      const err = acted.filter(function (i) {
+        return i.lastWriteOutcome === 'error';
+      }).length;
+      const contradiction = failures.filter(function (f) {
+        return f.precheckValidationContradiction;
+      }).length;
+      const unknownCls = failures.filter(function (f) {
+        return f.failureClass === 'unknown';
+      }).length;
+      const completeOkMedia = state.queue.filter(function (i) {
+        return i.lastWriteOutcome === 'complete' || i.lastWriteOutcome === 'compacted_manual';
+      });
+      const sampleSanityFail = completeOkMedia.some(function (i) {
+        return i.savedMediaUrlSanity && i.savedMediaUrlSanity.ok === false;
+      });
+      const safe =
+        n > 0 &&
+        (ok + skipped) / n >= 0.95 &&
+        err / n <= 0.05 &&
+        contradiction === 0 &&
+        !sampleSanityFail &&
+        (failures.length === 0 || unknownCls / failures.length <= 0.25);
+      state.lastFailureReport = {
+        generatedAtIso: new Date().toISOString(),
+        filename: filename,
+        failures: failures,
+        summary: {
+          queueSize: state.queue.length,
+          actedCount: n,
+          compactWriteOk: ok,
+          alreadyCompactSkipped: skipped,
+          writeErrors: err,
+          unknownFailureCount: unknownCls,
+          precheckValidationContradictions: contradiction,
+          sampleSavedMediaUrlSanityFailed: sampleSanityFail,
+          safeToScaleFullMigration: safe
+        },
+        failedIdsOnly: failures.map(function (f) {
+          return f.postId;
+        }).join(',')
+      };
+      state.lastFailureReportFilename = filename;
+      if (failures.length) {
+        addLog(
+          'Queue failure report: ' +
+            failures.length +
+            ' failed — download JSON filename=' +
+            filename +
+            ' contradictions=' +
+            contradiction +
+            ' unknownClass=' +
+            unknownCls +
+            '.'
+        );
+      } else {
+        addLog('Queue failure report: 0 write/preview errors in queue snapshot after this pass.');
+      }
+      pushTopConsole('failure_report rows=' + failures.length + ' safeToScale=' + (safe ? 'yes' : 'no'), '');
+    }
+
+    function renderMigrationGateAndFailureReport() {
+      const rep = state.lastFailureReport;
+      const gate = el('migrationGateBanner');
+      const section = el('queueRunReportSection');
+      const ta = el('failedIdsOnly');
+      if (!gate || !section || !ta) return;
+      if (!rep) {
+        gate.style.display = 'none';
+        section.style.display = 'none';
+        return;
+      }
+      section.style.display = 'block';
+      ta.value = rep.failedIdsOnly || '';
+      const s = rep.summary || {};
+      if (!s.actedCount) {
+        gate.style.display = 'none';
+        return;
+      }
+      gate.style.display = 'block';
+      const pctOk = Math.round((((s.compactWriteOk || 0) + (s.alreadyCompactSkipped || 0)) / s.actedCount) * 1000) / 10;
+      const pctErr = Math.round(((s.writeErrors || 0) / s.actedCount) * 1000) / 10;
+      if (s.safeToScaleFullMigration) {
+        gate.className = 'migration-gate safe';
+        gate.innerHTML =
+          '<strong>SAFE TO SCALE</strong> — success+skipped≈' +
+          pctOk +
+          '% of acted posts; errors≈' +
+          pctErr +
+          '%; contradictions=0; unknown failure share within threshold; completed writes pass sample media URL sanity.';
+      } else {
+        gate.className = 'migration-gate unsafe';
+        gate.innerHTML =
+          '<strong>NOT SAFE TO SCALE</strong> — classify and retry failures first. Acted=' +
+          s.actedCount +
+          ' errors≈' +
+          pctErr +
+          '% contradictions=' +
+          (s.precheckValidationContradictions || 0) +
+          ' unknownFailures=' +
+          (s.unknownFailureCount || 0) +
+          (s.sampleSavedMediaUrlSanityFailed ? '; a completed write failed media URL sanity' : '') +
+          '.';
+      }
+    }
+
+    /** True when live Firestore doc passes compact canonical gate (optimize/write will skip). */
+    function liveDocIsCompactCanonical(item) {
+      return Boolean(item && item.compactCheck && item.compactCheck.canSkipWrite === true);
+    }
+
+    /** Blocking validation from normalize preview — ignored for buttons/queue when live is already compact. */
+    function normalizePreviewBlocking(item) {
+      if (!item) return false;
+      return item.counts.blocking > 0 && !liveDocIsCompactCanonical(item);
+    }
+
+    function coerceAnyTimeToIsoString(v) {
+      if (v == null || v === '') return '';
+      if (typeof v === 'string' && v.trim()) return v.trim();
+      if (typeof v === 'object' && v !== null && typeof v.toDate === 'function') {
+        try {
+          return v.toDate().toISOString();
+        } catch (_e) {
+          return '';
+        }
+      }
+      if (typeof v === 'object' && v !== null && typeof v.seconds === 'number') {
+        var nano = typeof v.nanoseconds === 'number' ? v.nanoseconds : Number(v._nanoseconds || 0);
+        return new Date(v.seconds * 1000 + nano / 1e6).toISOString();
+      }
+      if (typeof v === 'object' && v !== null && typeof v._seconds === 'number') {
+        var nano2 = typeof v._nanoseconds === 'number' ? v._nanoseconds : 0;
+        return new Date(v._seconds * 1000 + nano2 / 1e6).toISOString();
+      }
+      return '';
     }
 
     function mergeQueueSummary(item, patch) {
       if (!patch) return item;
-      ['title', 'mediaKind', 'locationName', 'userId', 'time', 'schemaVersion'].forEach(function (key) {
+      ['title', 'mediaKind', 'locationName', 'userId', 'schemaVersion'].forEach(function (key) {
         if (typeof patch[key] === 'string' && patch[key].trim()) item[key] = patch[key].trim();
       });
+      if (typeof patch.timeDisplay === 'string' && patch.timeDisplay.trim()) {
+        item.timeDisplay = patch.timeDisplay.trim();
+      }
+      if (patch.time != null && patch.time !== '') {
+        var isoT = coerceAnyTimeToIsoString(patch.time);
+        if (isoT) item.time = isoT;
+      }
       if (patch.hasCanonicalSchema !== undefined) item.hasCanonicalSchema = Boolean(patch.hasCanonicalSchema);
       if (patch.exists !== undefined) item.exists = patch.exists;
       return item;
@@ -1240,44 +2294,139 @@ const htmlPage = `<!doctype html>
 
     function summarizeFromPreview(item, data) {
       const canonical = data && data.canonicalPreview ? data.canonicalPreview : {};
+      const rawDoc = data && data.raw ? data.raw : {};
+      const rawLc = rawDoc.lifecycle || {};
+      item.lifecycleDeleted = Boolean(
+        rawDoc.deleted ||
+          rawDoc.isDeleted ||
+          rawLc.isDeleted ||
+          String(rawLc.status || '').toLowerCase() === 'deleted' ||
+          (canonical.lifecycle &&
+            (canonical.lifecycle.isDeleted || String(canonical.lifecycle.status || '').toLowerCase() === 'deleted'))
+      );
       const text = canonical.text || {};
       const classification = canonical.classification || {};
       const location = canonical.location || {};
       const display = location.display || {};
       const author = canonical.author || {};
       const schema = canonical.schema || {};
+      item.timeDisplay = '';
       mergeQueueSummary(item, {
         title: text.title || item.title,
         mediaKind: classification.mediaKind || item.mediaKind,
         locationName: display.name || item.locationName,
         userId: author.userId || item.userId || (data && data.raw ? data.raw.userId : ''),
-        time: item.time || ((data && data.raw && typeof data.raw.time === 'string') ? data.raw.time : ''),
+        time: pickTimeFromRawOrCanonical(data) || item.time || '',
         schemaVersion: schema.version || item.schemaVersion,
         hasCanonicalSchema: Boolean(schema.version || schema.name)
       });
     }
 
+    function compactStatusBadges(item) {
+      const badges = [];
+      const ck = item.compactCheck;
+      if (!ck) return badges;
+      if (ck.canSkipWrite) {
+        badges.push(buildBadge('LIVE OK · COMPACT', 'success'));
+        if (ck.posterNeedsRepair) badges.push(buildBadge('LIVE COMPACT · POSTER NEEDS REPAIR', 'warning'));
+      } else if (ck.compactOk && ck.videoNeedsFaststart) {
+        badges.push(buildBadge('LIVE COMPACT · VIDEO NEEDS FASTSTART', 'warning'));
+        badges.push(buildBadge('MEDIA REPAIR REQUIRED', 'warning'));
+      } else if (ck.compactOk && ck.posterNeedsRepair) {
+        badges.push(buildBadge('LIVE COMPACT · POSTER NEEDS REPAIR', 'warning'));
+      } else if (ck.compactOk && ck.mediaNeedsRepair) {
+        badges.push(buildBadge('STRUCTURE OK', 'neutral'));
+        badges.push(buildBadge('ALREADY COMPACT BUT MEDIA NOT READY', 'warning'));
+      } else if (ck.compactOk) {
+        badges.push(buildBadge('STRUCTURE OK', 'neutral'));
+      } else {
+        badges.push(buildBadge('LIVE NEEDS WORK', 'danger'));
+        if (ck.mediaNeedsRepair) badges.push(buildBadge('MEDIA REPAIR REQUIRED', 'warning'));
+        if (ck.needsCompaction) badges.push(buildBadge('NEEDS COMPACTION', 'warning'));
+        if (!ck.mediaNeedsRepair && !ck.needsCompaction && !ck.compactOk) {
+          badges.push(buildBadge('NEEDS REPAIR', 'danger'));
+        }
+      }
+      if (ck.forbiddenLivePathsPresent && ck.forbiddenLivePathsPresent.length) {
+        badges.push(buildBadge('FORBIDDEN ' + ck.forbiddenLivePathsPresent.length, 'danger'));
+      }
+      return badges;
+    }
+
     function renderQueueCard(item) {
       const badges = [];
       if (item.hasCanonicalSchema) badges.push(buildBadge('CANONICAL', 'info'));
+      badges.push.apply(badges, compactStatusBadges(item));
+      if (item.lastWriteOutcome === 'already_compact') badges.push(buildBadge('ALREADY COMPACT · SKIPPED', 'neutral'));
+      if (item.lastWriteOutcome === 'complete' || item.lastWriteOutcome === 'compacted_manual') {
+        badges.push(buildBadge('WRITE OK', 'success'));
+      }
+      if (item.mediaRepairHappened) {
+        badges.push(buildBadge('MEDIA REPAIRED', 'info'));
+        badges.push(buildBadge('FASTSTART GENERATED', 'success'));
+      }
+      if (item.posterRepairApplied) {
+        badges.push(buildBadge('POSTER REPAIRED', 'success'));
+        badges.push(buildBadge(item.posterRepairSource === 'derived_first_frame_from_video' ? 'POSTER DERIVED FROM VIDEO' : 'POSTER INGESTED', 'info'));
+      }
+      if (item.faststartVerifyFailed) badges.push(buildBadge('FASTSTART VERIFY FAILED', 'danger'));
       if (item.status.raw === 'success') badges.push(buildBadge('RAW LOADED', 'neutral'));
       if (item.status.raw === 'missing') badges.push(buildBadge('RAW MISSING', 'danger'));
-      if (item.status.preview === 'success') badges.push(buildBadge('PREVIEW READY', 'success'));
-      if (item.status.preview === 'warning') badges.push(buildBadge('PREVIEW WARN', 'warning'));
-      if (item.status.preview === 'blocked') badges.push(buildBadge('PREVIEW BLOCKED', 'danger'));
+      if (item.previewNormalizeMismatch) {
+        badges.push(buildBadge('PREVIEW MISMATCH INFO', 'neutral'));
+      }
+      if (item.status.preview === 'success') badges.push(buildBadge('PREVIEW OK', 'success'));
+      if (item.status.preview === 'warning') badges.push(buildBadge('PREVIEW WARN ONLY', 'warning'));
+      if (item.status.preview === 'blocked') badges.push(buildBadge('PREVIEW BLOCKING', 'danger'));
       if (item.status.preview === 'error') badges.push(buildBadge('PREVIEW ERROR', 'danger'));
       if (item.counts.warnings > 0) badges.push(buildBadge('WARN ' + item.counts.warnings, 'warning'));
-      if (item.counts.blocking > 0) badges.push(buildBadge('BLOCK ' + item.counts.blocking, 'danger'));
+      if (item.counts.blocking > 0 && !liveDocIsCompactCanonical(item)) {
+        badges.push(buildBadge('PREVIEW ' + item.counts.blocking + ' blocking (live not OK)', 'danger'));
+      } else if (item.counts.blocking > 0 && liveDocIsCompactCanonical(item)) {
+        badges.push(buildBadge('PREVIEW INVALID BUT LIVE OK', 'neutral'));
+      }
       if (item.status.write === 'success') badges.push(buildBadge('WRITE OK', 'success'));
-      if (item.status.write === 'skipped') badges.push(buildBadge('WRITE SKIPPED', 'warning'));
+      if (item.lifecycleDeleted) badges.push(buildBadge('DELETED POST', 'warning'));
+      if (item.status.write === 'skipped' && item.lastWriteOutcome !== 'already_compact') {
+        badges.push(buildBadge('WRITE SKIPPED', 'warning'));
+      }
       if (item.status.write === 'error') badges.push(buildBadge('WRITE ERROR', 'danger'));
       if (item.backups.length > 0) badges.push(buildBadge('BACKUPS ' + item.backups.length, 'info'));
       if (item.status.preview === 'working' || item.status.write === 'working' || item.status.raw === 'working') {
         badges.push(buildBadge('RUNNING', 'info'));
       }
       const title = item.title || '(untitled / not yet previewed)';
-      const meta = [item.mediaKind, item.locationName, item.userId, item.time].filter(Boolean).join(' • ') || 'No preview metadata yet.';
-      const note = item.lastError || item.lastMessage || 'Ready.';
+      var timeShown =
+        item.timeDisplay && String(item.timeDisplay).trim()
+          ? String(item.timeDisplay).trim()
+          : formatQueueTime(item.time);
+      const meta =
+        [item.mediaKind, item.locationName, item.userId, timeShown].filter(Boolean).join(' • ') ||
+        'No preview metadata yet.';
+      const rm = item.compactLivePreviewSummary && item.compactLivePreviewSummary.removedPathsCount != null
+        ? ' · est removed fields: ' + item.compactLivePreviewSummary.removedPathsCount
+        : '';
+      const bytes = item.compactLivePreviewSummary && item.compactLivePreviewSummary.byteEstimateBefore != null
+        ? ' · bytes ~' + item.compactLivePreviewSummary.byteEstimateBefore + '→' +
+          (item.compactLivePreviewSummary.byteEstimateAfter != null ? item.compactLivePreviewSummary.byteEstimateAfter : '?')
+        : '';
+      let noteLine = item.lastError || item.lastMessage || 'Ready.';
+      const videoNote =
+        item.compactCheck && Array.isArray(item.compactCheck.videoIssues) && item.compactCheck.videoIssues.length
+          ? item.compactCheck.videoIssues
+              .map(function (vi) {
+                return vi.summary || '';
+              })
+              .filter(Boolean)
+              .join(' ')
+          : '';
+      if (videoNote) {
+        noteLine = videoNote;
+      } else if (liveDocIsCompactCanonical(item) && item.previewNormalizeMismatch) {
+        noteLine =
+          'Live doc is production-ready. Preview normalize disagrees — ignore red preview unless compact check fails.';
+      }
+      const note = noteLine + rm + bytes;
       return ''
         + '<button class="queue-card' + (state.activePostId === item.postId ? ' active' : '') + '" data-post-id="' + escapeHtml(item.postId) + '">'
         +   '<h3>' + escapeHtml(item.postId) + '</h3>'
@@ -1301,13 +2450,39 @@ const htmlPage = `<!doctype html>
       const previewReadyCount = state.queue.filter(function (item) {
         return item.status.preview === 'success' || item.status.preview === 'warning';
       }).length;
-      const writeCompleteCount = state.queue.filter(function (item) { return item.status.write === 'success'; }).length;
+      const compactWriteOkCount = state.queue.filter(function (item) {
+        return item.lastWriteOutcome === 'complete' || item.lastWriteOutcome === 'compacted_manual';
+      }).length;
+      const compactSkipCount = state.queue.filter(function (item) {
+        return item.lastWriteOutcome === 'already_compact';
+      }).length;
+      const mediaRepairCount = state.queue.filter(function (item) { return item.mediaRepairHappened; }).length;
+      const posterRepairCount = state.queue.filter(function (item) { return item.posterRepairApplied; }).length;
+      const posterRepairFailedCount = state.queue.filter(function (item) {
+        return item.status.write === 'error' && String(item.lastError || '').indexOf('poster_repair_failed') >= 0;
+      }).length;
+      const externalPosterSkippedCount = state.queue.filter(function (item) {
+        return item.compactCheck && item.compactCheck.posterNeedsRepair === true && item.status.write !== 'success';
+      }).length;
+      const videoFaststartPendingCount = state.queue.filter(function (item) {
+        return item.compactCheck && item.compactCheck.compactOk === true && item.compactCheck.videoNeedsFaststart === true;
+      }).length;
       const problemCount = state.queue.filter(function (item) {
-        return item.status.preview === 'blocked' || item.status.preview === 'error' || item.status.write === 'error' || item.counts.blocking > 0;
+        if (item.status.write === 'error' || item.status.preview === 'error') return true;
+        if (normalizePreviewBlocking(item)) return true;
+        return false;
       }).length;
       el('queueCount').textContent = String(state.queue.length);
       el('previewReadyCount').textContent = String(previewReadyCount);
-      el('writeCompleteCount').textContent = String(writeCompleteCount);
+      el('compactWriteOkCount').textContent = String(compactWriteOkCount);
+      el('compactSkipCount').textContent = String(compactSkipCount);
+      el('mediaRepairCount').textContent = String(mediaRepairCount);
+      if (el('posterRepairCount')) el('posterRepairCount').textContent = String(posterRepairCount);
+      if (el('posterRepairFailedCount')) el('posterRepairFailedCount').textContent = String(posterRepairFailedCount);
+      if (el('externalPosterSkippedCount')) el('externalPosterSkippedCount').textContent = String(externalPosterSkippedCount);
+      if (el('videoFaststartPendingCount')) {
+        el('videoFaststartPendingCount').textContent = String(videoFaststartPendingCount);
+      }
       el('problemCount').textContent = String(problemCount);
     }
 
@@ -1332,13 +2507,23 @@ const htmlPage = `<!doctype html>
         el('raw').value = '';
         el('canonical').value = '';
         el('processing').value = '';
+        el('compactCheck').textContent = 'Select a post from the queue.';
         return;
       }
 
       const badges = [];
-      if (item.status.preview === 'success') badges.push(buildBadge('PREVIEW READY', 'success'));
-      if (item.status.preview === 'warning') badges.push(buildBadge('PREVIEW WARNINGS', 'warning'));
-      if (item.status.preview === 'blocked') badges.push(buildBadge('PREVIEW BLOCKED', 'danger'));
+      if (item.compactCheck && item.compactCheck.canSkipWrite) badges.push(buildBadge('LIVE OK · COMPACT', 'success'));
+      else if (item.compactCheck && item.compactCheck.compactOk && item.compactCheck.videoNeedsFaststart) {
+        badges.push(buildBadge('LIVE COMPACT · VIDEO NEEDS FASTSTART', 'warning'));
+        badges.push(buildBadge('MEDIA REPAIR REQUIRED', 'warning'));
+      } else if (item.compactCheck && item.compactCheck.compactOk) {
+        badges.push(buildBadge('STRUCTURE OK · NOT READY TO SKIP', 'warning'));
+      }
+      if (item.previewNormalizeMismatch) badges.push(buildBadge('PREVIEW MISMATCH INFO', 'neutral'));
+      if (item.status.preview === 'success') badges.push(buildBadge('PREVIEW OK', 'success'));
+      if (item.status.preview === 'warning') badges.push(buildBadge('PREVIEW WARN ONLY', 'warning'));
+      if (item.status.preview === 'blocked') badges.push(buildBadge('PREVIEW BLOCKING', 'danger'));
+      if (item.lifecycleDeleted) badges.push(buildBadge('DELETED POST', 'warning'));
       if (item.status.write === 'success') badges.push(buildBadge('WRITE COMPLETE', 'success'));
       if (item.status.write === 'error') badges.push(buildBadge('WRITE ERROR', 'danger'));
       if (item.backups.length > 0) badges.push(buildBadge('BACKUP READY', 'info'));
@@ -1352,11 +2537,19 @@ const htmlPage = `<!doctype html>
         +     '<p class="muted" style="margin-top:8px">' + escapeHtml(title) + '</p>'
         +   '</div>'
         +   '<div class="badge-row">' + badges.join('') + '</div>'
+        + (item.lifecycleDeleted
+          ? '<p class="muted" style="margin-top:8px">Lifecycle: <strong>deleted</strong> — preview/write must preserve deleted status.</p>'
+          : '')
         + '</div>'
         + '<div class="summary-grid">'
         +   '<div class="summary-chip"><span>Media Kind</span><strong>' + escapeHtml(item.mediaKind || 'Unknown') + '</strong></div>'
         +   '<div class="summary-chip"><span>Warnings</span><strong>' + escapeHtml(item.counts.warnings || 0) + '</strong></div>'
-        +   '<div class="summary-chip"><span>Blocking Errors</span><strong>' + escapeHtml(item.counts.blocking || 0) + '</strong></div>'
+        +   '<div class="summary-chip"><span>Blocking (preview)</span><strong>' +
+              escapeHtml(
+                item.counts.blocking > 0 && liveDocIsCompactCanonical(item)
+                  ? String(item.counts.blocking) + ' — live OK, informational'
+                  : String(item.counts.blocking || 0)
+              ) + '</strong></div>'
         +   '<div class="summary-chip"><span>Latest Backup</span><strong>' + escapeHtml(item.backupId || item.backupSelection || 'None') + '</strong></div>'
         +   '<div class="summary-chip"><span>Author</span><strong>' + escapeHtml(item.userId || 'Unknown') + '</strong></div>'
         +   '<div class="summary-chip"><span>Location</span><strong>' + escapeHtml(item.locationName || 'Unknown') + '</strong></div>'
@@ -1383,7 +2576,10 @@ const htmlPage = `<!doctype html>
       }
 
       el('diff').textContent = json(item.diffSummary || {});
-      el('validation').textContent = json(item.validation || {});
+      el('validation').textContent = json({
+        previewValidation: item.validation || null,
+        generationFailureDetail: item.generationFailureDetail || null
+      });
       el('engagementAudit').textContent = json(item.engagementSourceAudit || null);
       el('media').textContent = json(item.mediaView || null);
       el('engagement').textContent = json(item.engagementView || null);
@@ -1391,13 +2587,30 @@ const htmlPage = `<!doctype html>
       el('raw').value = json(item.raw || null);
       el('canonical').value = json(item.canonicalPreview || null);
       el('processing').value = json(item.mediaProcessingDebugPreview || null);
+      el('compactCheck').textContent = json({
+        compactCheck: item.compactCheck,
+        compactOk: item.compactCheck ? item.compactCheck.compactOk : null,
+        canSkipWrite: item.compactCheck ? item.compactCheck.canSkipWrite : null,
+        mediaNeedsRepair: item.compactCheck ? item.compactCheck.mediaNeedsRepair : null,
+        videoNeedsFaststart: item.compactCheck ? item.compactCheck.videoNeedsFaststart : null,
+        videoIssueCount: item.compactCheck ? item.compactCheck.videoIssueCount : null,
+        posterNeedsRepair: item.compactCheck ? item.compactCheck.posterNeedsRepair : null,
+        posterRepairReason: item.compactCheck ? item.compactCheck.posterRepairReason : null,
+        videoIssues: item.compactCheck ? item.compactCheck.videoIssues : null,
+        failureClassification: item.failureClassification || null,
+        savedMediaUrlSanity: item.savedMediaUrlSanity,
+        compactLivePreviewSummary: item.compactLivePreviewSummary,
+        lastWriteOutcome: item.lastWriteOutcome,
+        lastBackupPath: item.lastBackupPath || null,
+        lastDiagnosticsPath: item.lastDiagnosticsPath || null
+      });
     }
 
     function renderButtons() {
       const item = getActiveItem();
       const queueEmpty = state.queue.length === 0;
       const busy = state.auto.running || state.manualQueue.running;
-      const hasBlocking = Boolean(item && item.counts.blocking > 0);
+      const hasBlocking = normalizePreviewBlocking(item);
       el('loadRawSelected').disabled = !item || busy;
       el('previewSelected').disabled = !item || busy;
       el('generateFastStartsSelected').disabled = !item || busy;
@@ -1422,6 +2635,7 @@ const htmlPage = `<!doctype html>
       renderQueue();
       renderSelected();
       renderButtons();
+      renderMigrationGateAndFailureReport();
     }
 
     async function fetchJson(url, options) {
@@ -1456,66 +2670,98 @@ const htmlPage = `<!doctype html>
       return parts.join(' · ');
     }
 
-    async function fetchOptimizeWriteNdjson(postId, item, signal) {
-      const res = await fetch(
-        '/debug/post-rebuilder/' + encodeURIComponent(postId) + '/optimize-and-write?stream=1',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ strict: true }),
-          signal: signal
-        }
-      );
-      if (!res.ok) {
-        let data = null;
+    function mergeAbortSignals(primary, secondary) {
+      const merged = new AbortController();
+      const onAbort = function () {
         try {
-          data = await res.json();
-        } catch (_err) {}
-        const message =
-          (data && typeof data.error === 'string' && data.error) ||
-          (data && data.error && typeof data.error.message === 'string' && data.error.message) ||
-          ('request_failed_' + res.status);
-        const error = new Error(message);
-        error.statusCode = res.status;
-        error.body = data;
-        throw error;
+          merged.abort();
+        } catch (_e) {}
+      };
+      if (primary && primary.aborted) {
+        onAbort();
+        return merged.signal;
       }
-      if (!res.body) throw new Error('no_response_body');
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let finalResult = null;
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        buffer += decoder.decode(chunk.value, { stream: true });
-        let nl;
-        while ((nl = buffer.indexOf('\\n')) >= 0) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (!line) continue;
-          let msg;
-          try {
-            msg = JSON.parse(line);
-          } catch (_err) {
-            pushTopConsole('ndjson_parse_skip ' + line.slice(0, 96), item.postId);
-            continue;
+      if (secondary && secondary.aborted) {
+        onAbort();
+        return merged.signal;
+      }
+      if (primary) primary.addEventListener('abort', onAbort);
+      if (secondary) secondary.addEventListener('abort', onAbort);
+      return merged.signal;
+    }
+
+    async function fetchOptimizeWriteNdjson(postId, item, signal) {
+      const timeoutCtrl = new AbortController();
+      const timeoutMs = 900000;
+      const timeoutId = setTimeout(function () {
+        try {
+          timeoutCtrl.abort();
+        } catch (_e) {}
+      }, timeoutMs);
+      const mergedSignal = mergeAbortSignals(signal, timeoutCtrl.signal);
+      try {
+        const res = await fetch(
+          '/debug/post-rebuilder/' + encodeURIComponent(postId) + '/optimize-and-write?stream=1',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ strict: true }),
+            signal: mergedSignal
           }
-          if (msg.type === 'progress') {
-            const human = formatOptimizeProgressLine(msg);
-            item.lastMessage = human;
-            item.status.write = 'working';
-            pushTopConsole(human, item.postId);
-            render();
-          } else if (msg.type === 'done') {
-            finalResult = msg.result;
-          } else if (msg.type === 'error') {
-            throw new Error(msg.message || 'stream_error');
+        );
+        if (!res.ok) {
+          let data = null;
+          try {
+            data = await res.json();
+          } catch (_err) {}
+          const message =
+            (data && typeof data.error === 'string' && data.error) ||
+            (data && data.error && typeof data.error.message === 'string' && data.error.message) ||
+            ('request_failed_' + res.status);
+          const error = new Error(message);
+          error.statusCode = res.status;
+          error.body = data;
+          throw error;
+        }
+        if (!res.body) throw new Error('no_response_body');
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let finalResult = null;
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          let nl;
+          while ((nl = buffer.indexOf('\\n')) >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line) continue;
+            let msg;
+            try {
+              msg = JSON.parse(line);
+            } catch (_err) {
+              pushTopConsole('ndjson_parse_skip ' + line.slice(0, 96), item.postId);
+              continue;
+            }
+            if (msg.type === 'progress') {
+              const human = formatOptimizeProgressLine(msg);
+              item.lastMessage = human;
+              item.status.write = 'working';
+              pushTopConsole(human, item.postId);
+              render();
+            } else if (msg.type === 'done') {
+              finalResult = msg.result;
+            } else if (msg.type === 'error') {
+              throw new Error(msg.message || 'stream_error');
+            }
           }
         }
+        if (!finalResult) throw new Error('optimize_stream_no_result');
+        return finalResult;
+      } finally {
+        clearTimeout(timeoutId);
       }
-      if (!finalResult) throw new Error('optimize_stream_no_result');
-      return finalResult;
     }
 
     function abortInFlightSilently() {
@@ -1651,19 +2897,52 @@ const htmlPage = `<!doctype html>
         item.diffSummary = data.diffSummary || {};
         item.validation = data.validation || null;
         item.previewChecks = data.previewChecks || null;
+        item.compactCheck = data.compactCheck || null;
+        const clp = data.compactLivePreview;
+        item.compactLivePreviewSummary = clp
+          ? {
+              byteEstimateBefore: clp.byteEstimateBefore,
+              byteEstimateAfter: clp.byteEstimateAfter,
+              removedPathsCount: Array.isArray(clp.removedPaths) ? clp.removedPaths.length : null,
+              removedPathsSample: Array.isArray(clp.removedPaths) ? clp.removedPaths.slice(0, 24) : [],
+              diagnosticsKeys: clp.diagnostics && typeof clp.diagnostics === 'object' ? Object.keys(clp.diagnostics).slice(0, 40) : []
+            }
+          : null;
         item.counts = {
           warnings: Array.isArray(data.validation && data.validation.warnings) ? data.validation.warnings.length : 0,
           blocking: Array.isArray(data.validation && data.validation.blockingErrors) ? data.validation.blockingErrors.length : 0
         };
-        item.status.preview = item.counts.blocking > 0 ? 'blocked' : (item.counts.warnings > 0 ? 'warning' : 'success');
+        const liveOk = liveDocIsCompactCanonical(item);
+        item.previewNormalizeMismatch = Boolean(liveOk && item.counts.blocking > 0);
+        if (liveOk) {
+          item.status.preview = item.counts.warnings > 0 ? 'warning' : 'success';
+          if (item.previewNormalizeMismatch) {
+            item.lastMessage =
+              'Preview mismatch only — live compact doc is valid. Normalize preview disagrees; trust saved live compact + post-write checks for write success.';
+          } else if (item.counts.warnings > 0) {
+            item.lastMessage = 'Live compact OK. Preview has warnings only.';
+          } else {
+            item.lastMessage = 'Live compact OK — nothing to write.';
+          }
+        } else {
+          item.previewNormalizeMismatch = false;
+          item.status.preview = item.counts.blocking > 0 ? 'blocked' : (item.counts.warnings > 0 ? 'warning' : 'success');
+          let compactNote = '';
+          if (item.compactCheck) {
+            if (item.compactCheck.mediaNeedsRepair) compactNote = ' VIDEO NEEDS FASTSTART.';
+            else if (item.compactCheck.needsCompaction) compactNote = ' NEEDS COMPACTION.';
+            else if (!item.compactCheck.compactOk) compactNote = ' NEEDS REPAIR.';
+            else if (!item.compactCheck.canSkipWrite) compactNote = ' MEDIA / PLAYBACK NOT READY.';
+          }
+          item.lastMessage =
+            item.status.preview === 'blocked'
+              ? 'Preview blocking — live doc needs Optimize + Write (or media repair).' + compactNote
+              : item.status.preview === 'warning'
+                ? 'Preview finished with warnings.' + compactNote
+                : 'Preview ready.' + compactNote;
+        }
         item.generatedRepairPendingWrite = false;
         item.lastPreviewedAt = nowLabel();
-        item.lastMessage =
-          item.status.preview === 'blocked'
-            ? 'Preview finished with blocking errors.'
-            : item.status.preview === 'warning'
-              ? 'Preview finished with warnings.'
-              : 'Preview ready.';
         summarizeFromPreview(item, data);
         hydratePreviewViews(item, data);
         addLog(item.lastMessage, item.postId);
@@ -1696,10 +2975,21 @@ const htmlPage = `<!doctype html>
           warnings: Array.isArray(data.validation && data.validation.warnings) ? data.validation.warnings.length : 0,
           blocking: Array.isArray(data.validation && data.validation.blockingErrors) ? data.validation.blockingErrors.length : 0
         };
-        item.status.preview = item.counts.blocking > 0 ? 'blocked' : (item.counts.warnings > 0 ? 'warning' : 'success');
+        item.compactCheck = data.compactCheckPreview || data.compactVerified || item.compactCheck;
+        const liveOkFs = liveDocIsCompactCanonical(item);
+        item.previewNormalizeMismatch = Boolean(liveOkFs && item.counts.blocking > 0);
+        if (liveOkFs) {
+          item.status.preview = item.counts.warnings > 0 ? 'warning' : 'success';
+          item.lastMessage = item.previewNormalizeMismatch
+            ? 'Preview mismatch only — repaired preview disagrees but live/repaired shape is compact OK. Use Optimize + Write when ready.'
+            : 'Fast-start preview ready (dry run). Live compact OK.';
+        } else {
+          item.previewNormalizeMismatch = false;
+          item.status.preview = item.counts.blocking > 0 ? 'blocked' : (item.counts.warnings > 0 ? 'warning' : 'success');
+          item.lastMessage = 'Generated missing fast starts preview is ready. Use Optimize + Write Selected for safe write.';
+        }
         item.lastPreviewedAt = nowLabel();
         item.generatedRepairPendingWrite = true;
-        item.lastMessage = 'Generated missing fast starts preview is ready. Use Optimize + Write Selected for safe write.';
         summarizeFromPreview(item, data);
         hydratePreviewViews(item, data);
         addLog(item.lastMessage, item.postId);
@@ -1743,11 +3033,11 @@ const htmlPage = `<!doctype html>
         alert('Use Optimize + Write Selected to safely write generated fast-start results.');
         return null;
       }
-      if (item.counts.blocking > 0) {
-        alert('Selected post has blocking validation errors. Fix or inspect the preview before writing.');
+      if (normalizePreviewBlocking(item)) {
+        alert('Selected post has blocking preview validation and live doc is not compact OK. Use Optimize + Write or fix the post first.');
         return null;
       }
-      const force = window.confirm('Force write even with blocking errors?');
+      const force = false;
       setActionState(item, 'write', 'working', 'Writing canonical fields...');
       try {
         const data = await fetchJson('/debug/post-rebuilder/' + encodeURIComponent(item.postId) + '/write', {
@@ -1759,17 +3049,49 @@ const htmlPage = `<!doctype html>
             force: force
           })
         });
+        if (data.status === 'already_compact_canonical') {
+          item.status.write = 'skipped';
+          item.lastWriteOutcome = 'already_compact';
+          item.compactCheck = data.compactCheck || item.compactCheck;
+          item.savedMediaUrlSanity = data.savedMediaUrlSanity || null;
+          item.lastMessage = 'ALREADY COMPACT — WRITE SKIPPED (no backup, no Firestore write).';
+          item.lastBackupPath = '';
+          item.lastDiagnosticsPath = '';
+          addLog(item.lastMessage, item.postId);
+          render();
+          return data;
+        }
+        if (data.status !== 'compacted_write_ok') {
+          item.status.write = 'error';
+          item.lastWriteOutcome = 'error';
+          item.lastError = String(data.status || 'write_failed');
+          addLog('Write failed: ' + item.lastError, item.postId);
+          render();
+          throw new Error(item.lastError);
+        }
         item.status.write = 'success';
-        item.backupId = data.backupId || '';
+        item.lastWriteOutcome = 'compacted_manual';
+        const wTail = data.backupPath ? String(data.backupPath).split('/').pop() : '';
+        item.backupId = wTail || data.backupId || '';
         item.lastWrittenAt = nowLabel();
-        item.lastMessage = 'Write complete: ' + (data.backupPath || data.backupId || 'ok');
+        item.lastBackupPath = data.backupPath || '';
+        item.lastDiagnosticsPath = wTail ? ('postCanonicalDiagnostics/' + wTail) : '';
+        item.lastMessage = 'COMPACTED WRITE OK — ' + (data.backupPath || data.backupId || 'ok');
         if (item.backupId) {
           item.backups = [{ backupId: item.backupId }].concat(item.backups.filter(function (backup) {
             return backup.backupId !== item.backupId;
           }));
           item.backupSelection = item.backupId;
         }
+        if (data.byteEstimateBefore != null) {
+          item.compactLivePreviewSummary = {
+            byteEstimateBefore: data.byteEstimateBefore,
+            byteEstimateAfter: data.byteEstimateAfter,
+            removedPathsCount: Array.isArray(data.removedPaths) ? data.removedPaths.length : null
+          };
+        }
         addLog(item.lastMessage, item.postId);
+        await previewItem(item);
         render();
         return data;
       } catch (error) {
@@ -1818,7 +3140,7 @@ const htmlPage = `<!doctype html>
 
     async function loadNewestPosts() {
       const fromRank = Math.max(1, Math.floor(Number(el('newestFromRank').value || 1)));
-      const count = Math.min(200, Math.max(1, Math.floor(Number(el('newestCount').value || 12))));
+      const count = Math.min(${POST_REBUILDER_RANK_QUERY_LIMIT_MAX}, Math.max(1, Math.floor(Number(el('newestCount').value || 12))));
       const offset = fromRank - 1;
       const append = Boolean(el('appendQueue').checked);
       const data = await fetchJson(
@@ -1897,9 +3219,9 @@ const htmlPage = `<!doctype html>
               await previewItem(item);
             }
             if (withWrite) {
-              if (item.counts.blocking > 0) {
+              if (normalizePreviewBlocking(item)) {
                 item.status.write = 'skipped';
-                item.lastMessage = 'Write skipped because preview has blocking errors.';
+                item.lastMessage = 'Write skipped — live doc not compact OK and preview has blocking errors.';
                 addLog(item.lastMessage, item.postId);
                 render();
                 continue;
@@ -1986,13 +3308,59 @@ const htmlPage = `<!doctype html>
         if (data.status === 'post_not_found') {
           item.status.write = 'error';
           item.lastError = 'post_not_found';
+          item.lastWriteOutcome = 'error';
+          item.failureClassification = null;
           addLog('Optimize+Write: post not found.', item.postId);
           render();
           throw new Error('post_not_found');
         }
+        if (data.status === 'already_compact_canonical') {
+          item.status.write = 'skipped';
+          item.lastWriteOutcome = 'already_compact';
+          item.compactCheck = data.compactCheck || item.compactCheck;
+          item.savedMediaUrlSanity = data.savedMediaUrlSanity || null;
+          item.lastMessage = 'ALREADY COMPACT — WRITE SKIPPED (no backup, no Firestore write, no auto-preview).';
+          item.lastBackupPath = '';
+          item.lastDiagnosticsPath = '';
+          item.mediaRepairHappened = false;
+          item.failureClassification = null;
+          if (data.byteEstimateBefore != null) {
+            item.compactLivePreviewSummary = {
+              byteEstimateBefore: data.byteEstimateBefore,
+              byteEstimateAfter: data.byteEstimateAfter,
+              removedPathsCount: 0
+            };
+          }
+          pushTopConsole('optimize+write: already compact, skipped', item.postId);
+          addLog(item.lastMessage, item.postId);
+          render();
+          return data;
+        }
         if (data.status !== 'complete') {
+          item.failureClassification = data.failureClassification || null;
           item.status.write = 'error';
           item.lastError = String(data.status || 'failed');
+          item.lastWriteOutcome = 'error';
+          item.faststartVerifyFailed =
+            String(data.status || '').indexOf('verify') >= 0 ||
+            String(data.status || '') === 'generation_failed' ||
+            String(data.status || '') === 'post_write_verification_failed';
+          item.generationFailureDetail = data.generationFailureDetail || null;
+          if (data.generationFailureDetail && data.status === 'generation_failed') {
+            const g = data.generationFailureDetail;
+            const n = Array.isArray(g.perAsset) ? g.perAsset.length : 0;
+            item.lastError =
+              'generation_failed: ' +
+              String(g.reason || 'strict_repair') +
+              ' — blocking assets=' +
+              String(n) +
+              (Array.isArray(g.generationErrorsDistinct) && g.generationErrorsDistinct.length
+                ? ' — errors: ' + g.generationErrorsDistinct.slice(0, 6).join('; ')
+                : '');
+          }
+          if (data.savedMediaUrlSanity) item.savedMediaUrlSanity = data.savedMediaUrlSanity;
+          if (data.savedCompactCheck) item.compactCheck = data.savedCompactCheck;
+          if (data.savedRaw) item.raw = data.savedRaw;
           if (data.raw) item.raw = data.raw;
           if (data.canonicalPreview) item.canonicalPreview = data.canonicalPreview;
           if (data.validation) {
@@ -2003,6 +3371,9 @@ const htmlPage = `<!doctype html>
             };
           }
           if (data.diffSummary) item.diffSummary = data.diffSummary;
+          item.posterRepairApplied = Boolean(data.posterRepairApplied);
+          item.posterRepairSource = data.posterRepairSource || '';
+          item.posterRepairUrl = data.posterRepairUrl || '';
           if (data.selectedVideoUrlsAfterGeneration) {
             item.diffSummary = Object.assign({}, item.diffSummary || {}, {
               selectedVideoUrlsBefore: data.selectedVideoUrlsBefore || [],
@@ -2019,13 +3390,33 @@ const htmlPage = `<!doctype html>
         }
         const stages = Array.isArray(data.stages) ? data.stages.join(' -> ') : 'complete';
         item.status.write = 'success';
+        item.lastWriteOutcome = 'complete';
+        item.failureClassification = null;
         item.generatedRepairPendingWrite = false;
         item.lastWrittenAt = nowLabel();
-        item.backupId = data.backupPath || item.backupId;
-        item.lastMessage = 'Optimize + Write complete. ' + stages;
-        item.raw = data.raw || item.raw;
+        item.mediaRepairHappened = Array.isArray(data.generatedAssets) && data.generatedAssets.length > 0;
+        item.posterRepairApplied = Boolean(data.posterRepairApplied);
+        item.posterRepairSource = data.posterRepairSource || '';
+        item.posterRepairUrl = data.posterRepairUrl || '';
+        item.lastBackupPath = data.backupPath || '';
+        const backupTail = data.backupPath ? String(data.backupPath).split('/').pop() : '';
+        item.lastDiagnosticsPath = backupTail ? ('postCanonicalDiagnostics/' + backupTail) : '';
+        item.backupId = backupTail || item.backupId;
+        item.lastMessage = 'WRITE OK — saved live doc passed compact + media URL checks. ' + stages;
+        item.generationFailureDetail = null;
+        item.faststartVerifyFailed = false;
+        item.raw = data.savedRaw || data.raw || item.raw;
+        if (data.savedRawHash) item.rawHash = data.savedRawHash;
+        item.compactCheck = data.savedCompactCheck || item.compactCheck;
+        item.savedMediaUrlSanity = data.savedMediaUrlSanity || null;
         item.canonicalPreview = data.canonicalPreview || item.canonicalPreview;
         item.validation = data.validation || item.validation;
+        if (data.validation) {
+          item.counts = {
+            warnings: Array.isArray(data.validation.warnings) ? data.validation.warnings.length : 0,
+            blocking: Array.isArray(data.validation.blockingErrors) ? data.validation.blockingErrors.length : 0
+          };
+        }
         item.diffSummary = data.diffSummary || item.diffSummary;
         if (data.selectedVideoUrlsSaved) {
           item.diffSummary = Object.assign({}, item.diffSummary || {}, {
@@ -2034,21 +3425,36 @@ const htmlPage = `<!doctype html>
             selectedVideoUrlsAfterGeneration: data.selectedVideoUrlsAfterGeneration || []
           });
         }
+        if (data.byteEstimateBefore != null) {
+          item.compactLivePreviewSummary = {
+            byteEstimateBefore: data.byteEstimateBefore,
+            byteEstimateAfter: data.byteEstimateAfter,
+            removedPathsCount: Array.isArray(data.removedPaths) ? data.removedPaths.length : null
+          };
+        }
+        const hydratePayload = Object.assign({}, data, { raw: item.raw });
+        summarizeFromPreview(item, hydratePayload);
+        hydratePreviewViews(item, hydratePayload);
         pushTopConsole('optimize+write stream complete', item.postId);
         addLog('Optimize+Write complete: ' + stages, item.postId);
-        await previewItem(item);
+        render();
         return data;
       } catch (error) {
         if (error && error.name === 'AbortError') {
           item.status.write = 'idle';
           item.lastError = '';
           item.lastMessage = 'Optimize+Write canceled.';
+          item.lastWriteOutcome = null;
+          item.failureClassification = null;
           addLog('Optimize+Write canceled.', item.postId);
           pushTopConsole('aborted', item.postId);
           render();
           throw error;
         }
         item.status.write = 'error';
+        item.lastWriteOutcome = 'error';
+        item.failureClassification =
+          (error.body && error.body.failureClassification) || item.failureClassification || null;
         item.lastError = error.message || 'optimize_write_failed';
         if (error.body && error.body.status) item.lastError = String(error.body.status);
         if (error.body && error.body.raw) item.raw = error.body.raw;
@@ -2060,7 +3466,15 @@ const htmlPage = `<!doctype html>
             blocking: Array.isArray(error.body.validation.blockingErrors) ? error.body.validation.blockingErrors.length : item.counts.blocking
           };
         }
+        if (error.body && error.body.generationFailureDetail) {
+          item.generationFailureDetail = error.body.generationFailureDetail;
+        }
+        if (error.body && error.body.savedMediaUrlSanity) item.savedMediaUrlSanity = error.body.savedMediaUrlSanity;
+        if (error.body && error.body.savedCompactCheck) item.compactCheck = error.body.savedCompactCheck;
         if (error.body && error.body.diffSummary) item.diffSummary = error.body.diffSummary;
+        item.posterRepairApplied = Boolean(error.body && error.body.posterRepairApplied);
+        item.posterRepairSource = (error.body && error.body.posterRepairSource) || '';
+        item.posterRepairUrl = (error.body && error.body.posterRepairUrl) || '';
         if (error.body && error.body.selectedVideoUrlsAfterGeneration) {
           item.diffSummary = Object.assign({}, item.diffSummary || {}, {
             selectedVideoUrlsBefore: error.body.selectedVideoUrlsBefore || [],
@@ -2130,6 +3544,7 @@ const htmlPage = `<!doctype html>
         state.manualQueue.running = false;
         state.inFlightAbort = null;
         addLog('Manual queue optimize+write finished.');
+        captureQueueRunFailureReport();
         render();
       }
     }
@@ -2183,6 +3598,83 @@ const htmlPage = `<!doctype html>
     el('cancelRunning').onclick = function () {
       cancelInFlight();
     };
+
+    if (el('downloadFailureReport')) {
+      el('downloadFailureReport').onclick = function () {
+        const rep = state.lastFailureReport;
+        if (!rep) return;
+        const blob = new Blob([JSON.stringify(rep, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = rep.filename || 'postRebuilderFailures.json';
+        a.click();
+        setTimeout(function () {
+          try {
+            URL.revokeObjectURL(a.href);
+          } catch (_e) {}
+        }, 4000);
+        addLog('Downloaded failure report: ' + (rep.filename || 'postRebuilderFailures.json'));
+      };
+    }
+    if (el('copyFailureReport')) {
+      el('copyFailureReport').onclick = async function () {
+        const rep = state.lastFailureReport;
+        if (!rep) return;
+        try {
+          await navigator.clipboard.writeText(JSON.stringify(rep, null, 2));
+          addLog('Failure report JSON copied to clipboard.');
+        } catch (_e) {
+          addLog('Clipboard copy failed — use Download instead.');
+        }
+      };
+    }
+    if (el('retryFailedRepairable')) {
+      el('retryFailedRepairable').onclick = async function () {
+        if (state.manualQueue.running || state.auto.running) return;
+        const targets = state.queue.filter(function (item) {
+          const fc = item.failureClassification;
+          return item.lastWriteOutcome === 'error' && fc && fc.isRepairable === true;
+        });
+        if (!targets.length) {
+          window.alert('No failed posts with isRepairable=true in the current queue.');
+          return;
+        }
+        if (
+          !window.confirm(
+            'Retry Optimize+Write for ' + targets.length + ' repairable failed posts only (skips non-repairable)?'
+          )
+        ) {
+          return;
+        }
+        if (state.inFlightAbort) {
+          try {
+            state.inFlightAbort.abort();
+          } catch (_err) {}
+          state.inFlightAbort = null;
+        }
+        state.inFlightAbort = new AbortController();
+        const sig = state.inFlightAbort.signal;
+        state.manualQueue.running = true;
+        addLog('Retry repairable failures started (' + targets.length + ').');
+        render();
+        try {
+          for (let j = 0; j < targets.length; j++) {
+            if (!state.manualQueue.running) break;
+            const item = targets[j];
+            setSelectedPost(item.postId);
+            try {
+              await optimizeWriteItem(item, { signal: sig });
+            } catch (_e) {}
+          }
+        } finally {
+          state.manualQueue.running = false;
+          state.inFlightAbort = null;
+          addLog('Retry repairable failures finished.');
+          captureQueueRunFailureReport();
+          render();
+        }
+      };
+    }
 
     addLog('System ready. No preview or write has been run yet.');
     pushTopConsole('System ready. No preview/write executed yet.');
@@ -2291,6 +3783,17 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
             )
           }
         : null;
+    const compactCheck = isCompactCanonicalPostV2(raw as Record<string, unknown>);
+    let compactLivePreview: ReturnType<typeof compactCanonicalPostForLiveWrite> | null = null;
+    try {
+      compactLivePreview = compactCanonicalPostForLiveWrite({
+        canonical: normalized.canonical,
+        rawBefore: raw as Record<string, unknown>,
+        postId: params.postId
+      });
+    } catch {
+      compactLivePreview = null;
+    }
     return {
       postId: params.postId,
       rawHash,
@@ -2301,6 +3804,8 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
       validation,
       diffSummary,
       previewChecks,
+      compactCheck,
+      compactLivePreview,
       writeAllowed: validation.blockingErrors.length === 0
     };
   });
@@ -2324,11 +3829,17 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
     const snap = await db.collection("posts").doc(params.postId).get();
     if (!snap.exists) return reply.status(404).send({ error: "post_not_found" });
     const raw = (snap.data() ?? {}) as UnknownRecord;
-    const run = await generateMissingFastStartVariantsForPost(params.postId, raw, {
+    const cfgUrlRepairFs = readWasabiConfigFromEnv();
+    let workingRawFs = raw;
+    if (cfgUrlRepairFs) {
+      const repFs = await repairVideosLabDoublePostPrefixUrlsDeep(cfgUrlRepairFs, raw as Record<string, unknown>);
+      workingRawFs = repFs.value as UnknownRecord;
+    }
+    const run = await generateMissingFastStartVariantsForPost(params.postId, workingRawFs, {
       generateMissingForAsset: defaultGenerateMissingForAsset,
       verifyGeneratedUrl: defaultVerifyGeneratedVideoUrl
     });
-    const repairedRaw = mergePlaybackLabResultsIntoRawPost(raw, run.generationResults);
+    const repairedRaw = mergePlaybackLabResultsIntoRawPost(workingRawFs, run.generationResults);
     const normalized = rebuildPostAfterFastStartRepair(repairedRaw, { postId: params.postId });
     const validation = validateMasterPostV2(normalized.canonical);
     const diffSummary = diffMasterPostPreview({
@@ -2353,17 +3864,54 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
         firestoreWritten: false
       };
     }
-    await db.collection("posts").doc(params.postId).set(repairedRaw, { merge: true });
+    const engagementSourceAudit = await auditPostEngagementSourcesV2(db, params.postId, repairedRaw);
+    const normalizedWrite = normalizeMasterPostV2(repairedRaw, {
+      postId: params.postId,
+      strict: true,
+      engagementSourceAudit
+    });
+    const validationWrite = validateMasterPostV2(normalizedWrite.canonical, { engagementSourceAudit });
+    if (validationWrite.blockingErrors.length > 0) {
+      return reply.status(422).send({ error: "blocking_validation_errors", validation: validationWrite });
+    }
+    await persistCompactCanonicalPost({
+      db,
+      postId: params.postId,
+      rawBefore: raw,
+      repairedRaw,
+      canonical: normalizedWrite.canonical,
+      engagementSourceAudit,
+      actorRoute: "debug/post-rebuilder/generate-fast-starts"
+    });
+    const savedDataGen = (await db.collection("posts").doc(params.postId).get()).data() as Record<string, unknown>;
+    const savedCheck = isCompactCanonicalPostV2(savedDataGen);
+    if (!savedCheck.ok) {
+      return reply.status(422).send({
+        error: "write_failed_compact_validation",
+        compactValidation: savedCheck,
+        savedMediaUrlSanity: mediaUrlSanityCheckOnSavedCompactPost(savedDataGen as UnknownRecord)
+      });
+    }
+    const savedMediaSanityGen = mediaUrlSanityCheckOnSavedCompactPost(savedDataGen as UnknownRecord);
+    if (!savedMediaSanityGen.ok) {
+      return reply.status(422).send({
+        error: "write_failed_media_url_sanity",
+        compactValidation: savedCheck,
+        savedMediaUrlSanity: savedMediaSanityGen
+      });
+    }
     return {
       postId: params.postId,
       dryRun: false,
       analyze: run.analyze,
       generationResults: run.generationResults,
       repairedRaw,
-      canonicalPreview: normalized.canonical,
-      validation,
+      canonicalPreview: normalizedWrite.canonical,
+      validation: validationWrite,
       diffSummary,
-      firestoreWritten: true
+      firestoreWritten: true,
+      compactVerified: savedCheck,
+      savedMediaUrlSanity: savedMediaSanityGen
     };
   });
 
@@ -2375,11 +3923,17 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
     const snap = await db.collection("posts").doc(params.postId).get();
     if (!snap.exists) return reply.status(404).send({ error: "post_not_found" });
     const raw = (snap.data() ?? {}) as UnknownRecord;
-    const run = await generateMissingFastStartVariantsForPost(params.postId, raw, {
+    const cfgUrlRepairPreview = readWasabiConfigFromEnv();
+    let workingRawPreview = raw;
+    if (cfgUrlRepairPreview) {
+      const repPv = await repairVideosLabDoublePostPrefixUrlsDeep(cfgUrlRepairPreview, raw as Record<string, unknown>);
+      workingRawPreview = repPv.value as UnknownRecord;
+    }
+    const run = await generateMissingFastStartVariantsForPost(params.postId, workingRawPreview, {
       generateMissingForAsset: defaultGenerateMissingForAsset,
       verifyGeneratedUrl: defaultVerifyGeneratedVideoUrl
     });
-    const repairedRaw = mergePlaybackLabResultsIntoRawPost(raw, run.generationResults);
+    const repairedRaw = mergePlaybackLabResultsIntoRawPost(workingRawPreview, run.generationResults);
     const engagementSourceAudit = await auditPostEngagementSourcesV2(db, params.postId, repairedRaw);
     const normalized = normalizeMasterPostV2(repairedRaw, { postId: params.postId, engagementSourceAudit });
     const validation = validateMasterPostV2(normalized.canonical, { engagementSourceAudit });
@@ -2392,8 +3946,48 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
       errors: [...normalized.errors, ...validation.blockingErrors],
       processingDebugExtracted: true
     });
+    let compactVerified: ReturnType<typeof isCompactCanonicalPostV2> | null = null;
+    let savedMediaUrlSanityPreview: ReturnType<typeof mediaUrlSanityCheckOnSavedCompactPost> | null = null;
+    const compactCheckPreview = isCompactCanonicalPostV2(repairedRaw as Record<string, unknown>);
     if (!body.dryRun) {
-      await db.collection("posts").doc(params.postId).set(repairedRaw, { merge: true });
+      if (validation.blockingErrors.length > 0) {
+        return reply.status(422).send({ error: "blocking_validation_errors", validation });
+      }
+      const normalizedWrite = normalizeMasterPostV2(repairedRaw, {
+        postId: params.postId,
+        strict: true,
+        engagementSourceAudit
+      });
+      const validationWrite = validateMasterPostV2(normalizedWrite.canonical, { engagementSourceAudit });
+      if (validationWrite.blockingErrors.length > 0) {
+        return reply.status(422).send({ error: "blocking_validation_errors", validation: validationWrite });
+      }
+      await persistCompactCanonicalPost({
+        db,
+        postId: params.postId,
+        rawBefore: raw,
+        repairedRaw,
+        canonical: normalizedWrite.canonical,
+        engagementSourceAudit,
+        actorRoute: "debug/post-rebuilder/preview-after-fast-starts"
+      });
+      const savedDataPreview = (await db.collection("posts").doc(params.postId).get()).data() as UnknownRecord;
+      compactVerified = isCompactCanonicalPostV2(savedDataPreview as Record<string, unknown>);
+      if (!compactVerified.ok) {
+        return reply.status(422).send({
+          error: "write_failed_compact_validation",
+          compactValidation: compactVerified,
+          savedMediaUrlSanity: mediaUrlSanityCheckOnSavedCompactPost(savedDataPreview)
+        });
+      }
+      savedMediaUrlSanityPreview = mediaUrlSanityCheckOnSavedCompactPost(savedDataPreview);
+      if (!savedMediaUrlSanityPreview.ok) {
+        return reply.status(422).send({
+          error: "write_failed_media_url_sanity",
+          compactValidation: compactVerified,
+          savedMediaUrlSanity: savedMediaUrlSanityPreview
+        });
+      }
     }
     return {
       postId: params.postId,
@@ -2406,7 +4000,10 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
       validation,
       diffSummary,
       writeAllowed: validation.blockingErrors.length === 0,
-      firestoreWritten: !body.dryRun
+      firestoreWritten: !body.dryRun,
+      compactVerified,
+      compactCheckPreview,
+      savedMediaUrlSanity: savedMediaUrlSanityPreview
     };
   });
 
@@ -2448,6 +4045,7 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
 
     const result = await optimizeAndWritePost({ db, postId: params.postId, strict: body.strict });
     if (result.status === "post_not_found") return reply.status(404).send(result);
+    if (result.status === "already_compact_canonical") return result;
     if (result.status !== "complete") return reply.status(422).send(result);
     return result;
   });
@@ -2472,6 +4070,21 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
           currentHash: rawHash
         });
     }
+    const compactPre = isCompactCanonicalPostV2(raw as Record<string, unknown>);
+    if (compactPre.canSkipWrite) {
+      const savedMediaSanity = mediaUrlSanityCheckOnSavedCompactPost(raw);
+      return {
+        status: "already_compact_canonical",
+        compactCheck: compactPre,
+        savedCompactCheck: compactPre,
+        savedMediaUrlSanity: savedMediaSanity,
+        backupId: "",
+        backupPath: "",
+        validation: null,
+        fieldsWritten: [],
+        mediaProcessingDebugWritten: false
+      };
+    }
     const engagementSourceAudit = await auditPostEngagementSourcesV2(db, params.postId, raw);
     const normalized = normalizeMasterPostV2(raw, { postId: params.postId, strict: true, engagementSourceAudit });
     const validation = validateMasterPostV2(normalized.canonical, { engagementSourceAudit });
@@ -2479,32 +4092,39 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
       return reply.status(422).send({ error: "blocking_validation_errors", validation });
     }
     const mediaProcessingDebugPreview = extractMediaProcessingDebugV2(raw);
-    const ts = Date.now();
-    const backupId = `${params.postId}_${ts}`;
-    const backupPath = `postCanonicalBackups/${backupId}`;
-    await db.collection("postCanonicalBackups").doc(backupId).set({
+    const persisted = await persistCompactCanonicalPost({
+      db,
       postId: params.postId,
-      createdAt: new Date().toISOString(),
       rawBefore: raw,
-      rawHash,
-      canonicalPreview: normalized.canonical,
+      repairedRaw: raw,
+      canonical: normalized.canonical,
       engagementSourceAudit,
-      mediaProcessingDebugPreview: mediaProcessingDebugPreview ?? null,
-      actor: { route: "debug/post-rebuilder/write" }
+      actorRoute: "debug/post-rebuilder/write"
     });
-    const canonicalToWrite = {
-      ...normalized.canonical,
-      audit: {
-        ...normalized.canonical.audit,
-        backupDocPath: backupPath
-      }
-    };
-    await postRef.set(canonicalToWrite, { merge: true });
     if (mediaProcessingDebugPreview) {
       await postRef
         .collection("mediaProcessingDebug")
         .doc("masterPostV2")
         .set(mediaProcessingDebugPreview, { merge: true });
+    }
+    const savedData = (await postRef.get()).data() as Record<string, unknown>;
+    const savedCheck = isCompactCanonicalPostV2(savedData);
+    if (!savedCheck.ok) {
+      return reply.status(422).send({
+        error: "write_failed_compact_validation",
+        compactValidation: savedCheck,
+        savedMediaUrlSanity: mediaUrlSanityCheckOnSavedCompactPost(savedData as UnknownRecord),
+        backupPath: persisted.backupPath
+      });
+    }
+    const savedMediaSanity = mediaUrlSanityCheckOnSavedCompactPost(savedData as UnknownRecord);
+    if (!savedMediaSanity.ok) {
+      return reply.status(422).send({
+        error: "write_failed_media_url_sanity",
+        savedMediaUrlSanity: savedMediaSanity,
+        compactValidation: savedCheck,
+        backupPath: persisted.backupPath
+      });
     }
     const fieldsWritten = [
       "schema",
@@ -2518,16 +4138,22 @@ export async function registerPostRebuilderRoutes(app: FastifyInstance): Promise
       "engagementPreview",
       "ranking",
       "compatibility",
-      "legacy",
-      "audit"
+      "compact_top_level_mirrors",
+      "assetsReady"
     ];
     return {
-      backupId,
-      backupPath,
-      canonical: canonicalToWrite,
+      status: "compacted_write_ok",
+      backupId: persisted.backupId,
+      backupPath: persisted.backupPath,
+      canonical: normalized.canonical,
       validation,
       fieldsWritten,
-      mediaProcessingDebugWritten: Boolean(mediaProcessingDebugPreview)
+      mediaProcessingDebugWritten: Boolean(mediaProcessingDebugPreview),
+      byteEstimateBefore: persisted.byteEstimateBefore,
+      byteEstimateAfter: persisted.byteEstimateAfter,
+      removedPaths: persisted.removedPaths,
+      savedCompactCheck: savedCheck,
+      savedMediaUrlSanity: savedMediaSanity
     };
   });
 

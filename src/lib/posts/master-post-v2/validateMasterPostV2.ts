@@ -15,6 +15,15 @@ export type MasterPostValidationResult = {
 
 const isValidUrl = (value: string | null): boolean => Boolean(value && /^https?:\/\//i.test(value));
 
+function firstValidHttpUrl(...values: Array<string | null | undefined>): string | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const t = value.trim();
+    if (isValidUrl(t)) return t;
+  }
+  return null;
+}
+
 export function validateMasterPostV2(
   post: MasterPostV2,
   options?: { engagementSourceAudit?: PostEngagementSourceAuditV2 | null }
@@ -193,15 +202,20 @@ export function validateMasterPostV2(
     }
 
     if (asset.type === "image") {
-      if (!isValidUrl(asset.image?.displayUrl ?? null)) {
+      const imagePrimary = firstValidHttpUrl(
+        asset.image?.displayUrl,
+        asset.image?.originalUrl,
+        asset.image?.thumbnailUrl
+      );
+      if (!imagePrimary) {
         blockingErrors.push({
           code: "image_missing_display_url",
-          message: `Image asset ${asset.id} is missing displayUrl`,
+          message: `Image asset ${asset.id} is missing a usable image URL (displayUrl/originalUrl/thumbnailUrl)`,
           path: "media.assets.image.displayUrl",
           blocking: true
         });
       }
-      const imageKind = classifyMediaUrl(asset.image?.displayUrl ?? null);
+      const imageKind = classifyMediaUrl(imagePrimary);
       if (imageKind === "video") {
         blockingErrors.push({
           code: "image_asset_has_video_url",
@@ -277,13 +291,23 @@ export function validateMasterPostV2(
     });
   }
 
-  if ((post.classification.mediaKind === "image" || post.classification.mediaKind === "video" || post.classification.mediaKind === "mixed") && !isValidUrl(post.media.cover.url)) {
-    blockingErrors.push({
-      code: "missing_cover_url",
-      message: "Visual post requires media.cover.url",
-      path: "media.cover.url",
-      blocking: true
-    });
+  if (post.classification.mediaKind === "image" || post.classification.mediaKind === "video" || post.classification.mediaKind === "mixed") {
+    const coverEffective = firstValidHttpUrl(
+      post.media.cover.url,
+      post.media.cover.thumbUrl,
+      post.media.cover.posterUrl,
+      post.compatibility.photoLink,
+      post.compatibility.displayPhotoLink,
+      post.compatibility.thumbUrl
+    );
+    if (!coverEffective) {
+      blockingErrors.push({
+        code: "missing_cover_url",
+        message: "Visual post requires media.cover.url (or equivalent thumb/poster/compatibility mirror)",
+        path: "media.cover.url",
+        blocking: true
+      });
+    }
   }
 
   const countFields = [post.engagement.likeCount, post.engagement.commentCount, post.engagement.saveCount, post.engagement.shareCount, post.engagement.viewCount];

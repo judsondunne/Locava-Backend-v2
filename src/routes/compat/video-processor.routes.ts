@@ -2,13 +2,15 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { loadEnv } from "../../config/env.js";
 import { failure, success } from "../../lib/response.js";
+import { processDeferred1080UpgradeJob } from "../../services/video/deferred-1080-upgrade.processor.js";
 import { processVideoPostJob } from "../../services/video/video-post-processor.service.js";
 
 const BodySchema = z.object({
   postId: z.string().min(1),
   userId: z.string().min(1),
   videoAssets: z.array(z.object({ id: z.string().min(1), original: z.string().url() })).min(1),
-  correlationId: z.string().optional()
+  correlationId: z.string().optional(),
+  jobType: z.enum(["faststart", "deferred_1080_upgrade"]).optional()
 });
 
 /**
@@ -35,11 +37,19 @@ export async function registerVideoProcessorRoutes(app: FastifyInstance): Promis
     }
 
     const started = Date.now();
-    const result = await processVideoPostJob({
-      postId: body.postId,
-      userId: body.userId,
-      videoAssets: body.videoAssets
-    });
+    const jobType = body.jobType ?? "faststart";
+    const result =
+      jobType === "deferred_1080_upgrade"
+        ? await processDeferred1080UpgradeJob({
+            postId: body.postId,
+            userId: body.userId,
+            videoAssets: body.videoAssets
+          })
+        : await processVideoPostJob({
+            postId: body.postId,
+            userId: body.userId,
+            videoAssets: body.videoAssets
+          });
     const ms = Date.now() - started;
     if (!result.ok) {
       app.log.warn({ postId: body.postId, ms, err: result.error }, "video.processor.failed");

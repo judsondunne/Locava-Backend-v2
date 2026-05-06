@@ -420,6 +420,38 @@ class SearchPlacesIndexService {
     return this.seedExactMap.get(normalized) ?? this.exactMap.get(normalized) ?? null;
   }
 
+  /**
+   * Bare US state queries (e.g. "vermont") synthesize a state row without city coordinates.
+   * Clients only surface rows with lat/lng — derive a population-weighted centroid from
+   * indexed places in that state (seeds when GeoNames is still loading).
+   */
+  approxPopulationWeightedCentroidForUsState(stateName: string): { lat: number; lng: number } | null {
+    const norm = normalizeSearchText(stateName);
+    if (!norm) return null;
+    const pool = this.loaded ? this.allPlaces : this.seedPlaces;
+    const matches: SearchIndexedPlace[] = [];
+    for (const p of pool) {
+      if (normalizeSearchText(p.stateName) !== norm) continue;
+      if (p.lat == null || p.lng == null || !Number.isFinite(p.lat) || !Number.isFinite(p.lng)) continue;
+      matches.push(p);
+    }
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b.population - a.population || a.text.localeCompare(b.text));
+    const top = matches.slice(0, 8);
+    let wSum = 0;
+    let latSum = 0;
+    let lngSum = 0;
+    for (const p of top) {
+      if (p.lat == null || p.lng == null) continue;
+      const w = Math.sqrt(Math.max(1, p.population));
+      latSum += p.lat * w;
+      lngSum += p.lng * w;
+      wSum += w;
+    }
+    if (wSum <= 0) return null;
+    return { lat: latSum / wSum, lng: lngSum / wSum };
+  }
+
   reverseLookup(lat: number, lng: number): SearchIndexedPlace | null {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     const candidates = this.loaded ? this.allPlaces : this.seedPlaces;
