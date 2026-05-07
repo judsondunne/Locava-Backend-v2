@@ -332,6 +332,8 @@ export class NotificationsRepository {
       const metaOut = buildNotificationMetadata(row);
       return {
         notificationId: row.id,
+        rowKey: row.id,
+        groupingKey: `${type}:${row.id}`,
         type,
         actorId,
         actor: { userId: actorId, handle, name, pic: null },
@@ -1156,6 +1158,8 @@ export class NotificationsRepository {
       const metaOut = buildNotificationMetadata(row);
       return {
         notificationId: row.id,
+          rowKey: row.id,
+          groupingKey: `${type}:${row.id}`,
         type,
         actorId,
         actor: {
