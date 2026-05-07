@@ -20,6 +20,33 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
     const query = FeedForYouSimpleQuerySchema.parse(request.query);
     setRouteName(feedForYouSimpleContract.routeName);
     const viewerId = query.viewerId?.trim() || viewer.viewerId || null;
+    /**
+     * Resolve radius filter from query.
+     * - Default mode is "global" (legacy non-geo behavior; deck key/cursor unchanged).
+     * - For "nearMe" / "custom", center + radiusMiles must be present and finite. Missing
+     *   center silently falls back to "global" so an unselected dropdown never blocks the feed.
+     */
+    const radiusFilter: import("../../services/surfaces/feed-for-you-simple.service.js").ForYouRadiusFilter = (() => {
+      const mode = query.radiusMode ?? "global";
+      if (mode === "global") return { mode: "global", centerLat: null, centerLng: null, radiusMiles: null };
+      const lat = typeof query.centerLat === "number" && Number.isFinite(query.centerLat) ? query.centerLat : null;
+      const lng = typeof query.centerLng === "number" && Number.isFinite(query.centerLng) ? query.centerLng : null;
+      const miles = typeof query.radiusMiles === "number" && Number.isFinite(query.radiusMiles) ? query.radiusMiles : null;
+      if (lat == null || lng == null || miles == null) {
+        request.log.warn(
+          {
+            event: "FOR_YOU_RADIUS_FILTER_IGNORED",
+            radiusMode: mode,
+            hasCenter: lat != null && lng != null,
+            radiusMilesPresent: miles != null,
+            reason: "missing_center_or_radius"
+          },
+          "for-you radius filter ignored (missing center/radius)"
+        );
+        return { mode: "global", centerLat: null, centerLng: null, radiusMiles: null };
+      }
+      return { mode, centerLat: lat, centerLng: lng, radiusMiles: miles };
+    })();
     setOrchestrationMetadata({
       surface: "home_feed",
       requestGroup: query.cursor ? "pagination" : "first_paint",
@@ -33,7 +60,8 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         viewerId,
         limit: query.limit,
         cursor: query.cursor ?? null,
-        refresh: query.refresh === true
+        refresh: query.refresh === true,
+        radiusFilter
       });
       const ctx = getRequestContext();
       const dbReads = ctx?.dbOps.reads ?? 0;

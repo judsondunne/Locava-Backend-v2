@@ -77,12 +77,80 @@ type PhaseCursorState = {
   lastPostId: string | null;
 };
 
+/**
+ * Radius filter applied to candidates (haversine). When `mode === "global"`, no filter is applied
+ * and the deck/cursor behave identically to the legacy non-geo path. When `mode !== "global"`,
+ * the deck key, cursor, and refill scans all key off these fields so radius-filtered decks never
+ * leak into unfiltered requests and pagination preserves the filter.
+ */
+export type ForYouRadiusFilter = {
+  mode: "global" | "nearMe" | "custom";
+  centerLat: number | null;
+  centerLng: number | null;
+  radiusMiles: number | null;
+};
+
+const RADIUS_MILES_TO_KM = 1.609344;
+
+function isActiveRadius(filter: ForYouRadiusFilter): boolean {
+  return (
+    filter.mode !== "global" &&
+    typeof filter.centerLat === "number" &&
+    Number.isFinite(filter.centerLat) &&
+    typeof filter.centerLng === "number" &&
+    Number.isFinite(filter.centerLng) &&
+    typeof filter.radiusMiles === "number" &&
+    Number.isFinite(filter.radiusMiles) &&
+    filter.radiusMiles > 0
+  );
+}
+
+function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function candidateMatchesRadius(candidate: SimpleFeedCandidate, filter: ForYouRadiusFilter): boolean {
+  if (!isActiveRadius(filter)) return true;
+  const lat = candidate.geo?.lat;
+  const lng = candidate.geo?.long;
+  if (typeof lat !== "number" || !Number.isFinite(lat)) return false;
+  if (typeof lng !== "number" || !Number.isFinite(lng)) return false;
+  const km = haversineDistanceKm(filter.centerLat as number, filter.centerLng as number, lat, lng);
+  const limitKm = (filter.radiusMiles as number) * RADIUS_MILES_TO_KM;
+  return km <= limitKm;
+}
+
+function deckKeyForFilter(durableViewerId: string, filter: ForYouRadiusFilter): string {
+  const base = `${durableViewerId || "anon"}_${FOR_YOU_SIMPLE_SURFACE}`;
+  if (!isActiveRadius(filter)) return base;
+  // Round center to ~0.05 degrees (~3.5mi) to allow modest cache reuse without leaking precision.
+  const roundLat = (filter.centerLat as number).toFixed(2);
+  const roundLng = (filter.centerLng as number).toFixed(2);
+  const miles = Math.round(filter.radiusMiles as number);
+  return `${base}__${filter.mode}__${miles}mi__${roundLat}_${roundLng}`;
+}
+
+function shortHash(value: string): string {
+  let h = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h = (h * 31 + value.charCodeAt(i)) | 0;
+  }
+  return `f${(h >>> 0).toString(36)}`;
+}
+
 type FeedForYouSimpleCursor = {
   v: 2;
   mode: SimpleFeedSortMode;
   reel: PhaseCursorState;
   fallback: PhaseCursorState;
   seen: string[];
+  filter?: ForYouRadiusFilter;
 };
 
 type SeenPass = "strict" | "relax_durable_seen" | "allow_all_seen";
@@ -190,6 +258,20 @@ export type FeedForYouSimplePageDebug = {
   refillDeferred?: boolean;
   candidateQueryCount?: number;
   payloadTrimMode?: string;
+  /**
+   * Radius filter diagnostics. When mode is "global" this records candidateCount/filteredOutCount=0
+   * and hasCenter=false; otherwise records the active radius mode + filter stats so we can audit
+   * cross-page consistency without leaking PII or raw URLs.
+   */
+  radiusFilter?: {
+    mode: "global" | "nearMe" | "custom";
+    radiusMiles: number | null;
+    hasCenter: boolean;
+    candidateCount: number;
+    filteredOutCount: number;
+    cursorCarriesFilter: boolean;
+    deckKeyHash: string | null;
+  };
 };
 
 export class FeedForYouSimpleService {
@@ -216,6 +298,8 @@ export class FeedForYouSimpleService {
     limit: number;
     cursor: string | null;
     refresh?: boolean;
+    /** Radius filter; default "global" preserves legacy behavior. */
+    radiusFilter?: ForYouRadiusFilter;
   }): Promise<{
     routeName: "feed.for_you_simple.get";
     items: FeedCardDTO[];
@@ -245,6 +329,24 @@ export class FeedForYouSimpleService {
     const cursorState = input.refresh ? null : decodeCursor(input.cursor);
     const mode = cursorState?.mode ?? (await this.repository.resolveSortMode());
     const cursorSeen = new Set((cursorState?.seen ?? []).filter(Boolean).slice(-MAX_SEEN_IDS));
+    /**
+     * Radius filter resolution priority:
+     * 1. Caller input wins (request-fresh state).
+     * 2. Cursor-carried filter ensures pagination keeps the same lens after first page.
+     * 3. Global default.
+     *
+     * IMPORTANT: when caller switches filters mid-stream (e.g. 10mi -> global), we honor the
+     * caller and silently drop the prior cursor's filter so unfiltered requests do NOT inherit
+     * a radius lens from a stale cursor.
+     */
+    const radiusFilter: ForYouRadiusFilter = (() => {
+      const fromInput = input.radiusFilter;
+      if (fromInput) return fromInput;
+      const fromCursor = cursorState?.filter;
+      if (fromCursor && fromCursor.mode !== "global") return fromCursor;
+      return { mode: "global", centerLat: null, centerLng: null, radiusMiles: null };
+    })();
+    const filterIsActive = isActiveRadius(radiusFilter);
     const debugFixedIdsEnabled = process.env[FOR_YOU_SIMPLE_DEBUG_FIXED_IDS_FLAG] === "1";
     if (debugFixedIdsEnabled) {
       const debugCandidates = await this.repository.fetchCandidatesByPostIds([...FOR_YOU_SIMPLE_DEBUG_FIXED_ID_LIST]);
@@ -323,7 +425,7 @@ export class FeedForYouSimpleService {
     diag.cursorSeenCount = cursorSeen.size;
     const effectiveDurableSeen = new Set<string>([...durableSeen.postIds, ...servedRecent.postIds]);
 
-    const deckKey = `${durableViewerId || "anon"}_${FOR_YOU_SIMPLE_SURFACE}`;
+    const deckKey = deckKeyForFilter(durableViewerId, radiusFilter);
     let deck = readyDeckMemory.get(deckKey) ?? null;
     if (deck && deck.deckFormat !== 2) {
       readyDeckMemory.delete(deckKey);
@@ -388,7 +490,8 @@ export class FeedForYouSimpleService {
         blockedAuthors,
         durableSeen: effectiveDurableSeen,
         servedRecent: servedRecent.postIds,
-        reason: deck.items.length === 0 ? "cold_refill" : "low_deck"
+        reason: deck.items.length === 0 ? "cold_refill" : "low_deck",
+        radiusFilter
       });
       accumulateSurfaceTiming("feed_simple_stage_refill_ms", Date.now() - refillStartedAt);
       diag.reelCandidateReadCount += refillSummary.reelReadCount;
@@ -404,6 +507,13 @@ export class FeedForYouSimpleService {
     const items: SimpleFeedCandidate[] = [];
     const selectedIds = new Set<string>();
     const localServedRecentFiltered = new Set<string>();
+    let radiusFilteredOutCount = 0;
+    const radiusGate = (candidate: SimpleFeedCandidate): boolean => {
+      if (!filterIsActive) return true;
+      const ok = candidateMatchesRadius(candidate, radiusFilter);
+      if (!ok) radiusFilteredOutCount += 1;
+      return ok;
+    };
     pickFromDeckForPage({
       deck,
       limit,
@@ -416,7 +526,8 @@ export class FeedForYouSimpleService {
       viewerId,
       pickMode: "strict_ring_and_durable",
       diag,
-      localServedRecentFiltered
+      localServedRecentFiltered,
+      radiusGate
     });
     accumulateSurfaceTiming("feed_simple_stage_pick_ms", Date.now() - pickStartedAt);
 
@@ -437,6 +548,7 @@ export class FeedForYouSimpleService {
         if (servedRecent.postIds.has(candidate.postId)) continue;
         if (blockedAuthors.has(candidate.authorId)) continue;
         if (viewerId && candidate.authorId === viewerId) continue;
+        if (!radiusGate(candidate)) continue;
         selectedIds.add(candidate.postId);
         items.push(candidate);
         updateMediaDiagnostics(candidate, diag);
@@ -460,7 +572,8 @@ export class FeedForYouSimpleService {
         durableSeen: effectiveDurableSeen,
         servedRecent: servedRecent.postIds,
         reason: "starvation_refill",
-        omitServedRecentFromSessionSeen: true
+        omitServedRecentFromSessionSeen: true,
+        radiusFilter
       });
       diag.reelCandidateReadCount += refillSummary.reelReadCount;
       diag.fallbackCandidateReadCount += refillSummary.fallbackReadCount;
@@ -481,7 +594,8 @@ export class FeedForYouSimpleService {
         viewerId,
         pickMode: "strict_ring_and_durable",
         diag,
-        localServedRecentFiltered
+        localServedRecentFiltered,
+        radiusGate
       });
       deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
       softServedRecentPicks += pickFromDeckForPage({
@@ -496,7 +610,8 @@ export class FeedForYouSimpleService {
         viewerId,
         pickMode: "durable_gate_only",
         diag,
-        localServedRecentFiltered: undefined
+        localServedRecentFiltered: undefined,
+        radiusGate
       });
       deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
       const beforeRelaxedEmerg = items.length;
@@ -510,6 +625,7 @@ export class FeedForYouSimpleService {
         }
         if (blockedAuthors.has(candidate.authorId)) continue;
         if (viewerId && candidate.authorId === viewerId) continue;
+        if (!radiusGate(candidate)) continue;
         if (servedRecent.postIds.has(candidate.postId)) softServedRecentPicks += 1;
         selectedIds.add(candidate.postId);
         items.push(candidate);
@@ -569,7 +685,8 @@ export class FeedForYouSimpleService {
           blockedAuthors,
           durableSeen: effectiveDurableSeen,
           servedRecent: servedRecent.postIds,
-          reason: "post_serve_low_watermark"
+          reason: "post_serve_low_watermark",
+          radiusFilter
         })
           .then(() => undefined)
           .finally(() => {
@@ -582,6 +699,7 @@ export class FeedForYouSimpleService {
     const emptyReason: null | "no_playable_posts" = finalItems.length === 0 ? "no_playable_posts" : null;
     const exhausted = finalItems.length === 0;
 
+    const cursorCarriesFilter = filterIsActive;
     const nextCursor =
       finalItems.length === 0
         ? null
@@ -590,7 +708,8 @@ export class FeedForYouSimpleService {
             mode,
             reel: createPhaseState(mode),
             fallback: createPhaseState(mode),
-            seen: [...new Set([...cursorSeen, ...returnedIds])].slice(-MAX_SEEN_IDS)
+            seen: [...new Set([...cursorSeen, ...returnedIds])].slice(-MAX_SEEN_IDS),
+            ...(cursorCarriesFilter ? { filter: radiusFilter } : {})
           });
 
     diag.returnedCount = finalItems.length;
@@ -633,9 +752,37 @@ export class FeedForYouSimpleService {
     diag.reelReturnedCount = reelCount;
     diag.fallbackReturnedCount = Math.max(0, finalItems.length - reelCount);
     diag.recycledSeenPosts = softServedRecentPicks > 0;
+    diag.radiusFilter = {
+      mode: radiusFilter.mode,
+      radiusMiles: filterIsActive ? (radiusFilter.radiusMiles as number) : null,
+      hasCenter: filterIsActive,
+      candidateCount: finalItems.length + radiusFilteredOutCount,
+      filteredOutCount: radiusFilteredOutCount,
+      cursorCarriesFilter,
+      deckKeyHash: filterIsActive ? shortHash(deckKey) : null
+    };
     const cards = finalItems.map((candidate, index) => toPostCard(candidate, index, viewerId));
     const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
     accumulateSurfaceTiming("feed_simple_stage_total_ms", Date.now() - requestStartedAt);
+
+    /**
+     * FOR_YOU_RADIUS_FILTER_APPLIED is emitted whenever a radius filter was active for this
+     * request. Hash-only viewer + deck key (no PII / raw URLs). When mode is "global" no log
+     * is emitted (legacy unfiltered path).
+     */
+    if (filterIsActive) {
+      debugLog("feed", "FOR_YOU_RADIUS_FILTER_APPLIED", () => ({
+        viewerIdHash: viewerId ? shortHash(viewerId) : null,
+        radiusMode: radiusFilter.mode,
+        radiusMiles: radiusFilter.radiusMiles,
+        hasCenter: true,
+        candidateCount: finalItems.length + radiusFilteredOutCount,
+        returnedCount: finalItems.length,
+        filteredOutCount: radiusFilteredOutCount,
+        deckKeyHash: shortHash(deckKey),
+        cursorCarriesFilter
+      }));
+    }
 
     return {
       routeName: "feed.for_you_simple.get",
@@ -667,6 +814,8 @@ export class FeedForYouSimpleService {
      * (they remain blocked at serve time until soft pass). Used to break "full deck of soft duplicates".
      */
     omitServedRecentFromSessionSeen?: boolean;
+    /** Radius filter; admission rejects candidates outside the radius when active. */
+    radiusFilter?: ForYouRadiusFilter;
   }): Promise<RefillDeckSummary> {
     const items: SimpleFeedCandidate[] = [];
     const sessionSeen = new Set<string>([
@@ -676,10 +825,13 @@ export class FeedForYouSimpleService {
     ]);
     const reelPhaseState = createPhaseState(input.mode);
     const fallbackPhaseState = createPhaseState(input.mode);
+    const filter = input.radiusFilter ?? { mode: "global" as const, centerLat: null, centerLng: null, radiusMiles: null };
+    const filterIsActive = isActiveRadius(filter);
     const tryGate = (candidate: SimpleFeedCandidate): boolean => {
       if (sessionSeen.has(candidate.postId)) return false;
       if (input.blockedAuthors.has(candidate.authorId)) return false;
       if (input.viewerId && candidate.authorId === input.viewerId) return false;
+      if (filterIsActive && !candidateMatchesRadius(candidate, filter)) return false;
       sessionSeen.add(candidate.postId);
       return true;
     };
@@ -1160,6 +1312,8 @@ function pickFromDeckForPage(input: {
   pickMode: DeckPickMode;
   diag: FeedForYouSimplePageDebug;
   localServedRecentFiltered?: Set<string>;
+  /** Optional radius gate (returns true if candidate satisfies the filter). Increments diag.filteredOutCount when it rejects. */
+  radiusGate?: (candidate: SimpleFeedCandidate) => boolean;
 }): number {
   let softServedRecentPicks = 0;
   for (const candidate of input.deck.items) {
@@ -1179,6 +1333,7 @@ function pickFromDeckForPage(input: {
     if (input.selectedIds.has(candidate.postId)) continue;
     if (input.blockedAuthors.has(candidate.authorId)) continue;
     if (input.viewerId && candidate.authorId === input.viewerId) continue;
+    if (input.radiusGate && !input.radiusGate(candidate)) continue;
 
     input.selectedIds.add(candidate.postId);
     input.items.push(candidate);
@@ -1367,12 +1522,25 @@ function decodeCursor(cursor: string | null): FeedForYouSimpleCursor | null {
       const reelRaw = (raw.reel as Record<string, unknown> | undefined) ?? null;
       const fallbackRaw = (raw.fallback as Record<string, unknown> | undefined) ?? null;
       if (!reelRaw || !fallbackRaw) throw new Error("phase");
+      const filterRaw = raw.filter as Record<string, unknown> | undefined;
+      const filter: ForYouRadiusFilter | undefined = (() => {
+        if (!filterRaw || typeof filterRaw !== "object") return undefined;
+        const m = filterRaw.mode;
+        if (m !== "global" && m !== "nearMe" && m !== "custom") return undefined;
+        if (m === "global") return { mode: "global", centerLat: null, centerLng: null, radiusMiles: null };
+        const lat = typeof filterRaw.centerLat === "number" && Number.isFinite(filterRaw.centerLat) ? filterRaw.centerLat : null;
+        const lng = typeof filterRaw.centerLng === "number" && Number.isFinite(filterRaw.centerLng) ? filterRaw.centerLng : null;
+        const miles =
+          typeof filterRaw.radiusMiles === "number" && Number.isFinite(filterRaw.radiusMiles) ? filterRaw.radiusMiles : null;
+        return { mode: m, centerLat: lat, centerLng: lng, radiusMiles: miles };
+      })();
       return {
         v: 2,
         mode,
         reel: normalizePhaseState(mode, reelRaw),
         fallback: normalizePhaseState(mode, fallbackRaw),
-        seen
+        seen,
+        ...(filter ? { filter } : {})
       };
     }
     if (raw.v === 1) {

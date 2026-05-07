@@ -532,6 +532,39 @@ function normalizeCommentsPreview(value: unknown): DeferredCommentPreview {
   });
 }
 
+function detailMediaContractSnapshot(post: Record<string, unknown>): {
+  mediaKind: string;
+  rootAssetCount: number;
+  serializedMediaAssetsCount: number;
+  firstRenderAssetCount: number;
+  detailMediaAssetsCount: number;
+  imageCount: number;
+  videoCount: number;
+  collapsedToCoverOnly: boolean;
+} {
+  const media = (post.media && typeof post.media === "object") ? (post.media as Record<string, unknown>) : null;
+  const mediaAssets = Array.isArray(media?.assets) ? (media?.assets as Array<Record<string, unknown>>) : [];
+  const declared =
+    typeof media?.assetCount === "number" && Number.isFinite(media.assetCount)
+      ? Math.max(0, Math.floor(media.assetCount))
+      : 0;
+  const rootAssetCount = Math.max(declared, mediaAssets.length);
+  const firstRenderAssets = Array.isArray(post.assets) ? (post.assets as unknown[]) : [];
+  const imageCount = mediaAssets.filter((a) => String(a?.type ?? "").toLowerCase() === "image").length;
+  const videoCount = mediaAssets.filter((a) => String(a?.type ?? "").toLowerCase() === "video").length;
+  const mediaKind = String((post.classification as Record<string, unknown> | undefined)?.mediaKind ?? post.mediaType ?? "unknown");
+  return {
+    mediaKind,
+    rootAssetCount,
+    serializedMediaAssetsCount: mediaAssets.length,
+    firstRenderAssetCount: firstRenderAssets.length,
+    detailMediaAssetsCount: mediaAssets.length,
+    imageCount,
+    videoCount,
+    collapsedToCoverOnly: rootAssetCount > 1 && mediaAssets.length <= 1,
+  };
+}
+
 export class PostsDetailOrchestrator {
   private static readonly playbackCacheDecisionSample = new Map<string, number>();
 
@@ -710,6 +743,17 @@ export class PostsDetailOrchestrator {
         : postMediaSummaryForLog(post as Record<string, unknown>, { hydrationMode: "detail" })),
       statusCode: 200,
     });
+    const contract = detailMediaContractSnapshot(post as unknown as Record<string, unknown>);
+    this.logEvent("POST_DETAIL_MEDIA_CONTRACT_READY", {
+      postId,
+      ...contract,
+    });
+    if (contract.rootAssetCount > 1 && contract.detailMediaAssetsCount <= 1) {
+      this.logEvent("POST_DETAIL_MEDIA_CONTRACT_MISMATCH", {
+        postId,
+        ...contract,
+      });
+    }
     return {
       routeName: "posts.detail.get",
       firstRender: {
@@ -764,6 +808,7 @@ export class PostsDetailOrchestrator {
           height: mediaReadiness.height ?? null,
           resizeMode: mediaReadiness.resizeMode,
           assets: post.assets,
+          media: (post as { media?: unknown }).media,
           diagnostics: usedFallbackProjection
             ? {
                 source: "fallback_cached_projection",
@@ -1766,6 +1811,17 @@ export class PostsDetailOrchestrator {
           }
         : {}),
     };
+    const contract = detailMediaContractSnapshot(detailWithPlaybackSelection as Record<string, unknown>);
+    this.logEvent("POST_DETAIL_MEDIA_CONTRACT_READY", {
+      postId: input.postId,
+      ...contract,
+    });
+    if (contract.rootAssetCount > 1 && contract.detailMediaAssetsCount <= 1) {
+      this.logEvent("POST_DETAIL_MEDIA_CONTRACT_MISMATCH", {
+        postId: input.postId,
+        ...contract,
+      });
+    }
     if (input.hydrationMode === "open" || input.hydrationMode === "full") {
       const commentsPreview =
         input.hydrationMode === "open"

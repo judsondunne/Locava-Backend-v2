@@ -1,7 +1,6 @@
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { readMaybeMillis } from "./post-firestore-projection.js";
-import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
 
 export type FirestoreFeedDetailBundle = {
@@ -323,6 +322,7 @@ type PostDataShape = {
   thumbUrl?: string;
   displayPhotoLink?: string;
   photoLink?: string;
+  media?: Record<string, unknown>;
   assetsReady?: boolean;
   playbackLab?: Record<string, unknown>;
   assetLocations?: Array<Record<string, unknown>>;
@@ -447,15 +447,7 @@ function buildFeedDetailBundleFromParts(input: {
       sourcePost: input.postData as unknown as Record<string, unknown>,
     };
   return {
-    post: buildPostEnvelope({
-      postId: input.responsePostId,
-      seed: postSeed,
-      sourcePost: input.postData as unknown as Record<string, unknown>,
-      rawPost: input.postData as unknown as Record<string, unknown>,
-      hydrationLevel: "detail",
-      sourceRoute: "feed_detail_firestore",
-      debugSource: "buildFeedDetailBundleFromParts",
-    }) as FirestoreFeedDetailBundle["post"],
+    post: postSeed as FirestoreFeedDetailBundle["post"],
     author: {
       userId,
       handle: String(input.userData.handle ?? "").replace(/^@+/, "") || `user_${userId.slice(0, 8)}`,
@@ -749,50 +741,109 @@ function normalizeAssets(
   thumbUrl: string,
   postData: PostDataShape,
 ): FirestoreFeedDetailBundle["post"]["assets"] {
-  const rawAssets = Array.isArray(postData.assets) ? postData.assets : undefined;
+  const canonicalMedia = asRecord(postData.media);
+  const canonicalMediaAssets = Array.isArray(canonicalMedia?.assets)
+    ? (canonicalMedia.assets as Array<Record<string, unknown>>)
+    : [];
+  const canonicalTopAssets = canonicalMediaAssets.map((asset) => {
+    const image = asRecord(asset.image);
+    const video = asRecord(asset.video);
+    const videoTechnical = asRecord(video?.technical);
+    const playback = asRecord(video?.playback);
+    const variants = asRecord(video?.variants);
+    return {
+      id: typeof asset.id === "string" ? asset.id : undefined,
+      type: (String(asset.type ?? "image").toLowerCase() === "video" ? "video" : "image") as "image" | "video",
+      original:
+        normalizeNullable(image?.originalUrl) ??
+        normalizeNullable(video?.originalUrl) ??
+        normalizeNullable(playback?.primaryUrl) ??
+        normalizeNullable(playback?.defaultUrl) ??
+        normalizeNullable(playback?.startupUrl) ??
+        undefined,
+      poster:
+        normalizeNullable(video?.posterHighUrl) ??
+        normalizeNullable(video?.posterUrl) ??
+        normalizeNullable(video?.thumbnailUrl) ??
+        normalizeNullable(image?.displayUrl) ??
+        normalizeNullable(image?.thumbnailUrl) ??
+        thumbUrl,
+      thumbnail:
+        normalizeNullable(image?.thumbnailUrl) ??
+        normalizeNullable(video?.thumbnailUrl) ??
+        normalizeNullable(video?.posterUrl) ??
+        normalizeNullable(image?.displayUrl) ??
+        thumbUrl,
+      aspectRatio: normalizeNullableNumber(image?.aspectRatio ?? asset.aspectRatio),
+      durationSec: normalizeNullableNumber(video?.durationSec ?? asset.durationSec),
+      width: normalizeNullableNumber(image?.width ?? videoTechnical?.width ?? asset.width),
+      height: normalizeNullableNumber(image?.height ?? videoTechnical?.height ?? asset.height),
+      orientation: normalizeNullable(image?.orientation ?? asset.orientation),
+      hasAudio: typeof video?.hasAudio === "boolean" ? video.hasAudio : undefined,
+      codecs: asRecord(video?.technical) ?? undefined,
+      variantMetadata: asRecord(asset.presentation) ?? undefined,
+      instantPlaybackReady:
+        typeof video?.readiness === "object" && video?.readiness
+          ? Boolean((video.readiness as Record<string, unknown>).instantPlaybackReady)
+          : undefined,
+      playbackLab: asRecord(video?.playback) ?? undefined,
+      generated: undefined,
+      variants: {
+        ...(variants ?? {}),
+        ...(asRecord(playback) ?? {}),
+      },
+    };
+  });
+  const rawAssets =
+    canonicalTopAssets.length > 0
+      ? canonicalTopAssets
+      : Array.isArray(postData.assets)
+        ? postData.assets
+        : undefined;
   const playbackLabAssets = asRecord(asRecord(postData.playbackLab)?.assets);
   if (Array.isArray(rawAssets) && rawAssets.length > 0) {
     return rawAssets.map((asset, idx) => {
-      const assetId = typeof asset.id === "string" && asset.id ? asset.id : `${syntheticPostId}-asset-${idx + 1}`;
-      const labAsset = asRecord(playbackLabAssets?.[String(asset.id ?? "")]);
+      const assetRec = asset as Record<string, unknown>;
+      const assetId = typeof assetRec.id === "string" && assetRec.id ? assetRec.id : `${syntheticPostId}-asset-${idx + 1}`;
+      const labAsset = asRecord(playbackLabAssets?.[String(assetRec.id ?? "")]);
       const sourceSnapshot = asRecord(labAsset?.sourceSnapshot);
       return {
         id: assetId,
-        type: inferFirestoreAssetIsVideo(asset) ? "video" : "image",
+        type: inferFirestoreAssetIsVideo(assetRec as NonNullable<PostDataShape["assets"]>[number]) ? "video" : "image",
         original:
-          normalizeNullable(asset.original) ??
+          normalizeNullable(assetRec.original) ??
           normalizeNullable(sourceSnapshot?.original) ??
           null,
         poster:
-          normalizeNullable(asset.poster) ??
-          normalizeNullable(asset.thumbnail) ??
+          normalizeNullable(assetRec.poster) ??
+          normalizeNullable(assetRec.thumbnail) ??
           normalizeNullable(sourceSnapshot?.poster) ??
           thumbUrl,
         thumbnail:
-          normalizeNullable(asset.thumbnail) ??
-          normalizeNullable(asset.poster) ??
+          normalizeNullable(assetRec.thumbnail) ??
+          normalizeNullable(assetRec.poster) ??
           normalizeNullable(sourceSnapshot?.poster) ??
           thumbUrl,
-        aspectRatio: normalizeNullableNumber(asset.aspectRatio),
-        durationSec: normalizeNullableNumber(asset.durationSec),
-        width: normalizeNullableNumber(asset.width),
-        height: normalizeNullableNumber(asset.height),
-        orientation: normalizeNullable(asset.orientation),
-        ...(typeof asset.hasAudio === "boolean" ? { hasAudio: asset.hasAudio } : {}),
-        ...(asRecord(asset.codecs) ? { codecs: asRecord(asset.codecs) ?? undefined } : {}),
-        ...(asRecord(asset.variantMetadata)
-          ? { variantMetadata: asRecord(asset.variantMetadata) ?? undefined }
+        aspectRatio: normalizeNullableNumber(assetRec.aspectRatio),
+        durationSec: normalizeNullableNumber(assetRec.durationSec),
+        width: normalizeNullableNumber(assetRec.width),
+        height: normalizeNullableNumber(assetRec.height),
+        orientation: normalizeNullable(assetRec.orientation),
+        ...(typeof assetRec.hasAudio === "boolean" ? { hasAudio: assetRec.hasAudio } : {}),
+        ...(asRecord(assetRec.codecs) ? { codecs: asRecord(assetRec.codecs) ?? undefined } : {}),
+        ...(asRecord(assetRec.variantMetadata)
+          ? { variantMetadata: asRecord(assetRec.variantMetadata) ?? undefined }
           : {}),
-        ...(typeof asset.instantPlaybackReady === "boolean"
-          ? { instantPlaybackReady: asset.instantPlaybackReady }
+        ...(typeof assetRec.instantPlaybackReady === "boolean"
+          ? { instantPlaybackReady: assetRec.instantPlaybackReady }
           : {}),
-        ...(asRecord(asset.playbackLab) ? { playbackLab: asRecord(asset.playbackLab) ?? undefined } : {}),
-        ...(asRecord(asset.generated) ? { generated: asRecord(asset.generated) ?? undefined } : {}),
+        ...(asRecord(assetRec.playbackLab) ? { playbackLab: asRecord(assetRec.playbackLab) ?? undefined } : {}),
+        ...(asRecord(assetRec.generated) ? { generated: asRecord(assetRec.generated) ?? undefined } : {}),
         variants: {
-          ...(asset.variants ?? {}),
+          ...(assetRec.variants ?? {}),
           ...(asRecord(sourceSnapshot?.variants) ?? {}),
           ...(asRecord(labAsset?.generated) ?? {}),
-          ...(asRecord(asset.generated) ?? {}),
+          ...(asRecord(assetRec.generated) ?? {}),
         }
       };
     });
@@ -815,6 +866,15 @@ function normalizeAssets(
       thumbnail: thumbUrl
     }
   ];
+}
+
+export function __testNormalizeFeedDetailAssetsFromPostData(input: {
+  postId: string;
+  mediaType: "image" | "video";
+  thumbUrl: string;
+  postData: Record<string, unknown>;
+}): FirestoreFeedDetailBundle["post"]["assets"] {
+  return normalizeAssets(input.postId, input.mediaType, input.thumbUrl, input.postData as PostDataShape);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {

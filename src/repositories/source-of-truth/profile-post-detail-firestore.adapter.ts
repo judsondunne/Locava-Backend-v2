@@ -494,51 +494,101 @@ function normalizeAssets(
   mediaType: "image" | "video" | undefined,
 ): FirestoreProfilePostDetail["assets"] {
   const thumbUrl = readPostThumbUrl(raw, postId);
-  const rawAssets = Array.isArray(raw.assets) ? (raw.assets as Array<Record<string, unknown>>) : [];
+  const media = asRecord(raw.media);
+  const canonicalMediaAssets = Array.isArray(media?.assets) ? (media.assets as Array<Record<string, unknown>>) : [];
+  const canonicalTopAssets = canonicalMediaAssets.map((asset) => {
+    const image = asRecord(asset.image);
+    const video = asRecord(asset.video);
+    const playback = asRecord(video?.playback);
+    const variants = asRecord(video?.variants);
+    return {
+      id:
+        typeof asset.id === "string" && asset.id.trim()
+          ? asset.id
+          : `${postId}-asset-${String(asset.index ?? "x")}`,
+      type: (String(asset.type ?? "image").toLowerCase() === "video" ? "video" : "image") as "image" | "video",
+      original:
+        normalizeNullable(image?.originalUrl) ??
+        normalizeNullable(video?.originalUrl) ??
+        normalizeNullable(playback?.primaryUrl) ??
+        normalizeNullable(playback?.defaultUrl) ??
+        normalizeNullable(playback?.startupUrl) ??
+        undefined,
+      poster:
+        normalizeNullable(video?.posterHighUrl) ??
+        normalizeNullable(video?.posterUrl) ??
+        normalizeNullable(video?.thumbnailUrl) ??
+        normalizeNullable(image?.displayUrl) ??
+        normalizeNullable(image?.thumbnailUrl) ??
+        thumbUrl,
+      thumbnail:
+        normalizeNullable(image?.thumbnailUrl) ??
+        normalizeNullable(video?.thumbnailUrl) ??
+        normalizeNullable(video?.posterUrl) ??
+        normalizeNullable(image?.displayUrl) ??
+        thumbUrl,
+      aspectRatio: normalizeNullableNumber(image?.aspectRatio ?? asset.aspectRatio),
+      durationSec: normalizeNullableNumber(video?.durationSec ?? asset.durationSec),
+      width: normalizeNullableNumber(image?.width ?? asset.width),
+      height: normalizeNullableNumber(image?.height ?? asset.height),
+      orientation: normalizeNullable(image?.orientation ?? asset.orientation),
+      variants: {
+        ...(variants ?? {}),
+        ...(playback ?? {}),
+      },
+    };
+  });
+  const rawAssets =
+    canonicalTopAssets.length > 0
+      ? canonicalTopAssets
+      : Array.isArray(raw.assets)
+        ? (raw.assets as Array<Record<string, unknown>>)
+        : [];
   const playbackLabAssets = asRecord(asRecord((raw as { playbackLab?: unknown }).playbackLab)?.assets);
   if (rawAssets.length === 0) return defaultAssets(postId, mediaType);
   return rawAssets.map((asset, idx) => {
+    const assetRec = asset as Record<string, unknown>;
     const assetId =
-      typeof asset.id === "string" && asset.id.trim() ? asset.id : `${postId}-asset-${idx + 1}`;
+      typeof assetRec.id === "string" && assetRec.id.trim() ? assetRec.id : `${postId}-asset-${idx + 1}`;
     const labAsset = asRecord(playbackLabAssets?.[assetId]);
     const sourceSnapshot = asRecord(labAsset?.sourceSnapshot);
     return {
       id: assetId,
-      type: asset.type === "video" ? "video" : "image",
+      type: assetRec.type === "video" ? "video" : "image",
       original:
-        normalizeNullable(asset.original) ??
+        normalizeNullable(assetRec.original) ??
         normalizeNullable(sourceSnapshot?.original) ??
         undefined,
       poster:
-        normalizeNullable(asset.poster) ??
-        normalizeNullable(asset.thumbnail) ??
+        normalizeNullable(assetRec.poster) ??
+        normalizeNullable(assetRec.thumbnail) ??
         normalizeNullable(sourceSnapshot?.poster) ??
         thumbUrl,
       thumbnail:
-        normalizeNullable(asset.thumbnail) ??
-        normalizeNullable(asset.poster) ??
+        normalizeNullable(assetRec.thumbnail) ??
+        normalizeNullable(assetRec.poster) ??
         normalizeNullable(sourceSnapshot?.poster) ??
         thumbUrl,
-      aspectRatio: normalizeNullableNumber(asset.aspectRatio),
-      durationSec: normalizeNullableNumber(asset.durationSec),
-      width: normalizeNullableNumber(asset.width),
-      height: normalizeNullableNumber(asset.height),
-      orientation: normalizeNullable(asset.orientation),
-      ...(typeof asset.hasAudio === "boolean" ? { hasAudio: asset.hasAudio } : {}),
-      ...(asRecord(asset.codecs) ? { codecs: asRecord(asset.codecs) ?? undefined } : {}),
-      ...(asRecord(asset.variantMetadata)
-        ? { variantMetadata: asRecord(asset.variantMetadata) ?? undefined }
+      aspectRatio: normalizeNullableNumber(assetRec.aspectRatio),
+      durationSec: normalizeNullableNumber(assetRec.durationSec),
+      width: normalizeNullableNumber(assetRec.width),
+      height: normalizeNullableNumber(assetRec.height),
+      orientation: normalizeNullable(assetRec.orientation),
+      ...(typeof assetRec.hasAudio === "boolean" ? { hasAudio: assetRec.hasAudio } : {}),
+      ...(asRecord(assetRec.codecs) ? { codecs: asRecord(assetRec.codecs) ?? undefined } : {}),
+      ...(asRecord(assetRec.variantMetadata)
+        ? { variantMetadata: asRecord(assetRec.variantMetadata) ?? undefined }
         : {}),
-      ...(typeof asset.instantPlaybackReady === "boolean"
-        ? { instantPlaybackReady: asset.instantPlaybackReady }
+      ...(typeof assetRec.instantPlaybackReady === "boolean"
+        ? { instantPlaybackReady: assetRec.instantPlaybackReady }
         : {}),
-      ...(asRecord(asset.playbackLab) ? { playbackLab: asRecord(asset.playbackLab) ?? undefined } : {}),
-      ...(asRecord(asset.generated) ? { generated: asRecord(asset.generated) ?? undefined } : {}),
+      ...(asRecord(assetRec.playbackLab) ? { playbackLab: asRecord(assetRec.playbackLab) ?? undefined } : {}),
+      ...(asRecord(assetRec.generated) ? { generated: asRecord(assetRec.generated) ?? undefined } : {}),
       variants: {
-        ...((asset.variants ?? {}) as Record<string, unknown>),
+        ...((assetRec.variants ?? {}) as Record<string, unknown>),
         ...(asRecord(sourceSnapshot?.variants) ?? {}),
         ...(asRecord(labAsset?.generated) ?? {}),
-        ...(asRecord(asset.generated) ?? {}),
+        ...(asRecord(assetRec.generated) ?? {}),
       },
     };
   });
@@ -559,6 +609,14 @@ function defaultAssets(postId: string, mediaType: "image" | "video" | undefined)
       type: "image"
     }
   ];
+}
+
+export function __testNormalizeProfileDetailAssetsFromRaw(input: {
+  raw: Record<string, unknown>;
+  postId: string;
+  mediaType: "image" | "video";
+}): FirestoreProfilePostDetail["assets"] {
+  return normalizeAssets(input.raw, input.postId, input.mediaType);
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {

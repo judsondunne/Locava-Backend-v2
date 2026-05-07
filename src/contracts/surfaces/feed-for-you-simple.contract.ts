@@ -2,12 +2,35 @@ import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { PostCardSummarySchema } from "../entities/post-entities.contract.js";
 
+/**
+ * Radius mode for For You feed:
+ * - "global": no geographic filter (default, unchanged behavior)
+ * - "nearMe": filter by viewer current location (clientLat/clientLng required)
+ * - "custom": filter by a specific saved/searched location (centerLat/centerLng required)
+ *
+ * radiusMiles is bounded server-side ([1, 500]) and only used when radiusMode != "global".
+ */
+export const FeedForYouSimpleRadiusSchema = z
+  .object({
+    radiusMode: z.enum(["global", "nearMe", "custom"]).default("global"),
+    centerLat: z.coerce.number().min(-90).max(90).optional(),
+    centerLng: z.coerce.number().min(-180).max(180).optional(),
+    radiusMiles: z.coerce.number().min(1).max(500).optional()
+  })
+  .partial();
+
 export const FeedForYouSimpleQuerySchema = z.object({
   viewerId: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(12).default(5),
   cursor: z.string().optional(),
   /** When true, ignore cursor and start a fresh window (client retry / recovery). */
-  refresh: z.coerce.boolean().optional()
+  refresh: z.coerce.boolean().optional(),
+  /** Radius filter mode; only "nearMe" / "custom" alter behavior. Defaults to "global". */
+  radiusMode: z.enum(["global", "nearMe", "custom"]).optional(),
+  centerLat: z.coerce.number().min(-90).max(90).optional(),
+  centerLng: z.coerce.number().min(-180).max(180).optional(),
+  /** Bounded radius (1-500 miles). Required when radiusMode != "global". */
+  radiusMiles: z.coerce.number().min(1).max(500).optional()
 });
 
 export const FeedForYouSimpleDebugSchema = z.object({
@@ -81,7 +104,19 @@ export const FeedForYouSimpleDebugSchema = z.object({
   firstVisibleVariant: z.string().nullable().optional(),
   firstVisibleNeedsDetailBeforePlay: z.boolean().optional(),
   deckStarvationRefillUsed: z.boolean().optional(),
-  softServedRecentPicks: z.number().int().nonnegative().optional()
+  softServedRecentPicks: z.number().int().nonnegative().optional(),
+  /** Radius filter diagnostics (always present; "global" mode echoes radiusMode only). */
+  radiusFilter: z
+    .object({
+      mode: z.enum(["global", "nearMe", "custom"]),
+      radiusMiles: z.number().min(1).max(500).nullable(),
+      hasCenter: z.boolean(),
+      candidateCount: z.number().int().nonnegative(),
+      filteredOutCount: z.number().int().nonnegative(),
+      cursorCarriesFilter: z.boolean(),
+      deckKeyHash: z.string().nullable()
+    })
+    .optional()
 });
 
 export const FeedForYouSimpleResponseSchema = z.object({

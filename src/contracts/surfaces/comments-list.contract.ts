@@ -23,6 +23,20 @@ export const CommentsListResponseSchema = z.object({
     sort: z.literal("created_desc")
   }),
   items: z.array(CommentSummarySchema),
+  /**
+   * Newest top-level comment summary, present on bootstrap (cursor=null) when count > 0.
+   * Lets clients render the comment-button preview ("@username: text") without a follow-up read.
+   * Set to null when no comments exist; absent on cursor-based page requests.
+   */
+  latestCommentPreview: CommentSummarySchema.nullable().optional(),
+  /** Diagnostic surfaced when count > 0 but items is empty (e.g. embedded array drift). */
+  contractMismatch: z
+    .object({
+      reason: z.enum(["count_positive_items_empty", "embedded_drift"]),
+      countHint: z.number().int().nonnegative()
+    })
+    .nullable()
+    .optional(),
   degraded: z.boolean(),
   fallbacks: z.array(z.string())
 });

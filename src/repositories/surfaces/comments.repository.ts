@@ -131,13 +131,25 @@ export class CommentsRepository {
     const postStorageMode = this.commentStorageByPost.get(postId);
     const prefersSubcollection = postStorageMode === "subcollection";
     const embeddedSource = prefersSubcollection
-      ? { wires: [] as Record<string, unknown>[], hasEmbeddedField: false }
+      ? { wires: [] as Record<string, unknown>[], hasEmbeddedField: false, postCommentCount: 0 }
       : await this.loadEmbeddedCommentSource(postId);
     const embeddedWires = embeddedSource.wires;
-    const subcollectionWires =
-      prefersSubcollection || (!embeddedSource.hasEmbeddedField && embeddedWires.length === 0)
-        ? await this.loadSubcollectionCommentWires(postId)
-        : [];
+    /**
+     * COMMENT_CONTRACT_FIX: legacy posts often carry an empty `comments: []` field on the
+     * post doc while real comments live in `posts/{postId}/comments` subcollection. Previously
+     * we only loaded the subcollection when `hasEmbeddedField === false` AND embedded was empty,
+     * which silently returned `items: []` even when `commentCount > 0` — producing the
+     * "View 1 comment" + empty bottom sheet user-visible bug. Now we ALSO load the
+     * subcollection whenever the embedded array is empty (regardless of field presence) or
+     * whenever the post-level commentCount indicates additional rows should exist.
+     */
+    const embeddedSignalsMore =
+      embeddedSource.postCommentCount > embeddedWires.length;
+    const shouldLoadSub =
+      prefersSubcollection || embeddedWires.length === 0 || embeddedSignalsMore;
+    const subcollectionWires = shouldLoadSub
+      ? await this.loadSubcollectionCommentWires(postId)
+      : [];
     if (subcollectionWires.length > 0) {
       this.commentStorageByPost.set(postId, "subcollection");
     }
@@ -294,19 +306,29 @@ export class CommentsRepository {
   private async loadEmbeddedCommentSource(postId: string): Promise<{
     wires: Record<string, unknown>[];
     hasEmbeddedField: boolean;
+    /** Post doc-level commentCount/commentsCount used to detect storage drift vs embedded array length. */
+    postCommentCount: number;
   }> {
     incrementDbOps("queries", 1);
     const snap = await this.db!.collection("posts").doc(postId).get();
     incrementDbOps("reads", 1);
     if (!snap.exists) {
-      return { wires: [], hasEmbeddedField: false };
+      return { wires: [], hasEmbeddedField: false, postCommentCount: 0 };
     }
     const data = (snap.data() ?? {}) as Record<string, unknown>;
+    const wires = Array.isArray(data.comments)
+      ? data.comments.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+      : [];
+    const rawCommentCount =
+      typeof data.commentCount === "number" && Number.isFinite(data.commentCount)
+        ? data.commentCount
+        : typeof data.commentsCount === "number" && Number.isFinite(data.commentsCount)
+          ? data.commentsCount
+          : 0;
     return {
-      wires: Array.isArray(data.comments)
-        ? data.comments.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-        : [],
-      hasEmbeddedField: Object.prototype.hasOwnProperty.call(data, "comments")
+      wires,
+      hasEmbeddedField: Object.prototype.hasOwnProperty.call(data, "comments"),
+      postCommentCount: Math.max(0, Math.floor(rawCommentCount))
     };
   }
 

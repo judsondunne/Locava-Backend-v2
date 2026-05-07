@@ -163,6 +163,7 @@ export type FeedDetailRecord = {
   }>;
   rawPost?: Record<string, unknown> | null;
   sourcePost?: Record<string, unknown> | null;
+  media?: Record<string, unknown>;
 };
 
 export type FeedSessionHintsRecord = {
@@ -825,6 +826,11 @@ export class FeedRepository {
         playbackLab: fromSource.post.playbackLab,
         assetLocations: fromSource.post.assetLocations,
         assets: fromSource.post.assets,
+        media:
+          (fromSource.post.rawPost as { media?: unknown } | undefined)?.media &&
+          typeof (fromSource.post.rawPost as { media?: unknown }).media === "object"
+            ? ((fromSource.post.rawPost as { media: Record<string, unknown> }).media as Record<string, unknown>)
+            : undefined,
         cardSummary: buildFeedCardFromDetailBundle(viewerId, fromSource),
       };
     }
@@ -1085,6 +1091,17 @@ export class FeedRepository {
                   assetsReady: profileById.data.assetsReady,
                   playbackLab: profileById.data.playbackLab,
                   assetLocations: profileById.data.assetLocations,
+                  ...(profileById.data.sourceRawPost && typeof profileById.data.sourceRawPost === "object"
+                    ? {
+                        rawPost: profileById.data.sourceRawPost,
+                        sourcePost: profileById.data.sourceRawPost,
+                        media:
+                          (profileById.data.sourceRawPost as { media?: unknown }).media &&
+                          typeof (profileById.data.sourceRawPost as { media?: unknown }).media === "object"
+                            ? ((profileById.data.sourceRawPost as { media: Record<string, unknown> }).media as Record<string, unknown>)
+                            : undefined,
+                      }
+                    : {}),
                 },
                 author: {
                   userId: profileById.data.author.userId,
