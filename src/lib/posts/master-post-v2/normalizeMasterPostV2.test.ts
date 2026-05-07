@@ -716,6 +716,29 @@ describe("normalizeMasterPostV2", () => {
     expect(codes).not.toContain("missing_cover_url");
   });
 
+  it("rejects pending placeholder image urls and keeps image media partial", () => {
+    const raw = {
+      id: "post_pending_img",
+      userId: "u1",
+      createdAt: "2026-05-04T00:00:00.000Z",
+      mediaType: "image",
+      assetsReady: true,
+      imageProcessingStatus: "pending",
+      assets: [
+        {
+          id: "i1",
+          type: "image",
+          original: "https://s3.wasabisys.com/locava.app/images/image_i1_pending.jpg"
+        }
+      ],
+      displayPhotoLink: "https://s3.wasabisys.com/locava.app/images/image_i1_pending.jpg"
+    };
+    const { canonical } = normalizeMasterPostV2(raw, { postId: raw.id });
+    expect(canonical.media.cover.url).toBeNull();
+    expect(canonical.media.assetsReady).toBe(false);
+    expect(canonical.media.status).toBe("partial");
+  });
+
   it("post rebuilder: deleted lifecycle stays deleted through compact live projection", () => {
     const raw = {
       id: "post_del_img",

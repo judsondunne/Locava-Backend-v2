@@ -225,7 +225,7 @@ export class FeedService {
   async loadPostDetail(postId: string, viewerId: string) {
     return dedupeInFlight(`feed-post-detail:${viewerId}:${postId}`, () =>
       getOrSetEntityCache(
-        entityCacheKeys.postDetail(postId),
+        entityCacheKeys.postDetailViewer(postId, viewerId),
         12_000,
         () =>
           withConcurrencyLimit("feed-post-detail-repo", 4, async () => {

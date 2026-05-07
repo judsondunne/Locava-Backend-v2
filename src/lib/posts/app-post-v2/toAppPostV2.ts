@@ -43,6 +43,7 @@ import type {
 import { normalizeMasterPostV2 } from "../master-post-v2/normalizeMasterPostV2.js";
 import { debugLog } from "../../logging/debug-log.js";
 import { LOG_VIDEO_DEBUG } from "../../logging/log-config.js";
+import { isPendingPlaceholderUrl } from "../../../services/posting/photo-url-guards.js";
 
 type RawPost = Record<string, unknown>;
 
@@ -83,6 +84,12 @@ function pickStr(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
   return t.length ? t : null;
+}
+
+function pickImageStr(v: unknown): string | null {
+  const value = pickStr(v);
+  if (!value) return null;
+  return isPendingPlaceholderUrl(value) ? null : value;
 }
 
 function isLikelyVideoUrl(value: unknown): boolean {
@@ -213,9 +220,9 @@ function mapAsset(a: MasterPostAssetV2): AppPostAssetV2 {
       ? { resizeMode: a.presentation.resizeMode as "cover" | "contain" }
       : {})
   };
-  const imageOriginal = pickStr(a.image?.originalUrl);
-  const imageDisplay = pickStr(a.image?.displayUrl);
-  const imageThumb = pickStr(a.image?.thumbnailUrl);
+  const imageOriginal = pickImageStr(a.image?.originalUrl);
+  const imageDisplay = pickImageStr(a.image?.displayUrl);
+  const imageThumb = pickImageStr(a.image?.thumbnailUrl);
   const fallbackVideoLikeUrl =
     (isLikelyVideoUrl(imageOriginal) ? imageOriginal : null) ??
     (isLikelyVideoUrl(imageDisplay) ? imageDisplay : null) ??
@@ -301,6 +308,9 @@ function mapAsset(a: MasterPostAssetV2): AppPostAssetV2 {
 }
 
 function mapMedia(media: MasterPostMediaV2): AppPostMediaV2 {
+  const coverUrl = pickImageStr(media.cover?.url);
+  const coverThumb = pickImageStr(media.cover?.thumbUrl);
+  const coverPoster = pickImageStr(media.cover?.posterUrl);
   return {
     status: media.status,
     assetsReady: media.assetsReady,
@@ -314,7 +324,12 @@ function mapMedia(media: MasterPostMediaV2): AppPostMediaV2 {
     ...(media.presentation && (media.presentation.carouselFitWidth !== null || media.presentation.resizeMode != null)
       ? { presentation: { ...media.presentation } }
       : {}),
-    cover: { ...media.cover },
+    cover: {
+      ...media.cover,
+      url: coverUrl,
+      thumbUrl: coverThumb,
+      posterUrl: coverPoster
+    },
     assets: media.assets.map(mapAsset)
   };
 }

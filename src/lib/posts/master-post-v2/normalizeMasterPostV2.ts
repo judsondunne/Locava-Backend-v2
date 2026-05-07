@@ -11,7 +11,7 @@ import type {
   MasterPostV2,
   PostEngagementSourceAuditV2
 } from "../../../contracts/master-post-v2.types.js";
-import { classifyMediaUrl, isVideoUrl } from "./mediaUrlClassifier.js";
+import { classifyMediaUrl, isPendingOrStagingImageUrl, isVideoUrl } from "./mediaUrlClassifier.js";
 
 type RawPost = Record<string, any>;
 
@@ -41,6 +41,12 @@ const toTrimmed = (...values: unknown[]): string | null => {
     if (t) return t;
   }
   return null;
+};
+
+const toSafeImageUrl = (...values: unknown[]): string | null => {
+  const picked = toTrimmed(...values);
+  if (!picked) return null;
+  return isPendingOrStagingImageUrl(picked) ? null : picked;
 };
 
 const toStringPreserve = (...values: unknown[]): string => {
@@ -681,7 +687,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     const rowImage = toObject(row.image) ?? {};
     const nestedPlayback = toObject(rowVideo.playback) ?? {};
     const displayImage =
-      toTrimmed(
+      toSafeImageUrl(
         rowImage.displayUrl,
         rowImage.originalUrl,
         rowImage.thumbnailUrl,
@@ -692,7 +698,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
         row.url
       ) ?? null;
     const thumbImage =
-      toTrimmed(
+      toSafeImageUrl(
         rowImage.thumbnailUrl,
         rowImage.displayUrl,
         rowImage.originalUrl,
@@ -978,7 +984,8 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       image:
         resolvedType === "image"
           ? {
-              originalUrl: toTrimmed(rowImage.originalUrl, rowImage.displayUrl, row.original, row.url),
+              // Never hydrate pending placeholders as final image URLs.
+              originalUrl: toSafeImageUrl(rowImage.originalUrl, rowImage.displayUrl, row.original, row.url),
               displayUrl: displayImage,
               thumbnailUrl: thumbImage,
               blurhash: toTrimmed(row.blurhash),
@@ -1061,7 +1068,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     { url: toTrimmed(legacy.photoLink), source: "legacy.photoLink" },
     { url: toTrimmed(legacy.photoLinks2), source: "legacy.photoLinks2" },
     { url: toTrimmed(legacy.photoLinks3), source: "legacy.photoLinks3" }
-  ].filter((entry): entry is { url: string; source: string } => Boolean(entry.url));
+  ].filter((entry): entry is { url: string; source: string } => Boolean(entry.url && !isPendingOrStagingImageUrl(entry.url)));
 
   const existingVideo = normalizedAssets.find((asset) => asset.type === "video");
   const defaultLegacySourcesConsidered = [
@@ -1244,7 +1251,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   const rawCompat = toObject(rawPost.compatibility) ?? {};
   if (!toTrimmed(coverUrl)) {
     coverUrl =
-      toTrimmed(
+      toSafeImageUrl(
         rawMediaCover.url,
         rawMediaCover.thumbUrl,
         rawMediaCover.posterUrl,
@@ -1258,7 +1265,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   }
   if (!toTrimmed(coverThumb)) {
     coverThumb =
-      toTrimmed(
+      toSafeImageUrl(
         rawMediaCover.thumbUrl,
         rawMediaCover.posterUrl,
         rawMediaCover.url,
@@ -1306,6 +1313,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
   }
 
   const mediaKind = classifyMediaKind(dedupe.deduped, toTrimmed(rawPost.mediaType));
+  const imageCoverReady = Boolean(coverUrl && !isPendingOrStagingImageUrl(coverUrl));
   const mediaStatus: MasterPostMediaStatusV2 =
     toTrimmed(rawPost.mediaStatus, rawPost.videoProcessingStatus) === "processing"
       ? "processing"
@@ -1313,6 +1321,8 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
         ? "none"
         : dedupe.deduped.some((a) => a.type === "video" && !a.video?.playback.primaryUrl)
           ? "partial"
+          : mediaKind === "image" && !imageCoverReady
+            ? "partial"
           : "ready";
 
   const rollupObj = toObject(rawPost.rankingRollup);
@@ -1449,7 +1459,9 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     },
     media: {
       status: firstVideo && firstVideoPlaybackReady ? "ready" : mediaStatus,
-      assetsReady: firstVideo ? firstVideoAssetsReady : typeof rawPost.assetsReady === "boolean" ? rawPost.assetsReady : false,
+      assetsReady: firstVideo
+        ? firstVideoAssetsReady
+        : (typeof rawPost.assetsReady === "boolean" ? rawPost.assetsReady : false) && imageCoverReady,
       instantPlaybackReady: firstVideo
         ? firstVideoPlaybackReady
         : typeof rawPost.instantPlaybackReady === "boolean"

@@ -92,19 +92,19 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
     privacy: input.privacy,
     settingType: settingTypeFromActivities(activities),
     mediaType: input.assembled.mediaType,
-    thumbUrl: input.assembled.primaryDisplayUrl,
-    displayPhotoLink: input.assembled.primaryDisplayUrl,
-    photoLink,
-    photoLinks2: photoLink,
-    photoLinks3: photoLink,
+    thumbUrl: input.assembled.primaryDisplayUrl || null,
+    displayPhotoLink: input.assembled.primaryDisplayUrl || null,
+    photoLink: photoLink || null,
+    photoLinks2: photoLink || null,
+    photoLinks3: photoLink || null,
     legacy: {
       photoLink,
       photoLinks2: "",
       photoLinks3: ""
     },
     assets: input.assembled.assets,
-    assetsReady: !input.assembled.hasVideo,
-    mediaStatus: input.assembled.hasVideo ? "processing" : "ready",
+    assetsReady: input.assembled.hasVideo ? false : input.assembled.imageCoverReady,
+    mediaStatus: input.assembled.hasVideo ? "processing" : input.assembled.imageCoverReady ? "ready" : "processing",
     sessionId: input.sessionId,
     stagedSessionId: input.stagedSessionId,
     tags: input.tags,
@@ -184,12 +184,12 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
       lastUserVisibleAt: input.nowTs
     };
   } else {
-    base.posterReady = true;
-    base.posterPresent = true;
-    base.posterUrl = photoLink;
+    base.posterReady = Boolean(input.assembled.primaryDisplayUrl);
+    base.posterPresent = Boolean(input.assembled.primaryDisplayUrl);
+    base.posterUrl = input.assembled.primaryDisplayUrl || null;
     base.playbackReady = false;
     base.playbackUrlPresent = false;
-    base.imageProcessingStatus = "pending";
+    base.imageProcessingStatus = input.assembled.imageVariantsPending ? "pending" : "completed";
   }
 
   return base;
@@ -199,13 +199,14 @@ export function validateNativePostDocumentForWrite(doc: Record<string, unknown>)
   const assets = Array.isArray(doc.assets) ? (doc.assets as Record<string, unknown>[]) : [];
   if (assets.length === 0) throw new Error("publish_validation_empty_assets");
 
+  const mediaStatus = String(doc.mediaStatus ?? "").trim().toLowerCase();
   const displayPhotoLink = String(doc.displayPhotoLink ?? "").trim();
-  if (!displayPhotoLink) throw new Error("publish_validation_missing_display_photo");
+  if (mediaStatus === "ready" && !displayPhotoLink) throw new Error("publish_validation_missing_display_photo");
 
   for (const asset of assets) {
     const type = String(asset.type ?? "").toLowerCase();
     const original = String(asset.original ?? "").trim();
-    if (!original || !/^https?:\/\//i.test(original)) {
+    if (type !== "image" && (!original || !/^https?:\/\//i.test(original))) {
       throw new Error("publish_validation_asset_missing_original");
     }
     if (type === "video") {

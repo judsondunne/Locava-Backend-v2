@@ -179,11 +179,12 @@ export class FeedDetailFirestoreAdapter {
         : `author-${(input.slot % 27) + 1}`;
     const postData: PostDataShape = { ...rawPost, userId: resolvedUserId };
 
-    const [userDoc, likedDoc, savedDoc] = await withTimeout(
+    const [userDoc, liked, savedDoc, socialCounts] = await withTimeout(
       Promise.all([
         this.db.collection("users").doc(resolvedUserId).get(),
-        this.db.collection("posts").doc(postDoc.id).collection("likes").doc(input.viewerId).get(),
-        this.db.collection("users").doc(input.viewerId).collection("savedPosts").doc(postDoc.id).get()
+        this.resolveViewerLikedState(postDoc.id, input.viewerId),
+        this.db.collection("users").doc(input.viewerId).collection("savedPosts").doc(postDoc.id).get(),
+        this.resolveSocialCountsFromSubcollections(postDoc.id, postData),
       ]),
       FeedDetailFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
       "feed-detail-firestore-related"
@@ -195,10 +196,11 @@ export class FeedDetailFirestoreAdapter {
       responsePostId: input.syntheticPostId,
       postData,
       userData,
-      liked: likedDoc.exists,
+      liked,
       saved: savedDoc.exists,
+      socialOverride: socialCounts,
       queryCount: 4,
-      readCount: postSnapshot.docs.length + 3
+      readCount: postSnapshot.docs.length + 3 + socialCounts.additionalReads
     });
   }
 
@@ -218,10 +220,11 @@ export class FeedDetailFirestoreAdapter {
       const postData = postSnapshot.data() as PostDataShape;
       const userId = typeof postData.userId === "string" && postData.userId.trim() ? postData.userId.trim() : "";
       if (!userId) return null;
-      const [likedDoc, savedDoc] = await withTimeout(
+      const [liked, savedDoc, socialCounts] = await withTimeout(
         Promise.all([
-          this.db.collection("posts").doc(postId).collection("likes").doc(viewerId).get(),
-          this.db.collection("users").doc(viewerId).collection("savedPosts").doc(postId).get()
+          this.resolveViewerLikedState(postId, viewerId),
+          this.db.collection("users").doc(viewerId).collection("savedPosts").doc(postId).get(),
+          this.resolveSocialCountsFromSubcollections(postId, postData),
         ]),
         FeedDetailFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
         "feed-detail-firestore-viewer-state-by-id"
@@ -237,14 +240,47 @@ export class FeedDetailFirestoreAdapter {
           profilePicture: postData.userProfilePicture,
           photo: postData.userPhoto
         },
-        liked: likedDoc.exists,
+        liked,
         saved: savedDoc.exists,
+        socialOverride: socialCounts,
         queryCount: 3,
-        readCount: 3
+        readCount: 3 + socialCounts.additionalReads
       });
     } catch {
       return null;
     }
+  }
+
+  private async resolveViewerLikedState(postId: string, viewerId: string): Promise<boolean> {
+    const likesRef = this.db!.collection("posts").doc(postId).collection("likes");
+    const direct = await likesRef.doc(viewerId).get();
+    if (direct.exists) return true;
+    const byField = await likesRef
+      .where("userId", "==", viewerId)
+      .limit(1)
+      .get();
+    return !byField.empty;
+  }
+
+  private async resolveSocialCountsFromSubcollections(
+    postId: string,
+    postData: PostDataShape,
+  ): Promise<{ likeCount: number; commentCount: number; additionalReads: number }> {
+    const likeCountFromPost = normalizeCounter(postData.likesCount ?? postData.likeCount);
+    const commentCountFromPost = resolveCommentCount(postData);
+    if (likeCountFromPost > 0 && commentCountFromPost > 0) {
+      return { likeCount: likeCountFromPost, commentCount: commentCountFromPost, additionalReads: 0 };
+    }
+    const postRef = this.db!.collection("posts").doc(postId);
+    const [likesAgg, commentsAgg] = await Promise.all([
+      likeCountFromPost > 0 ? null : postRef.collection("likes").count().get(),
+      commentCountFromPost > 0 ? null : postRef.collection("comments").count().get(),
+    ]);
+    return {
+      likeCount: likeCountFromPost > 0 ? likeCountFromPost : normalizeCounter(likesAgg?.data().count),
+      commentCount: commentCountFromPost > 0 ? commentCountFromPost : normalizeCounter(commentsAgg?.data().count),
+      additionalReads: (likeCountFromPost > 0 ? 0 : 1) + (commentCountFromPost > 0 ? 0 : 1),
+    };
   }
 }
 
@@ -338,6 +374,7 @@ function buildFeedDetailBundleFromParts(input: {
   userData: UserDataShape;
   liked: boolean;
   saved: boolean;
+  socialOverride?: { likeCount: number; commentCount: number; additionalReads?: number };
   queryCount: number;
   readCount: number;
 }): FirestoreFeedDetailBundle {
@@ -426,8 +463,14 @@ function buildFeedDetailBundleFromParts(input: {
       pic: normalizeNullable(input.userData.profilePic ?? input.userData.profilePicture ?? input.userData.photo)
     },
     social: {
-      likeCount: normalizeCounter(input.postData.likesCount ?? input.postData.likeCount),
-      commentCount: resolveCommentCount(input.postData)
+      likeCount:
+        typeof input.socialOverride?.likeCount === "number"
+          ? Math.max(0, input.socialOverride.likeCount)
+          : normalizeCounter(input.postData.likesCount ?? input.postData.likeCount),
+      commentCount:
+        typeof input.socialOverride?.commentCount === "number"
+          ? Math.max(0, input.socialOverride.commentCount)
+          : resolveCommentCount(input.postData)
     },
     viewer: {
       liked: input.liked,

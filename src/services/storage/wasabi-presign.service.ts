@@ -71,7 +71,7 @@ export function buildFinalizedSessionAssetKeys(
   }
   return {
     assetId,
-    originalKey: `images/${assetId}_pending.jpg`
+    originalKey: `images/${assetId}.jpg`
   };
 }
 

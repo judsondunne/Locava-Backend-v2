@@ -11,6 +11,9 @@ export const entityCacheKeys = {
   postDetail(postId: string): string {
     return `post:${postId}:detail`;
   },
+  postDetailViewer(postId: string, viewerId: string): string {
+    return `post:${postId}:detail:viewer:${viewerId}`;
+  },
   postSocial(postId: string): string {
     return `post:${postId}:social`;
   },

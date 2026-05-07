@@ -143,10 +143,12 @@ import { registerV2UsersSuggestedRoutes } from "../routes/v2/users-suggested.rou
 import { registerLocalDebugRoutes } from "../routes/debug/local-debug.routes.js";
 import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-firestore-probe.routes.js";
 import { registerPostRebuilderRoutes } from "../routes/debug/post-rebuilder.routes.js";
+import { registerAddressBackfillRoutes } from "../routes/debug/address-backfill.routes.js";
 import { registerAppPostV2SurfaceCompareRoutes } from "../routes/debug/app-post-v2-surface.routes.js";
 import { registerDebugPostGradientAuditRoutes } from "../routes/debug/post-gradient-audit.routes.js";
 import { registerDebugPostCanonicalStatusRoutes } from "../routes/debug/post-canonical-status.routes.js";
 import { registerClientTelemetryRoutes } from "../routes/debug/client-telemetry.routes.js";
+import { registerClientDebugLogIngestRoutes } from "../routes/debug/client-debug-logs.routes.js";
 import { registerEmergencyPostRestoreRoutes } from "../routes/debug/emergency-post-restore.routes.js";
 import { registerPostCanonicalBackupsRestorePreviewRoutes } from "../routes/debug/post-canonical-backups-restore-preview.routes.js";
 import { registerPublicExpoPushRoutes } from "../routes/public/expo-push.routes.js";
@@ -780,6 +782,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   /** Post rebuilder is opt-in via env; it does not require the emulator-only destructive acks. */
   if (env.ENABLE_POST_REBUILDER_DEBUG_ROUTES) {
     app.register(registerPostRebuilderRoutes);
+    app.register(registerAddressBackfillRoutes);
   }
   if (shouldRegisterDangerousFirestoreDebugRoutes()) {
     app.register(registerEmergencyPostRestoreRoutes);
@@ -797,6 +800,11 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     app.register(registerDebugPostCanonicalStatusRoutes);
     app.register(registerClientTelemetryRoutes);
   }
+  // Client debug log ingest is opt-in via ENABLE_CLIENT_DEBUG_LOG_INGEST.
+  // Registered unconditionally so production-profile native builds pointed at a
+  // local Backendv2 (NODE_ENV=development) keep working; the route itself returns
+  // 404 when the flag is off so production deploys are never surprised.
+  app.register(registerClientDebugLogIngestRoutes);
 
   app.addHook("onReady", async () => {
     const db = getFirestoreSourceClient();

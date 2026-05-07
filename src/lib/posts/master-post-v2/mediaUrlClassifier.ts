@@ -26,3 +26,9 @@ export function classifyMediaUrl(url: string | null | undefined): MediaUrlKind {
   if (isImageUrl(url)) return "image";
   return "unknown";
 }
+
+export function isPendingOrStagingImageUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const normalized = normalizeUrl(url);
+  return normalized.includes("_pending.jpg") || normalized.includes("postsessionstaging/");
+}

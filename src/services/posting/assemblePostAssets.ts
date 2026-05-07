@@ -11,6 +11,7 @@ export type FinalizeStagedAssetInput = {
   originalUrl?: string;
   posterKey?: string;
   posterUrl?: string;
+  imagePublicReady?: boolean;
 };
 
 export type AssembledPostAssets = {
@@ -22,6 +23,8 @@ export type AssembledPostAssets = {
   primaryDisplayUrl: string;
   mediaType: "video" | "image";
   variantUrlCount: number;
+  imageCoverReady: boolean;
+  imageVariantsPending: boolean;
 };
 
 function buildVideoAssetWithPlaceholders(input: {
@@ -79,27 +82,22 @@ function buildVideoAssetWithPlaceholders(input: {
   };
 }
 
-function buildImageAsset(input: { id: string; originalUrl: string }): Record<string, unknown> {
-  const { id, originalUrl } = input;
-  const url = originalUrl.trim();
+function buildImageAsset(input: { id: string; originalUrl: string | null; imagePublicReady: boolean }): Record<string, unknown> {
+  const { id, originalUrl, imagePublicReady } = input;
+  const url = typeof originalUrl === "string" ? originalUrl.trim() : "";
+  const hasPublicUrl = Boolean(url) && imagePublicReady;
   return {
     id,
     type: "image",
-    original: url,
-    poster: url,
-    thumbnail: url,
+    original: hasPublicUrl ? url : null,
+    poster: hasPublicUrl ? url : null,
+    thumbnail: hasPublicUrl ? url : null,
     aspectRatio: 0.5625,
     width: 1080,
     height: 1920,
     orientation: "portrait",
     blurhash: "L6PZfSjEWAa0^+j@WBa0?bxuNGWV",
-    variants: {
-      thumb: { webp: url, w: 180, h: 320 },
-      sm: { webp: url, w: 360, h: 640 },
-      md: { webp: url, w: 720, h: 1280 },
-      lg: { webp: url, w: 1080, h: 1920 },
-      fallbackJpg: { jpg: url }
-    },
+    variants: {},
     imageVariantsPending: true
   };
 }
@@ -131,11 +129,13 @@ export function assemblePostAssetsFromStagedItems(
   const assets: Record<string, unknown>[] = [];
   let videoCount = 0;
   let imageCount = 0;
+  let imageCoverReady = false;
+  let imageVariantsPending = false;
   let primaryDisplayUrl = "";
 
   for (const item of sorted) {
     const originalUrl = String(item.originalUrl ?? "").trim();
-    if (!originalUrl || !/^https?:\/\//i.test(originalUrl)) {
+    if (item.assetType === "video" && (!originalUrl || !/^https?:\/\//i.test(originalUrl))) {
       throw new Error(`publish_missing_original_url_for_index_${item.index}`);
     }
     if (String(item.originalUrl ?? "").includes("postSessionStaging/")) {
@@ -158,9 +158,14 @@ export function assemblePostAssetsFromStagedItems(
       if (!primaryDisplayUrl) primaryDisplayUrl = posterUrl;
     } else {
       imageCount += 1;
-      const row = buildImageAsset({ id, originalUrl });
+      const imagePublicReady = item.imagePublicReady === true;
+      const row = buildImageAsset({ id, originalUrl: originalUrl || null, imagePublicReady });
       assets.push(row);
-      if (!primaryDisplayUrl) primaryDisplayUrl = originalUrl;
+      imageVariantsPending = true;
+      if (imagePublicReady && originalUrl) {
+        imageCoverReady = true;
+        if (!primaryDisplayUrl) primaryDisplayUrl = originalUrl;
+      }
     }
   }
 
@@ -174,6 +179,8 @@ export function assemblePostAssetsFromStagedItems(
     imageCount,
     primaryDisplayUrl,
     mediaType: hasVideo ? "video" : "image",
-    variantUrlCount
+    variantUrlCount,
+    imageCoverReady,
+    imageVariantsPending
   };
 }

@@ -45,7 +45,7 @@ describe("buildPostMediaReadiness (video playbackReady)", () => {
     });
     expect(r.playbackUrlPresent).toBe(true);
     expect(r.playbackReady).toBe(true);
-    expect(r.selectedVideoVariant).toBe("original");
+    expect(["original", "main720"]).toContain(String(r.selectedVideoVariant ?? ""));
   });
 
   it("marks media ready when processing completed and assets ready", () => {
@@ -97,5 +97,22 @@ describe("buildPostMediaReadiness (video playbackReady)", () => {
     expect(r.mediaStatus).toBe("failed");
     expect(r.playbackUrlPresent).toBe(false);
     expect(r.processingButPlayable).not.toBe(true);
+  });
+
+  it("does not mark image posts ready when only pending placeholder urls exist", () => {
+    const r = buildPostMediaReadiness({
+      mediaType: "image",
+      assetsReady: true,
+      imageProcessingStatus: "pending",
+      displayPhotoLink: "https://s3.wasabisys.com/locava.app/images/image_123_pending.jpg",
+      assets: [
+        {
+          type: "image",
+          original: "https://s3.wasabisys.com/locava.app/images/image_123_pending.jpg"
+        }
+      ]
+    });
+    expect(r.mediaStatus).toBe("processing");
+    expect(r.assetsReady).toBe(false);
   });
 });

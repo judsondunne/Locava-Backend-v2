@@ -39,13 +39,14 @@ describe("native post document (finalize parity)", () => {
     }
   };
 
-  it("builds a photo post with thumb/sm/md/lg variants and assetsReady true", () => {
+  it("builds a photo post with no fake variants and assetsReady only when image is public-ready", () => {
     const assembled = assemblePostAssetsFromStagedItems("post_fixture_abc", [
       {
         index: 0,
         assetType: "photo",
         assetId: "image_x_0",
-        originalUrl: "https://cdn.example.com/original.jpg"
+        originalUrl: "https://cdn.example.com/original.jpg",
+        imagePublicReady: true
       }
     ]);
     const doc = buildNativePostDocument({ ...baseInput, assembled });
@@ -54,10 +55,7 @@ describe("native post document (finalize parity)", () => {
     expect(doc.mediaType).toBe("image");
     expect(doc.videoProcessingStatus).toBeUndefined();
     const v = (doc.assets as { variants: Record<string, unknown> }[])[0]?.variants ?? {};
-    expect(v.thumb).toBeTruthy();
-    expect(v.sm).toBeTruthy();
-    expect(v.md).toBeTruthy();
-    expect(v.lg).toBeTruthy();
+    expect(Object.keys(v)).toHaveLength(0);
   });
 
   it("builds a video post without fake processed variants and with pending playback readiness", () => {
@@ -92,7 +90,8 @@ describe("native post document (finalize parity)", () => {
         index: 0,
         assetType: "photo",
         assetId: "image_g_0",
-        originalUrl: "https://cdn.example.com/original.jpg"
+        originalUrl: "https://cdn.example.com/original.jpg",
+        imagePublicReady: true
       }
     ]);
     const doc = buildNativePostDocument({
@@ -117,5 +116,20 @@ describe("native post document (finalize parity)", () => {
         }
       ])
     ).toThrow(/publish_staging_url_not_promoted/);
+  });
+
+  it("keeps photo post in processing when no public image URL is confirmed", () => {
+    const assembled = assemblePostAssetsFromStagedItems("post_fixture_pending", [
+      {
+        index: 0,
+        assetType: "photo",
+        assetId: "image_pending_0",
+        imagePublicReady: false
+      }
+    ]);
+    const doc = buildNativePostDocument({ ...baseInput, postId: "post_fixture_pending", assembled });
+    expect(doc.assetsReady).toBe(false);
+    expect(doc.mediaStatus).toBe("processing");
+    expect(doc.displayPhotoLink).toBeNull();
   });
 });

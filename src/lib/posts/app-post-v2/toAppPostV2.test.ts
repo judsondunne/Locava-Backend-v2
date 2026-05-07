@@ -129,6 +129,28 @@ describe("toAppPostV2FromAny", () => {
     expect(new Set(ids).size).toBe(ids.length);
   });
 
+  it("downgrades pending placeholder image urls during hydration mapping", () => {
+    const pending = "https://s3.wasabisys.com/locava.app/images/image_x_pending.jpg";
+    const raw = {
+      id: "pending_img",
+      userId: "u1",
+      createdAt: "2026-05-04T10:00:00.000Z",
+      mediaType: "image",
+      assetsReady: true,
+      imageProcessingStatus: "pending",
+      displayPhotoLink: pending,
+      assets: [{ id: "a1", type: "image", original: pending }]
+    };
+    const app = toAppPostV2FromAny(raw, { postId: "pending_img", forceNormalize: true });
+    const first = app.media.assets[0];
+    expect(first?.type).toBe("image");
+    if (first?.type === "image") {
+      expect(first.image.displayUrl).toBeNull();
+      expect(first.image.thumbnailUrl).toBeNull();
+    }
+    expect(app.media.cover.url).toBeNull();
+  });
+
   it("uses engagement audit counts when provided", () => {
     const audit = {
       postDoc: {
@@ -230,7 +252,7 @@ describe("toAppPostV2FromAny", () => {
     const cmp = buildSurfaceComparePayload(app);
     for (const row of Object.values(cmp.projections)) {
       expect(row.derivesFromAppPostV2).toBe(true);
-      expect(row.postContractVersion).toBe(2);
+      expect(row.postContractVersion).toBe(3);
       expect(row.viewerState.liked).toBe(app.viewerState.liked);
       expect(row.legacyCompat.mediaType).toBe(app.compatibility.mediaType);
       expect(row.mediaAssetCount).toBe(app.media.assets.length);

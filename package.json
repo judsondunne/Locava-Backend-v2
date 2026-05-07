@@ -97,6 +97,7 @@
     "audit:mixes:daily": "tsx scripts/audit-search-mixes.mts daily:for_you 2 12",
     "audit:mixes:friends": "tsx scripts/audit-search-mixes.mts friends:from_people_you_follow 2 12",
     "audit:runtime-logs": "tsx scripts/audit-runtime-logs.mts",
+    "audit:wmvp-staging-reads": "tsx scripts/audit-wmvp-staging-reads.mts",
     "debug:analytics:bigquery": "tsx scripts/check-bigquery-analytics-access.mts",
     "debug:video:variant-selection": "tsx scripts/debug-video-variant-selection.mts",
     "debug:post-media": "tsx scripts/debug-post-media-contract.mts",

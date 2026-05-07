@@ -17,12 +17,14 @@ import { normalizeCanonicalPostLocation } from "../../lib/location/post-location
 import { readWasabiConfigFromEnv } from "../storage/wasabi-config.js";
 import { buildFinalizedSessionAssetPlan } from "../storage/wasabi-presign.service.js";
 import { assemblePostAssetsFromStagedItems } from "../posting/assemblePostAssets.js";
+import { resolveFinalImageAssetForPost } from "../posting/resolveFinalImageAssetForPost.js";
 import {
   buildNativePostDocument,
   validateNativePostDocumentForWrite,
   type NativePostGeoBlock,
   type NativePostUserSnapshot
 } from "../posting/buildPostDocument.js";
+import { isPendingPlaceholderUrl } from "../posting/photo-url-guards.js";
 import {
   applyPublishPresentationToAssembledAssets,
   selectPublishLetterboxGradients
@@ -930,15 +932,15 @@ export class PostingMutationService {
               index: item.assetIndex,
               assetType: item.assetType
             }));
-    const stagedItems = manifestSource
+    const stagedItems = await Promise.all(manifestSource
       .sort((a, b) => a.index - b.index)
-      .map((item) => {
+      .map(async (item) => {
         const mediaRow = mediaByIndex.get(item.index);
         const assetType = item.assetType ?? mediaRow?.assetType;
         if (assetType !== "photo" && assetType !== "video") {
           throw new Error(`publish_missing_asset_type_for_index_${item.index}`);
         }
-        if (item.originalKey && item.originalUrl) {
+        if (item.originalKey && item.originalUrl && assetType === "video") {
           return {
             index: item.index,
             assetType,
@@ -951,6 +953,32 @@ export class PostingMutationService {
         }
         if (!storageCfg) {
           throw new Error("object_storage_unavailable");
+        }
+        if (assetType === "photo") {
+          const resolved = await resolveFinalImageAssetForPost({
+            cfg: storageCfg,
+            sessionId: canonicalSessionId,
+            index: item.index,
+            clientMediaKey: mediaRow?.clientMediaKey ?? null,
+            uploadedObjectKey: mediaRow?.expectedObjectKey ?? item.originalKey ?? null,
+            fallbackOriginalUrl: item.originalUrl ?? null
+          });
+          console.info("[posting.photo.resolve]", {
+            sessionId: canonicalSessionId,
+            mediaId: mediaRow?.mediaId ?? null,
+            mediaIndex: item.index,
+            uploadedObjectKey: mediaRow?.expectedObjectKey ?? item.originalKey ?? null,
+            resolvedUrl: resolved.finalUrl,
+            publicReadable: resolved.publicReadable
+          });
+          return {
+            index: item.index,
+            assetType,
+            assetId: item.assetId ?? resolved.assetId,
+            originalKey: resolved.finalKey,
+            ...(resolved.finalUrl ? { originalUrl: resolved.finalUrl } : {}),
+            imagePublicReady: resolved.publicReadable
+          };
         }
         const finalized = buildFinalizedSessionAssetPlan(
           storageCfg,
@@ -968,7 +996,7 @@ export class PostingMutationService {
           ...(finalized.posterKey ? { posterKey: finalized.posterKey } : {}),
           ...(finalized.posterUrl ? { posterUrl: finalized.posterUrl } : {})
         };
-      });
+      }));
     void input.authorizationHeader;
     void input.displayPhotoBase64;
     void input.videoPostersBase64;
@@ -1424,6 +1452,25 @@ export class PostingMutationService {
       ...(videoTaskReason ? { videoTaskReason } : {}),
       sessionIdPrefix: input.sessionId.slice(0, 8)
     });
+    if (!assembled.hasVideo) {
+      const firstImage = assembled.assets.find((a) => String((a as { type?: string }).type ?? "") === "image") as
+        | { original?: string | null; thumbnail?: string | null; variants?: Record<string, unknown> }
+        | undefined;
+      const imageDisplay = String(firstImage?.original ?? firstImage?.thumbnail ?? "").trim();
+      const pendingRejected = isPendingPlaceholderUrl(imageDisplay);
+      if (pendingRejected) {
+        console.warn("[posting.photo.pending_url_rejected]", { postId, sessionId: input.sessionId, imageDisplay });
+      }
+      console.info("[posting.photo.finalize_readiness]", {
+        postId,
+        sessionId: input.sessionId,
+        mediaStatus: postDoc.mediaStatus,
+        assetsReady: postDoc.assetsReady,
+        imageProcessingStatus: postDoc.imageProcessingStatus,
+        imageDisplay: imageDisplay || null,
+        pendingRejected
+      });
+    }
 
     this.scheduleFinalizeSupplementaryWrites({
       viewerId: input.viewerId,

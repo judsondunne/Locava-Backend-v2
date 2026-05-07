@@ -1,4 +1,5 @@
 import { selectBestVideoPlaybackAsset, type SelectedCanonicalVideoVariant } from "./video-playback-selection.js";
+import { isLikelyPublicFinalImageUrl, isPendingPlaceholderUrl } from "../../services/posting/photo-url-guards.js";
 
 type PostRecord = Record<string, unknown>;
 
@@ -155,10 +156,21 @@ export function buildPostMediaReadiness(
   const posterUrl = pickString(firstVideo?.poster, firstVideo?.thumbnail, asRecord(firstVideo?.variants)?.poster);
 
   if (!hasVideo) {
+    const firstImage = assets.find((asset) => pickString(asset?.type, asset?.mediaType) === "image") ?? null;
+    const coverUrl = pickString(
+      firstImage?.original,
+      firstImage?.thumbnail,
+      post.displayPhotoLink,
+      post.photoLink,
+      post.thumbUrl
+    );
+    const coverReady = Boolean(coverUrl && isLikelyPublicFinalImageUrl(coverUrl) && !isPendingPlaceholderUrl(coverUrl));
+    const persistedAssetsReady = pickBoolean(post.assetsReady) === true;
+    const imageStatus = pickString(post.imageProcessingStatus);
     const gradients = normalizeLetterboxGradients(post);
     return {
-      mediaStatus: "ready",
-      assetsReady: pickBoolean(post.assetsReady) === true,
+      mediaStatus: coverReady && persistedAssetsReady && imageStatus !== "pending" ? "ready" : "processing",
+      assetsReady: coverReady && persistedAssetsReady,
       posterReady: Boolean(posterUrl),
       posterPresent: Boolean(posterUrl),
       ...(posterUrl ? { posterUrl } : {}),
