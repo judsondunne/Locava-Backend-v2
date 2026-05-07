@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { FieldPath } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 import { derivePhoneSearchFieldsFromDoc } from "../src/lib/phone-search-fields.js";
 
 type ParsedArgs = {
@@ -81,6 +82,12 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  if (args.write && !args.dryRun) {
+    assertEmulatorOnlyDestructiveFirestoreOperation("backfill-user-phone-search-keys", "users");
+    console.log(
+      `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=backfill-user-phone-search-keys FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+    );
+  }
   const db = getFirestoreSourceClient();
   if (!db) {
     throw new Error("Firestore source client unavailable.");

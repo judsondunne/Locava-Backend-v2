@@ -99,6 +99,12 @@ type CompactCardSeed = {
   requiresAssetHydration?: boolean | null;
   photoLink?: string | null;
   displayPhotoLink?: string | null;
+  /**
+   * Compatibility alias strategy for canonical post mirrors.
+   * `full_compat` preserves legacy duplicate aliases.
+   * Compact surfaces should prefer `app_post_v2_only` to avoid repeating the same canonical payload.
+   */
+  canonicalAliasMode?: "full_compat" | "app_post_only" | "app_post_v2_only";
 };
 
 /** Default max assets serialized on carousel-capable postcards when callers omit compactAssetLimit. */
@@ -624,6 +630,7 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
 
 function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean; saved: boolean }): Partial<FeedCardDTO> {
   if (!isBackendAppPostV2ResponsesEnabled()) return {};
+  const aliasMode = seed.canonicalAliasMode ?? "full_compat";
   const raw = seed.sourceRawPost ?? syntheticRawFromCompactSeed(seed);
   const rawTopLen = Array.isArray(raw.assets) ? raw.assets.length : 0;
   const canMedia =
@@ -733,6 +740,18 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
       });
     }
     const canonical = fixed as unknown as CanonicalPost;
+    if (aliasMode === "app_post_only") {
+      return {
+        appPost: canonical as unknown as Record<string, unknown>,
+        postContractVersion: 3
+      };
+    }
+    if (aliasMode === "app_post_v2_only") {
+      return {
+        appPostV2: canonical as unknown as Record<string, unknown>,
+        postContractVersion: 3
+      };
+    }
     return {
       // Compatibility mirrors: all point to the same canonical object.
       appPost: canonical as unknown as Record<string, unknown>,
@@ -1123,7 +1142,22 @@ export function toProfileHeaderDTO(seed: {
 export function listForbiddenCompactFieldViolations(value: unknown): DiagnosticWalkIssue[] {
   const issues: DiagnosticWalkIssue[] = [];
   const isAppPostProjectionPath = (p: string) =>
-    p === "appPost" || p.startsWith("appPost.") || p.endsWith(".appPost") || p.includes(".appPost.");
+    p === "appPost" ||
+    p.startsWith("appPost.") ||
+    p.endsWith(".appPost") ||
+    p.includes(".appPost.") ||
+    p === "appPostV2" ||
+    p.startsWith("appPostV2.") ||
+    p.endsWith(".appPostV2") ||
+    p.includes(".appPostV2.") ||
+    p === "canonicalPost" ||
+    p.startsWith("canonicalPost.") ||
+    p.endsWith(".canonicalPost") ||
+    p.includes(".canonicalPost.") ||
+    p === "post" ||
+    p.startsWith("post.") ||
+    p.endsWith(".post") ||
+    p.includes(".post.");
   const visit = (current: unknown, path: string) => {
     if (!current || typeof current !== "object") return;
     if (Array.isArray(current)) {

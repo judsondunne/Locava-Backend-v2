@@ -15,6 +15,7 @@ import {
 } from "../src/debug/full-app-v2-audit-support.js";
 import { diagnosticsStore } from "../src/observability/diagnostics-store.js";
 import { getRoutePolicy } from "../src/observability/route-policies.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 
 type Classification =
   | "PASS"
@@ -106,6 +107,11 @@ const viewerId =
   process.env.LOCAVA_VIEWER_ID?.trim() ||
   process.env.DEBUG_VIEWER_ID?.trim() ||
   "aXngoh9jeqW35FNM3fq1w9aXdEh1";
+
+assertEmulatorOnlyDestructiveFirestoreOperation("debug-full-app-v2-audit", "posts");
+console.log(
+  `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=debug-full-app-v2-audit FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+);
 
 function getAuditFirestore() {
   const existing = getApps()[0];

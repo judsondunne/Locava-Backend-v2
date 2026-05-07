@@ -3,7 +3,13 @@ import { globalCache } from "../../cache/global-cache.js";
 import { registerRouteCacheKey } from "../../cache/route-cache-index.js";
 import type { ProfileGridResponse } from "../../contracts/surfaces/profile-grid.contract.js";
 import { enrichGridPreviewItemsWithAppPostV2 } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
-import { getRequestContext, recordCacheHit, recordCacheMiss, recordFallback } from "../../observability/request-context.js";
+import {
+  getRequestContext,
+  recordCacheHit,
+  recordCacheMiss,
+  recordFallback,
+  recordSurfaceTimings,
+} from "../../observability/request-context.js";
 import type { ProfileService } from "../../services/surfaces/profile.service.js";
 
 export class ProfileGridOrchestrator {
@@ -12,7 +18,7 @@ export class ProfileGridOrchestrator {
   async run(input: { viewerId: string; userId: string; cursor: string | null; limit: number }): Promise<ProfileGridResponse> {
     const { viewerId, userId, cursor, limit } = input;
 
-    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v3", viewerId, userId, cursor ?? "start", limit]);
+    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v4", viewerId, userId, cursor ?? "start", limit]);
     const cached = await globalCache.get<ProfileGridResponse>(pageCacheKey);
     if (cached) {
       recordCacheHit();
@@ -23,17 +29,30 @@ export class ProfileGridOrchestrator {
     let fallbacks: string[] = [];
     let page;
     try {
+      const startedAt = performance.now();
       page = await this.service.loadGridPage(userId, cursor, limit);
+      recordSurfaceTimings({
+        profile_grid_page_fetch_ms: performance.now() - startedAt,
+      });
     } catch {
       fallbacks = ["invalid_cursor_fallback_to_start"];
       recordFallback("invalid_cursor_fallback_to_start");
+      const startedAt = performance.now();
       page = await this.service.loadGridPage(userId, null, limit);
+      recordSurfaceTimings({
+        profile_grid_page_fetch_ms: performance.now() - startedAt,
+      });
     }
 
+    const enrichStartedAt = performance.now();
     const items = (await enrichGridPreviewItemsWithAppPostV2(
       page.items as Array<Record<string, unknown>>,
-      viewerId === "anonymous" ? null : viewerId
+      viewerId === "anonymous" ? null : viewerId,
+      { hydrateViewerState: false }
     )) as ProfileGridResponse["items"];
+    recordSurfaceTimings({
+      profile_grid_app_post_attach_ms: performance.now() - enrichStartedAt,
+    });
 
     const response: ProfileGridResponse = {
       routeName: "profile.grid.get",
@@ -53,7 +72,10 @@ export class ProfileGridOrchestrator {
         process.env.NODE_ENV === "production"
           ? undefined
           : {
-              timingsMs: {},
+              timingsMs: {
+                pageFetch: getRequestContext()?.surfaceTimings.profile_grid_page_fetch_ms ?? 0,
+                appPostAttach: getRequestContext()?.surfaceTimings.profile_grid_app_post_attach_ms ?? 0,
+              },
               counts: {
                 grid: page.items.length,
                 collections: 0,

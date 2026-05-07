@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 import {
   normalizeCanonicalUserDocument,
   normalizeActivityProfile,
@@ -32,6 +33,12 @@ function parseArgs(argv: string[]): Args {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  if (args.apply) {
+    assertEmulatorOnlyDestructiveFirestoreOperation("repair-user-document-shape", "users");
+    console.log(
+      `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=repair-user-document-shape FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+    );
+  }
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("Firestore source unavailable");
   let docs: FirebaseFirestore.QueryDocumentSnapshot[] = [];

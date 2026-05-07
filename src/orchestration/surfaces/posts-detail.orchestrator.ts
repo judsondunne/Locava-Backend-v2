@@ -18,6 +18,7 @@ import {
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { SourceOfTruthRequiredError } from "../../repositories/source-of-truth/strict-mode.js";
 import type { FeedBootstrapCandidateRecord, FeedDetailRecord } from "../../repositories/surfaces/feed.repository.js";
+import { runLimited } from "../concurrency.js";
 import { z } from "zod";
 import { debugLog, warnOnce } from "../../lib/logging/debug-log.js";
 
@@ -26,6 +27,19 @@ type SafeCardSummary = FeedBootstrapCandidateRecord & { rankToken: string };
 type DeferredCommentPreview = NonNullable<PostsDetailResponse["deferred"]["commentsPreview"]>;
 type DeferredCommentPreviewItem = DeferredCommentPreview[number];
 type BatchItemStatus = "ready" | "partial_cached" | "processing" | "missing";
+type BatchDetailMode = "playback_prefetch_compact" | "liftable_visible_detail" | "full_detail";
+
+function resolveBatchDetailMode(input: {
+  hydrationMode: "card" | "playback" | "open" | "full";
+  reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
+  mode?: BatchDetailMode;
+}): BatchDetailMode {
+  if (input.mode) return input.mode;
+  if (input.hydrationMode === "card" || input.hydrationMode === "playback") {
+    return "playback_prefetch_compact";
+  }
+  return input.reason === "open" ? "full_detail" : "liftable_visible_detail";
+}
 
 /** Map Firestore/card strings into the compact DTO union ("complete" → "full"). */
 function normalizeShellMediaCompleteness(value: unknown): "full" | "cover_only" | undefined {
@@ -152,6 +166,7 @@ function toCompactPlaybackCard(summary: SafeCardSummary): ReturnType<typeof toFe
   return toFeedCardDTO({
     postId: summary.postId,
     rankToken: summary.rankToken,
+    canonicalAliasMode: "app_post_v2_only",
     author: {
       userId: summary.author.userId,
       handle: summary.author.handle,
@@ -224,10 +239,270 @@ function enrichPlaybackShellRecordForCarouselProbe(shell: PlaybackPostShellDTO, 
     "mediaCompleteness",
     "assetLocations",
     "legacy",
+    "carouselFitWidth",
+    "layoutLetterbox",
+    "letterboxGradientTop",
+    "letterboxGradientBottom",
+    "letterboxGradients",
   ] as const) {
     if (out[key] == null && cardRec[key] != null) out[key] = cardRec[key];
   }
   return out;
+}
+
+/**
+ * For-you-simple lean cards often omit flat `letterboxGradientTop` on the postcard but still ship
+ * `appPostV2.media.assets[].presentation.letterboxGradient`. Compact detail must flatten those hints
+ * onto `firstRender.post` so native `normalizeFeedItemDetailV2ToPost` + canonicalization can paint slot 0.
+ */
+function readNestedLetterboxHintsFromCard(card: unknown): {
+  letterboxGradientTop?: string;
+  letterboxGradientBottom?: string;
+  letterboxGradients?: Array<{ top: string; bottom: string }>;
+} {
+  if (!card || typeof card !== "object") return {};
+  const rec = card as Record<string, unknown>;
+  const canonical = rec.appPostV2 ?? rec.appPost;
+  if (!canonical || typeof canonical !== "object") return {};
+  const media = (canonical as Record<string, unknown>).media as Record<string, unknown> | undefined;
+  if (!media || typeof media !== "object") return {};
+
+  const gradientPair = (g: unknown): { top?: string; bottom?: string } => {
+    if (!g || typeof g !== "object") return {};
+    const gr = g as Record<string, unknown>;
+    const t = typeof gr.top === "string" ? gr.top.trim() : "";
+    const b = typeof gr.bottom === "string" ? gr.bottom.trim() : "";
+    return {
+      ...(t ? { top: t } : {}),
+      ...(b ? { bottom: b } : {}),
+    };
+  };
+
+  const cover = media.cover as Record<string, unknown> | undefined;
+  const coverPair = gradientPair(cover?.gradient);
+
+  const assets = Array.isArray(media.assets) ? media.assets : [];
+  const perAsset: Array<{ top: string; bottom: string }> = [];
+  for (const raw of assets) {
+    if (!raw || typeof raw !== "object") continue;
+    const pres = (raw as Record<string, unknown>).presentation as Record<string, unknown> | undefined;
+    const pair = gradientPair(pres?.letterboxGradient);
+    if (pair.top || pair.bottom) {
+      perAsset.push({
+        top: pair.top ?? pair.bottom ?? "",
+        bottom: pair.bottom ?? pair.top ?? "",
+      });
+    }
+  }
+
+  const first = assets[0] as Record<string, unknown> | undefined;
+  const firstPres = first?.presentation as Record<string, unknown> | undefined;
+  const firstPair = gradientPair(firstPres?.letterboxGradient);
+
+  const top = firstPair.top ?? coverPair.top ?? perAsset[0]?.top;
+  const bottom = firstPair.bottom ?? coverPair.bottom ?? perAsset[0]?.bottom;
+
+  const out: {
+    letterboxGradientTop?: string;
+    letterboxGradientBottom?: string;
+    letterboxGradients?: Array<{ top: string; bottom: string }>;
+  } = {};
+  if (top) out.letterboxGradientTop = top;
+  if (bottom) out.letterboxGradientBottom = bottom;
+  if (perAsset.length > 0) out.letterboxGradients = perAsset;
+  return out;
+}
+
+function letterboxFieldsFromFeedDetailRecord(detail: FeedDetailRecord | undefined): Record<string, unknown> {
+  if (!detail) return {};
+  const out: Record<string, unknown> = {};
+  if (typeof detail.letterboxGradientTop === "string" && detail.letterboxGradientTop.trim()) {
+    out.letterboxGradientTop = detail.letterboxGradientTop;
+  }
+  if (typeof detail.letterboxGradientBottom === "string" && detail.letterboxGradientBottom.trim()) {
+    out.letterboxGradientBottom = detail.letterboxGradientBottom;
+  }
+  if (Array.isArray(detail.letterboxGradients) && detail.letterboxGradients.length > 0) {
+    out.letterboxGradients = detail.letterboxGradients;
+  }
+  return out;
+}
+
+/** Prefer card/shell hints; fill gaps from full `FeedDetailRecord` after a Firestore upgrade (source-of-truth letterbox). */
+function mergeCompactLetterboxHintLayers(
+  fromCardAndShell: Record<string, unknown>,
+  fromFeedDetail: Record<string, unknown>,
+  debug?: { postId: string; usedFeedDetail: boolean },
+): Record<string, unknown> {
+  const out = { ...fromCardAndShell };
+  const keys = ["letterboxGradientTop", "letterboxGradientBottom", "letterboxGradients"] as const;
+  for (const key of keys) {
+    const cur = out[key];
+    const empty =
+      cur == null ||
+      (typeof cur === "string" && String(cur).trim() === "") ||
+      (key === "letterboxGradients" && Array.isArray(cur) && cur.length === 0);
+    if (empty && fromFeedDetail[key] != null) {
+      out[key] = fromFeedDetail[key];
+    }
+  }
+  if (debug && process.env.NODE_ENV !== "production" && Object.keys(fromFeedDetail).length > 0) {
+    const cardTop = fromCardAndShell.letterboxGradientTop;
+    const detailTop = fromFeedDetail.letterboxGradientTop;
+    const mergedTop = out.letterboxGradientTop;
+    debugLog("post", "letterbox_compact_merge_trace", {
+      postId: debug.postId,
+      usedFeedDetail: debug.usedFeedDetail,
+      cardHadTop: typeof cardTop === "string" && cardTop.trim().length > 0,
+      detailHadTop: typeof detailTop === "string" && String(detailTop).trim().length > 0,
+      mergedHadTop: typeof mergedTop === "string" && String(mergedTop).trim().length > 0,
+      cardGradientSlots: Array.isArray(fromCardAndShell.letterboxGradients)
+        ? fromCardAndShell.letterboxGradients.length
+        : 0,
+      detailGradientSlots: Array.isArray(fromFeedDetail.letterboxGradients)
+        ? fromFeedDetail.letterboxGradients.length
+        : 0,
+    });
+  }
+  return out;
+}
+
+/** Compact batch detail must include letterbox / fit-width hints; native canonicalization reads these from `firstRender.post`. */
+function letterboxPresentationHintsForCompactDetail(
+  card: SafeCardSummary,
+  shell: PlaybackPostShellDTO,
+): Record<string, unknown> {
+  const fromSummary = shell.cardSummary as Record<string, unknown> | undefined;
+  const fromCard = card as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  const carouselFitWidth =
+    typeof fromSummary?.carouselFitWidth === "boolean"
+      ? fromSummary.carouselFitWidth
+      : typeof fromCard.carouselFitWidth === "boolean"
+        ? fromCard.carouselFitWidth
+        : undefined;
+  if (carouselFitWidth !== undefined) out.carouselFitWidth = carouselFitWidth;
+  const layoutLetterbox =
+    typeof fromSummary?.layoutLetterbox === "boolean"
+      ? fromSummary.layoutLetterbox
+      : typeof fromCard.layoutLetterbox === "boolean"
+        ? fromCard.layoutLetterbox
+        : undefined;
+  if (layoutLetterbox !== undefined) out.layoutLetterbox = layoutLetterbox;
+  const top = (fromSummary?.letterboxGradientTop ?? fromCard.letterboxGradientTop) as unknown;
+  if (top != null && String(top).trim().length > 0) out.letterboxGradientTop = top;
+  const bottom = (fromSummary?.letterboxGradientBottom ?? fromCard.letterboxGradientBottom) as unknown;
+  if (bottom != null && String(bottom).trim().length > 0) out.letterboxGradientBottom = bottom;
+  const gradsRaw = fromSummary?.letterboxGradients ?? fromCard.letterboxGradients;
+  if (Array.isArray(gradsRaw) && gradsRaw.length > 0) out.letterboxGradients = gradsRaw;
+
+  const nested = readNestedLetterboxHintsFromCard(card);
+  let filledFromNested = false;
+  const flatTopMissing = out.letterboxGradientTop == null || String(out.letterboxGradientTop).trim() === "";
+  const flatBottomMissing =
+    out.letterboxGradientBottom == null || String(out.letterboxGradientBottom).trim() === "";
+  if (flatTopMissing && nested.letterboxGradientTop) {
+    out.letterboxGradientTop = nested.letterboxGradientTop;
+    filledFromNested = true;
+  }
+  if (flatBottomMissing && nested.letterboxGradientBottom) {
+    out.letterboxGradientBottom = nested.letterboxGradientBottom;
+    filledFromNested = true;
+  }
+  const existingGrads = Array.isArray(out.letterboxGradients) ? out.letterboxGradients.length : 0;
+  if (
+    Array.isArray(nested.letterboxGradients) &&
+    nested.letterboxGradients.length > 0 &&
+    nested.letterboxGradients.length > existingGrads
+  ) {
+    out.letterboxGradients = nested.letterboxGradients;
+    filledFromNested = true;
+  }
+
+  if (filledFromNested && process.env.NODE_ENV !== "production") {
+    debugLog("post", "letterbox_compact_hints_from_apppost_nested", {
+      postId: card.postId,
+      hadFlatTop: !flatTopMissing,
+      hadFlatBottom: !flatBottomMissing,
+      hadFlatGradientsArray: existingGrads > 0,
+      nestedAssetGradientSlots: nested.letterboxGradients?.length ?? 0,
+    });
+  }
+
+  return out;
+}
+
+function buildCompactPlaybackDetailResponse(input: {
+  postId: string;
+  card: SafeCardSummary;
+  playbackShell: PlaybackPostShellDTO;
+  mediaReadiness: ReturnType<typeof buildPostMediaReadiness>;
+  degraded: boolean;
+  fallbacks: string[];
+  debugHydrationSource: "cache" | "mixed";
+  debugReadsForPost: number;
+  feedDetail?: FeedDetailRecord;
+}): PostsDetailResponse {
+  const letterboxMerged = mergeCompactLetterboxHintLayers(
+    letterboxPresentationHintsForCompactDetail(input.card, input.playbackShell),
+    letterboxFieldsFromFeedDetailRecord(input.feedDetail),
+    { postId: input.postId, usedFeedDetail: Boolean(input.feedDetail) },
+  );
+  const compactPost = {
+    postId: input.playbackShell.postId,
+    userId: input.playbackShell.userId,
+    caption: input.playbackShell.caption,
+    title: input.playbackShell.title ?? null,
+    description: input.playbackShell.description ?? null,
+    activities: input.playbackShell.activities ?? [],
+    address: input.playbackShell.address ?? null,
+    lat: input.playbackShell.lat ?? null,
+    lng: input.playbackShell.lng ?? null,
+    mediaType: input.playbackShell.mediaType,
+    thumbUrl: input.playbackShell.thumbUrl,
+    createdAtMs: input.playbackShell.createdAtMs,
+    updatedAtMs: input.playbackShell.updatedAtMs,
+    assetsReady: input.playbackShell.assetsReady,
+    assets: input.playbackShell.assets,
+    mediaStatus: input.mediaReadiness.mediaStatus,
+    posterReady: input.mediaReadiness.posterReady,
+    posterPresent: input.mediaReadiness.posterPresent,
+    posterUrl: input.mediaReadiness.posterUrl,
+    playbackReady: input.mediaReadiness.playbackReady,
+    playbackUrlPresent: input.mediaReadiness.playbackUrlPresent,
+    playbackUrl: input.mediaReadiness.playbackUrl,
+    fallbackVideoUrl: input.mediaReadiness.fallbackVideoUrl,
+    hasVideo: input.mediaReadiness.hasVideo,
+    aspectRatio: input.mediaReadiness.aspectRatio ?? null,
+    width: input.mediaReadiness.width ?? null,
+    height: input.mediaReadiness.height ?? null,
+    resizeMode: input.mediaReadiness.resizeMode,
+    ...letterboxMerged,
+    ...(typeof input.playbackShell.assetCount === "number" ? { assetCount: input.playbackShell.assetCount } : {}),
+    ...(typeof input.playbackShell.hasMultipleAssets === "boolean" ? { hasMultipleAssets: input.playbackShell.hasMultipleAssets } : {}),
+    ...(typeof input.playbackShell.rawFirestoreAssetCount === "number"
+      ? { rawFirestoreAssetCount: input.playbackShell.rawFirestoreAssetCount }
+      : {}),
+    ...(input.playbackShell.mediaCompleteness ? { mediaCompleteness: input.playbackShell.mediaCompleteness } : {}),
+    ...(input.playbackShell.requiresAssetHydration === true ? { requiresAssetHydration: true } : {}),
+  } as unknown as PostsDetailResponse["firstRender"]["post"];
+  return {
+    routeName: "posts.detail.get",
+    firstRender: {
+      post: compactPost,
+      author: input.card.author,
+      social: input.card.social,
+      viewer: input.card.viewer,
+    },
+    deferred: { commentsPreview: null },
+    degraded: input.degraded,
+    fallbacks: input.fallbacks,
+    debugHydrationSource: input.debugHydrationSource,
+    debugReads: input.debugReadsForPost,
+    debugPostIds: [input.postId],
+    debugMissingIds: [],
+    debugDurationMs: 0,
+  };
 }
 
 function normalizeCommentsPreview(value: unknown): DeferredCommentPreview {
@@ -538,6 +813,7 @@ export class PostsDetailOrchestrator {
     postIds: string[];
     reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
     hydrationMode: "card" | "playback" | "open" | "full";
+    mode?: BatchDetailMode;
     surface?: string | null;
   }): Promise<{
     routeName: "posts.detail.batch";
@@ -559,6 +835,7 @@ export class PostsDetailOrchestrator {
     const startedAt = Date.now();
     const ordered = input.postIds.map((id) => id.trim()).filter(Boolean);
     const unique = [...new Set(ordered)];
+    const mode = resolveBatchDetailMode(input);
     if (input.hydrationMode === "card" || input.hydrationMode === "playback") {
       return this.runBatchLightweight(
         {
@@ -566,6 +843,7 @@ export class PostsDetailOrchestrator {
           postIds: input.postIds,
           reason: input.reason,
           hydrationMode: input.hydrationMode,
+          mode,
           surface: input.surface ?? null,
         },
         unique,
@@ -580,7 +858,7 @@ export class PostsDetailOrchestrator {
     for (const postId of unique) {
       try {
         const detail = await dedupeInFlight(
-          `posts-detail-batch:${input.viewerId}:${postId}:${input.hydrationMode}`,
+          `posts-detail-batch:${input.viewerId}:${postId}:${input.hydrationMode}:${mode}`,
           () => this.runHydrated({ viewerId: input.viewerId, postId, hydrationMode: input.hydrationMode })
         );
         found.push({ postId, detail });
@@ -726,6 +1004,7 @@ export class PostsDetailOrchestrator {
       postIds: string[];
       reason: "prefetch" | "open" | "surface_bootstrap" | "presentation_hints";
       hydrationMode: "card" | "playback";
+      mode: BatchDetailMode;
       surface?: string | null;
     },
     unique: string[],
@@ -871,6 +1150,111 @@ export class PostsDetailOrchestrator {
         reserved += 1;
       }
     }
+    const detailFetchTargets: string[] = [];
+    for (let batchIndex = 0; batchIndex < cappedIds.length; batchIndex += 1) {
+      const postId = cappedIds[batchIndex]!;
+      const card = byId.get(postId);
+      if (!card) continue;
+      let playbackShell = toPlaybackPostShellDTO({
+        userId: card.author.userId,
+        card: toCompactPlaybackCard(card),
+      });
+      const cardRecord = card as Record<string, unknown>;
+      const cardCompleteness = String(cardRecord.mediaCompleteness ?? "").toLowerCase();
+      if (
+        (cardCompleteness === "complete" || cardCompleteness === "full") &&
+        Array.isArray(card.assets) &&
+        card.assets.length > 1
+      ) {
+        const shellMediaCompleteness = normalizeShellMediaCompleteness(cardRecord.mediaCompleteness);
+        playbackShell = {
+          ...playbackShell,
+          assets: card.assets.map((asset, idx) => {
+            const ext = asset as typeof asset & { streamUrl?: string | null; mp4Url?: string | null };
+            return {
+              id: asset.id ?? `${card.postId}-asset-${idx + 1}`,
+              type: asset.type,
+              original: ext.originalUrl ?? ext.mp4Url ?? null,
+              poster: asset.posterUrl ?? null,
+              thumbnail: asset.posterUrl ?? null,
+              aspectRatio: asset.aspectRatio ?? undefined,
+              width: asset.width ?? undefined,
+              height: asset.height ?? undefined,
+              orientation: asset.orientation ?? undefined,
+              variants: {
+                ...(asset.previewUrl ? { preview360: asset.previewUrl, preview360Avc: asset.previewUrl } : {}),
+                ...(ext.streamUrl ? { hls: ext.streamUrl } : {}),
+                ...(ext.mp4Url ? { main720Avc: ext.mp4Url, main720: ext.mp4Url } : {}),
+              },
+            };
+          }),
+          ...(shellMediaCompleteness !== undefined ? { mediaCompleteness: shellMediaCompleteness } : {}),
+          hasMultipleAssets: cardRecord.hasMultipleAssets === true,
+        };
+      }
+      if (input.reason === "prefetch" && shouldTrimPlaybackShellToCoverOnlyForPrefetch(playbackShell)) {
+        playbackShell = {
+          ...playbackShell,
+          assets: playbackShell.assets.slice(0, 1),
+          mediaCompleteness: "cover_only",
+          requiresAssetHydration: true,
+        };
+      }
+      const shellRecord = playbackShell as Record<string, unknown>;
+      const carouselProbe = enrichPlaybackShellRecordForCarouselProbe(playbackShell, card);
+      const stagedReadiness = buildPostMediaReadiness(shellRecord, {
+        hydrationMode: "playback",
+      });
+      const hasRenderablePrimaryAsset = Boolean(
+        stagedReadiness.posterReady ||
+          stagedReadiness.playbackReady ||
+          stagedReadiness.posterUrl ||
+          stagedReadiness.playbackUrl ||
+          stagedReadiness.fallbackVideoUrl
+      );
+      const wantsVideoFirestoreUpgrade =
+        input.hydrationMode === "playback" &&
+        playbackBatchShouldFetchFirestoreDetail(shellRecord) &&
+        (!isCollectionDetailPrefetch || !hasRenderablePrimaryAsset);
+      const wantsCarouselFirestoreUpgrade =
+        input.hydrationMode === "playback" &&
+        playbackBatchCarouselIncompleteMedia(carouselProbe) &&
+        !isCollectionDetailPrefetch;
+      const wantsFirestoreMediaUpgrade =
+        input.hydrationMode === "playback" &&
+        (wantsCarouselFirestoreUpgrade || wantsVideoFirestoreUpgrade);
+      const truthBeforeUpgrade = classifyCanonicalMediaTruth(shellRecord);
+      const visibleMandatoryVideoRead =
+        input.hydrationMode === "playback" &&
+        visibleHeadSet.has(postId) &&
+        truthBeforeUpgrade.hasVideoLikeSignals &&
+        !isPlayableVideoMedia(shellRecord);
+      const fetchAllowed =
+        wantsFirestoreMediaUpgrade &&
+        (visibleMandatoryVideoRead ||
+          (grantedFirestoreUpgrade.has(postId) && playbackFirestoreReadCap > 0));
+      if (fetchAllowed) {
+        detailFetchTargets.push(postId);
+      }
+    }
+    const detailFetchResults = new Map<string, { detail?: FeedDetailRecord; error?: unknown }>();
+    if (detailFetchTargets.length > 0) {
+      const detailFetchConcurrency = Math.min(3, Math.max(1, playbackFirestoreReadCap));
+      const detailRows = await runLimited(
+        detailFetchTargets.map((postId) => async () => {
+          try {
+            return { postId, detail: await this.service.loadPostDetail(postId, input.viewerId) };
+          } catch (error) {
+            return { postId, error };
+          }
+        }),
+        detailFetchConcurrency,
+      );
+      playbackFirestoreReadsPerformed += detailRows.length;
+      for (const row of detailRows) {
+        detailFetchResults.set(row.postId, row);
+      }
+    }
 
     const found: Array<{ postId: string; detail: PostsDetailResponse }> = [];
     for (let batchIndex = 0; batchIndex < cappedIds.length; batchIndex += 1) {
@@ -938,6 +1322,7 @@ export class PostsDetailOrchestrator {
       let mediaReadiness = buildPostMediaReadiness(playbackShell as Record<string, unknown>, {
         hydrationMode: "playback",
       });
+      let feedDetailForLetterbox: FeedDetailRecord | undefined;
       let degraded = false;
       let fallbacks: string[] = [];
       let debugHydrationSource: "cache" | "mixed" = "cache";
@@ -976,10 +1361,11 @@ export class PostsDetailOrchestrator {
         (visibleMandatoryVideoRead ||
           (grantedFirestoreUpgrade.has(postId) && playbackFirestoreReadCap > 0));
       if (wantsFirestoreMediaUpgrade && fetchAllowed) {
-        try {
-          playbackFirestoreReadsPerformed += 1;
+        const prefetched = detailFetchResults.get(postId);
+        if (prefetched?.detail) {
           debugReadsForPost = 1;
-          const detail = await this.service.loadPostDetail(postId, input.viewerId);
+          const detail = prefetched.detail;
+          feedDetailForLetterbox = detail;
           const cardSummaryRaw =
             (detail as { cardSummary?: FeedBootstrapCandidateRecord }).cardSummary ??
             card;
@@ -1044,7 +1430,7 @@ export class PostsDetailOrchestrator {
             fallbacks = wantsCarouselFirestoreUpgrade ? ["carousel_assets_upgraded_from_source"] : ["post_card_cache_incomplete"];
             debugHydrationSource = "mixed";
           }
-        } catch {
+        } else {
           degraded = wantsVideoFirestoreUpgrade;
           fallbacks = ["post_card_cache_incomplete"];
         }
@@ -1157,53 +1543,66 @@ export class PostsDetailOrchestrator {
       }
       found.push({
         postId: card.postId,
-        detail: {
-          routeName: "posts.detail.get" as const,
-          firstRender: {
-            post: {
-              ...playbackShell,
-              mediaReadiness,
-              mediaStatus: mediaReadiness.mediaStatus,
-              posterReady: mediaReadiness.posterReady,
-              posterPresent: mediaReadiness.posterPresent,
-              posterUrl: mediaReadiness.posterUrl,
-              playbackReady: mediaReadiness.playbackReady,
-              playbackUrlPresent: mediaReadiness.playbackUrlPresent,
-              playbackUrl: mediaReadiness.playbackUrl,
-              fallbackVideoUrl: mediaReadiness.fallbackVideoUrl,
-              hasVideo: mediaReadiness.hasVideo,
-              aspectRatio: mediaReadiness.aspectRatio ?? null,
-              width: mediaReadiness.width ?? null,
-              height: mediaReadiness.height ?? null,
-              resizeMode: mediaReadiness.resizeMode,
-              ...(videoPlaybackDebug
-                ? {
-                    selectedVariantLabel: videoPlaybackDebug.selectedVariantLabel,
-                    selectedVariantHeight: videoPlaybackDebug.selectedVariantHeight,
-                    selectedVariantCodec: videoPlaybackDebug.selectedVariantCodec,
-                    selectedVideoSource: videoPlaybackDebug.selectedVariantSource,
-                    usedPreviewFallback: videoPlaybackDebug.isPreviewOnly,
-                    productionVariantAvailable: videoPlaybackDebug.isProductionPlayback,
-                    productionVariantSelected: videoPlaybackDebug.productionPlaybackSelected,
-                    selectedVideoVariant: videoPlaybackDebug.selectedVideoVariant,
-                    cacheMediaUpgraded: debugHydrationSource === "mixed",
-                    videoPlaybackDiagnostics: videoPlaybackDebug.diagnostics,
-                  }
-                : {}),
-            } as PostsDetailResponse["firstRender"]["post"],
-            author: card.author,
-            social: card.social,
-            viewer: card.viewer,
-          },
-          deferred: { commentsPreview: null },
-          degraded,
-          fallbacks,
-          debugHydrationSource,
-          debugReads: debugReadsForPost,
-          debugPostIds: [card.postId],
-          debugMissingIds: [],
-          debugDurationMs: 0,
-        },
+        detail:
+          input.mode === "playback_prefetch_compact"
+            ? buildCompactPlaybackDetailResponse({
+                postId: card.postId,
+                card,
+                playbackShell,
+                mediaReadiness,
+                degraded,
+                fallbacks,
+                debugHydrationSource,
+                debugReadsForPost,
+                feedDetail: feedDetailForLetterbox,
+              })
+            : {
+                routeName: "posts.detail.get" as const,
+                firstRender: {
+                  post: {
+                    ...playbackShell,
+                    mediaReadiness,
+                    mediaStatus: mediaReadiness.mediaStatus,
+                    posterReady: mediaReadiness.posterReady,
+                    posterPresent: mediaReadiness.posterPresent,
+                    posterUrl: mediaReadiness.posterUrl,
+                    playbackReady: mediaReadiness.playbackReady,
+                    playbackUrlPresent: mediaReadiness.playbackUrlPresent,
+                    playbackUrl: mediaReadiness.playbackUrl,
+                    fallbackVideoUrl: mediaReadiness.fallbackVideoUrl,
+                    hasVideo: mediaReadiness.hasVideo,
+                    aspectRatio: mediaReadiness.aspectRatio ?? null,
+                    width: mediaReadiness.width ?? null,
+                    height: mediaReadiness.height ?? null,
+                    resizeMode: mediaReadiness.resizeMode,
+                    ...(videoPlaybackDebug
+                      ? {
+                          selectedVariantLabel: videoPlaybackDebug.selectedVariantLabel,
+                          selectedVariantHeight: videoPlaybackDebug.selectedVariantHeight,
+                          selectedVariantCodec: videoPlaybackDebug.selectedVariantCodec,
+                          selectedVideoSource: videoPlaybackDebug.selectedVariantSource,
+                          usedPreviewFallback: videoPlaybackDebug.isPreviewOnly,
+                          productionVariantAvailable: videoPlaybackDebug.isProductionPlayback,
+                          productionVariantSelected: videoPlaybackDebug.productionPlaybackSelected,
+                          selectedVideoVariant: videoPlaybackDebug.selectedVideoVariant,
+                          cacheMediaUpgraded: debugHydrationSource === "mixed",
+                          videoPlaybackDiagnostics: videoPlaybackDebug.diagnostics,
+                        }
+                      : {}),
+                  } as PostsDetailResponse["firstRender"]["post"],
+                  author: card.author,
+                  social: card.social,
+                  viewer: card.viewer,
+                },
+                deferred: { commentsPreview: null },
+                degraded,
+                fallbacks,
+                debugHydrationSource,
+                debugReads: debugReadsForPost,
+                debugPostIds: [card.postId],
+                debugMissingIds: [],
+                debugDurationMs: 0,
+              },
       });
     }
     const missing = cappedIds.filter((id) => !byId.has(id)).concat(missingFromCap);

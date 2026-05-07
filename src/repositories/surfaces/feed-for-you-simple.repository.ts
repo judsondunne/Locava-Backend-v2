@@ -1,6 +1,6 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { FEED_READ_NORMALIZED_ASSET_MAX } from "../../constants/feed-read-assets.js";
-import { incrementDbOps } from "../../observability/request-context.js";
+import { accumulateSurfaceTiming, incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 
@@ -179,6 +179,7 @@ export class FeedForYouSimpleRepository {
     reelOnly?: boolean;
   }): Promise<SimpleFeedBatchResult> {
     if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
+    const startedAt = Date.now();
     const boundedLimit = Math.max(1, Math.min(input.limit, 40));
     let query = this.db.collection("posts").select(...SIMPLE_FEED_SELECT_FIELDS);
     if (input.reelOnly) {
@@ -218,6 +219,10 @@ export class FeedForYouSimpleRepository {
     incrementDbOps("queries", 1);
     const snap = await query.limit(boundedLimit).get();
     incrementDbOps("reads", snap.docs.length);
+    accumulateSurfaceTiming(
+      input.reelOnly ? "feed_simple_query_reel_scan_ms" : "feed_simple_query_fallback_scan_ms",
+      Date.now() - startedAt
+    );
 
     const stats: SimpleFeedBatchSliceStats = {
       rawDocCount: snap.docs.length,
@@ -278,6 +283,7 @@ export class FeedForYouSimpleRepository {
    */
   async fetchEmergencyPlayableSlice(input: { limit: number }): Promise<SimpleFeedBatchResult> {
     if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
+    const startedAt = Date.now();
     const boundedLimit = Math.max(1, Math.min(input.limit, 40));
     incrementDbOps("queries", 1);
     let snap;
@@ -298,6 +304,7 @@ export class FeedForYouSimpleRepository {
         .get();
     }
     incrementDbOps("reads", snap.docs.length);
+    accumulateSurfaceTiming("feed_simple_query_emergency_slice_ms", Date.now() - startedAt);
     const stats: SimpleFeedBatchSliceStats = {
       rawDocCount: snap.docs.length,
       filteredInvisible: 0,
@@ -353,12 +360,14 @@ export class FeedForYouSimpleRepository {
 
   async fetchCandidatesByPostIds(postIds: string[]): Promise<SimpleFeedCandidate[]> {
     if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
+    const startedAt = Date.now();
     const ordered = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
     if (ordered.length === 0) return [];
     const refs = ordered.map((postId) => this.db!.collection("posts").doc(postId));
     incrementDbOps("queries", 1);
     const snaps = await this.db.getAll(...refs);
     incrementDbOps("reads", snaps.length);
+    accumulateSurfaceTiming("feed_simple_query_candidates_by_id_ms", Date.now() - startedAt);
     const mappedById = new Map<string, SimpleFeedCandidate>();
     for (const snap of snaps) {
       if (!snap.exists) continue;
@@ -371,11 +380,13 @@ export class FeedForYouSimpleRepository {
 
   async loadBlockedAuthorIdsForViewer(viewerId: string): Promise<{ blocked: Set<string>; readCount: number }> {
     if (!this.db) return { blocked: new Set(), readCount: 0 };
+    const startedAt = Date.now();
     const id = viewerId.trim();
     if (!id) return { blocked: new Set(), readCount: 0 };
     incrementDbOps("queries", 1);
     const doc = await this.db.collection("users").doc(id).get();
     incrementDbOps("reads", doc.exists ? 1 : 0);
+    accumulateSurfaceTiming("feed_simple_query_blocked_authors_ms", Date.now() - startedAt);
     if (!doc.exists) return { blocked: new Set(), readCount: 1 };
     const data = doc.data() as { blockedUsers?: unknown };
     const blocked = new Set<string>(
@@ -390,6 +401,7 @@ export class FeedForYouSimpleRepository {
     limit: number;
   }): Promise<{ postIds: Set<string>; readCount: number }> {
     if (!this.db) return { postIds: new Set(), readCount: 0 };
+    const startedAt = Date.now();
     const viewerId = input.viewerId.trim();
     const surface = input.surface.trim();
     if (!viewerId || !surface) return { postIds: new Set(), readCount: 0 };
@@ -403,6 +415,7 @@ export class FeedForYouSimpleRepository {
       .limit(boundedLimit)
       .get();
     incrementDbOps("reads", snap.docs.length);
+    accumulateSurfaceTiming("feed_simple_query_durable_seen_ms", Date.now() - startedAt);
     const postIds = new Set<string>();
     for (const doc of snap.docs) {
       const data = doc.data() as Record<string, unknown>;
@@ -449,6 +462,7 @@ export class FeedForYouSimpleRepository {
     ttlMs: number;
   }): Promise<{ postIds: Set<string>; readCount: number }> {
     if (!this.db) return { postIds: new Set(), readCount: 0 };
+    const startedAt = Date.now();
     const viewerId = input.viewerId.trim();
     const surface = input.surface.trim();
     if (!viewerId || !surface) return { postIds: new Set(), readCount: 0 };
@@ -456,6 +470,7 @@ export class FeedForYouSimpleRepository {
     incrementDbOps("queries", 1);
     const snap = await this.db.collection(SERVED_RECENT_COLLECTION).doc(docId).get();
     incrementDbOps("reads", snap.exists ? 1 : 0);
+    accumulateSurfaceTiming("feed_simple_query_served_recent_ms", Date.now() - startedAt);
     if (!snap.exists) return { postIds: new Set(), readCount: 1 };
     const now = Date.now();
     const data = (snap.data() ?? {}) as { entries?: unknown };
@@ -527,12 +542,14 @@ export class FeedForYouSimpleRepository {
 
   async readReadyDeck(viewerId: string, surface: string): Promise<SimpleReadyDeckDoc | null> {
     if (!this.db) return null;
+    const startedAt = Date.now();
     const id = viewerId.trim();
     const s = surface.trim();
     if (!id || !s) return null;
     incrementDbOps("queries", 1);
     const snap = await this.db.collection(READY_DECK_COLLECTION).doc(`${id}_${s}`).get();
     incrementDbOps("reads", snap.exists ? 1 : 0);
+    accumulateSurfaceTiming("feed_simple_query_ready_deck_ms", Date.now() - startedAt);
     if (!snap.exists) return null;
     const raw = (snap.data() ?? {}) as Record<string, unknown>;
     if (Number(raw.deckFormat) !== 2) {
@@ -618,6 +635,7 @@ export class FeedForYouSimpleRepository {
 
   private async hasRandomKeySupport(): Promise<boolean> {
     if (!this.db) return false;
+    const startedAt = Date.now();
     const now = Date.now();
     if (this.randomKeySupportCache && now - this.randomKeySupportCache.checkedAtMs < 300_000) {
       return this.randomKeySupportCache.available;
@@ -626,10 +644,12 @@ export class FeedForYouSimpleRepository {
       incrementDbOps("queries", 1);
       const snap = await this.db.collection("posts").orderBy("randomKey", "asc").select("randomKey").limit(1).get();
       incrementDbOps("reads", snap.docs.length);
+      accumulateSurfaceTiming("feed_simple_query_random_key_probe_ms", Date.now() - startedAt);
       const available = snap.docs.length > 0;
       this.randomKeySupportCache = { checkedAtMs: now, available };
       return available;
     } catch {
+      accumulateSurfaceTiming("feed_simple_query_random_key_probe_ms", Date.now() - startedAt);
       this.randomKeySupportCache = { checkedAtMs: now, available: false };
       return false;
     }

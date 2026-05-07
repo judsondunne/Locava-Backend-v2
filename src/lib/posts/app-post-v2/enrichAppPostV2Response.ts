@@ -95,7 +95,7 @@ export async function batchHydrateAppPostsOnRecords(
 export async function enrichGridPreviewItemsWithAppPostV2<T extends Record<string, unknown>>(
   items: T[],
   viewerId: string | null | undefined,
-  options?: { collectionsScanLimit?: number }
+  options?: { collectionsScanLimit?: number; hydrateViewerState?: boolean }
 ): Promise<T[]> {
   if (!isBackendAppPostV2ResponsesEnabled() || items.length === 0) return items;
   const copies = items.map((item) => ({ ...item }) as Record<string, unknown>);
@@ -104,7 +104,9 @@ export async function enrichGridPreviewItemsWithAppPostV2<T extends Record<strin
     const postId = typeof row.postId === "string" ? row.postId : "";
     attachAppPostV2ToRecord(row, raw, { postId: postId || undefined });
   }
-  await batchHydrateAppPostsOnRecords(copies, viewerId, options);
+  if (options?.hydrateViewerState !== false) {
+    await batchHydrateAppPostsOnRecords(copies, viewerId, options);
+  }
   return copies as T[];
 }
 

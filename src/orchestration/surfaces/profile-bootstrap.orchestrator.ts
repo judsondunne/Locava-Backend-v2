@@ -4,7 +4,7 @@ import { profileBootstrapCacheKey } from "../../cache/profile-follow-graph-cache
 import { registerRouteCacheKey } from "../../cache/route-cache-index.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { ProfileBootstrapResponse } from "../../contracts/surfaces/profile-bootstrap.contract.js";
-import { toProfileHeaderDTO } from "../../dto/compact-surface-dto.js";
+import { firestoreAssetsToCompactSeeds, toFeedCardDTO, toProfileHeaderDTO } from "../../dto/compact-surface-dto.js";
 import {
   getRequestContext,
   recordCacheHit,
@@ -12,7 +12,6 @@ import {
   recordFallback,
   recordSurfaceTimings,
 } from "../../observability/request-context.js";
-import { enrichGridPreviewItemsWithAppPostV2 } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import type { ProfileService } from "../../services/surfaces/profile.service.js";
 
 const PROFILE_TABS = [
@@ -24,6 +23,63 @@ const PROFILE_TABS = [
 
 const COLLECTIONS_PREVIEW_LIMIT = 4;
 const ACHIEVEMENTS_PREVIEW_LIMIT = 6;
+const BOOTSTRAP_GRID_PREVIEW_CAP = 6;
+
+function compactGridPreviewItem<T extends Record<string, unknown>>(item: T): T {
+  const raw = (item.rawFirestore as Record<string, unknown> | undefined) ?? undefined;
+  if (!raw) {
+    const { rawFirestore: _rawFirestore, ...rest } = item as T & { rawFirestore?: unknown };
+    return rest as T;
+  }
+  const thumbUrl = typeof item.thumbUrl === "string" ? item.thumbUrl : "";
+  const mediaType = item.mediaType === "video" ? "video" : "image";
+  const compactCard = toFeedCardDTO({
+    postId: typeof item.postId === "string" ? item.postId : "",
+    rankToken: `profile_grid:${String(item.postId ?? "")}`,
+    sourceRawPost: raw,
+    canonicalAliasMode: "app_post_v2_only",
+    author: {
+      userId: typeof raw.userId === "string" ? raw.userId : "",
+      handle: typeof raw.userHandle === "string" ? raw.userHandle : "",
+      name: typeof raw.userName === "string" ? raw.userName : null,
+      pic: typeof raw.userPic === "string" ? raw.userPic : null,
+    },
+    activities: Array.isArray(raw.activities) ? raw.activities.map((value) => String(value ?? "")) : [],
+    address: typeof raw.address === "string" ? raw.address : null,
+    assets: firestoreAssetsToCompactSeeds(Array.isArray(raw.assets) ? raw.assets : [], String(item.postId ?? ""), 1),
+    compactAssetLimit: 1,
+    title: typeof raw.title === "string" ? raw.title : null,
+    captionPreview:
+      typeof raw.caption === "string"
+        ? raw.caption
+        : typeof raw.text === "string"
+          ? raw.text
+          : typeof raw.description === "string"
+            ? raw.description
+            : null,
+    firstAssetUrl: thumbUrl,
+    media: {
+      type: mediaType,
+      posterUrl: thumbUrl,
+      aspectRatio: typeof item.aspectRatio === "number" ? item.aspectRatio : 9 / 16,
+      startupHint: mediaType === "video" ? "poster_then_preview" : "poster_only",
+    },
+    social: {
+      likeCount: typeof raw.likesCount === "number" ? raw.likesCount : typeof raw.likeCount === "number" ? raw.likeCount : 0,
+      commentCount:
+        typeof raw.commentCount === "number" ? raw.commentCount : typeof raw.commentsCount === "number" ? raw.commentsCount : 0,
+    },
+    viewer: { liked: false, saved: false },
+    createdAtMs: typeof item.updatedAtMs === "number" ? item.updatedAtMs : Date.now(),
+    updatedAtMs: typeof item.updatedAtMs === "number" ? item.updatedAtMs : Date.now(),
+  });
+  const { rawFirestore: _rawFirestore, ...rest } = item as T & { rawFirestore?: unknown };
+  return {
+    ...rest,
+    ...(compactCard.appPostV2 && typeof compactCard.appPostV2 === "object" ? { appPostV2: compactCard.appPostV2 } : {}),
+    ...(compactCard.postContractVersion === 3 ? { postContractVersion: 3 as const } : {}),
+  } as T;
+}
 
 export class ProfileBootstrapOrchestrator {
   constructor(private readonly service: ProfileService) {}
@@ -44,11 +100,12 @@ export class ProfileBootstrapOrchestrator {
     viewer: ViewerContext;
     userId: string;
     gridLimit: number;
+    includeTabPreviews: boolean;
     debugSlowDeferredMs: number;
   }): Promise<ProfileBootstrapResponse> {
-    const { viewer, userId, gridLimit, debugSlowDeferredMs } = input;
+    const { viewer, userId, gridLimit, includeTabPreviews, debugSlowDeferredMs } = input;
     const localFallbacks = new Set<string>();
-    const previewLimit = gridLimit;
+    const previewLimit = Math.min(gridLimit, BOOTSTRAP_GRID_PREVIEW_CAP);
     const enableBootstrapCache = debugSlowDeferredMs === 0;
     const bootstrapCacheKey = profileBootstrapCacheKey(viewer.viewerId, userId, previewLimit);
     let bootstrapCacheHit = false;
@@ -104,6 +161,26 @@ export class ProfileBootstrapOrchestrator {
     ).then((value) => {
       recordSurfaceTimings({ profile_bootstrap_header_ms: performance.now() - headerStartedAt });
       return value;
+    }).catch((error) => {
+      if (error instanceof Error && error.message === "profile_header_not_found") {
+        throw error;
+      }
+      recordFallback("profile_header_unavailable");
+      localFallbacks.add("profile_header_unavailable");
+      recordSurfaceTimings({ profile_bootstrap_header_ms: performance.now() - headerStartedAt });
+      return {
+        userId,
+        handle: `user_${userId.slice(0, 8)}`,
+        name: "Locava User",
+        profilePic: null,
+        bio: null,
+        counts: { posts: 0, followers: 0, following: 0 },
+        profilePicSource: null,
+        profilePicSmallPath: null,
+        profilePicLargePath: null,
+        updatedAtMs: null,
+        profileVersion: null,
+      };
     });
 
     const relationshipStartedAt = performance.now();
@@ -133,55 +210,73 @@ export class ProfileBootstrapOrchestrator {
       });
 
     const collectionsStartedAt = performance.now();
-    const collectionsPromise = this.getCachedOrLoad(
-      buildCacheKey("list", ["profile-collections-preview-v1", viewer.viewerId, userId, COLLECTIONS_PREVIEW_LIMIT]),
-      () =>
-        this.service.loadCollections({
-          viewerId: viewer.viewerId,
-          userId,
-          cursor: null,
-          limit: COLLECTIONS_PREVIEW_LIMIT,
-        }),
-      15_000
-    )
-      .then((value) => {
-        recordSurfaceTimings({ profile_bootstrap_collections_preview_ms: performance.now() - collectionsStartedAt });
-        return value;
-      })
-      .catch(() => {
-        recordFallback("profile_collections_preview_unavailable");
-        localFallbacks.add("profile_collections_preview_unavailable");
-        return {
-          items: [],
-          nextCursor: null,
-          emptyReason: "profile_collections_unavailable",
-        };
-      });
+    const collectionsPromise = includeTabPreviews
+      ? this.getCachedOrLoad(
+          buildCacheKey("list", ["profile-collections-preview-v1", viewer.viewerId, userId, COLLECTIONS_PREVIEW_LIMIT]),
+          () =>
+            this.service.loadCollections({
+              viewerId: viewer.viewerId,
+              userId,
+              cursor: null,
+              limit: COLLECTIONS_PREVIEW_LIMIT,
+            }),
+          15_000
+        )
+          .then((value) => {
+            recordSurfaceTimings({ profile_bootstrap_collections_preview_ms: performance.now() - collectionsStartedAt });
+            return value;
+          })
+          .catch(() => {
+            recordFallback("profile_collections_preview_unavailable");
+            localFallbacks.add("profile_collections_preview_unavailable");
+            return {
+              items: [],
+              nextCursor: null,
+              emptyReason: "profile_collections_unavailable",
+            };
+          })
+      : Promise.resolve().then(() => {
+          recordSurfaceTimings({ profile_bootstrap_collections_preview_ms: 0 });
+          return {
+            items: [],
+            nextCursor: null,
+            emptyReason: "profile_collections_deferred",
+          };
+        });
 
     const achievementsStartedAt = performance.now();
-    const achievementsPromise = this.getCachedOrLoad(
-      buildCacheKey("list", ["profile-achievements-preview-v1", userId, ACHIEVEMENTS_PREVIEW_LIMIT]),
-      () =>
-        this.service.loadAchievements({
-          userId,
-          cursor: null,
-          limit: ACHIEVEMENTS_PREVIEW_LIMIT,
-        }),
-      15_000
-    )
-      .then((value) => {
-        recordSurfaceTimings({ profile_bootstrap_achievements_preview_ms: performance.now() - achievementsStartedAt });
-        return value;
-      })
-      .catch(() => {
-        recordFallback("profile_achievements_preview_unavailable");
-        localFallbacks.add("profile_achievements_preview_unavailable");
-        return {
-          items: [],
-          nextCursor: null,
-          emptyReason: "profile_achievements_unavailable",
-        };
-      });
+    const achievementsPromise = includeTabPreviews
+      ? this.getCachedOrLoad(
+          buildCacheKey("list", ["profile-achievements-preview-v1", userId, ACHIEVEMENTS_PREVIEW_LIMIT]),
+          () =>
+            this.service.loadAchievements({
+              userId,
+              cursor: null,
+              limit: ACHIEVEMENTS_PREVIEW_LIMIT,
+            }),
+          15_000
+        )
+          .then((value) => {
+            recordSurfaceTimings({ profile_bootstrap_achievements_preview_ms: performance.now() - achievementsStartedAt });
+            return value;
+          })
+          .catch(() => {
+            recordFallback("profile_achievements_preview_unavailable");
+            localFallbacks.add("profile_achievements_preview_unavailable");
+            return {
+              items: [],
+              nextCursor: null,
+              emptyReason: "profile_achievements_unavailable",
+            };
+          })
+      : Promise.resolve().then(() => {
+          recordSurfaceTimings({ profile_bootstrap_achievements_preview_ms: 0 });
+          return {
+            items: [],
+            nextCursor: null,
+            emptyReason: "profile_achievements_deferred",
+          };
+        });
 
     const [headerRaw, relationshipRaw, gridPreviewLoaded, collectionsPreview, achievementsPreview, profileBadgeSummary] =
       await Promise.all([
@@ -199,15 +294,12 @@ export class ProfileBootstrapOrchestrator {
         gridPromise,
         collectionsPromise,
         achievementsPromise,
-        this.service.loadBadgeSummary(userId, debugSlowDeferredMs).catch(() => null),
+        (includeTabPreviews ? this.service.loadBadgeSummary(userId, debugSlowDeferredMs) : Promise.resolve(null)).catch(() => null),
       ]);
 
     const gridPreview = {
       ...gridPreviewLoaded,
-      items: (await enrichGridPreviewItemsWithAppPostV2(
-        gridPreviewLoaded.items as Array<Record<string, unknown>>,
-        viewer.viewerId === "anonymous" ? null : viewer.viewerId
-      )) as typeof gridPreviewLoaded.items
+      items: gridPreviewLoaded.items.map((item) => compactGridPreviewItem(item as Record<string, unknown>)) as typeof gridPreviewLoaded.items
     };
 
     const header = toProfileHeaderDTO({
@@ -327,7 +419,9 @@ export class ProfileBootstrapOrchestrator {
       },
       background: {
         cacheWarmScheduled: true,
-        prefetchHints: ["profile:grid:next", "profile:collections:next", "profile:achievements:next"],
+        prefetchHints: includeTabPreviews
+          ? ["profile:grid:next", "profile:collections:next", "profile:achievements:next"]
+          : ["profile:grid:next"],
       },
       degraded: fallbacks.length > 0,
       fallbacks,

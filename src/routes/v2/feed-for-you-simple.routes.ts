@@ -39,6 +39,7 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
       const dbReads = ctx?.dbOps.reads ?? 0;
       const dbWrites = ctx?.dbOps.writes ?? 0;
       const elapsedMs = Date.now() - startedAt;
+      const videoSummary = rollupFeedVideoMediaSummary(payload.items) as Record<string, unknown>;
 
       const summaryPayload = {
         event: "feed_for_you_simple_summary",
@@ -86,10 +87,34 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         firstPaintCardReadyCount: payload.debug.firstPaintCardReadyCount ?? payload.items.length,
         detailBatchRequiredForFirstPaint: payload.debug.detailBatchRequiredForFirstPaint ?? false,
         durableServedWriteStatus: payload.debug.durableServedWriteStatus ?? "skipped",
-        ...rollupFeedVideoMediaSummary(payload.items)
+        ...videoSummary
       };
 
-      request.log.info(summaryPayload, "feed for-you simple summary");
+      const verboseFeedSummary = process.env.LOG_FEED_DEBUG_VERBOSE === "1";
+      request.log.info(
+        verboseFeedSummary
+          ? summaryPayload
+          : {
+              event: summaryPayload.event,
+              viewerId: summaryPayload.viewerId,
+              requestedLimit: summaryPayload.requestedLimit,
+              returnedCount: summaryPayload.returnedCount,
+              elapsedMs: summaryPayload.elapsedMs,
+              dbReads: summaryPayload.dbReads,
+              queryCount: summaryPayload.queryCount,
+              deckSource: summaryPayload.deckSource,
+              deckHit: summaryPayload.deckHit,
+              emergencyFallbackUsed: summaryPayload.emergencyFallbackUsed,
+              detailBatchRequiredForFirstPaint: summaryPayload.detailBatchRequiredForFirstPaint,
+              canonicalVideoPlayableCount: videoSummary.canonicalVideoPlayableCount ?? 0,
+              canonicalStartupUrlCount: videoSummary.canonicalStartupUrlCount ?? 0,
+              canonicalPosterCount: videoSummary.canonicalPosterCount ?? 0,
+              canonicalGradientCount: videoSummary.canonicalGradientCount ?? 0,
+              canonicalSelectedVariantCounts: videoSummary.canonicalSelectedVariantCounts ?? {},
+              videoMissingPlayableCount: videoSummary.videoMissingPlayableCount ?? 0,
+            },
+        "feed for-you simple summary"
+      );
 
       if (isFeedItemsMediaTraceEnabled()) {
         request.log.info(

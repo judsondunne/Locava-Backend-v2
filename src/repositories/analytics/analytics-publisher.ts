@@ -106,7 +106,7 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
           dataset: this.destination.dataset,
           table: this.destination.table,
           credentialSource: this.runtimeConfig.credentialSource,
-          serviceAccountEmail: this.runtimeConfig.serviceAccountEmail,
+          serviceAccountConfigured: Boolean(this.runtimeConfig.serviceAccountEmail),
           nonBlocking: true,
           error: error instanceof Error ? error.message : String(error),
           checkCommand: "npm run debug:analytics:bigquery",

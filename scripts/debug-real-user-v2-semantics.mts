@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { createApp } from "../src/app/createApp.js";
 import { diagnosticsStore } from "../src/observability/diagnostics-store.js";
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 
 type SemanticClassification =
   | "SEMANTIC_PASS"
@@ -96,6 +97,11 @@ const viewerId =
   process.env.LOCAVA_VIEWER_ID?.trim() ||
   process.env.DEBUG_VIEWER_ID?.trim() ||
   "aXngoh9jeqW35FNM3fq1w9aXdEh1";
+
+assertEmulatorOnlyDestructiveFirestoreOperation("debug-real-user-v2-semantics", "posts");
+console.log(
+  `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=debug-real-user-v2-semantics FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+);
 
 const app = createApp();
 const db = getFirestoreSourceClient();

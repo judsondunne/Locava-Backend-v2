@@ -1,14 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { createApp } from "../../app/createApp.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../../safety/firestoreDestructiveGuard.js";
 
 const isEmulator = process.env.FIRESTORE_TEST_MODE === "emulator";
+
+function confirmEmulatorOnlyTestWrite(operationName: string, targetPath: string): void {
+  assertEmulatorOnlyDestructiveFirestoreOperation(operationName, targetPath);
+}
 
 function nowMs(): number {
   return Date.now();
 }
 
 async function seedInventory(seedKey: string, reels: number, regular: number): Promise<{ reelIds: string[]; regularIds: string[] }> {
+  confirmEmulatorOnlyTestWrite("feed-for-you.routes.test.seedInventory", "posts");
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable_for_test");
   const batch = db.batch();
@@ -97,6 +103,7 @@ async function seedFeedState(input: {
   regularQueue: string[];
   regularQueueIndex?: number;
 }) {
+  confirmEmulatorOnlyTestWrite("feed-for-you.routes.test.seedFeedState", `users/${input.viewerId}/feedState`);
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable_for_test");
   const now = nowMs();

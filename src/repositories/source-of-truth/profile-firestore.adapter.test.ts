@@ -22,6 +22,7 @@ function makeDb(opts: {
   followersCountThrows?: boolean;
   followingCountThrows?: boolean;
   postsCountThrows?: boolean;
+  onUserSet?: (payload: Record<string, unknown>) => void;
 }) {
   const {
     userData = { handle: "user_1", name: "User One" },
@@ -33,7 +34,8 @@ function makeDb(opts: {
     postsGetThrows = false,
     followersCountThrows = false,
     followingCountThrows = false,
-    postsCountThrows = false
+    postsCountThrows = false,
+    onUserSet
   } = opts;
 
   const followersRef = {
@@ -84,7 +86,9 @@ function makeDb(opts: {
       return {
         doc: (_userId: string) => ({
           get: async () => makeUserDoc(userData),
-          set: async () => undefined,
+          set: async (payload: Record<string, unknown>) => {
+            onUserSet?.(payload);
+          },
           collection: (sub: string) => {
             if (sub === "followers") return followersRef;
             if (sub === "following") return followingRef;
@@ -295,5 +299,33 @@ describe("profile firestore adapter follow counts", () => {
     expect(header.data.counts.following).toBe(4);
     expect(header.data.counts.posts).toBe(14);
     expect(header.data.profilePic).toContain("real.jpg");
+  });
+
+  it("skips post-count verification writes while read-only latency audit mode is active", async () => {
+    const writes: Record<string, unknown>[] = [];
+    const previous = process.env.READ_ONLY_LATENCY_AUDIT;
+    delete process.env.FIRESTORE_EMULATOR_HOST;
+    process.env.READ_ONLY_LATENCY_AUDIT = "1";
+    try {
+      const db = makeDb({
+        userData: {
+          handle: "user_1",
+          name: "User One",
+          postCount: 12,
+        },
+        postsCount: 12,
+        onUserSet: (payload) => writes.push(payload),
+      });
+      const adapter = new ProfileFirestoreAdapter(db as never);
+      const header = await adapter.getProfileHeader("u-read-only-skip");
+      expect(header.data.counts.posts).toBe(12);
+      expect(writes).toHaveLength(0);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.READ_ONLY_LATENCY_AUDIT;
+      } else {
+        process.env.READ_ONLY_LATENCY_AUDIT = previous;
+      }
+    }
   });
 });

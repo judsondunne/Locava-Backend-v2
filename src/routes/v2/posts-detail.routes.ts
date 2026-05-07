@@ -52,9 +52,16 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
     }
     const body = PostsDetailsBatchBodySchema.parse(request.body);
     setRouteName(postsDetailsBatchContract.routeName);
+    const mode =
+      body.mode ??
+      (body.hydrationMode === "playback" && body.reason === "prefetch"
+        ? "playback_prefetch_compact"
+        : body.hydrationMode === "full" || body.hydrationMode === "open"
+          ? "full_detail"
+          : "liftable_visible_detail");
     const inferredPriority =
       body.hydrationMode === "open" || body.hydrationMode === "playback"
-        ? body.reason === "prefetch"
+        ? mode === "playback_prefetch_compact"
           ? "P1_NEXT_PLAYBACK"
           : "P0_VISIBLE_PLAYBACK"
         : body.hydrationMode === "full"
@@ -62,7 +69,14 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
           : "P2_CURRENT_SCREEN";
     setOrchestrationMetadata({
       hydrationMode: body.hydrationMode,
-      requestGroup: body.reason === "open" ? "opened_post" : body.reason,
+      requestGroup:
+        mode === "playback_prefetch_compact"
+          ? "playback_prefetch"
+          : mode === "liftable_visible_detail"
+            ? "visible_detail"
+            : body.reason === "open"
+              ? "opened_post"
+              : body.reason,
       priority: inferredPriority
     });
     try {
@@ -71,6 +85,7 @@ export async function registerV2PostsDetailRoutes(app: FastifyInstance): Promise
         postIds: body.postIds,
         reason: body.reason,
         hydrationMode: body.hydrationMode,
+        mode,
         surface:
           typeof request.headers["x-locava-surface"] === "string"
             ? request.headers["x-locava-surface"]

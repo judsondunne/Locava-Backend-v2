@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
+import { parseFirebaseAccessEnv } from "@locava/contracts/firebase-access-policy";
 import { z } from "zod";
+import { BACKEND_V2_REQUIRED_LEGACY_PROXY_PATHS } from "../config/monolith-proxy-allowlist.js";
 import { APPLE_OAUTH_EXCHANGE_MODES } from "../contracts/surfaces/auth-signin-apple.contract.js";
 import { getFirebaseAdminDiagnostics } from "../lib/firebase-admin.js";
 import { resolveFirebaseToolkitContinueUri } from "../lib/firebase-identity-toolkit.js";
@@ -105,4 +107,35 @@ export async function registerSystemRoutes(app: FastifyInstance): Promise<void> 
       )
     })
   );
+
+  if (app.config.ENABLE_DEV_DIAGNOSTICS && app.config.ENABLE_FIREBASE_ACCESS_DEBUG_ENDPOINT) {
+    app.get("/debug/firebase-access-policy", async () => {
+      const p = parseFirebaseAccessEnv(process.env);
+      return success({
+        backendAccessMode: p.LOCAVA_FIREBASE_ACCESS_MODE,
+        allowBackendV2Firebase: p.ALLOW_BACKEND_V2_FIREBASE,
+        allowWikimediaMvpFirebase: p.ALLOW_WIKIMEDIA_MVP_FIREBASE,
+        allowWikimediaStagingFirebase: p.ALLOW_WIKIMEDIA_STAGING_FIREBASE,
+        allowBackendV2MonolithProxy: p.ALLOW_BACKEND_V2_MONOLITH_PROXY,
+        disableLegacyFirebase: p.DISABLE_LEGACY_FIREBASE,
+        disableLegacyWorkers: p.DISABLE_LEGACY_WORKERS,
+        disableLegacyCron: p.DISABLE_LEGACY_CRON,
+        disableLegacyListeners: p.DISABLE_LEGACY_LISTENERS,
+        granularLegacyFirestore: {
+          analytics: p.DISABLE_LEGACY_ANALYTICS_FIRESTORE,
+          feed: p.DISABLE_LEGACY_FEED_FIRESTORE,
+          search: p.DISABLE_LEGACY_SEARCH_FIRESTORE,
+          profile: p.DISABLE_LEGACY_PROFILE_FIRESTORE,
+          post: p.DISABLE_LEGACY_POST_FIRESTORE,
+          notifications: p.DISABLE_LEGACY_NOTIFICATIONS_FIRESTORE,
+          map: p.DISABLE_LEGACY_MAP_FIRESTORE,
+          reels: p.DISABLE_LEGACY_REELS_FIRESTORE,
+          users: p.DISABLE_LEGACY_USERS_FIRESTORE,
+          collections: p.DISABLE_LEGACY_COLLECTIONS_FIRESTORE
+        },
+        policyLogsEnabled: p.ENABLE_FIREBASE_ACCESS_POLICY_LOGS,
+        monolithProxyAllowlistSummary: BACKEND_V2_REQUIRED_LEGACY_PROXY_PATHS
+      });
+    });
+  }
 }

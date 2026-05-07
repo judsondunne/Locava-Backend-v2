@@ -696,6 +696,30 @@ export const routeContracts: RouteContract[] = [
   },
   {
     method: "POST",
+    path: "/debug/client-telemetry/events",
+    description: "Dev-only client telemetry ingest (in-memory + terminal timeline)",
+    tags: ["debug", "observability"]
+  },
+  {
+    method: "GET",
+    path: "/debug/client-telemetry/sessions",
+    description: "List recent client telemetry sessions",
+    tags: ["debug", "observability"]
+  },
+  {
+    method: "GET",
+    path: "/debug/client-telemetry/sessions/:sessionId",
+    description: "Get raw event timeline for one telemetry session",
+    tags: ["debug", "observability"]
+  },
+  {
+    method: "GET",
+    path: "/debug/client-telemetry/sessions/:sessionId/summary",
+    description: "Get compact metrics summary for one telemetry session",
+    tags: ["debug", "observability"]
+  },
+  {
+    method: "POST",
     path: "/debug/post-rebuilder/:postId/preview",
     description: "Preview per-post canonical rebuild + validation + diff",
     tags: ["debug", "post", "migration"]

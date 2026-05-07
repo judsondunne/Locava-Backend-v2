@@ -40,7 +40,7 @@ describe("analytics publisher runtime diagnostics", () => {
         throw new Error("Access Denied");
       }),
     };
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await expect(
       publisher.publish([
@@ -60,7 +60,7 @@ describe("analytics publisher runtime diagnostics", () => {
       ])
     ).rejects.toThrow("Access Denied");
 
-    const payload = errorSpy.mock.calls[0]?.[1] as Record<string, unknown>;
+    const payload = warnSpy.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(payload?.nonBlocking).toBe(true);
     expect(payload?.checkCommand).toBe("npm run debug:analytics:bigquery");
   });

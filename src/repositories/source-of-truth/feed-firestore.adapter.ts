@@ -3,6 +3,7 @@ import { globalCache } from "../../cache/global-cache.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { logFirestoreDebug } from "./firestore-debug.js";
 import { readPostOrderMillis } from "./post-firestore-projection.js";
+import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
 
 export type FirestoreFeedCandidate = {
   /** Firestore document ID — canonical post id */
@@ -522,7 +523,8 @@ function mapDocToCandidate(doc: QueryDocumentSnapshot): FirestoreFeedCandidate {
   const geoData = (data.geoData ?? {}) as Record<string, unknown>;
   const comments = Array.isArray(data.comments) ? data.comments : [];
   const topLevelEmbeddedCommentCount = comments.filter((entry) => isTopLevelEmbeddedComment(entry)).length;
-  const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(data);
+  const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } =
+    normalizeLetterboxHintsFromFirestorePost(data);
   return {
     postId: doc.id,
     authorId,
@@ -575,72 +577,6 @@ function isTopLevelEmbeddedComment(value: unknown): boolean {
   const commentId = typeof commentIdRaw === "string" ? commentIdRaw.trim() : "";
   if (!commentId) return false;
   return wire.replyingTo == null;
-}
-
-function normalizeLetterboxHints(data: Record<string, unknown>): {
-  letterboxGradientTop: string | null | undefined;
-  letterboxGradientBottom: string | null | undefined;
-  letterboxGradients: Array<{ top: string; bottom: string }> | null | undefined;
-} {
-  const legacy = (data as { legacy?: unknown }).legacy as
-    | {
-        letterboxGradientTop?: unknown;
-        letterboxGradientBottom?: unknown;
-        letterboxGradients?: unknown;
-        letterbox_gradient_top?: unknown;
-        letterbox_gradient_bottom?: unknown;
-      }
-    | undefined;
-  const topRaw =
-    typeof data.letterboxGradientTop === "string"
-      ? data.letterboxGradientTop
-      : typeof data.letterbox_gradient_top === "string"
-        ? data.letterbox_gradient_top
-        : typeof legacy?.letterboxGradientTop === "string"
-          ? (legacy.letterboxGradientTop as string)
-          : typeof legacy?.letterbox_gradient_top === "string"
-            ? (legacy.letterbox_gradient_top as string)
-        : null;
-  const bottomRaw =
-    typeof data.letterboxGradientBottom === "string"
-      ? data.letterboxGradientBottom
-      : typeof data.letterbox_gradient_bottom === "string"
-        ? data.letterbox_gradient_bottom
-        : typeof legacy?.letterboxGradientBottom === "string"
-          ? (legacy.letterboxGradientBottom as string)
-          : typeof legacy?.letterbox_gradient_bottom === "string"
-            ? (legacy.letterbox_gradient_bottom as string)
-        : null;
-  const top = topRaw?.trim() ? topRaw.trim() : null;
-  const bottom = bottomRaw?.trim() ? bottomRaw.trim() : null;
-
-  const gradientsRaw = Array.isArray(data.letterboxGradients)
-    ? data.letterboxGradients
-    : Array.isArray(legacy?.letterboxGradients)
-      ? (legacy!.letterboxGradients as unknown[])
-      : null;
-  if (!Array.isArray(gradientsRaw)) {
-    return {
-      letterboxGradientTop: top ?? undefined,
-      letterboxGradientBottom: bottom ?? undefined,
-      letterboxGradients: undefined
-    };
-  }
-  const out: Array<{ top: string; bottom: string }> = [];
-  for (const entry of gradientsRaw) {
-    if (!entry || typeof entry !== "object") continue;
-    const e = entry as { top?: unknown; bottom?: unknown };
-    if (typeof e.top !== "string" || typeof e.bottom !== "string") continue;
-    const t = e.top.trim();
-    const b = e.bottom.trim();
-    if (!t || !b) continue;
-    out.push({ top: t, bottom: b });
-  }
-  return {
-    letterboxGradientTop: top ?? undefined,
-    letterboxGradientBottom: bottom ?? undefined,
-    letterboxGradients: out.length > 0 ? out : undefined
-  };
 }
 
 function inferMediaType(data: Record<string, unknown>): "image" | "video" {
@@ -724,6 +660,22 @@ function normalizeText(value: unknown): string | null {
   return t ? t : null;
 }
 
+function isLikelyVideoUrlString(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /\.(mp4|mov|m4v|webm|m3u8)(\?|#|$)/i.test(value.trim());
+}
+
+function inferCardAssetIsVideo(asset: Record<string, unknown>): boolean {
+  if (String(asset.type ?? "").toLowerCase() === "video") return true;
+  const id = normalizeText(asset.id) ?? "";
+  if (/^video_/i.test(id)) return true;
+  const direct =
+    normalizeText(asset.original) ?? normalizeText(asset.url) ?? normalizeText(asset.downloadURL as string | undefined);
+  if (isLikelyVideoUrlString(direct)) return true;
+  const variants = (asset.variants ?? {}) as Record<string, unknown>;
+  return Object.values(variants).some((v) => typeof v === "string" && isLikelyVideoUrlString(v));
+}
+
 function normalizeAssetsForCard(value: unknown): FirestoreFeedCandidate["assets"] {
   if (!Array.isArray(value)) return [];
   const out: FirestoreFeedCandidate["assets"] = [];
@@ -738,7 +690,7 @@ function normalizeAssetsForCard(value: unknown): FirestoreFeedCandidate["assets"
     const thumb = (variants.thumb ?? {}) as Record<string, unknown>;
     out.push({
       id: normalizeText(asset.id) ?? `asset-${i + 1}`,
-      type: String(asset.type ?? "").toLowerCase() === "video" ? "video" : "image",
+      type: inferCardAssetIsVideo(asset) ? "video" : "image",
       previewUrl: normalizeText(sm.webp) ?? normalizeText(md.webp) ?? normalizeText(lg.webp),
       posterUrl: normalizeText(thumb.webp) ?? normalizeText(sm.webp),
       originalUrl: normalizeText(asset.original) ?? normalizeText(asset.url) ?? normalizeText(asset.downloadURL),

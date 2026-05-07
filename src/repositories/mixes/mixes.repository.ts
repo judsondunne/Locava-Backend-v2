@@ -3,7 +3,16 @@ import path from "node:path";
 import type { FastifyBaseLogger } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
-import { endFullWarmerPass, evaluateFullWarmerGate } from "../../runtime/warmer-traffic-gate.js";
+import {
+  beginBackgroundWarmer,
+  beginFullWarmerPass,
+  consumeDeferredBackgroundWork,
+  endBackgroundWarmer,
+  endFullWarmerPass,
+  evaluateFullWarmerGate,
+  evaluateQuickWarmerGate,
+  noteBackgroundWorkDeferred,
+} from "../../runtime/warmer-traffic-gate.js";
 
 export type MixSourcePost = Record<string, unknown> & { postId: string };
 
@@ -227,9 +236,27 @@ export class MixesRepository {
     const targetDocs = Math.max(1, Math.min(this.maxDocs, Math.floor(maxDocsOverride ?? this.maxDocs)));
     const forceFull = process.env.MIXES_WARMER_FORCE === "1";
     const isFullSizedPass = targetDocs >= this.maxDocs;
+    const backgroundWorkKey = isFullSizedPass ? "mixes_full" : "mixes_quick";
+    if (!isFullSizedPass && reason === "startup" && !forceFull) {
+      const quickGate = evaluateQuickWarmerGate({ force: false, mode: "mixes_quick" });
+      if (!quickGate.ok) {
+        noteBackgroundWorkDeferred(backgroundWorkKey, quickGate.reason);
+        logger?.info(
+          {
+            event: "mixes_pool_refresh_deferred",
+            reason: quickGate.reason,
+            targetDocs,
+            refreshReason: reason,
+          },
+          "[BACKGROUND_WORK_DEFERRED]"
+        );
+        return;
+      }
+    }
     if (isFullSizedPass && !forceFull) {
       const gate = evaluateFullWarmerGate({ force: false, mode: "mixes" });
       if (!gate.ok) {
+        noteBackgroundWorkDeferred(backgroundWorkKey, gate.reason);
         logger?.info(
           {
             event: "mixes_pool_refresh_skipped",
@@ -239,13 +266,39 @@ export class MixesRepository {
             skipped_due_to_recent_refresh: gate.reason === "recent_full_refresh",
             skipped_due_to_singleflight: gate.reason === "singleflight_busy",
           },
-          "mixes pool refresh skipped"
+          "[BACKGROUND_WORK_SKIPPED_ACTIVE_CRITICAL]"
         );
         return;
       }
     }
+    if (isFullSizedPass && !beginFullWarmerPass()) {
+      noteBackgroundWorkDeferred(backgroundWorkKey, "singleflight_busy");
+      logger?.info(
+        {
+          event: "mixes_pool_refresh_skipped",
+          reason: "singleflight_busy",
+          targetDocs,
+        },
+        "[BACKGROUND_WORK_SKIPPED_ACTIVE_CRITICAL]"
+      );
+      return;
+    }
     this.pool.state = this.pool.posts.length > 0 ? "stale" : "warming";
     this.pool.lastRefreshStartedAtMs = Date.now();
+    const resumed = consumeDeferredBackgroundWork(backgroundWorkKey);
+    if (resumed) {
+      logger?.info(
+        {
+          event: "mixes_pool_refresh_resumed",
+          reason: resumed.reason,
+          deferredForMs: resumed.deferredForMs,
+          targetDocs,
+          refreshReason: reason,
+        },
+        "[BACKGROUND_WORK_RESUMED]"
+      );
+    }
+    beginBackgroundWarmer(backgroundWorkKey);
     logger?.info(
       {
         event: "pool_refresh_started",
@@ -308,9 +361,6 @@ export class MixesRepository {
         this.pool.state = "warm";
       }
       await this.persistSnapshot().catch(() => undefined);
-      if (isFullSizedPass) {
-        endFullWarmerPass();
-      }
       logger?.info(
         {
           event: "pool_refresh_completed",
@@ -344,6 +394,10 @@ export class MixesRepository {
       })
       .finally(() => {
         this.pool.inFlight = null;
+        endBackgroundWarmer(backgroundWorkKey);
+        if (isFullSizedPass) {
+          endFullWarmerPass();
+        }
       });
     return this.pool.inFlight ?? Promise.resolve();
   }

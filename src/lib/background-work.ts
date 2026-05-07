@@ -1,5 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { getAuditRequestContext, getRequestContext, runOutsideRequestContext } from "../observability/request-context.js";
+import type { FirebaseAccessGate } from "./firebase-access-gate-context.js";
+import { runWithFirebaseAccessGate } from "./firebase-access-gate-context.js";
 
 export type BackgroundWorkOrigin = {
   auditRunId: string | null;
@@ -7,6 +9,7 @@ export type BackgroundWorkOrigin = {
   auditSpecName: string | null;
   requestId: string | null;
   source: "request" | "background" | "unknown";
+  firebaseGate?: FirebaseAccessGate;
 };
 
 export type BackgroundWorkFilter = {
@@ -166,7 +169,8 @@ function captureBackgroundWorkOrigin(): BackgroundWorkOrigin {
     auditSpecId: audit?.auditSpecId ?? null,
     auditSpecName: audit?.auditSpecName ?? null,
     requestId: request?.requestId ?? null,
-    source: request ? "request" : "unknown"
+    source: request ? "request" : "unknown",
+    firebaseGate: request?.firebaseAccess
   };
 }
 
@@ -179,14 +183,23 @@ function drainBackgroundQueue(): void {
     job.startedAtEpochMs = Date.now();
     runOutsideRequestContext(() => {
       originStorage.run(job.origin, () => {
-        void Promise.resolve()
-          .then(job.work)
-          .catch(() => undefined)
-          .finally(() => {
-            activeJobCount = Math.max(0, activeJobCount - 1);
-            job.resolve();
-            drainBackgroundQueue();
-          });
+        const gate: FirebaseAccessGate =
+          job.origin.firebaseGate ??
+          ({
+            allowCategory: "BACKEND_V2_ALLOWED",
+            legacy: false,
+            surface: "background-default"
+          } satisfies FirebaseAccessGate);
+        runWithFirebaseAccessGate(gate, () => {
+          void Promise.resolve()
+            .then(job.work)
+            .catch(() => undefined)
+            .finally(() => {
+              activeJobCount = Math.max(0, activeJobCount - 1);
+              job.resolve();
+              drainBackgroundQueue();
+            });
+        });
       });
     });
   }

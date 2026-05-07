@@ -5,6 +5,8 @@ import multipart from "@fastify/multipart";
 import { context, trace } from "@opentelemetry/api";
 import { ZodError } from "zod";
 import { type AppEnv, loadEnv } from "../config/env.js";
+import { classifyFirebaseAccessForRequest } from "../config/firebase-access-gate.js";
+import { evaluateLegacyRouteShutdown, firebasePolicyEnvFromAppConfig } from "../config/legacyRouteShutdownPolicy.js";
 import { legacyProxyLoopsToBackendTargets } from "../lib/firebase-identity-toolkit.js";
 import { failure } from "../lib/response.js";
 import { diagnosticsStore } from "../observability/diagnostics-store.js";
@@ -144,6 +146,9 @@ import { registerPostRebuilderRoutes } from "../routes/debug/post-rebuilder.rout
 import { registerAppPostV2SurfaceCompareRoutes } from "../routes/debug/app-post-v2-surface.routes.js";
 import { registerDebugPostGradientAuditRoutes } from "../routes/debug/post-gradient-audit.routes.js";
 import { registerDebugPostCanonicalStatusRoutes } from "../routes/debug/post-canonical-status.routes.js";
+import { registerClientTelemetryRoutes } from "../routes/debug/client-telemetry.routes.js";
+import { registerEmergencyPostRestoreRoutes } from "../routes/debug/emergency-post-restore.routes.js";
+import { registerPostCanonicalBackupsRestorePreviewRoutes } from "../routes/debug/post-canonical-backups-restore-preview.routes.js";
 import { registerPublicExpoPushRoutes } from "../routes/public/expo-push.routes.js";
 import { SourceOfTruthRequiredError } from "../repositories/source-of-truth/strict-mode.js";
 import {
@@ -156,7 +161,9 @@ import { isLocalDevIdentityModeEnabled, resolveLocalDebugViewerId } from "../lib
 import { registerNativeProductShimRoutes } from "../routes/compat/native-product-shim.routes.js";
 import { registerNativeReportsCompatRoutes } from "../routes/compat/native-reports-compat.routes.js";
 import {
-  markP1P2InteractiveRequest,
+  beginCriticalInteractiveRequest,
+  endCriticalInteractiveRequest,
+  isBackgroundWarmerActive,
   markProcessBoot
 } from "../runtime/warmer-traffic-gate.js";
 import { globalCache } from "../cache/global-cache.js";
@@ -164,6 +171,7 @@ import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contr
 import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
 import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
 import { runFirebaseAdminPermissionProbe } from "../lib/firebase-admin.js";
+import { isReadOnlyLatencyAuditEnabled } from "../safety/read-only-latency-audit-guard.js";
 import { LOG_REQUEST_DEBUG, LOG_STARTUP_DEBUG } from "../lib/logging/log-config.js";
 
 function classifyError(error: unknown): { code: string; statusCode: number; details?: unknown } {
@@ -194,6 +202,52 @@ function classifyError(error: unknown): { code: string; statusCode: number; deta
   }
 
   return { code: "internal_error", statusCode: 500 };
+}
+
+function shouldLogPayloadBudgetBreakdown(): boolean {
+  return process.env.NODE_ENV !== "production" || process.env.LOG_PAYLOAD_BUDGET === "1";
+}
+
+function shouldRegisterDangerousFirestoreDebugRoutes(): boolean {
+  const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST?.trim();
+  const gcloudProject = process.env.GCLOUD_PROJECT?.trim();
+  const googleCloudProject = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+  const firebaseConfig = process.env.FIREBASE_CONFIG?.trim() ?? "";
+  return (
+    Boolean(emulatorHost) &&
+    gcloudProject !== "learn-32d72" &&
+    googleCloudProject !== "learn-32d72" &&
+    !firebaseConfig.includes("learn-32d72") &&
+    process.env.ALLOW_DESTRUCTIVE_FIRESTORE_EMULATOR_ONLY === "I_UNDERSTAND_THIS_ONLY_RUNS_ON_EMULATOR" &&
+    process.env.ALLOW_POSTS_WIPE_IN_EMULATOR === "I_UNDERSTAND_POSTS_WIPE_EMULATOR_ONLY"
+  );
+}
+
+function profileTopLevelPayloadFields(payload: unknown): Array<Record<string, unknown>> {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return [];
+  const obj = payload as Record<string, unknown>;
+  const out: Array<Record<string, unknown>> = [];
+  for (const [field, value] of Object.entries(obj)) {
+    const encoded = JSON.stringify(value);
+    const bytes = Buffer.byteLength(encoded, "utf8");
+    const row: Record<string, unknown> = { field, bytes };
+    if (Array.isArray(value)) {
+      const itemBytes = value.map((item) => Buffer.byteLength(JSON.stringify(item), "utf8"));
+      const maxBytes = itemBytes.length > 0 ? Math.max(...itemBytes) : 0;
+      const maxIndex = maxBytes > 0 ? itemBytes.indexOf(maxBytes) : -1;
+      const maxItem = maxIndex >= 0 ? value[maxIndex] : null;
+      row.count = value.length;
+      row.avgItemBytes = value.length > 0 ? Math.round(bytes / value.length) : 0;
+      row.maxItemBytes = maxBytes;
+      const maxId =
+        maxItem && typeof maxItem === "object"
+          ? String((maxItem as Record<string, unknown>).id ?? (maxItem as Record<string, unknown>).postId ?? "")
+          : "";
+      if (maxId.trim()) row.worstItemId = maxId.trim();
+    }
+    out.push(row);
+  }
+  return out.sort((a, b) => Number(b.bytes ?? 0) - Number(a.bytes ?? 0)).slice(0, 8);
 }
 
 let eventLoopDelayHistogram: ReturnType<typeof monitorEventLoopDelay> | null = null;
@@ -243,7 +297,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         await primeCoherenceProvider();
       }
       await primeFirestoreSourceClient();
-      if (env.NODE_ENV !== "production") {
+      if (env.NODE_ENV !== "production" && !isReadOnlyLatencyAuditEnabled()) {
         await primeFirestoreMutationChannel();
       }
       if (env.NODE_ENV !== "production") {
@@ -257,7 +311,16 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     });
   }
 
-  app.addHook("onRequest", (request, _reply, done) => {
+  app.addHook("onRequest", (request, reply, done) => {
+    const shutdown = evaluateLegacyRouteShutdown(request.url, firebasePolicyEnvFromAppConfig(env));
+    if (shutdown) {
+      request.requestStartNs = process.hrtime.bigint();
+      request.requestIdValue = request.headers["x-request-id"]?.toString() ?? randomUUID();
+      reply.status(shutdown.statusCode).send(shutdown.body);
+      setImmediate(done);
+      return;
+    }
+
     request.requestStartNs = process.hrtime.bigint();
     const requestId = request.headers["x-request-id"]?.toString() ?? randomUUID();
     request.requestIdValue = requestId;
@@ -308,11 +371,21 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           servedStale: false,
           optionalWorkSkipped: false
         },
+        client: {
+          clientSessionId: request.headers["x-client-session-id"]?.toString() ?? null,
+          clientRequestId: request.headers["x-client-request-id"]?.toString() ?? null,
+          clientSentAtMs: request.headers["x-client-sent-at-ms"]?.toString() ?? null,
+          clientRouteName: request.headers["x-client-route-name"]?.toString() ?? null,
+          clientSurface: request.headers["x-client-surface"]?.toString() ?? null,
+          clientBuildProfile: request.headers["x-client-build-profile"]?.toString() ?? null,
+          clientPlatform: request.headers["x-client-platform"]?.toString() ?? null
+        },
         audit: {
           auditRunId: request.headers["x-audit-run-id"]?.toString(),
           auditSpecId: request.headers["x-audit-spec-id"]?.toString(),
           auditSpecName: request.headers["x-audit-spec-name"]?.toString()
-        }
+        },
+        firebaseAccess: classifyFirebaseAccessForRequest(request.method, request.url)
       },
       () => {
         const ctx = getRequestContext();
@@ -330,10 +403,25 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.addHook("preHandler", async (request) => {
     const inferred = inferRouteNameFromRequest(request.method, request.url);
     const policy = inferred ? getRoutePolicy(inferred) : undefined;
+    beginCriticalInteractiveRequest(policy?.lane);
+    if (
+      isBackgroundWarmerActive() &&
+      (policy?.priority === "critical_interactive" || policy?.priority === "deferred_interactive")
+    ) {
+      const ctx = getRequestContext();
+      if (ctx?.orchestration) {
+        ctx.orchestration.blockedByStartupWarmers = true;
+      }
+    }
     await enterLowPriorityStartupGateIfNeeded(request, policy);
   });
 
-  app.addHook("onSend", async (_request, _reply, payload) => {
+  app.addHook("onSend", async (request, reply, payload) => {
+    const ctx = getRequestContext();
+    const elapsedMs = Number(process.hrtime.bigint() - request.requestStartNs) / 1_000_000;
+    reply.header("x-backend-request-id", request.requestIdValue);
+    if (ctx?.routeName) reply.header("x-backend-route-name", ctx.routeName);
+    reply.header("x-backend-duration-ms", String(Math.round(elapsedMs)));
     if (typeof payload === "string") {
       recordPayloadBytes(Buffer.byteLength(payload, "utf8"));
       return payload;
@@ -348,6 +436,25 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     }
     const serialized = JSON.stringify(payload);
     recordPayloadBytes(Buffer.byteLength(serialized, "utf8"));
+    const payloadBytes = Buffer.byteLength(serialized, "utf8");
+    const routeName = ctx?.routeName ?? null;
+    const policy = routeName ? getRoutePolicy(routeName) : null;
+    if (
+      shouldLogPayloadBudgetBreakdown() &&
+      policy &&
+      payloadBytes > policy.budgets.payload.maxBytes
+    ) {
+      request.log.warn(
+        {
+          event: "PAYLOAD_BUDGET_EXCEEDED",
+          routeName,
+          payloadBytes,
+          payloadBudgetBytes: policy.budgets.payload.maxBytes,
+          topFields: profileTopLevelPayloadFields(payload)
+        },
+        "payload budget exceeded"
+      );
+    }
     return payload;
   });
 
@@ -355,10 +462,11 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     releaseLowPriorityStartupGate(request);
     const latencyMs = Number(process.hrtime.bigint() - request.requestStartNs) / 1_000_000;
     const ctx = getRequestContext();
-    const lane = ctx?.routePolicy?.lane;
-    if (lane === "P1_NEXT_PLAYBACK" || lane === "P2_CURRENT_SCREEN") {
-      markP1P2InteractiveRequest();
+    const lane = ctx?.routePolicy?.lane ?? getRoutePolicy(inferRouteNameFromRequest(request.method, request.url) ?? "")?.lane;
+    if (isBackgroundWarmerActive() && ctx?.orchestration) {
+      ctx.orchestration.blockedByStartupWarmers = true;
     }
+    endCriticalInteractiveRequest(lane);
     const budgetViolations: string[] = [];
     const policy = ctx?.routePolicy;
     if (policy) {
@@ -436,6 +544,13 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           latencyMs: Number(latencyMs.toFixed(2)),
           payloadBytes: ctx?.payloadBytes ?? 0,
           routePriority: ctx?.orchestration?.priority ?? ctx?.routePolicy?.lane ?? ctx?.routePolicy?.priority ?? null,
+          clientSessionId: ctx?.client?.clientSessionId ?? null,
+          clientRequestId: ctx?.client?.clientRequestId ?? null,
+          clientSentAtMs: ctx?.client?.clientSentAtMs ?? null,
+          clientRouteName: ctx?.client?.clientRouteName ?? null,
+          clientSurface: ctx?.client?.clientSurface ?? null,
+          clientBuildProfile: ctx?.client?.clientBuildProfile ?? null,
+          clientPlatform: ctx?.client?.clientPlatform ?? null,
           surface: ctx?.orchestration?.surface ?? null,
           requestGroup: ctx?.orchestration?.requestGroup ?? null,
           hydrationMode: ctx?.orchestration?.hydrationMode ?? null,
@@ -468,6 +583,13 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           latencyMs: Number(latencyMs.toFixed(2)),
           payloadBytes: ctx?.payloadBytes ?? 0,
           routePriority: ctx?.orchestration?.priority ?? ctx?.routePolicy?.lane ?? ctx?.routePolicy?.priority ?? null,
+          clientSessionId: ctx?.client?.clientSessionId ?? null,
+          clientRequestId: ctx?.client?.clientRequestId ?? null,
+          clientSentAtMs: ctx?.client?.clientSentAtMs ?? null,
+          clientRouteName: ctx?.client?.clientRouteName ?? null,
+          clientSurface: ctx?.client?.clientSurface ?? null,
+          clientBuildProfile: ctx?.client?.clientBuildProfile ?? null,
+          clientPlatform: ctx?.client?.clientPlatform ?? null,
           surface: ctx?.orchestration?.surface ?? null,
           requestGroup: ctx?.orchestration?.requestGroup ?? null,
           hydrationMode: ctx?.orchestration?.hydrationMode ?? null,
@@ -494,16 +616,27 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     const errorCause =
       error instanceof Error && "cause" in error ? (error as Error & { cause?: unknown }).cause : undefined;
 
-    request.log.error(
-      {
-        event: "request_error",
-        code: classification.code,
-        err: error,
-        ...(errorCause !== undefined ? { errorCause } : {}),
-        statusCode: classification.statusCode
-      },
-      "request failed"
-    );
+    if (classification.code === "source_of_truth_required") {
+      request.log.warn(
+        {
+          event: "request_error",
+          code: classification.code,
+          statusCode: classification.statusCode
+        },
+        "request degraded: source_of_truth_required"
+      );
+    } else {
+      request.log.error(
+        {
+          event: "request_error",
+          code: classification.code,
+          err: error,
+          ...(errorCause !== undefined ? { errorCause } : {}),
+          statusCode: classification.statusCode
+        },
+        "request failed"
+      );
+    }
 
     const message = error instanceof Error ? error.message : "Unexpected error";
     return reply.status(classification.statusCode).send(failure(classification.code, message, classification.details));
@@ -644,11 +777,25 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     app.register(registerLocalDebugRoutes);
     app.register(registerPublicFirestoreProbeRoutes);
   }
-  app.register(registerPostRebuilderRoutes);
+  /** Post rebuilder is opt-in via env; it does not require the emulator-only destructive acks. */
+  if (env.ENABLE_POST_REBUILDER_DEBUG_ROUTES) {
+    app.register(registerPostRebuilderRoutes);
+  }
+  if (shouldRegisterDangerousFirestoreDebugRoutes()) {
+    app.register(registerEmergencyPostRestoreRoutes);
+    app.register(registerPostCanonicalBackupsRestorePreviewRoutes);
+  } else {
+    app.log.warn({
+      event: "dangerous_firestore_debug_routes_disabled",
+      reason: "emulator_confirmation_required",
+      stillExcludedRoutes: ["emergency-post-restore", "post-canonical-backups-restore-preview"]
+    });
+  }
   app.register(registerAppPostV2SurfaceCompareRoutes);
   if (env.NODE_ENV !== "production") {
     app.register(registerDebugPostGradientAuditRoutes);
     app.register(registerDebugPostCanonicalStatusRoutes);
+    app.register(registerClientTelemetryRoutes);
   }
 
   app.addHook("onReady", async () => {

@@ -166,8 +166,6 @@ function feedWireItemToPlaybackPostLike(it: LooseRecord): Record<string, unknown
 
 export function rollupFeedVideoMediaSummary(items: unknown[]): LooseRecord {
   let videoItemCount = 0;
-  let playbackUrlPresentTrue = 0;
-  let playbackUrlNonEmpty = 0;
   let fallbackVideoNonEmpty = 0;
   let posterNonEmpty = 0;
   let firstAssetUrlNonEmpty = 0;
@@ -179,13 +177,14 @@ export function rollupFeedVideoMediaSummary(items: unknown[]): LooseRecord {
   let processingStatus = 0;
   let videoDegradedCount = 0;
   let videoMissingPlayableCount = 0;
-  const videoSelectedVariantCounts: Record<string, number> = {
-    hls: 0,
-    main1080: 0,
-    main720: 0,
-    original: 0,
-    preview360: 0,
-    none: 0,
+  let canonicalVideoPlayableCount = 0;
+  let canonicalStartupUrlCount = 0;
+  let canonicalPosterCount = 0;
+  let canonicalGradientCount = 0;
+  const canonicalSelectedVariantCounts: Record<string, number> = {};
+
+  const incrementVariantCount = (bucket: string): void => {
+    canonicalSelectedVariantCounts[bucket] = (canonicalSelectedVariantCounts[bucket] ?? 0) + 1;
   };
 
   for (const raw of items) {
@@ -193,8 +192,6 @@ export function rollupFeedVideoMediaSummary(items: unknown[]): LooseRecord {
     const it = raw as LooseRecord;
     if (!isFeedItemVideo(it)) continue;
     videoItemCount++;
-    if (it.playbackUrlPresent === true) playbackUrlPresentTrue++;
-    if (typeof it.playbackUrl === "string" && it.playbackUrl.length > 0) playbackUrlNonEmpty++;
     if (typeof it.fallbackVideoUrl === "string" && it.fallbackVideoUrl.length > 0) fallbackVideoNonEmpty++;
     const media = it.media as LooseRecord | undefined;
     const hasPoster =
@@ -218,23 +215,65 @@ export function rollupFeedVideoMediaSummary(items: unknown[]): LooseRecord {
     if (hints.includes("hls_in_path")) hlsPathHintAnywhere++;
 
     try {
+      const appPost = (it.appPostV2 ?? it.appPost ?? it.post ?? it.canonicalPost) as LooseRecord | undefined;
+      const appPostMediaAssets = Array.isArray((appPost?.media as LooseRecord | undefined)?.assets)
+        ? (((appPost?.media as LooseRecord).assets as unknown[]) ?? [])
+        : [];
+      const rootMediaAssets = Array.isArray((it.media as LooseRecord | undefined)?.assets)
+        ? ((((it.media as LooseRecord).assets as unknown[]) ?? []))
+        : [];
+      const canonicalVideoAsset = [...appPostMediaAssets, ...rootMediaAssets].find((asset) => {
+        if (!asset || typeof asset !== "object") return false;
+        return String((asset as LooseRecord).type ?? "").toLowerCase() === "video";
+      }) as LooseRecord | undefined;
+      const canonicalPlayback = (canonicalVideoAsset?.video as LooseRecord | undefined)?.playback as LooseRecord | undefined;
+      const startupUrl = typeof canonicalPlayback?.startupUrl === "string" ? canonicalPlayback.startupUrl.trim() : "";
+      const defaultUrl = typeof canonicalPlayback?.defaultUrl === "string" ? canonicalPlayback.defaultUrl.trim() : "";
+      const primaryUrl = typeof canonicalPlayback?.primaryUrl === "string" ? canonicalPlayback.primaryUrl.trim() : "";
+      const hasCanonicalPlayable = Boolean(startupUrl || defaultUrl || primaryUrl);
+      if (hasCanonicalPlayable) canonicalVideoPlayableCount += 1;
+      if (startupUrl) canonicalStartupUrlCount += 1;
+      const canonicalPosterUrl =
+        typeof canonicalPlayback?.posterUrl === "string" && canonicalPlayback.posterUrl.trim().length > 0
+          ? canonicalPlayback.posterUrl.trim()
+          : typeof canonicalVideoAsset?.video === "object" &&
+              canonicalVideoAsset.video &&
+              typeof (canonicalVideoAsset.video as LooseRecord).posterUrl === "string" &&
+              String((canonicalVideoAsset.video as LooseRecord).posterUrl).trim().length > 0
+            ? String((canonicalVideoAsset.video as LooseRecord).posterUrl).trim()
+            : "";
+      if (canonicalPosterUrl) {
+        canonicalPosterCount += 1;
+      }
+      const presentation = canonicalVideoAsset?.presentation as LooseRecord | undefined;
+      const canonicalGradient =
+        (presentation?.letterboxGradient as LooseRecord | undefined) ??
+        ((appPost?.media as LooseRecord | undefined)?.cover as LooseRecord | undefined)?.gradient as LooseRecord | undefined;
+      const hasCanonicalGradient = Boolean(
+        typeof canonicalPlayback?.gradient === "string" && canonicalPlayback.gradient.trim().length > 0 ||
+          typeof canonicalGradient?.top === "string" && canonicalGradient.top.trim().length > 0 ||
+          typeof canonicalGradient?.bottom === "string" && canonicalGradient.bottom.trim().length > 0
+      );
+      if (hasCanonicalGradient) {
+        canonicalGradientCount += 1;
+      }
       const sel = resolveBestVideoPlaybackMedia(feedWireItemToPlaybackPostLike(it), {
         hydrationMode: "playback",
       });
       if (sel.isDegradedVideo) videoDegradedCount++;
-      const bucket = sel.selectedVideoVariant ?? "none";
-      const tally = videoSelectedVariantCounts as Record<string, number>;
-      tally[bucket] = (tally[bucket] ?? 0) + 1;
-      if (!sel.playbackUrl && !sel.fallbackVideoUrl) videoMissingPlayableCount += 1;
+      const bucket =
+        sel.selectedVideoVariant ??
+        (startupUrl ? "startup" : defaultUrl ? "default" : primaryUrl ? "primary" : "none");
+      incrementVariantCount(bucket);
+      if (!sel.playbackUrl && !sel.fallbackVideoUrl && !hasCanonicalPlayable) videoMissingPlayableCount += 1;
     } catch {
       videoMissingPlayableCount += 1;
+      incrementVariantCount("error");
     }
   }
 
   return {
     videoItemCount,
-    videoPlaybackUrlPresentTrue: playbackUrlPresentTrue,
-    videoPlaybackUrlNonEmpty: playbackUrlNonEmpty,
     videoFallbackUrlNonEmpty: fallbackVideoNonEmpty,
     videoPosterNonEmpty: posterNonEmpty,
     videoFirstAssetUrlNonEmpty: firstAssetUrlNonEmpty,
@@ -244,7 +283,11 @@ export function rollupFeedVideoMediaSummary(items: unknown[]): LooseRecord {
     videoCardsWithMain720PathHint: main720PathHintAnywhere,
     videoCardsWithMain1080PathHint: main1080PathHintAnywhere,
     videoCardsWithHlsPathHint: hlsPathHintAnywhere,
-    videoSelectedVariantCounts,
+    canonicalSelectedVariantCounts,
+    canonicalVideoPlayableCount,
+    canonicalStartupUrlCount,
+    canonicalPosterCount,
+    canonicalGradientCount,
     videoDegradedCount,
     videoMissingPlayableCount
   };

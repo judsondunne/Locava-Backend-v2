@@ -10,7 +10,7 @@ export type FeedCardWireInput = FeedBootstrapCandidateRecord & {
 };
 
 function logFeedAppPostMediaIntegrity(payload: Record<string, unknown>): void {
-  if (process.env.FEED_APP_POST_MEDIA_INTEGRITY_LOG !== "1" && process.env.NODE_ENV === "production") return;
+  if (process.env.FEED_APP_POST_MEDIA_INTEGRITY_LOG !== "1") return;
   try {
     // eslint-disable-next-line no-console
     console.info("[FeedAppPostMediaIntegrity]", JSON.stringify(payload));

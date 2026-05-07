@@ -63,6 +63,7 @@ export async function registerLegacyBootstrapCompatRoutes(app: FastifyInstance):
       viewer: viewerCtx,
       userId: viewerId,
       gridLimit,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 0
     });
 

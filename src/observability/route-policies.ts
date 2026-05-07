@@ -312,6 +312,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
     cacheExpectation: "recommended",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 10 }
   },
+  "search.activity_post_counts.get": {
+    routeName: "search.activity_post_counts.get",
+    priority: "deferred_interactive",
+    budgets: {
+      latency: { p50Ms: 90, p95Ms: 220 },
+      dbOps: { maxReadsCold: 18, maxQueriesCold: 2, expectedReadsWarm: 6, expectedQueriesWarm: 1 },
+      payload: { maxBytes: 12_000, targetBytes: 4_000 }
+    },
+    cacheExpectation: "recommended",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
   "search.mixes.activity.page.get": {
     routeName: "search.mixes.activity.page.get",
     priority: "critical_interactive",
@@ -788,6 +799,17 @@ const policies: Record<string, RouteBudgetPolicy> = {
       latency: { p50Ms: 80, p95Ms: 190 },
       dbOps: { maxReadsCold: 2, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 1 },
       payload: { maxBytes: 10_000, targetBytes: 3_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }
+  },
+  "collections.generated.post": {
+    routeName: "collections.generated.post",
+    priority: "critical_interactive",
+    budgets: {
+      latency: { p50Ms: 120, p95Ms: 320 },
+      dbOps: { maxReadsCold: 20, maxQueriesCold: 4, expectedReadsWarm: 8, expectedQueriesWarm: 2 },
+      payload: { maxBytes: 40_000, targetBytes: 14_000 }
     },
     cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 6 }

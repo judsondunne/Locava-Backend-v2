@@ -6,6 +6,7 @@ import {
   toPublicProfileHeader,
   withProfileHeaderCacheMetadata,
 } from "../../domains/profile/profile-header-cache.js";
+import { isReadOnlyLatencyAuditGuardActive } from "../../safety/read-only-latency-audit-guard.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { mapPostDocToGridPreview, readMaybeMillis, readOrderMillisFromSnapshot } from "./post-firestore-projection.js";
 import type { UserDiscoveryRow } from "../../contracts/entities/user-discovery-entities.contract.js";
@@ -125,6 +126,10 @@ export class ProfileFirestoreAdapter {
   private static readonly LEGACY_SCAN_CAP = 240;
   private static readonly VERIFIED_POST_COUNT_TTL_MS = 5 * 60_000;
   private disabledUntilMs = 0;
+
+  private isReadOnlyAuditMode(): boolean {
+    return isReadOnlyLatencyAuditGuardActive();
+  }
 
   static resetCachesForTests(): void {
     ProfileFirestoreAdapter.postCountVerificationInFlight.clear();
@@ -556,6 +561,7 @@ export class ProfileFirestoreAdapter {
     verifiedAtMs?: number
   ): Promise<void> {
     if (!this.db) return;
+    if (this.isReadOnlyAuditMode()) return;
     const verifiedIsFresh =
       typeof verifiedAtMs === "number" &&
       Number.isFinite(verifiedAtMs) &&
@@ -623,6 +629,7 @@ export class ProfileFirestoreAdapter {
 
   private async selfHealPostCount(userId: string, canonicalCount: number): Promise<void> {
     if (!this.db) return;
+    if (this.isReadOnlyAuditMode()) return;
     const now = Date.now();
     await this.db
       .collection("users")
@@ -656,6 +663,7 @@ export class ProfileFirestoreAdapter {
 
   private async touchVerifiedPostCount(userId: string, verifiedCount: number): Promise<void> {
     if (!this.db) return;
+    if (this.isReadOnlyAuditMode()) return;
     const now = Date.now();
     await this.db
       .collection("users")

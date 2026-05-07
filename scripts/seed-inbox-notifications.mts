@@ -13,6 +13,7 @@ import type { Firestore } from "firebase-admin/firestore";
 import "../src/config/env.js";
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
 import { notificationsRepository } from "../src/repositories/surfaces/notifications.repository.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 import { NotificationsService } from "../src/services/surfaces/notifications.service.js";
 
 function trimStr(v: unknown): string | undefined {
@@ -79,6 +80,13 @@ async function main(): Promise<void> {
     console.error("Usage: npx tsx scripts/seed-inbox-notifications.mts <recipientUserId> [--actor=uid] [--dry-run]");
     process.exitCode = 1;
     return;
+  }
+
+  if (!dryRun) {
+    assertEmulatorOnlyDestructiveFirestoreOperation("seed-inbox-notifications", `users/${recipient}/notifications`);
+    console.log(
+      `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=seed-inbox-notifications FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+    );
   }
 
   const db = getFirestoreSourceClient();

@@ -10,6 +10,7 @@
  *   cd "Locava Backendv2" && npx tsx scripts/backfill-user-search-fields.mts --start-after=<uid>
  */
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 import {
   mergeUserSearchFieldsBackfillOptions,
   runUserSearchFieldsBackfill
@@ -92,6 +93,12 @@ Options:
 
 async function main(): Promise<void> {
   const parsed = parseArgs(process.argv.slice(2));
+  if (!parsed.dryRun) {
+    assertEmulatorOnlyDestructiveFirestoreOperation("backfill-user-search-fields", "users");
+    console.log(
+      `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=backfill-user-search-fields FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+    );
+  }
   const db = getFirestoreSourceClient();
   if (!db) {
     console.error("Firestore client unavailable (test mode, FIRESTORE_SOURCE_ENABLED=false, or init failure).");

@@ -123,15 +123,14 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
         const rawMessage = error instanceof Error ? error.message : String(error);
         fallbackReason = "repository_failure";
         fallbackErrorCode = rawMessage.includes("FAILED_PRECONDITION") ? "FAILED_PRECONDITION" : "unknown";
-        request.log.error(
+        request.log.warn(
           {
             routeName: socialSuggestedFriendsContract.routeName,
             viewerId: targetUserId,
             surface,
-            error: rawMessage,
             errorCode: fallbackErrorCode,
           },
-          "suggested friends fallback to empty payload"
+          "suggested friends source degraded to empty payload"
         );
         data = {
           users: [],

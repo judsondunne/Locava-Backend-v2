@@ -1,12 +1,24 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
 
+const QueryBooleanSchema = z.preprocess((value) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "1" || normalized === "true" || normalized === "yes") return true;
+    if (normalized === "0" || normalized === "false" || normalized === "no" || normalized === "") return false;
+  }
+  return value;
+}, z.boolean());
+
 export const ProfileBootstrapParamsSchema = z.object({
   userId: z.string().min(6)
 });
 
 export const ProfileBootstrapQuerySchema = z.object({
   gridLimit: z.coerce.number().int().min(6).max(18).default(12),
+  includeTabPreviews: QueryBooleanSchema.default(true),
   debugSlowDeferredMs: z.coerce.number().int().min(0).max(2000).default(0)
 });
 

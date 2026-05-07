@@ -65,6 +65,11 @@ const EnvSchema = z.object({
   ENABLE_PUBLIC_FIRESTORE_PROBE: z.coerce.boolean().default(false),
   /** Enables one-post canonical rebuild preview/write/revert debug endpoints. */
   ENABLE_POST_REBUILDER_DEBUG_ROUTES: z.coerce.boolean().default(false),
+  ENABLE_CLIENT_TELEMETRY_INGEST: z.coerce.boolean().default(false),
+  CLIENT_TELEMETRY_LOCAL_ONLY: z.coerce.boolean().default(true),
+  CLIENT_TELEMETRY_MAX_EVENTS_PER_BATCH: z.coerce.number().int().min(1).max(500).default(50),
+  CLIENT_TELEMETRY_MAX_PAYLOAD_BYTES: z.coerce.number().int().min(1000).max(500000).default(50000),
+  CLIENT_TELEMETRY_DEBUG_TOKEN: z.string().optional(),
   /** When set, enables POST /internal/ops/* bearer-protected maintenance routes (e.g. search-field backfill). */
   INTERNAL_OPS_TOKEN: z.string().optional(),
   /** When set, protects the internal health dashboard endpoints. */
@@ -115,7 +120,32 @@ const EnvSchema = z.object({
   /** Force synchronous achievements delta generation on finalize (default is async for lower latency). */
   POSTING_FINALIZE_SYNC_ACHIEVEMENTS: z.coerce.boolean().default(false),
   /** When true, post envelopes and feed cards include `appPost` (App Post V2 contract). */
-  BACKEND_APP_POST_V2_RESPONSES: z.coerce.boolean().default(true)
+  BACKEND_APP_POST_V2_RESPONSES: z.coerce.boolean().default(true),
+  /** Firebase read containment: `locked_down` enforces allowlists (see @locava/contracts/firebase-access-policy). */
+  LOCAVA_FIREBASE_ACCESS_MODE: z.enum(["normal", "locked_down"]).default("normal"),
+  DISABLE_LEGACY_FIREBASE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_WORKERS: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_CRON: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_LISTENERS: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_ANALYTICS_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_FEED_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_SEARCH_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_PROFILE_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_POST_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_NOTIFICATIONS_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_MAP_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_REELS_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_USERS_FIRESTORE: z.coerce.boolean().default(false),
+  DISABLE_LEGACY_COLLECTIONS_FIRESTORE: z.coerce.boolean().default(false),
+  ALLOW_BACKEND_V2_FIREBASE: z.coerce.boolean().default(true),
+  ALLOW_WIKIMEDIA_MVP_FIREBASE: z.coerce.boolean().default(true),
+  ALLOW_WIKIMEDIA_STAGING_FIREBASE: z.coerce.boolean().default(true),
+  ALLOW_BACKEND_V2_MONOLITH_PROXY: z.coerce.boolean().default(true),
+  ENABLE_FIREBASE_ACCESS_POLICY_LOGS: z.coerce.boolean().default(false),
+  /** When true with ENABLE_DEV_DIAGNOSTICS, exposes GET /debug/firebase-access-policy (no secrets). */
+  ENABLE_FIREBASE_ACCESS_DEBUG_ENDPOINT: z.coerce.boolean().default(false),
+  /** Read-only real-data profiling mode: probe routes may read production Firebase but must never mutate it. */
+  READ_ONLY_LATENCY_AUDIT: z.coerce.boolean().default(false)
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

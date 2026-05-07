@@ -1,0 +1,56 @@
+{
+  "generatedAt": "2026-05-06T19:03:38.917Z",
+  "mode": "apply",
+  "args": {
+    "dryRun": false,
+    "apply": true,
+    "limit": null,
+    "postId": "FNM5327GjX7VOI7wUXGW",
+    "backupField": "compactLivePost",
+    "allowOverwrite": false,
+    "createMissingOnly": true,
+    "batchSize": 200,
+    "reportDir": "docs/emergency-restore",
+    "allowProject": null
+  },
+  "projectId": "learn-32d72",
+  "databaseId": "(default)",
+  "counters": {
+    "totalBackupDocs": 1250,
+    "uniquePostIdsFound": 1,
+    "latestBackupsSelected": 1,
+    "restoreableCount": 1,
+    "skippedCount": 0,
+    "existingFullDocsCount": 0,
+    "missingOrEmptyParentCount": 1,
+    "compactLivePostLatestCount": 1,
+    "compactCoverageRatio": 1
+  },
+  "sampleRestoreMappings": [
+    {
+      "postId": "FNM5327GjX7VOI7wUXGW",
+      "backupDocId": "FNM5327GjX7VOI7wUXGW_1778036149336",
+      "backupTimestampMs": 1778036149336,
+      "selectedSourceField": "compactLivePost",
+      "action": "restore",
+      "reason": null,
+      "parentExists": false,
+      "parentMeaningful": false,
+      "payloadFieldCount": 39
+    }
+  ],
+  "validationErrors": [],
+  "planRows": [
+    {
+      "postId": "FNM5327GjX7VOI7wUXGW",
+      "backupDocId": "FNM5327GjX7VOI7wUXGW_1778036149336",
+      "backupTimestampMs": 1778036149336,
+      "selectedSourceField": "compactLivePost",
+      "action": "restore",
+      "reason": null,
+      "parentExists": false,
+      "parentMeaningful": false,
+      "payloadFieldCount": 39
+    }
+  ]
+}

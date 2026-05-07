@@ -140,6 +140,9 @@ export class ProfileRepository {
         incrementDbOps("reads", retry.readCount);
         return retry.data;
       }
+      if (error instanceof Error && error.message === "profile_header_not_found") {
+        throw error;
+      }
       throw new SourceOfTruthRequiredError("profile_header_firestore");
     }
   }

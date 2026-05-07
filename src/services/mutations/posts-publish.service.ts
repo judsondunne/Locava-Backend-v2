@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { assertMonolithProxyOutboundAllowed } from "../../config/monolith-proxy-allowlist.js";
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
 import { readWasabiConfigFromEnv, wasabiPublicUrlForKey } from "../storage/wasabi-config.js";
 import { buildFinalizedSessionAssetPlan, enrichPresignSlotsForLegacyCompat, presignPostSessionStagingBatch } from "../storage/wasabi-presign.service.js";
@@ -166,6 +167,7 @@ export class PostsPublishService {
       throw new Error("legacy_monolith_unavailable");
     }
     const url = `${base.replace(/\/+$/, "")}/api/v1/product/upload/create-from-staged`;
+    assertMonolithProxyOutboundAllowed(url);
     const body: Record<string, unknown> = {
       sessionId: stage.stageId,
       userId: input.viewerId,

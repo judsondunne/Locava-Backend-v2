@@ -1,4 +1,5 @@
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 
 function readArg(name: string): string | null {
   const direct = process.argv.find((arg) => arg.startsWith(`--${name}=`));
@@ -17,6 +18,11 @@ async function main(): Promise<void> {
   if (!viewerId) {
     throw new Error("missing_viewer_id:pass --viewerId=<viewerId>");
   }
+
+  assertEmulatorOnlyDestructiveFirestoreOperation("debug-reset-feed-state", `users/${viewerId}/feedState`);
+  console.log(
+    `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=debug-reset-feed-state FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+  );
 
   const db = getFirestoreSourceClient();
   if (!db) {

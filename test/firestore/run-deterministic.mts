@@ -123,7 +123,11 @@ async function runInsideEmulator(mode: "suite" | "check"): Promise<void> {
     NODE_ENV: "test",
     FIRESTORE_TEST_MODE: "emulator",
     FIRESTORE_SOURCE_ENABLED: "true",
-    GOOGLE_APPLICATION_CREDENTIALS: " "
+    GOOGLE_APPLICATION_CREDENTIALS: " ",
+    GCLOUD_PROJECT: PROJECT_ID,
+    GOOGLE_CLOUD_PROJECT: PROJECT_ID,
+    ALLOW_DESTRUCTIVE_FIRESTORE_EMULATOR_ONLY: "I_UNDERSTAND_THIS_ONLY_RUNS_ON_EMULATOR",
+    ALLOW_POSTS_WIPE_IN_EMULATOR: "I_UNDERSTAND_POSTS_WIPE_EMULATOR_ONLY"
   };
   await runCommand("node", ["--import", "tsx", "./test/firestore/reset.mts"], setupEnv);
   await runCommand("node", ["--import", "tsx", "./test/firestore/seed.mts"], setupEnv);
@@ -139,7 +143,11 @@ async function runInsideEmulator(mode: "suite" | "check"): Promise<void> {
     ...process.env,
     NODE_ENV: "test",
     GOOGLE_APPLICATION_CREDENTIALS: " ",
-    FIRESTORE_SOURCE_ENABLED: "true"
+    FIRESTORE_SOURCE_ENABLED: "true",
+    GCLOUD_PROJECT: PROJECT_ID,
+    GOOGLE_CLOUD_PROJECT: PROJECT_ID,
+    ALLOW_DESTRUCTIVE_FIRESTORE_EMULATOR_ONLY: "I_UNDERSTAND_THIS_ONLY_RUNS_ON_EMULATOR",
+    ALLOW_POSTS_WIPE_IN_EMULATOR: "I_UNDERSTAND_POSTS_WIPE_EMULATOR_ONLY"
   };
 
   if (disabledFiles.length > 0) {

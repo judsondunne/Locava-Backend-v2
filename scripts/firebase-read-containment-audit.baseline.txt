@@ -1,0 +1,4 @@
+# Grandfathered direct firebase-admin entrypoints (migrate to config singleton / wrappers).
+# Paths are repo-root relative with forward slashes.
+Locava Backend/src/services/analytics/dashboard.service.ts
+Locava Backend/src/utils/workerLease.ts

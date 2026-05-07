@@ -129,6 +129,7 @@ describe("mixes repository production pool manager", () => {
       "utf8",
     );
     process.env.MIXES_POOL_SNAPSHOT_PATH = snapshotPath;
+    process.env.MIXES_WARMER_FORCE = "1";
     const fake = buildFakeDb({ rows: buildRows(8), delayMs: 20 });
     const repo = buildRepo(fake.db, snapshotPath);
 
@@ -143,6 +144,7 @@ describe("mixes repository production pool manager", () => {
     const warm = await repo.listFromPool();
     expect(warm.poolState).toBe("warm");
     expect(warm.posts.length).toBeGreaterThanOrEqual(8);
+    delete process.env.MIXES_WARMER_FORCE;
     delete process.env.MIXES_POOL_SNAPSHOT_PATH;
   });
 });

@@ -243,7 +243,8 @@ describe("posts detail orchestrator missing author hardening", () => {
     expect(Array.isArray(detail.assets)).toBe(true);
     expect((detail.assets as Array<Record<string, unknown>>)[0]?.poster).toBe("https://cdn/p.jpg");
     expect(out.debugPayloadCategory).toBe("small");
-    expect((detail.cardSummary as Record<string, unknown> | undefined)?.postId).toBe("post-1");
+    expect(detail.cardSummary).toBeUndefined();
+    expect((out.found[0]?.detail.firstRender.social as Record<string, unknown> | undefined)?.commentCount).toBe(2);
   });
 
   it("playback batch dedupes, caps to five posts, and stays under payload budget", async () => {

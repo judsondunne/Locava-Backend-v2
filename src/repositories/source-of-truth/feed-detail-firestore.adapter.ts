@@ -2,6 +2,7 @@ import { getFirestoreSourceClient } from "./firestore-client.js";
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { readMaybeMillis } from "./post-firestore-projection.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
 
 export type FirestoreFeedDetailBundle = {
   post: {
@@ -369,7 +370,8 @@ function buildFeedDetailBundleFromParts(input: {
         readMaybeMillis(input.postData.createdAt) ??
         (typeof input.postData.createdAtMs === "number" ? input.postData.createdAtMs : null);
 
-  const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(input.postData);
+  const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } =
+    normalizeLetterboxHintsFromFirestorePost(input.postData as unknown as Record<string, unknown>);
   const normalizedLocation = normalizeLocation(input.postData);
   const normalizedGeoData = normalizeGeoData(input.postData);
   const embeddedComments = normalizeEmbeddedComments(input.postData.comments, input.responsePostId);
@@ -433,68 +435,6 @@ function buildFeedDetailBundleFromParts(input: {
     },
     queryCount: input.queryCount,
     readCount: input.readCount
-  };
-}
-
-function normalizeLetterboxHints(data: PostDataShape): {
-  letterboxGradientTop: string | null | undefined;
-  letterboxGradientBottom: string | null | undefined;
-  letterboxGradients: Array<{ top: string; bottom: string }> | undefined;
-} {
-  const legacy = (data as unknown as { legacy?: unknown }).legacy as
-    | {
-        letterboxGradientTop?: unknown;
-        letterboxGradientBottom?: unknown;
-        letterboxGradients?: unknown;
-        letterbox_gradient_top?: unknown;
-        letterbox_gradient_bottom?: unknown;
-      }
-    | undefined;
-  const topRaw =
-    typeof data.letterboxGradientTop === "string"
-      ? data.letterboxGradientTop
-      : typeof data.letterbox_gradient_top === "string"
-        ? data.letterbox_gradient_top
-        : typeof legacy?.letterboxGradientTop === "string"
-          ? (legacy.letterboxGradientTop as string)
-          : typeof legacy?.letterbox_gradient_top === "string"
-            ? (legacy.letterbox_gradient_top as string)
-        : null;
-  const bottomRaw =
-    typeof data.letterboxGradientBottom === "string"
-      ? data.letterboxGradientBottom
-      : typeof data.letterbox_gradient_bottom === "string"
-        ? data.letterbox_gradient_bottom
-        : typeof legacy?.letterboxGradientBottom === "string"
-          ? (legacy.letterboxGradientBottom as string)
-          : typeof legacy?.letterbox_gradient_bottom === "string"
-            ? (legacy.letterbox_gradient_bottom as string)
-        : null;
-  const top = topRaw?.trim() ? topRaw.trim() : null;
-  const bottom = bottomRaw?.trim() ? bottomRaw.trim() : null;
-
-  const gradientsRaw = Array.isArray(data.letterboxGradients)
-    ? data.letterboxGradients
-    : Array.isArray(legacy?.letterboxGradients)
-      ? (legacy!.letterboxGradients as unknown[])
-      : null;
-  if (!Array.isArray(gradientsRaw)) {
-    return { letterboxGradientTop: top ?? undefined, letterboxGradientBottom: bottom ?? undefined, letterboxGradients: undefined };
-  }
-  const out: Array<{ top: string; bottom: string }> = [];
-  for (const entry of gradientsRaw) {
-    if (!entry || typeof entry !== "object") continue;
-    const e = entry as { top?: unknown; bottom?: unknown };
-    if (typeof e.top !== "string" || typeof e.bottom !== "string") continue;
-    const t = e.top.trim();
-    const b = e.bottom.trim();
-    if (!t || !b) continue;
-    out.push({ top: t, bottom: b });
-  }
-  return {
-    letterboxGradientTop: top ?? undefined,
-    letterboxGradientBottom: bottom ?? undefined,
-    letterboxGradients: out.length > 0 ? out : undefined
   };
 }
 
@@ -744,6 +684,22 @@ function normalizeTs(value: unknown): number {
   return Math.floor(value);
 }
 
+function isLikelyVideoUrlHint(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  return /\.(mp4|mov|m4v|webm|m3u8)(\?|#|$)/i.test(value.trim());
+}
+
+/** Firestore rows sometimes store `type: "image"` while `id` is `video_*` and variants carry mp4. */
+function inferFirestoreAssetIsVideo(asset: NonNullable<PostDataShape["assets"]>[number]): boolean {
+  if (String(asset.type ?? "").toLowerCase() === "video") return true;
+  const id = typeof asset.id === "string" ? asset.id : "";
+  if (/^video_/i.test(id)) return true;
+  if (isLikelyVideoUrlHint(asset.original)) return true;
+  const v = asRecord(asset.variants);
+  if (v && Object.values(v).some((val) => isLikelyVideoUrlHint(val))) return true;
+  return false;
+}
+
 function normalizeAssets(
   syntheticPostId: string,
   mediaType: "image" | "video",
@@ -759,7 +715,7 @@ function normalizeAssets(
       const sourceSnapshot = asRecord(labAsset?.sourceSnapshot);
       return {
         id: assetId,
-        type: asset.type === "video" ? "video" : "image",
+        type: inferFirestoreAssetIsVideo(asset) ? "video" : "image",
         original:
           normalizeNullable(asset.original) ??
           normalizeNullable(sourceSnapshot?.original) ??

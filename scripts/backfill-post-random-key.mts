@@ -1,9 +1,14 @@
 import { FieldPath } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 
 const PAGE_SIZE = 200;
 
 async function main(): Promise<void> {
+  assertEmulatorOnlyDestructiveFirestoreOperation("backfill-post-random-key", "posts");
+  console.log(
+    `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=backfill-post-random-key FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+  );
   const db = getFirestoreSourceClient();
   if (!db) {
     throw new Error("firestore_source_unavailable");

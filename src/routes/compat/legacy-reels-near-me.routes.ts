@@ -3,7 +3,16 @@ import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { geoPrefixesAroundCenter } from "../../lib/geo-prefixes-around-center.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
-import { endFullWarmerPass, evaluateFullWarmerGate } from "../../runtime/warmer-traffic-gate.js";
+import {
+  beginBackgroundWarmer,
+  beginFullWarmerPass,
+  consumeDeferredBackgroundWork,
+  endBackgroundWarmer,
+  endFullWarmerPass,
+  evaluateFullWarmerGate,
+  evaluateQuickWarmerGate,
+  noteBackgroundWorkDeferred,
+} from "../../runtime/warmer-traffic-gate.js";
 
 const REELS_PREFIX = "/api/v1/product/reels";
 const FEED_ID = "reels:near-me";
@@ -430,7 +439,7 @@ function nearMeExhaustiveBudgetMs(): number {
 }
 
 /** First-page fill so near-me never waits on a 10k-doc scan on cold request paths. */
-async function rebuildPostPoolQuick(app: FastifyInstance): Promise<void> {
+async function rebuildPostPoolQuick(app: FastifyInstance, trigger: "startup" | "request" = "request"): Promise<void> {
   if (pool.posts.length > 0) return;
   if (pool.loading && pool.inFlight) {
     await Promise.race([pool.inFlight, new Promise<void>((resolve) => setTimeout(resolve, nearMeColdWaitMs()))]);
@@ -449,8 +458,39 @@ async function rebuildPostPoolQuick(app: FastifyInstance): Promise<void> {
     );
     return;
   }
+  const force = process.env.NEAR_ME_WARMER_FORCE === "1";
+  if (trigger !== "request") {
+    const gate = evaluateQuickWarmerGate({ force, mode: "near_me_quick" });
+    if (!gate.ok) {
+      noteBackgroundWorkDeferred("near_me_quick", gate.reason);
+      app.log.info(
+        {
+          event: "near_me_pool_refresh_deferred",
+          mode: "quick",
+          trigger,
+          reason: gate.reason,
+        },
+        "[BACKGROUND_WORK_DEFERRED]"
+      );
+      return;
+    }
+  }
   const started = Date.now();
   const cap = nearMeQuickBootstrapDocs();
+  const resumed = consumeDeferredBackgroundWork("near_me_quick");
+  if (resumed) {
+    app.log.info(
+      {
+        event: "near_me_pool_refresh_resumed",
+        mode: "quick",
+        trigger,
+        reason: resumed.reason,
+        deferredForMs: resumed.deferredForMs,
+      },
+      "[BACKGROUND_WORK_RESUMED]"
+    );
+  }
+  beginBackgroundWarmer("near_me_quick");
   app.log.info(
     {
       event: "near_me_pool_refresh_started",
@@ -486,6 +526,8 @@ async function rebuildPostPoolQuick(app: FastifyInstance): Promise<void> {
       },
       "near-me quick pool refresh failed"
     );
+  } finally {
+    endBackgroundWarmer("near_me_quick");
   }
 }
 
@@ -498,6 +540,7 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
   if (!force) {
     const gate = evaluateFullWarmerGate({ force: false, mode: "near_me_full" });
     if (!gate.ok) {
+      noteBackgroundWorkDeferred("near_me_full", gate.reason);
       app.log.info(
         {
           event: "near_me_pool_refresh_skipped",
@@ -507,15 +550,40 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
           skipped_due_to_recent_refresh: gate.reason === "recent_full_refresh",
           skipped_due_to_singleflight: gate.reason === "singleflight_busy",
         },
-        "near-me full pool refresh skipped"
+        "[BACKGROUND_WORK_SKIPPED_ACTIVE_CRITICAL]"
       );
       return;
     }
+  }
+  if (!beginFullWarmerPass()) {
+    noteBackgroundWorkDeferred("near_me_full", "singleflight_busy");
+    app.log.info(
+      {
+        event: "near_me_pool_refresh_skipped",
+        mode: "full",
+        reason: "singleflight_busy",
+      },
+      "[BACKGROUND_WORK_SKIPPED_ACTIVE_CRITICAL]"
+    );
+    return;
   }
 
   pool.loading = true;
   const fullStarted = Date.now();
   const targetDocs = getNearMeFirestoreFallbackMaxDocs();
+  const resumed = consumeDeferredBackgroundWork("near_me_full");
+  if (resumed) {
+    app.log.info(
+      {
+        event: "near_me_pool_refresh_resumed",
+        mode: "full",
+        reason: resumed.reason,
+        deferredForMs: resumed.deferredForMs,
+      },
+      "[BACKGROUND_WORK_RESUMED]"
+    );
+  }
+  beginBackgroundWarmer("near_me_full");
   app.log.info(
     {
       event: "near_me_pool_refresh_started",
@@ -543,7 +611,6 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
 
     pool.posts = out;
     pool.loadedAtMs = Date.now();
-    endFullWarmerPass();
     app.log.info(
       {
         event: "near_me_pool_refresh_completed",
@@ -560,6 +627,8 @@ async function rebuildPostPool(app: FastifyInstance): Promise<void> {
     .finally(() => {
       pool.loading = false;
       pool.inFlight = null;
+      endBackgroundWarmer("near_me_full");
+      endFullWarmerPass();
     });
 
   return pool.inFlight;
@@ -899,7 +968,7 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
   app.addHook("onReady", async () => {
     const fullDelayMs = toIntEnv("NEAR_ME_FULL_REFRESH_DELAY_MS", 2_000, 2_000, 120_000);
     nearMeRefreshSerial = nearMeRefreshSerial
-      .then(() => rebuildPostPoolQuick(app))
+      .then(() => rebuildPostPoolQuick(app, "startup"))
       .then(() => {
         setTimeout(() => {
           nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);

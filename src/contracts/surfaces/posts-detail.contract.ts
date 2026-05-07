@@ -74,7 +74,8 @@ export const PostsDetailResponseSchema = z.object({
 export const PostsDetailsBatchBodySchema = z.object({
   postIds: z.array(z.string().min(1)).min(1).max(15),
   reason: z.enum(["prefetch", "open", "surface_bootstrap", "presentation_hints"]),
-  hydrationMode: z.enum(["card", "playback", "open", "full"]).default("open")
+  hydrationMode: z.enum(["card", "playback", "open", "full"]).default("open"),
+  mode: z.enum(["playback_prefetch_compact", "liftable_visible_detail", "full_detail"]).optional()
 });
 
 export const PostsDetailsBatchResponseSchema = z.object({

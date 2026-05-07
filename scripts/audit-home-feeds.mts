@@ -1,4 +1,5 @@
 import { getFirestoreSourceClient } from "../src/repositories/source-of-truth/firestore-client.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../src/safety/firestoreDestructiveGuard.js";
 
 const port = Number(process.env.PORT ?? 8080);
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -34,6 +35,10 @@ function headers() {
 }
 
 async function resetFeedState(): Promise<void> {
+  assertEmulatorOnlyDestructiveFirestoreOperation("audit-home-feeds.resetFeedState", `users/${viewerId}/feedState`);
+  console.log(
+    `EMULATOR_ONLY_SCRIPT_CONFIRMED operation=audit-home-feeds.resetFeedState FIRESTORE_EMULATOR_HOST=${process.env.FIRESTORE_EMULATOR_HOST ?? ""} projectId=${process.env.GCLOUD_PROJECT ?? process.env.GOOGLE_CLOUD_PROJECT ?? "unknown"}`
+  );
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable");
   await db.collection("users").doc(viewerId).collection("feedState").doc("home_for_you").delete().catch(() => undefined);

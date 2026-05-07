@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { parseFirebaseAccessEnv, shouldDisableLegacyWorkers } from "@locava/contracts/firebase-access-policy";
 import { z } from "zod";
 import { failure, success } from "../../lib/response.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
@@ -26,6 +27,17 @@ export async function registerInternalOpsRoutes(app: FastifyInstance): Promise<v
     const authHeader = request.headers.authorization;
     if (authHeader !== `Bearer ${token}`) {
       return reply.status(401).send(failure("unauthorized", "Authorization must be Bearer <INTERNAL_OPS_TOKEN>"));
+    }
+
+    if (shouldDisableLegacyWorkers(parseFirebaseAccessEnv(process.env))) {
+      return reply
+        .status(503)
+        .send(
+          failure(
+            "legacy_worker_disabled",
+            "Internal ops backfill disabled when DISABLE_LEGACY_WORKERS is set in locked_down mode"
+          )
+        );
     }
 
     const db = getFirestoreSourceClient();

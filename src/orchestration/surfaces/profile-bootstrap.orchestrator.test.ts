@@ -74,6 +74,7 @@ describe("profile bootstrap orchestrator", () => {
       viewer: { viewerId: "viewer-1", roles: ["internal"] } as never,
       userId: "u-1",
       gridLimit: 12,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 0,
     });
 
@@ -128,6 +129,7 @@ describe("profile bootstrap orchestrator", () => {
       viewer: { viewerId: "viewer-z", roles: ["internal"] } as never,
       userId: "u-grid",
       gridLimit: 12,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 500,
     });
 
@@ -135,6 +137,68 @@ describe("profile bootstrap orchestrator", () => {
     expect(payload.summary.postCount).toBe(12);
     expect(payload.debug?.profileHeaderRepair?.gridVsPostsInvariantViolated).toBe(true);
     expect(payload.debug?.profileHeaderRepair?.postCountLowerBoundUsed).toBe(true);
+  });
+
+  it("caps bootstrap grid preview to six compact cards even when the requested limit is larger", async () => {
+    const orchestrator = new ProfileBootstrapOrchestrator({
+      loadHeader: async () => ({
+        userId: "u-cap",
+        handle: "grid_cap",
+        name: "Grid Cap",
+        profilePic: null,
+        counts: { posts: 18, followers: 4, following: 2 },
+      }),
+      loadRelationship: async () => ({
+        isSelf: false,
+        following: false,
+        followedBy: false,
+        canMessage: true,
+      }),
+      loadGridPreview: async (_userId: string, limit: number) => ({
+        items: Array.from({ length: limit }, (_, i) => ({
+          postId: `p${i}`,
+          thumbUrl: `https://cdn.example.com/t${i}.jpg`,
+          mediaType: i % 2 === 0 ? "video" as const : "image" as const,
+          aspectRatio: 9 / 16,
+          updatedAtMs: 100 + i,
+          rawFirestore: {
+            postId: `p${i}`,
+            userId: "u-cap",
+            userHandle: "grid_cap",
+            userName: "Grid Cap",
+            userPic: null,
+            title: `Post ${i}`,
+            caption: `Caption ${i}`,
+            assets: [
+              {
+                id: `asset-${i}`,
+                type: i % 2 === 0 ? "video" : "image",
+                url: `https://cdn.example.com/p${i}.${i % 2 === 0 ? "mp4" : "jpg"}`,
+                poster: `https://cdn.example.com/p${i}.jpg`,
+              },
+            ],
+            likesCount: i,
+            commentCount: i % 3,
+          },
+        })),
+        nextCursor: "next-grid",
+      }),
+      loadCollections: async () => ({ items: [], nextCursor: null, emptyReason: null }),
+      loadAchievements: async () => ({ items: [], nextCursor: null, emptyReason: null }),
+      loadBadgeSummary: async () => null,
+    } as never);
+
+    const payload = await orchestrator.run({
+      viewer: { viewerId: "viewer-cap", roles: ["internal"] } as never,
+      userId: "u-cap",
+      gridLimit: 12,
+      includeTabPreviews: true,
+      debugSlowDeferredMs: 0,
+    });
+
+    expect(payload.firstRender.gridPreview.items).toHaveLength(6);
+    expect(payload.firstRender.gridPreview.nextCursor).toBe("next-grid");
+    expect(payload.firstRender.gridPreview.items.every((item) => "appPostV2" in item)).toBe(true);
   });
 
   it("uses safe defaults and degrades instead of throwing when profile social stats are missing", async () => {
@@ -160,6 +224,7 @@ describe("profile bootstrap orchestrator", () => {
       viewer: { viewerId: "viewer-2", roles: ["internal"] } as never,
       userId: "u-2",
       gridLimit: 12,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 0,
     });
 
@@ -170,6 +235,37 @@ describe("profile bootstrap orchestrator", () => {
     expect(payload.firstRender.relationship.following).toBe(false);
     expect(payload.degraded).toBe(true);
     expect(payload.fallbacks).toContain("profile_relationship_unavailable");
+  });
+
+  it("degrades header failures into a safe visible profile shell instead of throwing 503", async () => {
+    const orchestrator = new ProfileBootstrapOrchestrator({
+      loadHeader: async () => {
+        throw new Error("profile_header_firestore");
+      },
+      loadRelationship: async () => ({
+        isSelf: false,
+        following: false,
+        followedBy: false,
+        canMessage: false,
+      }),
+      loadGridPreview: async () => ({ items: [], nextCursor: null }),
+      loadCollections: async () => ({ items: [], nextCursor: null, emptyReason: null }),
+      loadAchievements: async () => ({ items: [], nextCursor: null, emptyReason: null }),
+      loadBadgeSummary: async () => null,
+    } as never);
+
+    const payload = await orchestrator.run({
+      viewer: { viewerId: "viewer-safe", roles: ["internal"] } as never,
+      userId: "other-user",
+      gridLimit: 12,
+      includeTabPreviews: true,
+      debugSlowDeferredMs: 0,
+    });
+
+    expect(payload.profileUserId).toBe("other-user");
+    expect(payload.degraded).toBe(true);
+    expect(payload.fallbacks).toContain("profile_header_unavailable");
+    expect(payload.firstRender.profile.handle).toBe("user_other-us");
   });
 
   it("computes self vs other-user relationship safely", async () => {
@@ -200,12 +296,14 @@ describe("profile bootstrap orchestrator", () => {
       viewer: { viewerId: "self", roles: ["internal"] } as never,
       userId: "self",
       gridLimit: 12,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 100,
     });
     const other = await orchestrator.run({
       viewer: { viewerId: "self", roles: ["internal"] } as never,
       userId: "other",
       gridLimit: 12,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 100,
     });
 
@@ -241,16 +339,98 @@ describe("profile bootstrap orchestrator", () => {
       viewer: { viewerId: "viewer-repeat", roles: ["internal"] } as never,
       userId: "repeat-user",
       gridLimit: 12,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 0,
     });
     await orchestrator.run({
       viewer: { viewerId: "viewer-repeat", roles: ["internal"] } as never,
       userId: "repeat-user",
       gridLimit: 12,
+      includeTabPreviews: true,
       debugSlowDeferredMs: 0,
     });
 
     expect(loadHeader).toHaveBeenCalledTimes(1);
     expect(loadRelationship).toHaveBeenCalledTimes(1);
+  });
+
+  it("skips tab previews for the slim profile-tab bootstrap path", async () => {
+    const loadCollections = vi.fn(async () => ({
+      items: [
+        {
+          collectionId: "c1",
+          ownerId: "u-slim",
+          name: "Favorites",
+          privacy: "public" as const,
+          itemCount: 3,
+          coverUri: "https://cdn.example.com/c1.jpg",
+          updatedAtMs: 101,
+        },
+      ],
+      nextCursor: "collections-next",
+      emptyReason: null,
+    }));
+    const loadAchievements = vi.fn(async () => ({
+      items: [
+        {
+          achievementId: "a1",
+          title: "Early Bird",
+          description: "First post",
+          badgeSource: "static" as const,
+          badgeType: "activity" as const,
+          earnedAtMs: 102,
+          progressCurrent: 1,
+          progressTarget: 1,
+          visibility: "public" as const,
+        },
+      ],
+      nextCursor: "achievements-next",
+      emptyReason: null,
+    }));
+    const loadBadgeSummary = vi.fn(async () => ({ badge: "gold", score: 10 }));
+    const orchestrator = new ProfileBootstrapOrchestrator({
+      loadHeader: async () => ({
+        userId: "u-slim",
+        handle: "slim_user",
+        name: "Slim User",
+        profilePic: null,
+        counts: { posts: 18, followers: 4, following: 2 },
+      }),
+      loadRelationship: async () => ({
+        isSelf: true,
+        following: false,
+        followedBy: false,
+        canMessage: false,
+      }),
+      loadGridPreview: async () => ({
+        items: [
+          {
+            postId: "p1",
+            thumbUrl: "https://cdn.example.com/p1.jpg",
+            mediaType: "image" as const,
+            updatedAtMs: 100,
+          },
+        ],
+        nextCursor: "grid-next",
+      }),
+      loadCollections,
+      loadAchievements,
+      loadBadgeSummary,
+    } as never);
+
+    const payload = await orchestrator.run({
+      viewer: { viewerId: "viewer-slim", roles: ["internal"] } as never,
+      userId: "u-slim",
+      gridLimit: 12,
+      includeTabPreviews: false,
+      debugSlowDeferredMs: 0,
+    });
+
+    expect(loadCollections).not.toHaveBeenCalled();
+    expect(loadAchievements).not.toHaveBeenCalled();
+    expect(loadBadgeSummary).not.toHaveBeenCalled();
+    expect(payload.firstRender.collectionsPreview.items).toHaveLength(0);
+    expect(payload.firstRender.achievementsPreview.items).toHaveLength(0);
+    expect(payload.background.prefetchHints).toEqual(["profile:grid:next"]);
   });
 });

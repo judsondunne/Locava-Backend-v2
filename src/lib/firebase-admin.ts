@@ -2,6 +2,8 @@ import fs from "node:fs";
 import { getApps, initializeApp, applicationDefault, cert, deleteApp, type App } from "firebase-admin/app";
 import { getAuth, type Auth } from "firebase-admin/auth";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
+import { enforceBackendV2FirebaseAccess } from "./firebase-access-enforcement.js";
+import { installReadOnlyLatencyAuditGuard } from "../safety/read-only-latency-audit-guard.js";
 
 export type FirebaseAdminCredentialSource =
   | "firebase_service_account_json"
@@ -184,15 +186,25 @@ function buildDiagnostics(input: {
 function logInitOnce(diag: FirebaseAdminDiagnostics): void {
   if (initLogged) return;
   initLogged = true;
+  const verbose = process.env.LOG_STARTUP_DEBUG === "1";
+  if (verbose) {
+    console.info({
+      event: "firebase_admin_initialized",
+      credentialSource: diag.credentialSource,
+      projectId: diag.projectId,
+      clientEmail: diag.clientEmail,
+      clientEmailPresent: diag.clientEmailPresent,
+      hasFirebaseServiceAccountJson: diag.hasFirebaseServiceAccountJson,
+      hasGoogleApplicationCredentials: diag.hasGoogleApplicationCredentials,
+      hasFirebaseEnvCert: diag.hasFirebaseEnvCert,
+      appName: diag.appName
+    });
+    return;
+  }
   console.info({
     event: "firebase_admin_initialized",
-    credentialSource: diag.credentialSource,
     projectId: diag.projectId,
-    clientEmail: diag.clientEmail,
-    clientEmailPresent: diag.clientEmailPresent,
-    hasFirebaseServiceAccountJson: diag.hasFirebaseServiceAccountJson,
-    hasGoogleApplicationCredentials: diag.hasGoogleApplicationCredentials,
-    hasFirebaseEnvCert: diag.hasFirebaseEnvCert,
+    credentialConfigured: diag.clientEmailPresent || diag.hasGoogleApplicationCredentials || diag.hasFirebaseEnvCert,
     appName: diag.appName
   });
 }
@@ -232,14 +244,18 @@ export function getFirebaseAdminApp(appName = DEFAULT_ADMIN_APP_NAME): App {
 }
 
 export function getFirebaseAdminAuth(): Auth {
+  enforceBackendV2FirebaseAccess({ operationType: "auth" });
   if (adminAuth) return adminAuth;
   adminAuth = getAuth(getFirebaseAdminApp());
   return adminAuth;
 }
 
 export function getFirebaseAdminFirestore(): Firestore {
+  enforceBackendV2FirebaseAccess({ operationType: "read" });
   if (adminFirestore) return adminFirestore;
-  adminFirestore = getFirestore(getFirebaseAdminApp());
+  const app = getFirebaseAdminApp();
+  adminFirestore = getFirestore(app);
+  installReadOnlyLatencyAuditGuard({ db: adminFirestore, app });
   return adminFirestore;
 }
 

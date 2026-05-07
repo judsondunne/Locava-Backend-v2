@@ -26,6 +26,7 @@ WARM_PING_TIMEZONE="${WARM_PING_TIMEZONE:-America/New_York}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+MONOREPO_ROOT="$(cd "$PROJECT_ROOT/.." && pwd)"
 
 cd "$PROJECT_ROOT"
 
@@ -334,10 +335,14 @@ echo "🚀 Deploying Backend v2..."
 echo "📦 Service: $SERVICE_NAME"
 echo "🗺️ Region: $REGION"
 echo "☁️ Project: $PROJECT_ID"
+echo "📂 Source (monorepo root): $MONOREPO_ROOT  — includes ../locava-contracts for @locava/contracts"
 echo "🧾 Carrying over old backend env families: Wasabi, Redis, analytics, admin tokens, worker flags, Firebase creds"
 echo "⚙️  Cloud Run: memory=$MEMORY cpu=$CPU min=$MIN_INSTANCES max=$MAX_INSTANCES concurrency=$CONCURRENCY timeout=$TIMEOUT"
 echo "🩺 Startup probe: $STARTUP_PROBE"
 
+# Cloud Run source builds use the uploaded directory as Docker context. Backend v2 depends on
+# `file:../locava-contracts`, so the context must be the monorepo root (./Dockerfile → Locava Backendv2/Dockerfile).
+pushd "$MONOREPO_ROOT" >/dev/null
 if ! "$GCLOUD_BIN" run deploy "$SERVICE_NAME" \
   --source . \
   --platform managed \
@@ -353,12 +358,14 @@ if ! "$GCLOUD_BIN" run deploy "$SERVICE_NAME" \
   --startup-probe "$STARTUP_PROBE" \
   --port "$PORT" \
   --env-vars-file "$ENV_FILE"; then
+  popd >/dev/null
   echo ""
   echo "❌ Deploy failed"
   echo "If the error mentions 'cloudbuild.builds.get', this account needs Cloud Build access on project $PROJECT_ID."
   echo "Minimum fix: grant roles/cloudbuild.viewer on project $PROJECT_ID."
   exit 1
 fi
+popd >/dev/null
 
 SERVICE_URL="$("$GCLOUD_BIN" run services describe "$SERVICE_NAME" --region "$REGION" --project "$PROJECT_ID" --format='value(status.url)')"
 VIDEO_PROCESSOR_FUNCTION_URL_VALUE="${SERVICE_URL%/}/video-processor"

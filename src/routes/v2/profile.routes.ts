@@ -66,6 +66,7 @@ function logProfileRoute(
     profileHeaderRepair?: Record<string, unknown>;
   }
 ): void {
+  if (process.env.LOG_PROFILE_ROUTE_DEBUG !== "1") return;
   const ctx = getRequestContext();
   request.log.info(
     {
@@ -114,13 +115,21 @@ export async function registerV2ProfileRoutes(app: FastifyInstance): Promise<voi
     const query = ProfileBootstrapQuerySchema.parse(request.query);
 
     setRouteName(profileBootstrapContract.routeName);
-
-    const payload = await orchestrator.run({
-      viewer,
-      userId: params.userId,
-      gridLimit: query.gridLimit,
-      debugSlowDeferredMs: query.debugSlowDeferredMs
-    });
+    let payload;
+    try {
+      payload = await orchestrator.run({
+        viewer,
+        userId: params.userId,
+        gridLimit: query.gridLimit,
+        includeTabPreviews: query.includeTabPreviews,
+        debugSlowDeferredMs: query.debugSlowDeferredMs
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "profile_header_not_found") {
+        return reply.status(404).send(failure("profile_not_found", "Profile was not found"));
+      }
+      throw error;
+    }
     logProfileRoute(request, {
       routeName: profileBootstrapContract.routeName,
       profileUserId: params.userId,

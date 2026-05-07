@@ -10,6 +10,7 @@ import { FieldPath } from "firebase-admin/firestore";
 import { createApp } from "../../app/createApp.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { FOR_YOU_SIMPLE_SURFACE } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
+import { assertEmulatorOnlyDestructiveFirestoreOperation } from "../../safety/firestoreDestructiveGuard.js";
 import {
   drainFeedSeenAsyncWriterForTests,
   resetFeedSeenAsyncWriterForTests
@@ -18,7 +19,12 @@ import {
 const isEmulator = process.env.FIRESTORE_TEST_MODE === "emulator";
 const headers = { "x-viewer-roles": "internal" };
 
+function confirmEmulatorOnlyTestWrite(operationName: string, targetPath: string): void {
+  assertEmulatorOnlyDestructiveFirestoreOperation(operationName, targetPath);
+}
+
 async function wipePostsCollection(): Promise<void> {
+  confirmEmulatorOnlyTestWrite("feed-for-you-simple.routes.test.wipePostsCollection", "posts");
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable_for_test");
   while (true) {
@@ -31,6 +37,7 @@ async function wipePostsCollection(): Promise<void> {
 }
 
 async function wipeFeedSeenCollection(): Promise<void> {
+  confirmEmulatorOnlyTestWrite("feed-for-you-simple.routes.test.wipeFeedSeenCollection", "feedSeen");
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable_for_test");
   while (true) {
@@ -50,6 +57,7 @@ async function seedSimplePosts(input: {
   omitMediaEvery?: number;
   reelPredicate?: (slot: number) => boolean;
 }): Promise<string[]> {
+  confirmEmulatorOnlyTestWrite("feed-for-you-simple.routes.test.seedSimplePosts", "posts");
   const db = getFirestoreSourceClient();
   if (!db) throw new Error("firestore_unavailable_for_test");
   const batch = db.batch();
@@ -381,6 +389,10 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
     const seedKey = `simple-reel-exhaustion-${Date.now()}`;
     const viewerId = "simple-reel-viewer-exhaustion";
     const ids = await seedSimplePosts({ seedKey, count: 6, reelPredicate: (slot) => slot <= 2 });
+    confirmEmulatorOnlyTestWrite(
+      "feed-for-you-simple.routes.test.seedSeenLedgerExhaustion",
+      `feedSeen/${viewerId}`
+    );
     const db = getFirestoreSourceClient();
     if (!db) throw new Error("firestore_unavailable_for_test");
     const seenBatch = db.batch();
@@ -525,6 +537,7 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
     const seedKey = `simple-test-b-${Date.now()}`;
     const viewerId = "simple-test-b-viewer";
     const ids = await seedSimplePosts({ seedKey, count: 20, reelPredicate: () => true });
+    confirmEmulatorOnlyTestWrite("feed-for-you-simple.routes.test.seedSeenLedgerTestB", `feedSeen/${viewerId}`);
     const db = getFirestoreSourceClient();
     if (!db) throw new Error("firestore_unavailable_for_test");
     const batch = db.batch();
@@ -590,6 +603,7 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
   it("Test E: imperfect video variants still return playable cards when original exists", async () => {
     await wipePostsCollection();
     await wipeFeedSeenCollection();
+    confirmEmulatorOnlyTestWrite("feed-for-you-simple.routes.test.seedImperfectVideo", "posts");
     const db = getFirestoreSourceClient();
     if (!db) throw new Error("firestore_unavailable_for_test");
     const seedKey = `simple-test-e-${Date.now()}`;

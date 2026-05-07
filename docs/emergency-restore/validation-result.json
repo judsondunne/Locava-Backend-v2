@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-05-06T19:03:47.715Z",
+  "projectId": "learn-32d72",
+  "databaseId": "(default)",
+  "sampleSizeRequested": 50,
+  "sampledRestoredDocs": 1,
+  "restoredFromCanonicalBackupCount": 1,
+  "counts": {
+    "validMediaAssets": 1,
+    "validImageOrVideoUrls": 1,
+    "validEngagementCounts": 0,
+    "validAuthorOrUserId": 1,
+    "backupMatchesFound": 1
+  },
+  "knownPostChecks": {
+    "8BqoHf5RCmZAfjZA5wNm": {
+      "exists": false,
+      "meaningful": false
+    },
+    "giZPXQl74CKwKcTxtID1": {
+      "exists": false,
+      "meaningful": false
+    },
+    "FNM5327GjX7VOI7wUXGW": {
+      "exists": true,
+      "meaningful": true
+    }
+  },
+  "rows": [
+    {
+      "postId": "FNM5327GjX7VOI7wUXGW",
+      "exists": true,
+      "restoredFromCanonicalBackup": true,
+      "restoreBackupDocId": "FNM5327GjX7VOI7wUXGW_1778036149336",
+      "hasMediaAssets": true,
+      "hasAnyImageOrVideoUrl": true,
+      "hasEngagementCounts": false,
+      "hasAuthorOrUserId": true,
+      "hasLocation": true,
+      "likesSubcollectionPresent": true,
+      "commentsSubcollectionPresent": false,
+      "likesCount": 20,
+      "commentsCount": 0,
+      "backupMatchFound": true
+    }
+  ]
+}

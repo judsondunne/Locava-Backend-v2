@@ -1,8 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { toFeedCardDTO, type FeedCardDTO } from "../../dto/compact-surface-dto.js";
-import { batchHydrateAppPostsOnRecords } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
 import { selectBestVideoPlaybackAsset } from "../../lib/posts/video-playback-selection.js";
-import { getRequestContext } from "../../observability/request-context.js";
+import { accumulateSurfaceTiming, getRequestContext } from "../../observability/request-context.js";
 import type {
   FeedForYouSimpleRepository,
   SimpleFeedCandidate,
@@ -15,14 +14,16 @@ import {
 } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { debugLog } from "../../lib/logging/debug-log.js";
 import { LOG_FEED_DEBUG, LOG_VIDEO_DEBUG } from "../../lib/logging/log-config.js";
+import { isReadOnlyLatencyAuditEnabled } from "../../safety/read-only-latency-audit-guard.js";
 
 const CURSOR_PREFIX = "fys:v2:";
 const LEGACY_CURSOR_PREFIX = "fys:v1:";
 const MAX_SEEN_IDS = 50;
 const SERVED_RECENT_MAX_IDS = 240;
 const SERVED_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
-const READY_DECK_TARGET_SIZE = 30;
-const READY_DECK_MIN_REFILL_THRESHOLD = 10;
+const SERVED_RECENT_CACHE_TTL_MS = 60_000;
+const READY_DECK_TARGET_SIZE = 12;
+const READY_DECK_MIN_REFILL_THRESHOLD = 6;
 const READY_DECK_TTL_MS = 30 * 60 * 1000;
 const BLOCKED_AUTHORS_CACHE_TTL_MS = 60_000;
 
@@ -31,9 +32,9 @@ const LIMIT_MIN = 1;
 const LIMIT_MAX = 12;
 
 /** Firestore reads budget for main reel+fallback scans (excludes seen ledger + blocked user read). */
-const MAX_MAIN_READ_BUDGET = 72;
-const BATCH_PAGE_SIZE = 24;
-const MAX_SCAN_ATTEMPTS = 24;
+const MAX_MAIN_READ_BUDGET = 24;
+const BATCH_PAGE_SIZE = 12;
+const MAX_SCAN_ATTEMPTS = 6;
 const FOR_YOU_SIMPLE_DEBUG_FIXED_IDS_FLAG = "LOCAVA_DEBUG_FOR_YOU_SIMPLE_FIXED_IDS";
 const FOR_YOU_SIMPLE_DEBUG_FIXED_ID_LIST = [
   "post_292fd3193917e0e3",
@@ -97,8 +98,18 @@ type ReadyDeckEntry = {
   deckFormat?: number;
 };
 
+type RefillDeckSummary = {
+  reelReadCount: number;
+  fallbackReadCount: number;
+  rawReelCandidates: number;
+  rawFallbackCandidates: number;
+  boundedAttempts: number;
+  reelPhaseExhausted: boolean;
+};
+
 const readyDeckMemory = new Map<string, ReadyDeckEntry>();
 const blockedAuthorsMemory = new Map<string, { expiresAtMs: number; blocked: Set<string> }>();
+const servedRecentMemory = new Map<string, { expiresAtMs: number; entries: Map<string, number> }>();
 
 export type FeedForYouSimplePageDebug = {
   source: "firestore_random_simple";
@@ -213,6 +224,7 @@ export class FeedForYouSimpleService {
     emergencyFallbackUsed: boolean;
     debug: FeedForYouSimplePageDebug;
   }> {
+    const requestStartedAt = Date.now();
     if (!this.repository.isEnabled()) {
       throw new Error("feed_for_you_simple_source_unavailable");
     }
@@ -253,7 +265,6 @@ export class FeedForYouSimpleService {
       applyFirstPaintPlaybackDiagnostics(debugItems, diag);
       const cards = debugItems.map((candidate, index) => toPostCard(candidate, index, viewerId));
       const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
-      await batchHydrateAppPostsOnRecords(cardRecords, viewerId.trim() ? viewerId : null);
       return {
         routeName: "feed.for_you_simple.get",
         items: cardRecords as FeedCardDTO[],
@@ -270,16 +281,21 @@ export class FeedForYouSimpleService {
     }
 
     const blockedAuthorsCached = durableViewerId ? blockedAuthorsMemory.get(durableViewerId) ?? null : null;
+    const servedRecentCacheKey = durableViewerId ? `${durableViewerId}_${FOR_YOU_SIMPLE_SURFACE}` : "";
+    const servedRecentCached = servedRecentCacheKey ? readServedRecentMemory(servedRecentCacheKey) : null;
     const blockedAuthorsPromise =
       durableViewerId && blockedAuthorsCached && blockedAuthorsCached.expiresAtMs > Date.now()
         ? Promise.resolve({ blocked: new Set(blockedAuthorsCached.blocked), readCount: 0 })
         : durableViewerId
           ? this.repository.loadBlockedAuthorIdsForViewer(durableViewerId)
           : Promise.resolve({ blocked: new Set<string>(), readCount: 0 });
+    const initialContextStartedAt = Date.now();
     const [{ blocked: blockedAuthors, readCount: blockedReads }, durableSeen, servedRecent] = await Promise.all([
       blockedAuthorsPromise,
       Promise.resolve({ postIds: new Set<string>(), readCount: 0 }),
-      durableViewerId
+      servedRecentCached
+        ? Promise.resolve(servedRecentCached)
+        : durableViewerId
         ? this.repository.readServedRecentForViewer({
             viewerId: durableViewerId,
             surface: FOR_YOU_SIMPLE_SURFACE,
@@ -288,6 +304,10 @@ export class FeedForYouSimpleService {
           })
         : Promise.resolve({ postIds: new Set<string>(), readCount: 0 })
     ]);
+    accumulateSurfaceTiming("feed_simple_stage_initial_context_ms", Date.now() - initialContextStartedAt);
+    if (servedRecentCacheKey) {
+      seedServedRecentMemory(servedRecentCacheKey, servedRecent.postIds);
+    }
     if (durableViewerId && (!blockedAuthorsCached || blockedAuthorsCached.expiresAtMs <= Date.now())) {
       blockedAuthorsMemory.set(durableViewerId, {
         blocked: new Set(blockedAuthors),
@@ -304,20 +324,33 @@ export class FeedForYouSimpleService {
       readyDeckMemory.delete(deckKey);
       deck = null;
     }
-    const deckItemsBefore = deck?.items.length ?? 0;
     let deckSource: "memory" | "firestore" | "cold_refill" | "fallback" = deck ? "memory" : "fallback";
-    if (durableViewerId && !noCursorRequest && (!deck || deck.items.length === 0)) {
+    const allowPersistedReadyDeckRead = process.env.FEED_READY_DECK_PERSISTED_READ !== "0";
+    const shouldTryPersistedReadyDeck =
+      allowPersistedReadyDeckRead &&
+      durableViewerId &&
+      input.refresh !== true &&
+      (!deck || deck.items.length < Math.max(limit, READY_DECK_MIN_REFILL_THRESHOLD));
+    if (shouldTryPersistedReadyDeck) {
       const persisted = await this.repository.readReadyDeck(durableViewerId, FOR_YOU_SIMPLE_SURFACE);
       if (persisted && persisted.expiresAtMs > Date.now() && persisted.items.length > 0) {
-        deck = {
-          generation: persisted.generation,
-          updatedAtMs: persisted.updatedAtMs,
-          refillReason: persisted.refillReason,
-          items: persisted.items,
-          refillInFlight: null,
-          lastSummary: null,
-          deckFormat: 2
-        };
+        if (!deck || deck.items.length === 0) {
+          deck = {
+            generation: persisted.generation,
+            updatedAtMs: persisted.updatedAtMs,
+            refillReason: persisted.refillReason,
+            items: persisted.items,
+            refillInFlight: null,
+            lastSummary: null,
+            deckFormat: 2
+          };
+        } else {
+          deck.items = mergeUniqueDeckItems(deck.items, persisted.items);
+          deck.updatedAtMs = Math.max(deck.updatedAtMs, persisted.updatedAtMs);
+          deck.generation = Math.max(deck.generation, persisted.generation);
+          deck.refillReason = deck.refillReason ?? persisted.refillReason;
+          deck.deckFormat = 2;
+        }
         readyDeckMemory.set(deckKey, deck);
         deckSource = "firestore";
       }
@@ -335,9 +368,11 @@ export class FeedForYouSimpleService {
       readyDeckMemory.set(deckKey, deck);
       deckSource = "cold_refill";
     }
+    const deckItemsBefore = deck.items.length;
 
     if (deck.items.length < limit) {
-      await this.refillDeck({
+      const refillStartedAt = Date.now();
+      const refillSummary = await this.refillDeck({
         deckKey,
         deck,
         viewerId,
@@ -348,8 +383,17 @@ export class FeedForYouSimpleService {
         servedRecent: servedRecent.postIds,
         reason: deck.items.length === 0 ? "cold_refill" : "low_deck"
       });
+      accumulateSurfaceTiming("feed_simple_stage_refill_ms", Date.now() - refillStartedAt);
+      diag.reelCandidateReadCount += refillSummary.reelReadCount;
+      diag.fallbackCandidateReadCount += refillSummary.fallbackReadCount;
+      diag.rawReelCandidates += refillSummary.rawReelCandidates;
+      diag.rawFallbackCandidates += refillSummary.rawFallbackCandidates;
+      diag.boundedAttempts += refillSummary.boundedAttempts;
+      diag.candidateReadCount += refillSummary.reelReadCount + refillSummary.fallbackReadCount;
+      diag.reelPhaseExhausted = refillSummary.reelPhaseExhausted;
     }
 
+    const pickStartedAt = Date.now();
     const items: SimpleFeedCandidate[] = [];
     const selectedIds = new Set<string>();
     const localServedRecentFiltered = new Set<string>();
@@ -367,13 +411,15 @@ export class FeedForYouSimpleService {
       diag,
       localServedRecentFiltered
     });
+    accumulateSurfaceTiming("feed_simple_stage_pick_ms", Date.now() - pickStartedAt);
 
     deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
 
     let emergencyFallbackUsed = false;
     let emergencySliceItems: SimpleFeedCandidate[] = [];
     if (items.length < limit) {
-      const emerg = await this.repository.fetchEmergencyPlayableSlice({ limit: 25 });
+      const emergencyStartedAt = Date.now();
+      const emerg = await this.repository.fetchEmergencyPlayableSlice({ limit: Math.min(10, limit + 4) });
       emergencySliceItems = emerg.items;
       accumulateSliceStats(emerg.stats, diag);
       const countBeforeEmerg = items.length;
@@ -389,13 +435,15 @@ export class FeedForYouSimpleService {
         updateMediaDiagnostics(candidate, diag);
       }
       emergencyFallbackUsed = items.length > countBeforeEmerg;
+      accumulateSurfaceTiming("feed_simple_stage_emergency_slice_ms", Date.now() - emergencyStartedAt);
     }
 
     let softServedRecentPicks = 0;
     if (items.length < limit && durableViewerId) {
+      const starvationStartedAt = Date.now();
       diag.deckStarvationRefillUsed = true;
       deck.items = deck.items.filter((c) => !servedRecent.postIds.has(c.postId));
-      await this.refillDeck({
+      const refillSummary = await this.refillDeck({
         deckKey,
         deck,
         viewerId,
@@ -407,6 +455,13 @@ export class FeedForYouSimpleService {
         reason: "starvation_refill",
         omitServedRecentFromSessionSeen: true
       });
+      diag.reelCandidateReadCount += refillSummary.reelReadCount;
+      diag.fallbackCandidateReadCount += refillSummary.fallbackReadCount;
+      diag.rawReelCandidates += refillSummary.rawReelCandidates;
+      diag.rawFallbackCandidates += refillSummary.rawFallbackCandidates;
+      diag.boundedAttempts += refillSummary.boundedAttempts;
+      diag.candidateReadCount += refillSummary.reelReadCount + refillSummary.fallbackReadCount;
+      diag.reelPhaseExhausted = diag.reelPhaseExhausted || refillSummary.reelPhaseExhausted;
       pickFromDeckForPage({
         deck,
         limit,
@@ -455,6 +510,7 @@ export class FeedForYouSimpleService {
       }
       if (items.length > beforeRelaxedEmerg) emergencyFallbackUsed = true;
       deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
+      accumulateSurfaceTiming("feed_simple_stage_starvation_refill_ms", Date.now() - starvationStartedAt);
     }
     diag.softServedRecentPicks = softServedRecentPicks;
     if (!diag.deckStarvationRefillUsed) diag.deckStarvationRefillUsed = false;
@@ -469,7 +525,11 @@ export class FeedForYouSimpleService {
     let seenWriteSucceeded = false;
     let blockingResponseWrites = 0;
     let deferredWritesQueued = 0;
-    if (durableViewerId && returnedIds.length > 0) {
+    const readOnlyAuditMode = isReadOnlyLatencyAuditEnabled();
+    if (servedRecentCacheKey && returnedIds.length > 0) {
+      mergeServedRecentMemory(servedRecentCacheKey, returnedIds);
+    }
+    if (durableViewerId && returnedIds.length > 0 && !readOnlyAuditMode) {
       seenWriteAttempted = true;
       deferredWritesQueued = 1;
       setTimeout(() => {
@@ -502,9 +562,11 @@ export class FeedForYouSimpleService {
           durableSeen: effectiveDurableSeen,
           servedRecent: servedRecent.postIds,
           reason: "post_serve_low_watermark"
-        }).finally(() => {
-          if (deck) deck.refillInFlight = null;
-        });
+        })
+          .then(() => undefined)
+          .finally(() => {
+            if (deck) deck.refillInFlight = null;
+          });
         deck.refillInFlight = refillPromise;
       }, 0);
     }
@@ -563,7 +625,7 @@ export class FeedForYouSimpleService {
     diag.recycledSeenPosts = softServedRecentPicks > 0;
     const cards = finalItems.map((candidate, index) => toPostCard(candidate, index, viewerId));
     const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
-    await batchHydrateAppPostsOnRecords(cardRecords, viewerId.trim() ? viewerId : null);
+    accumulateSurfaceTiming("feed_simple_stage_total_ms", Date.now() - requestStartedAt);
 
     return {
       routeName: "feed.for_you_simple.get",
@@ -595,7 +657,7 @@ export class FeedForYouSimpleService {
      * (they remain blocked at serve time until soft pass). Used to break "full deck of soft duplicates".
      */
     omitServedRecentFromSessionSeen?: boolean;
-  }): Promise<void> {
+  }): Promise<RefillDeckSummary> {
     const items: SimpleFeedCandidate[] = [];
     const sessionSeen = new Set<string>([
       ...input.deck.items.map((item) => item.postId),
@@ -625,9 +687,12 @@ export class FeedForYouSimpleService {
       maxReads: MAX_MAIN_READ_BUDGET
     });
     let usedFallbackScan = false;
+    let fallbackSummary:
+      | Awaited<ReturnType<typeof scanPhase>>
+      | null = null;
     if (items.length < READY_DECK_TARGET_SIZE) {
       usedFallbackScan = true;
-      await scanPhase({
+      fallbackSummary = await scanPhase({
         repository: this.repository,
         reelOnly: false,
         limit: READY_DECK_TARGET_SIZE,
@@ -647,7 +712,7 @@ export class FeedForYouSimpleService {
     input.deck.refillReason = usedFallbackScan ? `${input.reason}:fallback` : input.reason;
     input.deck.deckFormat = 2;
     readyDeckMemory.set(input.deckKey, input.deck);
-    if (input.durableViewerId) {
+    if (input.durableViewerId && !isReadOnlyLatencyAuditEnabled()) {
       const persist: SimpleReadyDeckDoc = {
         viewerId: input.durableViewerId,
         surface: FOR_YOU_SIMPLE_SURFACE,
@@ -661,6 +726,14 @@ export class FeedForYouSimpleService {
         void this.repository.writeReadyDeck(persist).catch(() => undefined);
       }, 0);
     }
+    return {
+      reelReadCount: reel.readCount,
+      fallbackReadCount: fallbackSummary?.readCount ?? 0,
+      rawReelCandidates: reel.rawTotal,
+      rawFallbackCandidates: fallbackSummary?.rawTotal ?? 0,
+      boundedAttempts: reel.attempts + (fallbackSummary?.attempts ?? 0),
+      reelPhaseExhausted: reel.exhausted,
+    };
   }
 }
 
@@ -750,6 +823,66 @@ async function scanPhase(input: {
   }
 
   return { phaseState: state, readCount, rawTotal, acceptedDelta, exhausted, attempts, wrapUsed, sliceStats };
+}
+
+function mergeUniqueDeckItems(existing: SimpleFeedCandidate[], incoming: SimpleFeedCandidate[]): SimpleFeedCandidate[] {
+  const out = [...existing];
+  const seen = new Set(existing.map((item) => item.postId));
+  for (const item of incoming) {
+    if (seen.has(item.postId)) continue;
+    seen.add(item.postId);
+    out.push(item);
+    if (out.length >= 60) break;
+  }
+  return out;
+}
+
+function readServedRecentMemory(cacheKey: string): { postIds: Set<string>; readCount: number } | null {
+  const cached = servedRecentMemory.get(cacheKey);
+  if (!cached) return null;
+  const now = Date.now();
+  if (cached.expiresAtMs <= now) {
+    servedRecentMemory.delete(cacheKey);
+    return null;
+  }
+  const filtered = [...cached.entries.entries()]
+    .filter(([, servedAtMs]) => now - servedAtMs <= SERVED_RECENT_TTL_MS)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, SERVED_RECENT_MAX_IDS);
+  cached.entries = new Map(filtered);
+  cached.expiresAtMs = now + SERVED_RECENT_CACHE_TTL_MS;
+  return { postIds: new Set(filtered.map(([postId]) => postId)), readCount: 0 };
+}
+
+function seedServedRecentMemory(cacheKey: string, postIds: Set<string>): void {
+  if (postIds.size === 0) return;
+  const now = Date.now();
+  const entries = new Map<string, number>();
+  for (const postId of postIds) {
+    entries.set(postId, now);
+  }
+  servedRecentMemory.set(cacheKey, {
+    expiresAtMs: now + SERVED_RECENT_CACHE_TTL_MS,
+    entries,
+  });
+}
+
+function mergeServedRecentMemory(cacheKey: string, postIds: string[]): void {
+  const now = Date.now();
+  const entries = new Map(servedRecentMemory.get(cacheKey)?.entries ?? []);
+  for (const postId of postIds) {
+    const trimmed = postId.trim();
+    if (!trimmed) continue;
+    entries.set(trimmed, now);
+  }
+  const compact = [...entries.entries()]
+    .filter(([, servedAtMs]) => now - servedAtMs <= SERVED_RECENT_TTL_MS)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, SERVED_RECENT_MAX_IDS);
+  servedRecentMemory.set(cacheKey, {
+    expiresAtMs: now + SERVED_RECENT_CACHE_TTL_MS,
+    entries: new Map(compact),
+  });
 }
 
 function emptyDiagnostics(requestedLimit: number): FeedForYouSimplePageDebug {
@@ -1101,6 +1234,7 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     title: candidate.title,
     captionPreview: candidate.captionPreview,
     firstAssetUrl: candidate.firstAssetUrl,
+    canonicalAliasMode: "app_post_v2_only",
     media: {
       type: candidate.mediaType,
       posterUrl: candidate.posterUrl,
@@ -1195,11 +1329,8 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
       // no-op
     }
   }
-  if (fullCard.appPost && typeof fullCard.appPost === "object") {
-    (leanCard as Record<string, unknown>).appPost = fullCard.appPost;
-    (leanCard as Record<string, unknown>).appPostV2 = fullCard.appPost;
-    (leanCard as Record<string, unknown>).canonicalPost = fullCard.appPost;
-    (leanCard as Record<string, unknown>).post = fullCard.appPost;
+  if (fullCard.appPostV2 && typeof fullCard.appPostV2 === "object") {
+    (leanCard as Record<string, unknown>).appPostV2 = fullCard.appPostV2;
     (leanCard as Record<string, unknown>).postContractVersion = 3 as const;
   }
   return leanCard as FeedCardDTO;

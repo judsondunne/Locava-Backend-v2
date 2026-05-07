@@ -275,26 +275,42 @@ export async function probeVideoProcessingCloudTasksQueue(): Promise<VideoCloudT
 export function logVideoProcessingCloudTasksStartup(log: Pick<FastifyBaseLogger, "info">): void {
   const c = resolveVideoProcessingCloudTasksConfig();
   const gac = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
+  const verbose = process.env.LOG_VIDEO_TASKS_DEBUG === "1";
+  if (verbose) {
+    log.info(
+      {
+        videoCloudTasks: {
+          gcpProjectId: c.gcpProjectId,
+          gcpProjectIdEnvKey: c.gcpProjectIdEnvKey,
+          location: c.cloudTasksLocation,
+          queueName: c.queueName,
+          workerTargetUrl: c.workerTargetUrl || null,
+          workerUrlSource: c.workerUrlSource,
+          taskSecretConfigured: c.videoProcessorTaskSecretConfigured,
+          googleApplicationCredentialsConfigured: Boolean(gac),
+          cloudTasksAuthHint:
+            !gac && !process.env.K_SERVICE
+              ? "No GOOGLE_APPLICATION_CREDENTIALS: @google-cloud/tasks may use gcloud user ADC (often lacks cloudtasks.tasks.create). Set a service account key path in .env or export it before npm run dev."
+              : null,
+          enqueueTarget:
+            c.gcpProjectId && c.workerTargetUrl
+              ? `Cloud Tasks -> POST ${c.workerTargetUrl} (queue ${c.queueName} @ ${c.cloudTasksLocation})`
+              : null
+        }
+      },
+      "video_processing_cloud_tasks_startup"
+    );
+    return;
+  }
   log.info(
     {
-      videoCloudTasks: {
-        gcpProjectId: c.gcpProjectId,
-        gcpProjectIdEnvKey: c.gcpProjectIdEnvKey,
-        location: c.cloudTasksLocation,
-        queueName: c.queueName,
-        workerTargetUrl: c.workerTargetUrl || null,
-        workerUrlSource: c.workerUrlSource,
-        taskSecretConfigured: c.videoProcessorTaskSecretConfigured,
-        googleApplicationCredentialsConfigured: Boolean(gac),
-        cloudTasksAuthHint:
-          !gac && !process.env.K_SERVICE
-            ? "No GOOGLE_APPLICATION_CREDENTIALS: @google-cloud/tasks may use gcloud user ADC (often lacks cloudtasks.tasks.create). Set a service account key path in .env or export it before npm run dev."
-            : null,
-        enqueueTarget:
-          c.gcpProjectId && c.workerTargetUrl
-            ? `Cloud Tasks → POST ${c.workerTargetUrl} (queue ${c.queueName} @ ${c.cloudTasksLocation})`
-            : null
-      }
+      event: "video_processing_cloud_tasks_startup",
+      projectConfigured: Boolean(c.gcpProjectId),
+      location: c.cloudTasksLocation,
+      queueName: c.queueName,
+      workerUrlConfigured: Boolean(c.workerTargetUrl),
+      taskSecretConfigured: c.videoProcessorTaskSecretConfigured,
+      googleApplicationCredentialsConfigured: Boolean(gac),
     },
     "video_processing_cloud_tasks_startup"
   );

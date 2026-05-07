@@ -23,8 +23,8 @@ export function resolveCanonicalPostSocial(
     viewerHasLiked: opts?.viewerHasLiked === true || post.viewerState?.liked === true,
     commentsPreview: Array.isArray(post.engagementPreview?.recentComments) ? post.engagementPreview.recentComments : [],
     recentLikers: Array.isArray(post.engagementPreview?.recentLikers) ? post.engagementPreview.recentLikers : [],
-    source: "engagement"
-  };
+    source: "engagement" as const
+  } satisfies CanonicalPostSocialResolved;
   if (process.env.NODE_ENV !== "production") {
     // eslint-disable-next-line no-console
     console.info("[POST_SOCIAL_RESOLVED]", {

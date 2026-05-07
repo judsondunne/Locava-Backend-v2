@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { RouteBudgetPolicy } from "./route-policies.js";
 import { getRoutePolicy } from "./route-policies.js";
 import { cacheMetricsCollector } from "./cache-metrics.collector.js";
+import type { FirebaseAccessGate } from "../lib/firebase-access-gate-context.js";
 
 export type DbOperationCounts = {
   reads: number;
@@ -78,7 +79,18 @@ export type RequestContext = {
   /** Milliseconds spent in named repository/service stages (for Server-Timing / profiling). */
   surfaceTimings: Record<string, number>;
   orchestration?: OrchestrationContext;
+  client?: {
+    clientSessionId: string | null;
+    clientRequestId: string | null;
+    clientSentAtMs: string | null;
+    clientRouteName: string | null;
+    clientSurface: string | null;
+    clientBuildProfile: string | null;
+    clientPlatform: string | null;
+  };
   audit?: AuditRequestContext;
+  /** Firebase read containment gate for this HTTP request (see `classifyFirebaseAccessForRequest`). */
+  firebaseAccess?: FirebaseAccessGate;
 };
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -144,6 +156,13 @@ export function recordSurfaceTimings(partials: Record<string, number>): void {
   for (const [k, v] of Object.entries(partials)) {
     if (Number.isFinite(v)) ctx.surfaceTimings[k] = Math.round(v * 100) / 100;
   }
+}
+
+export function accumulateSurfaceTiming(name: string, durationMs: number): void {
+  const ctx = storage.getStore();
+  if (!ctx || !Number.isFinite(durationMs)) return;
+  const next = (ctx.surfaceTimings[name] ?? 0) + durationMs;
+  ctx.surfaceTimings[name] = Math.round(next * 100) / 100;
 }
 
 /** RFC 6797 Server-Timing header value (ASCII metric names). */

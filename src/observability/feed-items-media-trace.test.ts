@@ -34,8 +34,10 @@ describe("feed-items-media-trace", () => {
     expect(r.videoMediaStatusProcessing).toBe(1);
     expect(r.videoCardsWithPreview360PathHint).toBe(1);
     expect(r.videoCardsWithMain720PathHint).toBe(1);
-    expect(r.videoSelectedVariantCounts).toBeTruthy();
-    expect((r.videoSelectedVariantCounts as { main720?: number }).main720 ?? 0).toBeGreaterThanOrEqual(0);
+    expect(r.canonicalSelectedVariantCounts).toBeTruthy();
+    expect(
+      Object.values(r.canonicalSelectedVariantCounts as Record<string, number>).reduce((sum, value) => sum + value, 0),
+    ).toBe(1);
     expect(typeof r.videoDegradedCount).toBe("number");
     expect(typeof r.videoMissingPlayableCount).toBe("number");
   });
@@ -57,5 +59,41 @@ describe("feed-items-media-trace", () => {
     expect(Array.isArray((row.asset0 as { variantKeys?: string[] }).variantKeys)).toBe(true);
     expect((row.asset0 as { variantKeys?: string[] }).variantKeys).toContain("main720Avc");
     expect(Array.isArray(row.pathHintsMerged)).toBe(true);
+  });
+
+  it("counts canonical playback fields as playable", () => {
+    const r = rollupFeedVideoMediaSummary([
+      {
+        postId: "canonical-ok",
+        media: { type: "video" },
+        appPostV2: {
+          media: {
+            assets: [
+              {
+                type: "video",
+                video: {
+                  playback: {
+                    startupUrl: "https://cdn.example.com/startup720_faststart_avc.mp4",
+                    defaultUrl: "https://cdn.example.com/main720.mp4",
+                    primaryUrl: "https://cdn.example.com/main1080.mp4",
+                    posterUrl: "https://cdn.example.com/poster.jpg",
+                    gradient: "#111111:#222222"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]);
+    expect(r.videoItemCount).toBe(1);
+    expect(r.canonicalVideoPlayableCount).toBe(1);
+    expect(r.canonicalStartupUrlCount).toBe(1);
+    expect(r.canonicalPosterCount).toBe(1);
+    expect(r.canonicalGradientCount).toBe(1);
+    expect(
+      Object.values(r.canonicalSelectedVariantCounts as Record<string, number>).reduce((sum, value) => sum + value, 0),
+    ).toBe(1);
+    expect(r.videoMissingPlayableCount).toBe(0);
   });
 });

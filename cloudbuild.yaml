@@ -1,8 +1,12 @@
 steps:
   - name: gcr.io/cloud-builders/docker
+    # Workspace root so sibling `locava-contracts` is in the build context (package.json uses file:../locava-contracts).
+    dir: .
     args:
       [
         'build',
+        '-f',
+        'Dockerfile',
         '-t',
         'us-central1-docker.pkg.dev/$PROJECT_ID/locava-backend-v2/locava-backend-v2:$COMMIT_SHA',
         '.'
