@@ -32,8 +32,8 @@ const LIMIT_MIN = 1;
 const LIMIT_MAX = 12;
 
 /** Firestore reads budget for main reel+fallback scans (excludes seen ledger + blocked user read). */
-const MAX_MAIN_READ_BUDGET = 24;
-const BATCH_PAGE_SIZE = 12;
+const MAX_MAIN_READ_BUDGET = 16;
+const BATCH_PAGE_SIZE = 8;
 const MAX_SCAN_ATTEMPTS = 6;
 const FOR_YOU_SIMPLE_DEBUG_FIXED_IDS_FLAG = "LOCAVA_DEBUG_FOR_YOU_SIMPLE_FIXED_IDS";
 const FOR_YOU_SIMPLE_DEBUG_FIXED_ID_LIST = [
@@ -185,6 +185,11 @@ export type FeedForYouSimplePageDebug = {
   deckStarvationRefillUsed?: boolean;
   /** Picks that were only eligible after relaxing the short-term served-recent ring (still excludes durable feedSeen). */
   softServedRecentPicks?: number;
+  coldRefillReason?: string | null;
+  staleDeckServed?: boolean;
+  refillDeferred?: boolean;
+  candidateQueryCount?: number;
+  payloadTrimMode?: string;
 };
 
 export class FeedForYouSimpleService {
@@ -333,7 +338,7 @@ export class FeedForYouSimpleService {
       (!deck || deck.items.length < Math.max(limit, READY_DECK_MIN_REFILL_THRESHOLD));
     if (shouldTryPersistedReadyDeck) {
       const persisted = await this.repository.readReadyDeck(durableViewerId, FOR_YOU_SIMPLE_SURFACE);
-      if (persisted && persisted.expiresAtMs > Date.now() && persisted.items.length > 0) {
+      if (persisted && persisted.items.length > 0) {
         if (!deck || deck.items.length === 0) {
           deck = {
             generation: persisted.generation,
@@ -352,7 +357,8 @@ export class FeedForYouSimpleService {
           deck.deckFormat = 2;
         }
         readyDeckMemory.set(deckKey, deck);
-        deckSource = "firestore";
+        deckSource = persisted.expiresAtMs > Date.now() ? "firestore" : "fallback";
+        diag.staleDeckServed = persisted.expiresAtMs <= Date.now();
       }
     }
     if (!deck) {
@@ -367,6 +373,7 @@ export class FeedForYouSimpleService {
       };
       readyDeckMemory.set(deckKey, deck);
       deckSource = "cold_refill";
+      diag.coldRefillReason = "missing_memory_and_persisted";
     }
     const deckItemsBefore = deck.items.length;
 
@@ -551,6 +558,7 @@ export class FeedForYouSimpleService {
     }
     if (deck.items.length < READY_DECK_MIN_REFILL_THRESHOLD && !deck.refillInFlight) {
       deck.refillInFlight = Promise.resolve();
+      diag.refillDeferred = true;
       setTimeout(() => {
         const refillPromise = this.refillDeck({
           deckKey,
@@ -597,6 +605,8 @@ export class FeedForYouSimpleService {
     diag.deferredWriterFailedFlushes = 0;
     diag.exhaustedUnseenCandidates = finalItems.length < limit && !exhausted;
     diag.reelFirstEnabled = true;
+    diag.candidateQueryCount = Math.ceil((diag.candidateReadCount ?? 0) / BATCH_PAGE_SIZE);
+    diag.payloadTrimMode = "compact_assets_visible_only";
     diag.degradedFallbackUsed = emergencyFallbackUsed && diag.degradedMediaCount > 0;
     diag.filteredBySeen += servedRecentFilteredCount;
     diag.durableSeenFilteredCount += servedRecentFilteredCount;

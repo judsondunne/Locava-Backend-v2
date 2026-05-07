@@ -145,7 +145,8 @@ const EnvSchema = z.object({
   /** When true with ENABLE_DEV_DIAGNOSTICS, exposes GET /debug/firebase-access-policy (no secrets). */
   ENABLE_FIREBASE_ACCESS_DEBUG_ENDPOINT: z.coerce.boolean().default(false),
   /** Read-only real-data profiling mode: probe routes may read production Firebase but must never mutate it. */
-  READ_ONLY_LATENCY_AUDIT: z.coerce.boolean().default(false)
+  READ_ONLY_LATENCY_AUDIT: z.coerce.boolean().default(false),
+  ENABLE_ACHIEVEMENTS_VERBOSE_LOGS: z.coerce.boolean().default(false),
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

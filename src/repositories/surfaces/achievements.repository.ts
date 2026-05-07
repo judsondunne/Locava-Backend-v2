@@ -1129,7 +1129,16 @@ export class AchievementsRepository {
           subtitle: a.subtitle
         }))
       };
-      console.info("[achievements.bootstrap] legends_slice", legendsDebug);
+      const verboseLegendsLogs = process.env.ENABLE_ACHIEVEMENTS_VERBOSE_LOGS === "1";
+      if (verboseLegendsLogs) {
+        console.info("[achievements.bootstrap] legends_slice", legendsDebug);
+      } else {
+        console.info("[achievements.bootstrap] legends_slice_summary", {
+          activeCount: activeScopeIds.length,
+          closeCount: closeScopeIds.length,
+          recentAwardCount: recentAwards.length,
+        });
+      }
 
       const payload = {
         activeLegends: activeScopeIds.map(mapScopeSummary),
