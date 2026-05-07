@@ -7,8 +7,6 @@ import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { incrementDbOps, recordEntityCacheHit, recordFallback, recordSurfaceTimings } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
-import { FeedRepository } from "./feed.repository.js";
-import { FeedService } from "../../services/surfaces/feed.service.js";
 
 type NotificationRecord = NotificationSummary & { viewerId: string };
 type CachedNotificationReadState = {
@@ -70,7 +68,6 @@ const KNOWN_NOTIFICATION_TYPES = new Set([
 const LIKE_AGG_WINDOW_MS = 24 * 60 * 60 * 1000;
 const LIKE_AGG_INDIVIDUAL_CAP = 2;
 const MAX_IDS_IN_AGG_METADATA = 80;
-const notificationFeedService = new FeedService(new FeedRepository());
 
 type LegacySenderData = {
   senderName?: string;
@@ -1126,16 +1123,6 @@ export class NotificationsRepository {
     const hydratedUsersById =
       actorIdsNeedingHydration.length > 0 ? await this.loadUsersById(actorIdsNeedingHydration) : new Map<string, DocumentData>();
     const tUserHydr1 = performance.now();
-    const notificationPostIds = [...new Set(
-      allRaw
-        .map((row) => (typeof row.postId === "string" ? row.postId.trim() : ""))
-        .filter(Boolean)
-    )];
-    const notificationPostCards =
-      notificationPostIds.length > 0
-        ? await notificationFeedService.loadPostCardSummaryBatch(input.viewerId, notificationPostIds).catch(() => [])
-        : [];
-    const notificationPostById = new Map(notificationPostCards.map((row) => [row.postId, row] as const));
     const tMap0 = performance.now();
     const items: NotificationRecord[] = allRaw.map((row) => {
       const actorId = String(row.senderUserId ?? "system");
@@ -1184,7 +1171,6 @@ export class NotificationsRepository {
           text: String(row.message ?? metadata.postTitle ?? defaultPreviewText(type)),
           thumbUrl: typeof metadata.postThumbUrl === "string" ? metadata.postThumbUrl : null
         },
-        ...(postId && notificationPostById.has(postId) ? { post: notificationPostById.get(postId) } : {}),
         ...(metaOut ? { metadata: metaOut } : {}),
         viewerId: input.viewerId
       };
