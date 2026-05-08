@@ -267,6 +267,30 @@ describe("v2 posting/upload first slice", () => {
     expect(second.postId).toBe(first.postId);
   });
 
+  it("rejects adminPostAsUserId when the authenticated viewer is not an admin", async () => {
+    process.env.ADMIN_UIDS = "some-other-admin";
+    const unique = randomUUID().slice(0, 8);
+    const sessionId = await createReadyUploadSession(unique, `client-session-admin-override-${unique}`);
+
+    const finalize = await app.inject({
+      method: "POST",
+      url: "/v2/posting/finalize",
+      headers: {
+        ...viewerHeaders,
+        authorization: "Bearer test-user:internal-viewer",
+      },
+      payload: {
+        sessionId,
+        idempotencyKey: `posting-admin-override-${unique}`,
+        mediaCount: 1,
+        adminPostAsUserId: "target-user-1",
+      },
+    });
+
+    expect(finalize.statusCode).toBe(403);
+    expect(finalize.json().error?.code).toBe("admin_override_forbidden");
+  });
+
   it("finalize postId is immediately readable via /api/posts/:postId", async () => {
     const unique = randomUUID().slice(0, 8);
     const create = await app.inject({

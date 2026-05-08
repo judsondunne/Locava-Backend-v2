@@ -43,6 +43,7 @@ export class PostingFinalizeOrchestrator {
         resizeMode?: "cover" | "contain";
       };
     }>;
+    adminPostAsUserId?: string;
     authorizationHeader?: string;
   }) {
     const result = await this.service.finalizePosting(input);

@@ -50,6 +50,7 @@ export const PostingFinalizeBodySchema = z.object({
   idempotencyKey: z.string().min(8).max(128),
   mediaCount: z.coerce.number().int().min(1).max(20).default(1),
   userId: z.string().min(3).optional(),
+  adminPostAsUserId: z.string().min(3).max(128).optional(),
   title: z.string().max(300).optional(),
   content: z.string().max(5000).optional(),
   activities: z.array(z.string().max(128)).max(20).default([]),

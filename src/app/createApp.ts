@@ -32,6 +32,7 @@ import { registerInternalOpsRoutes } from "../routes/internal/internal-ops.route
 import { registerSystemRoutes } from "../routes/system.routes.js";
 import { registerTestRoutes } from "../routes/test.routes.js";
 import { registerV2AuthBootstrapRoutes } from "../routes/v2/auth-bootstrap.routes.js";
+import { registerV2AdminCheckRoutes } from "../routes/v2/admin-check.routes.js";
 import { registerV2AuthMutationRoutes } from "../routes/v2/auth-mutations.routes.js";
 import { registerV2AuthPushTokenRoutes } from "../routes/v2/auth-push-token.routes.js";
 import { registerProfilePictureUploadRoutes } from "../routes/v2/profile-picture-upload.routes.js";
@@ -647,6 +648,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerSystemRoutes);
   app.register(registerTestRoutes);
   app.register(registerV2AuthBootstrapRoutes);
+  app.register(registerV2AdminCheckRoutes);
   app.register(registerV2AuthMutationRoutes);
   app.register(registerV2AuthPushTokenRoutes);
   app.register(registerV2AnalyticsEventsRoutes);

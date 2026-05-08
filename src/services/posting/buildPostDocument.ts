@@ -73,6 +73,11 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
   const base: Record<string, unknown> = {
     postId: input.postId,
     userId: input.effectiveUserId,
+    ownerId: input.effectiveUserId,
+    authorId: input.effectiveUserId,
+    creatorId: input.effectiveUserId,
+    createdBy: input.effectiveUserId,
+    postedBy: input.effectiveUserId,
     title,
     content,
     caption,

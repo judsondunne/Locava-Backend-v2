@@ -2,6 +2,7 @@ import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { hasAdminAccess, verifyViewerAuthHeader } from "../../auth/admin-access.js";
 import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { withMutationLock } from "../../lib/mutation-lock.js";
@@ -94,6 +95,31 @@ function buildNativeAuthorSnapshotFromUserDoc(data: Record<string, unknown>, eff
   };
 }
 
+export class AdminPostOverrideError extends Error {
+  constructor(
+    public readonly code:
+      | "admin_auth_required"
+      | "admin_override_forbidden"
+      | "admin_override_target_not_found"
+      | "admin_override_target_invalid"
+      | "admin_override_viewer_mismatch",
+    message: string,
+  ) {
+    super(message);
+    this.name = "AdminPostOverrideError";
+  }
+}
+
+type ResolvedEffectivePostAuthor = {
+  effectiveUserId: string;
+  authorSnapshot?: NativePostUserSnapshot;
+  adminPostOverrideAudit?: {
+    performedByUid: string;
+    postedAsUid: string;
+    reason: "admin_post_flow";
+  };
+};
+
 export class PostingMutationService {
   private readonly completionTimers = new Map<string, true>();
   private readonly mediaVerificationTimers = new Map<string, true>();
@@ -150,6 +176,7 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
+    adminPostAsUserId?: string;
     authorizationHeader?: string;
   }): Promise<{
     session: UploadSessionRecord;
@@ -167,6 +194,11 @@ export class PostingMutationService {
           postingMutationRepository.finalizePosting(input)
         )
       );
+      const effectiveAuthor = await this.resolveEffectivePostAuthor({
+        viewerId: input.viewerId,
+        adminPostAsUserId: input.adminPostAsUserId,
+        authorizationHeader: input.authorizationHeader,
+      });
       if (debugTimings) {
         console.info("[posting.finalize.timing] finalizePostingRepository", { ms: Date.now() - startedAt });
       }
@@ -181,7 +213,7 @@ export class PostingMutationService {
         scheduleBackgroundWork(
           () => this.primeLegendPostResult({
             postId: result.operation.postId,
-            userId: (input.userId?.trim() || input.viewerId).trim(),
+            userId: effectiveAuthor.effectiveUserId,
             stageId: input.legendStageId?.trim() || null,
             reason: "idempotent_completed"
           }),
@@ -191,11 +223,14 @@ export class PostingMutationService {
         this.scheduleLegendsCommit({
           stageId: input.legendStageId,
           postId: result.operation.postId,
-          userId: (input.userId?.trim() || input.viewerId).trim()
+          userId: effectiveAuthor.effectiveUserId
         });
         const [finalizeEcho, achievementDelta] = await Promise.all([
           this.loadCanonicalFinalizeEcho(result.operation.postId),
-          this.resolveFinalizeAchievementDelta(input, result.operation.postId)
+          this.resolveFinalizeAchievementDelta(
+            { ...input, userId: effectiveAuthor.effectiveUserId },
+            result.operation.postId,
+          )
         ]);
         return {
           ...result,
@@ -207,7 +242,7 @@ export class PostingMutationService {
       }
 
       try {
-        const postId = await this.publishToLegacyMonolith(input);
+        const postId = await this.publishToLegacyMonolith(input, effectiveAuthor);
         if (debugTimings) {
           console.info("[posting.finalize.timing] publishToLegacyMonolith", { ms: Date.now() - startedAt });
         }
@@ -244,7 +279,7 @@ export class PostingMutationService {
           () =>
             this.primeLegendPostResult({
               postId,
-              userId: (input.userId?.trim() || input.viewerId).trim(),
+              userId: effectiveAuthor.effectiveUserId,
               stageId: input.legendStageId?.trim() || null,
               reason: "finalize_completed"
             }),
@@ -254,11 +289,14 @@ export class PostingMutationService {
         this.scheduleLegendsCommit({
           stageId: input.legendStageId,
           postId,
-          userId: (input.userId?.trim() || input.viewerId).trim()
+          userId: effectiveAuthor.effectiveUserId
         });
         const [finalizeEcho, achievementDelta] = await Promise.all([
           this.loadCanonicalFinalizeEcho(postId),
-          this.resolveFinalizeAchievementDelta(input, postId)
+          this.resolveFinalizeAchievementDelta(
+            { ...input, userId: effectiveAuthor.effectiveUserId },
+            postId,
+          )
         ]);
         return {
           session: result.session,
@@ -677,8 +715,83 @@ export class PostingMutationService {
     return data;
   }
 
-  private scheduleFinalizeSupplementaryWrites(input: {
+  private async resolveEffectivePostAuthor(input: {
     viewerId: string;
+    adminPostAsUserId?: string;
+    authorizationHeader?: string;
+  }): Promise<ResolvedEffectivePostAuthor> {
+    const overrideTargetUserId = input.adminPostAsUserId?.trim() || "";
+    if (!overrideTargetUserId) {
+      return { effectiveUserId: input.viewerId };
+    }
+
+    const verified = await verifyViewerAuthHeader(input.authorizationHeader);
+    if (!verified?.uid) {
+      throw new AdminPostOverrideError(
+        "admin_auth_required",
+        "Authenticated admin identity is required for admin post override",
+      );
+    }
+    if (verified.uid !== input.viewerId) {
+      throw new AdminPostOverrideError(
+        "admin_override_viewer_mismatch",
+        "Authenticated viewer does not match the posting viewer context",
+      );
+    }
+    if (!hasAdminAccess({ uid: verified.uid, claims: verified.claims })) {
+      throw new AdminPostOverrideError(
+        "admin_override_forbidden",
+        "Only admins may post as another user",
+      );
+    }
+
+    const db = getFirestoreSourceClient();
+    if (!db) {
+      if (process.env.NODE_ENV === "test") {
+        return {
+          effectiveUserId: overrideTargetUserId,
+          authorSnapshot: {
+            handle: `user_${overrideTargetUserId.slice(0, 8)}`,
+            name: "Unknown User",
+            profilePic: "/default-user.png",
+          },
+          adminPostOverrideAudit: {
+            performedByUid: verified.uid,
+            postedAsUid: overrideTargetUserId,
+            reason: "admin_post_flow",
+          },
+        };
+      }
+      throw new AdminPostOverrideError(
+        "admin_override_target_invalid",
+        "Unable to resolve target user for admin post override",
+      );
+    }
+
+    const targetUserDoc = (await this.ensureViewerDocCached(overrideTargetUserId)) ?? {};
+    const hasAnyTargetIdentity =
+      Object.keys(targetUserDoc).length > 0 ||
+      (await db.collection("users").doc(overrideTargetUserId).get()).exists;
+    if (!hasAnyTargetIdentity) {
+      throw new AdminPostOverrideError(
+        "admin_override_target_not_found",
+        `Target user "${overrideTargetUserId}" does not exist`,
+      );
+    }
+
+    return {
+      effectiveUserId: overrideTargetUserId,
+      authorSnapshot: buildNativeAuthorSnapshotFromUserDoc(targetUserDoc, overrideTargetUserId),
+      adminPostOverrideAudit: {
+        performedByUid: verified.uid,
+        postedAsUid: overrideTargetUserId,
+        reason: "admin_post_flow",
+      },
+    };
+  }
+
+  private scheduleFinalizeSupplementaryWrites(input: {
+    ownerUserId: string;
     postId: string;
     now: number;
     nowTs: Timestamp;
@@ -690,9 +803,9 @@ export class PostingMutationService {
       const db = getFirestoreSourceClient();
       if (!db) return;
       await db.runTransaction(async (tx) => {
-        const userRef = db.collection("users").doc(input.viewerId);
-        const userPostRef = db.collection("users").doc(input.viewerId).collection("posts").doc(input.postId);
-        const achievementsStateRef = db.collection("users").doc(input.viewerId).collection("achievements").doc("state");
+        const userRef = db.collection("users").doc(input.ownerUserId);
+        const userPostRef = db.collection("users").doc(input.ownerUserId).collection("posts").doc(input.postId);
+        const achievementsStateRef = db.collection("users").doc(input.ownerUserId).collection("achievements").doc("state");
         const existingUserPost = await tx.get(userPostRef);
         if (existingUserPost.exists) return;
         tx.set(
@@ -726,8 +839,8 @@ export class PostingMutationService {
         );
       });
       await Promise.allSettled([
-        globalCache.del(entityCacheKeys.userPostCount(input.viewerId)),
-        globalCache.del(entityCacheKeys.userFirestoreDoc(input.viewerId))
+        globalCache.del(entityCacheKeys.userPostCount(input.ownerUserId)),
+        globalCache.del(entityCacheKeys.userFirestoreDoc(input.ownerUserId))
       ]);
     });
   }
@@ -898,15 +1011,13 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
-  }): Promise<string> {
+    adminPostAsUserId?: string;
+  }, effectiveAuthor: ResolvedEffectivePostAuthor): Promise<string> {
     const debugTimings = process.env.POSTING_FINALIZE_DEBUG_TIMINGS === "1";
     const startedAt = debugTimings ? Date.now() : 0;
     if (process.env.NODE_ENV === "test") {
-      return this.createCanonicalPostFallbackForTests(input);
+      return this.createCanonicalPostFallbackForTests(input, effectiveAuthor);
     }
-    // Security + correctness: the post author is always the authenticated viewer.
-    // Never allow client-provided `userId` to change post ownership.
-    const viewer = input.viewerId;
     const media = await postingMutationRepository.listSessionMedia({
       viewerId: input.viewerId,
       sessionId: input.sessionId,
@@ -1004,7 +1115,7 @@ export class PostingMutationService {
     const beforeNative = debugTimings ? Date.now() : 0;
     const postId = await this.publishNativeCanonicalPost({
       viewerId: input.viewerId,
-      effectiveUserId: viewer,
+      effectiveUserId: effectiveAuthor.effectiveUserId,
       sessionId: input.sessionId,
       stagedSessionId: canonicalSessionId,
       idempotencyKey: input.idempotencyKey,
@@ -1019,6 +1130,8 @@ export class PostingMutationService {
       texts: Array.isArray(input.texts) ? input.texts : [],
       recordings: Array.isArray(input.recordings) ? input.recordings : [],
       stagedItems,
+      authorSnapshot: effectiveAuthor.authorSnapshot,
+      adminPostOverrideAudit: effectiveAuthor.adminPostOverrideAudit,
       finalizeCarouselFitWidth: input.carouselFitWidth,
       finalizeLetterboxGradients: input.letterboxGradients,
       finalizeAssetPresentations: input.assetPresentations
@@ -1140,6 +1253,12 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
+    authorSnapshot?: NativePostUserSnapshot;
+    adminPostOverrideAudit?: {
+      performedByUid: string;
+      postedAsUid: string;
+      reason: "admin_post_flow";
+    };
   }): Promise<string> {
     const db = getFirestoreSourceClient();
     if (!db) {
@@ -1148,31 +1267,34 @@ export class PostingMutationService {
     const debugTimings = process.env.POSTING_FINALIZE_DEBUG_TIMINGS === "1";
     const startedAt = debugTimings ? Date.now() : 0;
 
-    let userData = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId))) ?? null;
-    if (!userFirestoreDocHasAuthorDisplay(userData)) {
-      const cachedSummary =
-        (await globalCache.get<{
-          handle?: unknown;
-          name?: unknown;
-          pic?: unknown;
-        }>(entityCacheKeys.userSummary(input.viewerId))) ?? null;
-      if (
-        cachedSummary &&
-        (trimAuthorField(cachedSummary.handle).length > 0 ||
-          trimAuthorField(cachedSummary.name).length > 0 ||
-          trimAuthorField(cachedSummary.pic).length > 0)
-      ) {
-        userData = {
-          handle: typeof cachedSummary.handle === "string" ? cachedSummary.handle : "",
-          name: typeof cachedSummary.name === "string" ? cachedSummary.name : "",
-          profilePic: typeof cachedSummary.pic === "string" ? cachedSummary.pic : ""
-        };
+    let authorSnapshot = input.authorSnapshot;
+    if (!authorSnapshot) {
+      let userData = (await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.effectiveUserId))) ?? null;
+      if (!userFirestoreDocHasAuthorDisplay(userData)) {
+        const cachedSummary =
+          (await globalCache.get<{
+            handle?: unknown;
+            name?: unknown;
+            pic?: unknown;
+          }>(entityCacheKeys.userSummary(input.effectiveUserId))) ?? null;
+        if (
+          cachedSummary &&
+          (trimAuthorField(cachedSummary.handle).length > 0 ||
+            trimAuthorField(cachedSummary.name).length > 0 ||
+            trimAuthorField(cachedSummary.pic).length > 0)
+        ) {
+          userData = {
+            handle: typeof cachedSummary.handle === "string" ? cachedSummary.handle : "",
+            name: typeof cachedSummary.name === "string" ? cachedSummary.name : "",
+            profilePic: typeof cachedSummary.pic === "string" ? cachedSummary.pic : ""
+          };
+        }
       }
+      if (!userFirestoreDocHasAuthorDisplay(userData)) {
+        userData = (await this.ensureViewerDocCached(input.effectiveUserId)) ?? {};
+      }
+      authorSnapshot = buildNativeAuthorSnapshotFromUserDoc(userData ?? {}, input.effectiveUserId);
     }
-    if (!userFirestoreDocHasAuthorDisplay(userData)) {
-      userData = (await this.ensureViewerDocCached(input.viewerId)) ?? {};
-    }
-    const authorSnapshot = buildNativeAuthorSnapshotFromUserDoc(userData ?? {}, input.effectiveUserId);
     const now = Date.now();
     const nowTs = Timestamp.fromMillis(now);
     const postId = `post_${createHash("sha1").update(`${input.viewerId}:${input.idempotencyKey}`).digest("hex").slice(0, 16)}`;
@@ -1271,6 +1393,19 @@ export class PostingMutationService {
       if (audit && "normalizationDebug" in audit) {
         delete audit.normalizationDebug;
       }
+    }
+    if (input.adminPostOverrideAudit) {
+      const currentAudit =
+        firestoreWrite.audit && typeof firestoreWrite.audit === "object"
+          ? (firestoreWrite.audit as Record<string, unknown>)
+          : {};
+      firestoreWrite.audit = {
+        ...currentAudit,
+        adminPostOverride: {
+          ...input.adminPostOverrideAudit,
+          createdAt: FieldValue.serverTimestamp(),
+        },
+      };
     }
 
     const firstVideo = assembled.assets.find((a) => String((a as { type?: string }).type).toLowerCase() === "video") as
@@ -1473,7 +1608,7 @@ export class PostingMutationService {
     }
 
     this.scheduleFinalizeSupplementaryWrites({
-      viewerId: input.viewerId,
+      ownerUserId: input.effectiveUserId,
       postId,
       now,
       nowTs
@@ -1690,7 +1825,7 @@ export class PostingMutationService {
     long?: number | string;
     address?: string;
     privacy?: string;
-  }): Promise<string> {
+  }, effectiveAuthor: ResolvedEffectivePostAuthor): Promise<string> {
     const db = getFirestoreSourceClient();
     const postId = `post_${createHash("sha1").update(`${input.viewerId}:${input.idempotencyKey}`).digest("hex").slice(0, 10)}`;
     if (!db) {
@@ -1704,9 +1839,23 @@ export class PostingMutationService {
       city: "San Francisco"
     };
     const imageUrl = `https://media.locava.test/images/${postId}_lg.webp`;
+    const authorSnapshot =
+      effectiveAuthor.authorSnapshot ?? {
+        handle: `user_${effectiveAuthor.effectiveUserId.slice(0, 8)}`,
+        name: "Unknown User",
+        profilePic: "/default-user.png",
+      };
     const postDoc: Record<string, unknown> = {
       postId,
-      userId: input.viewerId,
+      userId: effectiveAuthor.effectiveUserId,
+      ownerId: effectiveAuthor.effectiveUserId,
+      authorId: effectiveAuthor.effectiveUserId,
+      creatorId: effectiveAuthor.effectiveUserId,
+      createdBy: effectiveAuthor.effectiveUserId,
+      postedBy: effectiveAuthor.effectiveUserId,
+      userHandle: authorSnapshot.handle,
+      userName: authorSnapshot.name,
+      userPic: authorSnapshot.profilePic,
       title: input.title ?? "",
       content: input.content ?? "",
       activities: Array.isArray(input.activities) && input.activities.length > 0 ? input.activities : ["misc"],
@@ -1756,10 +1905,18 @@ export class PostingMutationService {
       "time-created": nowTs,
       lastUpdated: nowTs,
       likesCount: 0,
-      commentsCount: 0
+      commentsCount: 0,
+      audit: effectiveAuthor.adminPostOverrideAudit
+        ? {
+            adminPostOverride: {
+              ...effectiveAuthor.adminPostOverrideAudit,
+              createdAt: nowTs,
+            },
+          }
+        : undefined,
     };
     await db.collection("posts").doc(postId).set(postDoc, { merge: true });
-    await db.collection("users").doc(input.viewerId).collection("posts").doc(postId).set({
+    await db.collection("users").doc(effectiveAuthor.effectiveUserId).collection("posts").doc(postId).set({
       postId,
       createdAt: nowTs,
       time: nowTs

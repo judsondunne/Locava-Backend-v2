@@ -10,7 +10,10 @@ import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
 import { PostingFinalizeOrchestrator } from "../../orchestration/mutations/posting-finalize.orchestrator.js";
 import { PostingMutationError } from "../../repositories/mutations/posting-mutation.repository.js";
-import { PostingMutationService } from "../../services/mutations/posting-mutation.service.js";
+import {
+  AdminPostOverrideError,
+  PostingMutationService,
+} from "../../services/mutations/posting-mutation.service.js";
 
 export async function registerV2PostingFinalizeRoutes(app: FastifyInstance): Promise<void> {
   const service = new PostingMutationService();
@@ -49,6 +52,7 @@ export async function registerV2PostingFinalizeRoutes(app: FastifyInstance): Pro
         carouselFitWidth: body.carouselFitWidth,
         letterboxGradients: body.letterboxGradients,
         assetPresentations: body.assetPresentations,
+        adminPostAsUserId: body.adminPostAsUserId,
         authorizationHeader: typeof request.headers.authorization === "string" ? request.headers.authorization : undefined
       });
       return success(payload);
@@ -66,6 +70,18 @@ export async function registerV2PostingFinalizeRoutes(app: FastifyInstance): Pro
         if (error.code === "session_not_owned") {
           return reply.status(403).send(failure("session_not_owned", error.message));
         }
+      }
+      if (error instanceof AdminPostOverrideError) {
+        if (error.code === "admin_auth_required") {
+          return reply.status(401).send(failure(error.code, error.message));
+        }
+        if (error.code === "admin_override_target_not_found") {
+          return reply.status(404).send(failure(error.code, error.message));
+        }
+        if (error.code === "admin_override_target_invalid") {
+          return reply.status(400).send(failure(error.code, error.message));
+        }
+        return reply.status(403).send(failure(error.code, error.message));
       }
       throw error;
     }
