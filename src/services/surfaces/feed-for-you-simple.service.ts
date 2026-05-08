@@ -27,9 +27,18 @@ const READY_DECK_MIN_REFILL_THRESHOLD = 6;
 const READY_DECK_TTL_MS = 30 * 60 * 1000;
 const BLOCKED_AUTHORS_CACHE_TTL_MS = 60_000;
 
+/** Hard caps for scroll pagination — prefer partial pages + background refill over deep Firestore scans. */
+const PAGINATION_MAX_DB_READS = 25;
+const PAGINATION_MAX_QUERIES = 5;
+const PAGINATION_REEL_READ_CAP = 10;
+const PAGINATION_FALLBACK_READ_CAP = 10;
+const PAGINATION_MAX_SCAN_ATTEMPTS = 3;
+
 const LIMIT_DEFAULT = 5;
 const LIMIT_MIN = 1;
 const LIMIT_MAX = 12;
+/** Serialized carousel cap for cold For You slim wire payloads (canonical assetCount still preserved separately). */
+const FEED_SIMPLE_FIRST_PAINT_WIRE_ASSET_CAP = 8;
 
 /** Firestore reads budget for main reel+fallback scans (excludes seen ledger + blocked user read). */
 const MAX_MAIN_READ_BUDGET = 16;
@@ -256,6 +265,7 @@ export type FeedForYouSimplePageDebug = {
   coldRefillReason?: string | null;
   staleDeckServed?: boolean;
   refillDeferred?: boolean;
+  paginationBudgetCapped?: boolean;
   candidateQueryCount?: number;
   payloadTrimMode?: string;
   /**
@@ -321,6 +331,7 @@ export class FeedForYouSimpleService {
     const limit = clampLimit(input.limit);
     const viewerId = input.viewerId?.trim() ?? "";
     const durableViewerId = isDurableViewerId(viewerId) ? viewerId : "";
+    const isPaginationRequest = Boolean(input.cursor) && input.refresh !== true;
 
     const diag = emptyDiagnostics(limit);
     diag.cursorUsed = Boolean(input.cursor) && !input.refresh;
@@ -491,6 +502,8 @@ export class FeedForYouSimpleService {
         durableSeen: effectiveDurableSeen,
         servedRecent: servedRecent.postIds,
         reason: deck.items.length === 0 ? "cold_refill" : "low_deck",
+        firstPaintTight: noCursorRequest,
+        paginationMode: isPaginationRequest,
         radiusFilter
       });
       accumulateSurfaceTiming("feed_simple_stage_refill_ms", Date.now() - refillStartedAt);
@@ -535,7 +548,11 @@ export class FeedForYouSimpleService {
 
     let emergencyFallbackUsed = false;
     let emergencySliceItems: SimpleFeedCandidate[] = [];
-    if (items.length < limit) {
+    const ctxBeforeEmergency = getRequestContext();
+    const readsBeforeEmergency = ctxBeforeEmergency?.dbOps.reads ?? 0;
+    const allowEmergencySlice =
+      !isPaginationRequest || items.length === 0 || readsBeforeEmergency < 12;
+    if (items.length < limit && allowEmergencySlice) {
       const emergencyStartedAt = Date.now();
       const emerg = await this.repository.fetchEmergencyPlayableSlice({ limit: Math.min(10, limit + 4) });
       emergencySliceItems = emerg.items;
@@ -558,7 +575,13 @@ export class FeedForYouSimpleService {
     }
 
     let softServedRecentPicks = 0;
-    if (items.length < limit && durableViewerId) {
+    if (items.length < limit && durableViewerId && !isPaginationRequest) {
+      const ctxReadsAtStarve = getRequestContext()?.dbOps.reads ?? 0;
+      // Skip starvation scans only when first-paint reads are already over budget *and* we have a
+      // partial page — never abandon an empty feed to save reads after cold refill + emergency slice.
+      const skipStarvationForFirstPaintReads =
+        noCursorRequest && ctxReadsAtStarve > 15 && items.length > 0;
+      if (!skipStarvationForFirstPaintReads) {
       const starvationStartedAt = Date.now();
       diag.deckStarvationRefillUsed = true;
       deck.items = deck.items.filter((c) => !servedRecent.postIds.has(c.postId));
@@ -573,6 +596,7 @@ export class FeedForYouSimpleService {
         servedRecent: servedRecent.postIds,
         reason: "starvation_refill",
         omitServedRecentFromSessionSeen: true,
+        paginationMode: isPaginationRequest,
         radiusFilter
       });
       diag.reelCandidateReadCount += refillSummary.reelReadCount;
@@ -634,6 +658,7 @@ export class FeedForYouSimpleService {
       if (items.length > beforeRelaxedEmerg) emergencyFallbackUsed = true;
       deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
       accumulateSurfaceTiming("feed_simple_stage_starvation_refill_ms", Date.now() - starvationStartedAt);
+      }
     }
     diag.softServedRecentPicks = softServedRecentPicks;
     if (!diag.deckStarvationRefillUsed) diag.deckStarvationRefillUsed = false;
@@ -655,6 +680,12 @@ export class FeedForYouSimpleService {
     if (durableViewerId && returnedIds.length > 0 && !readOnlyAuditMode) {
       seenWriteAttempted = true;
       deferredWritesQueued = 1;
+      debugLog("feed", "FEED_SEEN_LEDGER_WRITE_INTENTIONAL", () => ({
+        reason: "feedServedRecentRing",
+        count: returnedIds.length,
+        asyncOrBlocking: "async_deferred_setTimeout0",
+        surface: FOR_YOU_SIMPLE_SURFACE,
+      }));
       setTimeout(() => {
         void (async () => {
           try {
@@ -723,6 +754,33 @@ export class FeedForYouSimpleService {
     diag.deferredWriterSucceededFlushes = 0;
     diag.deferredWriterFailedFlushes = 0;
     diag.exhaustedUnseenCandidates = finalItems.length < limit && !exhausted;
+    if (isPaginationRequest) {
+      if (finalItems.length < limit && finalItems.length > 0) {
+        diag.refillDeferred = true;
+      }
+      const ctxEnd = getRequestContext();
+      if (ctxEnd) {
+        diag.dbReads = ctxEnd.dbOps.reads;
+        diag.queryCount = ctxEnd.dbOps.queries;
+        if (ctxEnd.dbOps.reads > PAGINATION_MAX_DB_READS || ctxEnd.dbOps.queries > PAGINATION_MAX_QUERIES) {
+          diag.paginationBudgetCapped = true;
+          diag.refillDeferred = true;
+          debugLog("feed", "FEED_PAGINATION_BUDGET_CAPPED", () => ({
+            returnedCount: finalItems.length,
+            dbReads: ctxEnd.dbOps.reads,
+            queryCount: ctxEnd.dbOps.queries,
+            requestedLimit: limit,
+            cursorPresent: Boolean(input.cursor)
+          }));
+        }
+      }
+    } else {
+      const ctxEnd = getRequestContext();
+      if (ctxEnd) {
+        diag.dbReads = ctxEnd.dbOps.reads;
+        diag.queryCount = ctxEnd.dbOps.queries;
+      }
+    }
     diag.reelFirstEnabled = true;
     diag.candidateQueryCount = Math.ceil((diag.candidateReadCount ?? 0) / BATCH_PAGE_SIZE);
     diag.payloadTrimMode = "compact_assets_visible_only";
@@ -814,6 +872,10 @@ export class FeedForYouSimpleService {
      * (they remain blocked at serve time until soft pass). Used to break "full deck of soft duplicates".
      */
     omitServedRecentFromSessionSeen?: boolean;
+    /** When true, cap Firestore reads for cold deck refill (first home paint). */
+    firstPaintTight?: boolean;
+    /** Scroll pagination: tight read/query budgets; shallow scans only. */
+    paginationMode?: boolean;
     /** Radius filter; admission rejects candidates outside the radius when active. */
     radiusFilter?: ForYouRadiusFilter;
   }): Promise<RefillDeckSummary> {
@@ -835,6 +897,13 @@ export class FeedForYouSimpleService {
       sessionSeen.add(candidate.postId);
       return true;
     };
+    const paginationMode = input.paginationMode === true;
+    const scanAttemptsCap = paginationMode ? PAGINATION_MAX_SCAN_ATTEMPTS : MAX_SCAN_ATTEMPTS;
+    const reelReadCap = paginationMode
+      ? PAGINATION_REEL_READ_CAP
+      : input.firstPaintTight
+        ? 8
+        : MAX_MAIN_READ_BUDGET;
     const reel = await scanPhase({
       repository: this.repository,
       reelOnly: true,
@@ -846,7 +915,8 @@ export class FeedForYouSimpleService {
       items,
       sessionSeen,
       onCandidate: () => undefined,
-      maxReads: MAX_MAIN_READ_BUDGET
+      maxReads: reelReadCap,
+      maxAttempts: scanAttemptsCap
     });
     let usedFallbackScan = false;
     let fallbackSummary:
@@ -854,6 +924,11 @@ export class FeedForYouSimpleService {
       | null = null;
     if (items.length < READY_DECK_TARGET_SIZE) {
       usedFallbackScan = true;
+      const fallbackReadCap = paginationMode
+        ? PAGINATION_FALLBACK_READ_CAP
+        : input.firstPaintTight
+          ? Math.max(4, 15 - reel.readCount)
+          : Math.max(12, MAX_MAIN_READ_BUDGET - reel.readCount);
       fallbackSummary = await scanPhase({
         repository: this.repository,
         reelOnly: false,
@@ -865,7 +940,8 @@ export class FeedForYouSimpleService {
         items,
         sessionSeen,
         onCandidate: () => undefined,
-        maxReads: Math.max(12, MAX_MAIN_READ_BUDGET - reel.readCount)
+        maxReads: fallbackReadCap,
+        maxAttempts: scanAttemptsCap
       });
     }
     input.deck.items = [...input.deck.items, ...items].slice(0, 60);
@@ -911,6 +987,7 @@ async function scanPhase(input: {
   sessionSeen: Set<string>;
   onCandidate: (candidate: SimpleFeedCandidate) => void;
   maxReads: number;
+  maxAttempts: number;
 }): Promise<{
   phaseState: PhaseCursorState;
   readCount: number;
@@ -930,7 +1007,7 @@ async function scanPhase(input: {
   let wrapUsed = false;
   const sliceStats: import("../../repositories/surfaces/feed-for-you-simple.repository.js").SimpleFeedBatchSliceStats[] = [];
 
-  while (input.items.length < input.limit && readCount < input.maxReads && attempts < MAX_SCAN_ATTEMPTS) {
+  while (input.items.length < input.limit && readCount < input.maxReads && attempts < input.maxAttempts) {
     const beforeLen = input.items.length;
     const batch = await input.repository.fetchBatch({
       mode: input.mode,
@@ -1095,7 +1172,8 @@ function emptyDiagnostics(requestedLimit: number): FeedForYouSimplePageDebug {
     reelPhaseExhausted: false,
     candidateReadCount: 0,
     dbReads: 0,
-    queryCount: 0
+    queryCount: 0,
+    paginationBudgetCapped: false
   };
 }
 
@@ -1376,6 +1454,7 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     candidateRecord.mediaCompleteness === "full" ||
     candidateRecord.mediaCompleteness === "complete";
   const visibleAssets = shouldPreserveCanonicalAssets ? candidate.assets : candidate.assets.slice(0, 1);
+  const compactCap = Math.min(carouselCompactAssetCap(visibleAssets.length), FEED_SIMPLE_FIRST_PAINT_WIRE_ASSET_CAP);
   const fullCard = toFeedCardDTO({
     postId: candidate.postId,
     sourceRawPost: candidate.rawFirestore ?? null,
@@ -1395,7 +1474,8 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
     letterboxGradients: candidate.letterboxGradients,
     geo: candidate.geo,
     assets: visibleAssets,
-    compactAssetLimit: carouselCompactAssetCap(visibleAssets.length),
+    compactAssetLimit: compactCap,
+    compactSurfaceWireMode: "feed_first_paint",
     title: candidate.title,
     captionPreview: candidate.captionPreview,
     firstAssetUrl: candidate.firstAssetUrl,

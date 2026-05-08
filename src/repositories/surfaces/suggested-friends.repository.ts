@@ -938,7 +938,14 @@ export class SuggestedFriendsRepository {
       let groupsSkipped: string | undefined;
       if (Date.now() < groupsCollectionGroupDisabledUntilMs) {
         groupsSkipped = "source_cooldown_after_failed_precondition";
-        throttledSourceWarn("groups", { skipReason: groupsSkipped, surface });
+        console.warn(
+          JSON.stringify({
+            event: "SUGGESTED_FRIENDS_SOURCE_SKIPPED_MISSING_INDEX",
+            source: "groups",
+            surface,
+            skipReason: groupsSkipped,
+          }),
+        );
       } else {
         try {
           // Shared communities/groups: suggest other members from groups the viewer is in.
@@ -988,6 +995,14 @@ export class SuggestedFriendsRepository {
           const summary = summarizeFirestoreError(error);
           if (summary.errorCode === "FAILED_PRECONDITION") {
             groupsCollectionGroupDisabledUntilMs = Date.now() + GROUPS_SOURCE_COOLDOWN_MS;
+            console.warn(
+              JSON.stringify({
+                event: "SUGGESTED_FRIENDS_SOURCE_SKIPPED_MISSING_INDEX",
+                source: "groups",
+                surface,
+                errorCode: summary.errorCode,
+              }),
+            );
           }
           groupsErr = summary.errorCode;
           warnSourceFailure("groups", error);

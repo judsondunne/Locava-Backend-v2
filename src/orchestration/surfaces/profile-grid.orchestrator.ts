@@ -2,7 +2,9 @@ import { buildCacheKey } from "../../cache/types.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { registerRouteCacheKey } from "../../cache/route-cache-index.js";
 import type { ProfileGridResponse } from "../../contracts/surfaces/profile-grid.contract.js";
+import { finalizeProfileGridWireItem } from "../../dto/compact-wire-slim.js";
 import { enrichGridPreviewItemsWithAppPostV2 } from "../../lib/posts/app-post-v2/enrichAppPostV2Response.js";
+import { debugLog } from "../../lib/logging/debug-log.js";
 import {
   getRequestContext,
   recordCacheHit,
@@ -18,7 +20,7 @@ export class ProfileGridOrchestrator {
   async run(input: { viewerId: string; userId: string; cursor: string | null; limit: number }): Promise<ProfileGridResponse> {
     const { viewerId, userId, cursor, limit } = input;
 
-    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v4", viewerId, userId, cursor ?? "start", limit]);
+    const pageCacheKey = buildCacheKey("list", ["profile-grid-page-v5", viewerId, userId, cursor ?? "start", limit]);
     const cached = await globalCache.get<ProfileGridResponse>(pageCacheKey);
     if (cached) {
       recordCacheHit();
@@ -45,14 +47,43 @@ export class ProfileGridOrchestrator {
     }
 
     const enrichStartedAt = performance.now();
-    const items = (await enrichGridPreviewItemsWithAppPostV2(
+    const enriched = await enrichGridPreviewItemsWithAppPostV2(
       page.items as Array<Record<string, unknown>>,
       viewerId === "anonymous" ? null : viewerId,
       { hydrateViewerState: false }
-    )) as ProfileGridResponse["items"];
+    );
+    const items = enriched.map((row) =>
+      finalizeProfileGridWireItem(row as Record<string, unknown>),
+    ) as ProfileGridResponse["items"];
     recordSurfaceTimings({
       profile_grid_app_post_attach_ms: performance.now() - enrichStartedAt,
     });
+
+    try {
+      const totalPayloadBytes = Buffer.byteLength(JSON.stringify(items), "utf8");
+      const mediaBytesEstimate = items.reduce((acc, row) => {
+        const r = row as Record<string, unknown>;
+        const ap = r.appPostV2 as Record<string, unknown> | undefined;
+        const m = ap?.media;
+        const apBytes =
+          Buffer.byteLength(JSON.stringify(ap ?? {}), "utf8") +
+          Buffer.byteLength(JSON.stringify(m ?? {}), "utf8");
+        const thumb = typeof r.thumbUrl === "string" ? r.thumbUrl.length : 0;
+        return acc + thumb * 4 + Math.min(apBytes, 240_000);
+      }, 0);
+      debugLog("feed", "PROFILE_GRID_PAYLOAD_BREAKDOWN", {
+        itemCount: items.length,
+        totalPayloadBytes,
+        avgBytesPerItem: items.length > 0 ? Math.round(totalPayloadBytes / items.length) : 0,
+        mediaBytesEstimate: Math.round(mediaBytesEstimate),
+        duplicatedAuthorBytes: 0,
+        fullDetailFieldsPresent: false,
+        trimMode: "profile_grid_wire_v5",
+        PROFILE_GRID_COMPACT_MODE: true,
+      });
+    } catch {
+      // diagnostics only
+    }
 
     const response: ProfileGridResponse = {
       routeName: "profile.grid.get",

@@ -93,7 +93,7 @@ function toFiniteNumber(value: unknown): number | null {
   return null;
 }
 
-function isValidCoord(lat: number | null, lng: number | null): lat is number {
+function isValidCoord(lat: number | null, lng: number | null): boolean {
   return (
     typeof lat === "number" &&
     typeof lng === "number" &&
@@ -124,10 +124,14 @@ function isCoordinateLikeAddress(value: string | null): boolean {
 export function extractCoordinates(post: Record<string, unknown>): { lat: number; lng: number } | null {
   const nestedLat = toFiniteNumber(readPath(post, "location", "coordinates", "lat"));
   const nestedLng = toFiniteNumber(readPath(post, "location", "coordinates", "lng"));
-  if (isValidCoord(nestedLat, nestedLng)) return { lat: nestedLat, lng: nestedLng };
+  if (nestedLat != null && nestedLng != null && isValidCoord(nestedLat, nestedLng)) {
+    return { lat: nestedLat, lng: nestedLng };
+  }
   const rootLat = toFiniteNumber(post.lat);
   const rootLong = toFiniteNumber(post.long);
-  if (isValidCoord(rootLat, rootLong)) return { lat: rootLat, lng: rootLong };
+  if (rootLat != null && rootLong != null && isValidCoord(rootLat, rootLong)) {
+    return { lat: rootLat, lng: rootLong };
+  }
   return null;
 }
 
@@ -505,6 +509,7 @@ export class AddressBackfillService {
     let skippedAlreadyAddress = 0;
     let skippedInvalidCoordinates = 0;
     let failed = 0;
+    let reachedEnd = false;
     const errors: string[] = [];
     const results: AddressBackfillResult[] = [];
     while (batches < maxBatches) {
@@ -523,10 +528,11 @@ export class AddressBackfillService {
       skippedAlreadyAddress += batch.skippedAlreadyAddress;
       skippedInvalidCoordinates += batch.skippedInvalidCoordinates;
       failed += batch.failed;
+      reachedEnd = batch.reachedEnd;
       errors.push(...batch.errors);
       results.push(...batch.results);
       if (batch.reachedEnd || !batch.nextCursor || batch.nextCursor === cursor) {
-        cursor = batch.nextCursor;
+        cursor = batch.nextCursor ?? undefined;
         break;
       }
       cursor = batch.nextCursor;
@@ -542,6 +548,7 @@ export class AddressBackfillService {
       errors,
       results,
       nextCursor: cursor ?? null,
+      reachedEnd,
       batches
     };
   }

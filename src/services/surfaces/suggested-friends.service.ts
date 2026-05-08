@@ -8,7 +8,7 @@ import {
   type UserSuggestionSummary,
   buildSuggestedFriendsCacheKey
 } from "../../repositories/surfaces/suggested-friends.repository.js";
-import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
+import { recordCacheHit, recordCacheMiss, getRequestContext } from "../../observability/request-context.js";
 
 const TTL_MS = 10 * 60_000;
 
@@ -55,10 +55,25 @@ export class SuggestedFriendsService {
       }
     }
     recordCacheMiss();
+    const readsBefore = getRequestContext()?.dbOps.reads ?? 0;
     const computed = await dedupeInFlight(
       `social:suggested:${viewerId}:${surface}:${limit}:${options.excludeAlreadyFollowing !== false ? 1 : 0}:${options.excludeBlocked !== false ? 1 : 0}:${options.sortBy ?? "default"}:${(options.excludeUserIds ?? []).slice(0, 8).join(",")}`,
       () => this.repository.getSuggestionsForUser(viewerId, { ...options, limit, surface })
     );
+    const readsAfter = getRequestContext()?.dbOps.reads ?? 0;
+    const readDelta = Math.max(0, readsAfter - readsBefore);
+    if (readDelta > 24) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        JSON.stringify({
+          event: "SUGGESTED_FRIENDS_READ_BUDGET_CAPPED",
+          viewerId,
+          surface,
+          readDelta,
+          limit,
+        }),
+      );
+    }
     if (!options.bypassCache && !hasDynamicFilters) {
       await globalCache.set(cacheKey, computed, TTL_MS);
     }

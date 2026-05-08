@@ -66,14 +66,14 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
         }
       });
     }
-    const limit = query.limit ?? 20;
+    const surface = query.surface ?? "generic";
+    const limit = surface === "generic" ? query.limit ?? 8 : query.limit ?? 20;
     let cursorOffset = 0;
     try {
       cursorOffset = decodeSuggestedFriendsCursor(query.cursor);
     } catch {
       return reply.status(400).send(failure("invalid_cursor", "Cursor is invalid"));
     }
-    const surface = query.surface ?? "generic";
     const excludeUserIds = String(query.excludeUserIds ?? "")
       .split(",")
       .map((id) => id.trim())
@@ -92,6 +92,15 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
     ].join("|");
     const cached = suggestedFriendsCache.get(cacheKey);
     if (cached && cached.expiresAtMs > Date.now()) {
+      request.log.info(
+        {
+          event: "SUGGESTED_FRIENDS_CACHE_HIT",
+          viewerId: targetUserId,
+          surface,
+          limit,
+        },
+        "suggested friends response served from route cache",
+      );
       return success(cached.payload);
     }
     const existingInFlight = suggestedFriendsInFlight.get(cacheKey);
@@ -111,7 +120,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
           includeMutuals: surface !== "onboarding",
           includePopular: surface !== "onboarding",
           includeNearby: false,
-          includeGroups: true,
+          includeGroups: process.env.LOCAVA_SUGGESTED_FRIENDS_GROUPS === "1",
           includeReferral: true,
           includeAllUsersFallback: true,
           excludeAlreadyFollowing: true,
@@ -198,7 +207,7 @@ export async function registerV2SocialSuggestedFriendsRoutes(app: FastifyInstanc
     suggestedFriendsInFlight.set(cacheKey, loadPromise);
     try {
       const payload = await loadPromise;
-      suggestedFriendsCache.set(cacheKey, { expiresAtMs: Date.now() + 60_000, payload });
+      suggestedFriendsCache.set(cacheKey, { expiresAtMs: Date.now() + 120_000, payload });
       return success(payload);
     } finally {
       suggestedFriendsInFlight.delete(cacheKey);

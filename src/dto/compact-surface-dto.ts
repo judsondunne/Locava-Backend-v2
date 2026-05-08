@@ -1,3 +1,4 @@
+import { slimFeedWireCard } from "./compact-wire-slim.js";
 import { isBackendAppPostV2ResponsesEnabled } from "../lib/posts/app-post-v2/flags.js";
 import { toAppPostV2FromAny } from "../lib/posts/app-post-v2/toAppPostV2.js";
 import { logForYouAssetTrace, logForYouFullMediaRepair } from "../observability/for-you-asset-trace.js";
@@ -105,6 +106,11 @@ type CompactCardSeed = {
    * Compact surfaces should prefer `app_post_v2_only` to avoid repeating the same canonical payload.
    */
   canonicalAliasMode?: "full_compat" | "app_post_only" | "app_post_v2_only";
+  /**
+   * When set, variants maps on {@link CompactAssetSeed} rows are stripped and AppPost mirrors are slimmed on the wire.
+   * Preserves startup/poster/display image URLs required for cold feed + profile thumbnails.
+   */
+  compactSurfaceWireMode?: "feed_first_paint" | "profile_grid_tile";
 };
 
 /** Default max assets serialized on carousel-capable postcards when callers omit compactAssetLimit. */
@@ -347,7 +353,8 @@ function cleanStringArray(values: string[] | null | undefined, max = 4): string[
 
 function toCompactAssets(
   assets: CompactAssetSeed[] | null | undefined,
-  max = 1
+  max = 1,
+  stripVariants = false
 ): FeedCardDTO["assets"] {
   if (!Array.isArray(assets)) return [];
   return assets.slice(0, max).map((asset, index) => ({
@@ -363,7 +370,10 @@ function toCompactAssets(
     height: cleanNumber(asset.height),
     aspectRatio: cleanNumber(asset.aspectRatio),
     orientation: cleanString(asset.orientation),
-    ...(asset.variants && typeof asset.variants === "object" && Object.keys(asset.variants).length > 0
+    ...(!stripVariants &&
+    asset.variants &&
+    typeof asset.variants === "object" &&
+    Object.keys(asset.variants).length > 0
       ? { variants: asset.variants }
       : {}),
   }));
@@ -628,6 +638,63 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
   };
 }
 
+function patchAppPostV2FirstPaintMediaFromRawSources(
+  appPost: Record<string, unknown>,
+  raw: Record<string, unknown>,
+  postId: string
+): Record<string, unknown> {
+  const media = appPost.media as Record<string, unknown> | undefined;
+  if (!media || !Array.isArray(media.assets)) return appPost;
+  const assets = [...(media.assets as Record<string, unknown>[])];
+  const rawMedia = raw.media && typeof raw.media === "object" ? (raw.media as Record<string, unknown>) : null;
+  const rawCanon = Array.isArray(rawMedia?.assets) ? (rawMedia.assets as Record<string, unknown>[]) : [];
+  const rawLegacy = Array.isArray(raw.assets) ? (raw.assets as Record<string, unknown>[]) : [];
+  let changed = false;
+  const patched = assets.map((asset, i) => {
+    if (!asset || String(asset.type) !== "image") return asset;
+    const img = asUnknownRecord(asset.image) ?? {};
+    const du = cleanString(typeof img.displayUrl === "string" ? img.displayUrl : undefined);
+    const ou = cleanString(typeof img.originalUrl === "string" ? img.originalUrl : undefined);
+    const tu = cleanString(typeof img.thumbnailUrl === "string" ? img.thumbnailUrl : undefined);
+    if (du) return asset;
+    const rc = rawCanon[i];
+    const rl = rawLegacy[i];
+    const rcImg = rc && String(rc.type).toLowerCase() !== "video" ? asUnknownRecord(rc.image) : null;
+    const pick = (v: unknown) => cleanString(typeof v === "string" ? v : undefined);
+    const fromCanon =
+      pick(rcImg?.displayUrl) ??
+      pick(rcImg?.previewUrl) ??
+      pick(rcImg?.fullUrl) ??
+      pick(rcImg?.originalUrl) ??
+      pick(rcImg?.thumbnailUrl);
+    const fromLegacy =
+      pick(rl?.previewUrl) ?? pick(rl?.originalUrl) ?? pick((rl as { original?: unknown })?.original) ?? pick(rl?.posterUrl) ?? pick(rl?.url);
+    const fillDisplay = du ?? fromCanon ?? fromLegacy ?? ou ?? tu;
+    const fillOriginal = ou ?? fromCanon ?? fromLegacy ?? du ?? tu;
+    if (!fillDisplay && !fillOriginal) return asset;
+    if (fillDisplay !== du || fillOriginal !== ou) changed = true;
+    return {
+      ...asset,
+      image: {
+        ...img,
+        displayUrl: fillDisplay ?? null,
+        originalUrl: fillOriginal ?? null,
+        thumbnailUrl: tu ?? pick(rl?.posterUrl) ?? (typeof img.thumbnailUrl === "string" ? img.thumbnailUrl : null)
+      }
+    };
+  });
+  if (!changed) return appPost;
+  try {
+    debugLog("feed", "FEED_CARD_MEDIA_ENRICH_PATCHED", () => ({
+      postId,
+      touchedAssetCount: patched.length
+    }));
+  } catch {
+    // ignore
+  }
+  return { ...appPost, media: { ...media, assets: patched } };
+}
+
 function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean; saved: boolean }): Partial<FeedCardDTO> {
   if (!isBackendAppPostV2ResponsesEnabled()) return {};
   const aliasMode = seed.canonicalAliasMode ?? "full_compat";
@@ -642,7 +709,7 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
       : 0;
   const rawCanonicalMediaAssetCount = Math.max(rawCanonAssetLen, rawCanonDeclared);
   try {
-    const appPost = toAppPostV2FromAny(raw, {
+    const appPostRaw = toAppPostV2FromAny(raw, {
       postId: seed.postId,
       forceNormalize: true,
       viewerState: {
@@ -652,6 +719,7 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
         followsAuthor: false
       }
     }) as unknown as Record<string, unknown>;
+    const appPost = patchAppPostV2FirstPaintMediaFromRawSources(appPostRaw, raw, seed.postId);
     const media = appPost.media as Record<string, unknown> | undefined;
     const apAssets = Array.isArray(media?.assets) ? (media.assets as unknown[]) : [];
     const canonicalMedia = asUnknownRecord(raw.media);
@@ -739,6 +807,28 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
         reason: "appPost_fewer_assets_than_firestore_top_level"
       });
     }
+    const fixedMedia = fixed.media as Record<string, unknown> | undefined;
+    const fixedAssets = Array.isArray(fixedMedia?.assets) ? (fixedMedia.assets as Record<string, unknown>[]) : [];
+    const firstFixed = fixedAssets[0];
+    const mediaKindHint = String(asUnknownRecord(raw.classification)?.mediaKind ?? raw.mediaType ?? "").toLowerCase();
+    if (mediaKindHint === "image" && firstFixed && String(firstFixed.type) === "image") {
+      const ib = asUnknownRecord(firstFixed.image) ?? {};
+      const hasDisp = Boolean(
+        cleanString(typeof ib.displayUrl === "string" ? ib.displayUrl : undefined) ||
+          cleanString(typeof ib.previewUrl === "string" ? ib.previewUrl : undefined)
+      );
+      const hasOrig = Boolean(cleanString(typeof ib.originalUrl === "string" ? ib.originalUrl : undefined));
+      if (!hasDisp && !hasOrig) {
+        try {
+          debugLog("feed", "FEED_CARD_MEDIA_CONTRACT_MISMATCH", () => ({
+            postId: seed.postId,
+            reason: "image_missing_display_after_raw_enrich"
+          }));
+        } catch {
+          // ignore
+        }
+      }
+    }
     const canonical = fixed as unknown as CanonicalPost;
     if (aliasMode === "app_post_only") {
       return {
@@ -766,6 +856,8 @@ function attachAppPostToFeedCard(seed: CompactCardSeed, viewer: { liked: boolean
 }
 
 export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
+  const slimWire =
+    seed.compactSurfaceWireMode === "feed_first_paint" || seed.compactSurfaceWireMode === "profile_grid_tile";
   const seedAssetLen = Array.isArray(seed.assets) ? seed.assets.length : 0;
   const hintedAssetCount =
     typeof seed.assetCount === "number" && Number.isFinite(seed.assetCount) ? Math.floor(seed.assetCount) : null;
@@ -784,7 +876,7 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     seed.compactAssetLimit > 0
       ? Math.min(24, Math.floor(seed.compactAssetLimit))
       : Math.min(DEFAULT_CARD_CAROUSEL_ASSET_CAP, Math.max(1, seedAssetLen));
-  const assets = toCompactAssets(seed.assets, assetCap) ?? [];
+  const assets = toCompactAssets(seed.assets, assetCap, slimWire) ?? [];
   const firstAsset = assets[0];
   const posterUrl = cleanString(seed.media.posterUrl) ?? firstAsset?.posterUrl ?? "";
   const derivedAssetCount = Math.max(
@@ -901,7 +993,7 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     selectedProjection: "toFeedCardDTO_compact_plus_appPostV2"
   });
 
-  return card;
+  return slimWire ? (slimFeedWireCard(card as unknown as Record<string, unknown>) as unknown as FeedCardDTO) : card;
 }
 
 export function toSearchMixPreviewDTO(

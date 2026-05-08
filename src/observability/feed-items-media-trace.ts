@@ -164,6 +164,126 @@ function feedWireItemToPlaybackPostLike(it: LooseRecord): Record<string, unknown
   return copy;
 }
 
+/**
+ * First-paint readiness across images + videos (used for feed summaries / emergency fallback audits).
+ * Complements {@link rollupFeedVideoMediaSummary}, which only inspects video rows.
+ */
+export function rollupFeedCardMediaReadyCounts(items: unknown[]): LooseRecord {
+  let imageReadyCount = 0;
+  let videoStartupReadyCount = 0;
+  let posterReadyCount = 0;
+  let gradientReadyCount = 0;
+  let legacyOnlyCount = 0;
+  let mediaIncompleteCount = 0;
+  const legacyOnlyDetails: Array<{ postId: string; missingFields: string[] }> = [];
+
+  const firstImageDisplayFromAppPost = (ap: LooseRecord | undefined): string => {
+    if (!ap) return "";
+    const media = ap.media as LooseRecord | undefined;
+    const assets = Array.isArray(media?.assets) ? (media!.assets as LooseRecord[]) : [];
+    const imgAsset = assets.find((a) => String(a?.type ?? "").toLowerCase() === "image");
+    const block = imgAsset ? (imgAsset.image as LooseRecord | undefined) : undefined;
+    const display =
+      typeof block?.displayUrl === "string"
+        ? block.displayUrl.trim()
+        : typeof block?.previewUrl === "string"
+          ? block.previewUrl.trim()
+          : typeof block?.fullUrl === "string"
+            ? block.fullUrl.trim()
+            : typeof block?.originalUrl === "string"
+              ? block.originalUrl.trim()
+              : "";
+    return display;
+  };
+
+  const firstVideoStartupFromAppPost = (ap: LooseRecord | undefined): string => {
+    if (!ap) return "";
+    const media = ap.media as LooseRecord | undefined;
+    const assets = Array.isArray(media?.assets) ? (media!.assets as LooseRecord[]) : [];
+    const v = assets.find((a) => String(a?.type ?? "").toLowerCase() === "video");
+    const pb = v ? ((v.video as LooseRecord | undefined)?.playback as LooseRecord | undefined) : undefined;
+    const s = typeof pb?.startupUrl === "string" ? pb.startupUrl.trim() : "";
+    if (s) return s;
+    const d = typeof pb?.defaultUrl === "string" ? pb.defaultUrl.trim() : "";
+    if (d) return d;
+    return typeof pb?.primaryUrl === "string" ? pb.primaryUrl.trim() : "";
+  };
+
+  for (const raw of items) {
+    if (typeof raw !== "object" || raw === null) continue;
+    const it = raw as LooseRecord;
+    const ap = (it.appPostV2 ?? it.appPost ?? it.post ?? it.canonicalPost) as LooseRecord | undefined;
+
+    const media = it.media as LooseRecord | undefined;
+    const wirePoster =
+      (typeof media?.posterUrl === "string" && media.posterUrl.trim()) ||
+      (typeof it.posterUrl === "string" && it.posterUrl.trim()) ||
+      "";
+
+    if (wirePoster) posterReadyCount += 1;
+
+    const imgUrl = firstImageDisplayFromAppPost(ap);
+    const vStart = firstVideoStartupFromAppPost(ap);
+
+    const apMedia = ap?.media as LooseRecord | undefined;
+    const apAssets = Array.isArray(apMedia?.assets) ? (apMedia.assets as unknown[]) : [];
+
+    const postId = String(it.postId ?? it.id ?? "").trim() || "unknown";
+
+    if (isFeedItemVideo(it)) {
+      if (vStart) videoStartupReadyCount += 1;
+      else {
+        legacyOnlyCount += 1;
+        const hasAnyVideoAsset = apAssets.length > 0 && apAssets.some((a) => {
+          const ar = a as LooseRecord;
+          return String(ar?.type ?? "").toLowerCase() === "video";
+        });
+        legacyOnlyDetails.push({
+          postId,
+          missingFields: hasAnyVideoAsset
+            ? ["video_playable_url_missing_in_embedded_apppost"]
+            : ["apppost_video_asset_missing"],
+        });
+      }
+    } else {
+      if (imgUrl) imageReadyCount += 1;
+      else {
+        legacyOnlyCount += 1;
+        const hasAnyImageAsset = apAssets.length > 0 && apAssets.some((a) => {
+          const ar = a as LooseRecord;
+          return String(ar?.type ?? "").toLowerCase() === "image";
+        });
+        legacyOnlyDetails.push({
+          postId,
+          missingFields: hasAnyImageAsset
+            ? ["image_display_url_missing_in_embedded_apppost"]
+            : ["apppost_image_asset_missing"],
+        });
+      }
+    }
+
+    const gradAsset = apAssets.find((a) => a && typeof a === "object") as LooseRecord | undefined;
+    const pres = gradAsset?.presentation as LooseRecord | undefined;
+    const lg = pres?.letterboxGradient as LooseRecord | undefined;
+    const hasGrad =
+      (typeof lg?.top === "string" && lg.top.trim()) || (typeof lg?.bottom === "string" && lg.bottom.trim());
+    if (hasGrad) gradientReadyCount += 1;
+
+    if (it.mediaCompleteness === "cover_only" || it.requiresAssetHydration === true) mediaIncompleteCount += 1;
+  }
+
+  return {
+    feedCardPostCount: items.length,
+    feedCardImageReadyCount: imageReadyCount,
+    feedCardVideoStartupReadyCount: videoStartupReadyCount,
+    feedCardPosterReadyCount: posterReadyCount,
+    feedCardGradientReadyCount: gradientReadyCount,
+    feedCardLegacyOnlyCount: legacyOnlyCount,
+    feedCardLegacyOnlyDetails: legacyOnlyDetails,
+    feedCardMediaIncompleteCount: mediaIncompleteCount
+  };
+}
+
 export function rollupFeedVideoMediaSummary(items: unknown[]): LooseRecord {
   let videoItemCount = 0;
   let fallbackVideoNonEmpty = 0;

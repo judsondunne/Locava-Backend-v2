@@ -1,10 +1,54 @@
 import { describe, expect, it } from "vitest";
 import {
   buildFeedItemMediaTraceRow,
+  rollupFeedCardMediaReadyCounts,
   rollupFeedVideoMediaSummary
 } from "./feed-items-media-trace.js";
 
 describe("feed-items-media-trace", () => {
+  it("rollupFeedCardMediaReadyCounts distinguishes images vs video startup", () => {
+    const r = rollupFeedCardMediaReadyCounts([
+      {
+        postId: "img1",
+        media: { type: "image", posterUrl: "https://x.com/a.jpg" },
+        appPostV2: {
+          media: {
+            assets: [
+              {
+                type: "image",
+                image: { displayUrl: "https://x.com/d.webp", originalUrl: "https://x.com/o.jpg" }
+              }
+            ]
+          }
+        }
+      },
+      {
+        postId: "vid1",
+        media: { type: "video", posterUrl: "https://x.com/p.jpg" },
+        appPostV2: {
+          media: {
+            assets: [
+              {
+                type: "video",
+                video: {
+                  playback: {
+                    startupUrl: "https://x.com/s.mp4",
+                    defaultUrl: "https://x.com/d.mp4"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]);
+    expect(r.feedCardPostCount).toBe(2);
+    expect(r.feedCardImageReadyCount).toBe(1);
+    expect(r.feedCardVideoStartupReadyCount).toBe(1);
+    expect(r.feedCardLegacyOnlyCount).toBe(0);
+    expect(r.feedCardPosterReadyCount).toBe(2);
+  });
+
   it("rollup counts videos and playback fields", () => {
     const r = rollupFeedVideoMediaSummary([
       {

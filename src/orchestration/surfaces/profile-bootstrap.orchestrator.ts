@@ -4,6 +4,7 @@ import { profileBootstrapCacheKey } from "../../cache/profile-follow-graph-cache
 import { registerRouteCacheKey } from "../../cache/route-cache-index.js";
 import { buildCacheKey } from "../../cache/types.js";
 import type { ProfileBootstrapResponse } from "../../contracts/surfaces/profile-bootstrap.contract.js";
+import { finalizeProfileGridWireItem } from "../../dto/compact-wire-slim.js";
 import { firestoreAssetsToCompactSeeds, toFeedCardDTO, toProfileHeaderDTO } from "../../dto/compact-surface-dto.js";
 import {
   getRequestContext,
@@ -64,6 +65,7 @@ function compactGridPreviewItem<T extends Record<string, unknown>>(item: T): T {
       aspectRatio: typeof item.aspectRatio === "number" ? item.aspectRatio : 9 / 16,
       startupHint: mediaType === "video" ? "poster_then_preview" : "poster_only",
     },
+    compactSurfaceWireMode: "profile_grid_tile",
     social: {
       likeCount: typeof raw.likesCount === "number" ? raw.likesCount : typeof raw.likeCount === "number" ? raw.likeCount : 0,
       commentCount:
@@ -195,7 +197,7 @@ export class ProfileBootstrapOrchestrator {
 
     const gridStartedAt = performance.now();
     const gridPromise = this.getCachedOrLoad(
-      buildCacheKey("list", ["profile-grid-preview-v2", userId, previewLimit]),
+      buildCacheKey("list", ["profile-grid-preview-v5", userId, previewLimit]),
       () => this.service.loadGridPreview(userId, previewLimit),
       15_000
     )
@@ -299,7 +301,9 @@ export class ProfileBootstrapOrchestrator {
 
     const gridPreview = {
       ...gridPreviewLoaded,
-      items: gridPreviewLoaded.items.map((item) => compactGridPreviewItem(item as Record<string, unknown>)) as typeof gridPreviewLoaded.items
+      items: gridPreviewLoaded.items.map((item) =>
+        finalizeProfileGridWireItem(compactGridPreviewItem(item as Record<string, unknown>) as Record<string, unknown>)
+      ) as typeof gridPreviewLoaded.items
     };
 
     const header = toProfileHeaderDTO({

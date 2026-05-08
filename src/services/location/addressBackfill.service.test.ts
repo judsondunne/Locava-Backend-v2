@@ -11,7 +11,7 @@ import {
 const firestoreMockState = vi.hoisted(() => ({ db: null as any }));
 
 function makeDoc(id: string, data: Record<string, unknown>) {
-  const update = vi.fn(async () => {});
+  const update = vi.fn(async (_payload: Record<string, unknown>) => {});
   return {
     id,
     data: () => data,
@@ -148,7 +148,9 @@ describe("addressBackfill.service", () => {
     const ok = await service.runOne({ postId: "post-2", dryRun: false, confirmAddressOnlyWrite: true });
     expect(ok.status).toBe("updated");
     expect(post.update).toHaveBeenCalledTimes(1);
-    const writePayload = post.update.mock.calls[0][0] as Record<string, unknown>;
+    const firstCall = post.update.mock.calls.at(0);
+    expect(firstCall).toBeDefined();
+    const writePayload = firstCall?.[0] as Record<string, unknown>;
     expect(writePayload).toEqual(buildAddressOnlyWritePayload({
       address: "Address"
     }));

@@ -131,7 +131,7 @@ describe("v2 social suggested friends + contacts sync", () => {
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({
       method: "GET",
-      url: "/v2/social/suggested-friends?surface=generic&limit=50",
+      url: "/v2/social/suggested-friends?surface=generic&limit=50&userId=viewer-truncate-mock-50",
       headers,
     });
     expect(res.statusCode).toBe(200);
@@ -141,6 +141,7 @@ describe("v2 social suggested friends + contacts sync", () => {
     expect(body.data.page.limit).toBe(50);
     expect(body.data.page.count).toBe(50);
     expect(body.data.page.hasMore).toBe(false);
+    expect(body.data.viewerId).toBe("viewer-truncate-mock-50");
   });
 
   it("returns 200 JSON fallback instead of 304/empty when Firestore hits FAILED_PRECONDITION", async () => {
@@ -150,7 +151,7 @@ describe("v2 social suggested friends + contacts sync", () => {
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
     const res = await app.inject({
       method: "GET",
-      url: "/v2/social/suggested-friends?surface=generic&limit=50",
+      url: "/v2/social/suggested-friends?surface=generic&limit=50&userId=viewer-precond-fail-test",
       headers: {
         ...headers,
         "if-none-match": "\"legacy-etag\"",
@@ -163,6 +164,7 @@ describe("v2 social suggested friends + contacts sync", () => {
     expect(body.data.users).toEqual([]);
     expect(body.data.suggestions).toEqual([]);
     expect(body.data.diagnostics?.errorCode).toBe("FAILED_PRECONDITION");
+    expect(body.data.viewerId).toBe("viewer-precond-fail-test");
   });
 
   it("returns 200 with source diagnostics when one source fails", async () => {

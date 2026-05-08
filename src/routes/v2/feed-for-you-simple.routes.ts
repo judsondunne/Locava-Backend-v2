@@ -8,6 +8,7 @@ import { FeedForYouSimpleService } from "../../services/surfaces/feed-for-you-si
 import {
   buildFeedItemsMediaTracePayload,
   isFeedItemsMediaTraceEnabled,
+  rollupFeedCardMediaReadyCounts,
   rollupFeedVideoMediaSummary
 } from "../../observability/feed-items-media-trace.js";
 
@@ -67,7 +68,21 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
       const dbReads = ctx?.dbOps.reads ?? 0;
       const dbWrites = ctx?.dbOps.writes ?? 0;
       const elapsedMs = Date.now() - startedAt;
+      if (dbWrites > 0) {
+        request.log.info(
+          {
+            event: "FEED_SEEN_LEDGER_WRITE_INTENTIONAL",
+            viewerId,
+            reason: "feedServedRecentRing",
+            count: dbWrites,
+            asyncOrBlocking: "async_deferred",
+            note: "markPostsServedRecentForViewer scheduled via setTimeout(0); request handlers do not await commit",
+          },
+          "for-you served-recent short-term ledger write (intentional, bounded)"
+        );
+      }
       const videoSummary = rollupFeedVideoMediaSummary(payload.items) as Record<string, unknown>;
+      const cardMediaSummary = rollupFeedCardMediaReadyCounts(payload.items) as Record<string, unknown>;
 
       const summaryPayload = {
         event: "feed_for_you_simple_summary",
@@ -115,14 +130,129 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         coldRefillReason: payload.debug.coldRefillReason ?? null,
         staleDeckServed: payload.debug.staleDeckServed ?? false,
         refillDeferred: payload.debug.refillDeferred ?? false,
+        paginationBudgetCapped: payload.debug.paginationBudgetCapped ?? false,
         candidateQueryCount: payload.debug.candidateQueryCount ?? 0,
         candidateReadCount: payload.debug.candidateReadCount ?? 0,
         payloadTrimMode: payload.debug.payloadTrimMode ?? null,
         firstPaintCardReadyCount: payload.debug.firstPaintCardReadyCount ?? payload.items.length,
         detailBatchRequiredForFirstPaint: payload.debug.detailBatchRequiredForFirstPaint ?? false,
         durableServedWriteStatus: payload.debug.durableServedWriteStatus ?? "skipped",
-        ...videoSummary
+        ...videoSummary,
+        ...cardMediaSummary
       };
+
+      if (payload.emergencyFallbackUsed) {
+        request.log.warn(
+          {
+            event: "FEED_EMERGENCY_FALLBACK_MEDIA_ENRICH_START",
+            viewerId,
+            postCount: payload.items.length
+          },
+          "feed emergency fallback media enrich start"
+        );
+        const stillLegacy = Number(cardMediaSummary.feedCardLegacyOnlyCount ?? 0);
+        const postCt = Number(cardMediaSummary.feedCardPostCount ?? payload.items.length);
+        const enrichedCount = Math.max(0, postCt - stillLegacy);
+        request.log.warn(
+          {
+            event: "FEED_EMERGENCY_FALLBACK_MEDIA_ENRICH_READY",
+            viewerId,
+            postCount: postCt,
+            enrichedCount,
+            stillLegacyCount: stillLegacy,
+            imageReadyCount: cardMediaSummary.feedCardImageReadyCount,
+            videoStartupReadyCount: cardMediaSummary.feedCardVideoStartupReadyCount
+          },
+          "feed emergency fallback media enrich ready"
+        );
+      }
+
+      request.log.info(
+        {
+          event: "FEED_CARD_MEDIA_READY_COUNTS",
+          viewerId,
+          postCount: cardMediaSummary.feedCardPostCount,
+          imageReadyCount: cardMediaSummary.feedCardImageReadyCount,
+          videoStartupReadyCount: cardMediaSummary.feedCardVideoStartupReadyCount,
+          posterReadyCount: cardMediaSummary.feedCardPosterReadyCount,
+          gradientReadyCount: cardMediaSummary.feedCardGradientReadyCount,
+          legacyOnlyCount: cardMediaSummary.feedCardLegacyOnlyCount,
+          legacyOnlyDetails: cardMediaSummary.feedCardLegacyOnlyDetails,
+          mediaIncompleteCount: cardMediaSummary.feedCardMediaIncompleteCount,
+          emergencyFallbackUsed: payload.emergencyFallbackUsed
+        },
+        "feed card media ready counts"
+      );
+
+      const legacyN = Number(cardMediaSummary.feedCardLegacyOnlyCount ?? 0);
+      if (legacyN > 0) {
+        request.log.warn(
+          {
+            event: "LEGACY_FALLBACK_UNAVOIDABLE",
+            viewerId,
+            count: legacyN,
+            posts: cardMediaSummary.feedCardLegacyOnlyDetails ?? [],
+          },
+          "feed cards missing canonical in-apppost media fields"
+        );
+      }
+
+      const isFirstPaintLog = !query.cursor || query.refresh === true;
+      if (isFirstPaintLog) {
+        request.log.info(
+          {
+            event: "FEED_FIRST_PAINT_BUDGET_DECISION",
+            viewerId,
+            source: payload.debug.deckSource ?? "unknown",
+            readBudget: 15,
+            queryBudget: 4,
+            dbReads,
+            queryCount: ctx?.dbOps.queries ?? 0,
+            exceededBudget: dbReads > 15 || (ctx?.dbOps.queries ?? 0) > 4,
+            returnedCount: payload.items.length,
+            mediaReadyCount: payload.debug.mediaReadyCount ?? payload.items.length,
+          },
+          "feed first paint budget"
+        );
+      }
+
+      try {
+        const totalPayloadBytes = Buffer.byteLength(JSON.stringify(payload.items ?? []), "utf8");
+        let mediaBytesEstimate = 0;
+        let authorBytesEstimate = 0;
+        for (const row of payload.items ?? []) {
+          if (typeof row !== "object" || row === null) continue;
+          const r = row as Record<string, unknown>;
+          mediaBytesEstimate += Buffer.byteLength(JSON.stringify(r.appPostV2 ?? r.appPost ?? {}), "utf8");
+          authorBytesEstimate += Buffer.byteLength(JSON.stringify(r.author ?? {}), "utf8");
+        }
+        const engagementBytesEstimate = Buffer.byteLength(
+          JSON.stringify(
+            (payload.items ?? []).map((row) =>
+              typeof row === "object" && row
+                ? { social: (row as { social?: unknown }).social, viewer: (row as { viewer?: unknown }).viewer }
+                : {}
+            )
+          ),
+          "utf8"
+        );
+        request.log.info(
+          {
+            event: "FEED_PAYLOAD_BREAKDOWN",
+            postCount: payload.items.length,
+            totalPayloadBytes,
+            mediaBytesEstimate,
+            authorBytesEstimate,
+            engagementBytesEstimate,
+            debugBytesEstimate: 0,
+            gridDetailBytesEstimate: 0,
+            trimMode: "feed_first_paint_slim_wire_v1"
+          },
+          "feed first paint payload sizing"
+        );
+      } catch {
+        // sizing diagnostics must never break the handler
+      }
 
       const verboseFeedSummary = process.env.LOG_FEED_DEBUG_VERBOSE === "1";
       request.log.info(

@@ -263,11 +263,14 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
     });
     expect(second.statusCode).toBe(200);
     const secondBody = second.json() as {
+      meta: { db: { reads: number; queries?: number } };
       data: {
         items: Array<{ postId: string }>;
         debug: { reelReturnedCount: number; seenWriteSucceeded: boolean };
       };
     };
+    expect(secondBody.meta.db.reads).toBeLessThanOrEqual(25);
+    expect(secondBody.meta.db.queries ?? 0).toBeLessThanOrEqual(5);
     const firstIds = new Set(firstBody.data.items.map((item) => item.postId));
     const secondIds = new Set(secondBody.data.items.map((item) => item.postId));
     expect([...secondIds].some((postId) => firstIds.has(postId))).toBe(false);
