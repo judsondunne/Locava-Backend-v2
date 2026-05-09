@@ -52,6 +52,34 @@ describe("client telemetry routes", () => {
     await app.close();
   });
 
+  it("accepts telemetry when NODE_ENV is production and ENABLE_CLIENT_DEBUG_LOG_INGEST is on", async () => {
+    process.env.ENABLE_CLIENT_DEBUG_LOG_INGEST = "1";
+    const app = createApp({ NODE_ENV: "production" });
+    const res = await app.inject({
+      method: "POST",
+      url: "/debug/client-telemetry/events",
+      headers: { "x-locava-field-test-session-id": "fieldtest-test-abc" },
+      payload: {
+        sessionId: "sess-prod-1",
+        appInstanceId: "app-prod-1",
+        platform: "ios",
+        fieldTestSessionId: "fieldtest-test-abc",
+        events: [
+          {
+            eventId: "evt-prod-1",
+            sessionId: "sess-prod-1",
+            clientTimestampMs: Date.now(),
+            category: "app",
+            name: "app.launch"
+          }
+        ]
+      }
+    });
+    expect(res.statusCode).toBe(202);
+    delete process.env.ENABLE_CLIENT_DEBUG_LOG_INGEST;
+    await app.close();
+  });
+
   it("stores session in memory", async () => {
     const app = createApp({ NODE_ENV: "development" });
     await app.inject({

@@ -142,7 +142,14 @@ const env = {
   NODE_ENV: "production",
   SERVICE_NAME: "locava-backend-v2",
   SERVICE_VERSION: process.env.SERVICE_VERSION || process.env.GIT_COMMIT_SHA || "manual",
-  LOG_LEVEL: merged.LOG_LEVEL || "info"
+  LOG_LEVEL: merged.LOG_LEVEL || "info",
+  // Client telemetry / field-test logging — default on for Cloud Run (override via shell or layered .env)
+  ENABLE_CLIENT_TELEMETRY_INGEST:
+    process.env.ENABLE_CLIENT_TELEMETRY_INGEST ?? merged.ENABLE_CLIENT_TELEMETRY_INGEST ?? "1",
+  ENABLE_CLIENT_DEBUG_LOG_INGEST:
+    process.env.ENABLE_CLIENT_DEBUG_LOG_INGEST ?? merged.ENABLE_CLIENT_DEBUG_LOG_INGEST ?? "1",
+  FIELD_TEST_LOGGING_ENABLED:
+    process.env.FIELD_TEST_LOGGING_ENABLED ?? merged.FIELD_TEST_LOGGING_ENABLED ?? "1"
 };
 
 const passthroughKeys = [
@@ -249,6 +256,9 @@ const preferredOrder = [
   "SERVICE_NAME",
   "SERVICE_VERSION",
   "LOG_LEVEL",
+  "ENABLE_CLIENT_TELEMETRY_INGEST",
+  "ENABLE_CLIENT_DEBUG_LOG_INGEST",
+  "FIELD_TEST_LOGGING_ENABLED",
   "GCP_PROJECT_ID",
   "GOOGLE_CLOUD_PROJECT",
   "FIRESTORE_SOURCE_ENABLED",
@@ -336,7 +346,7 @@ echo "📦 Service: $SERVICE_NAME"
 echo "🗺️ Region: $REGION"
 echo "☁️ Project: $PROJECT_ID"
 echo "📂 Source (monorepo root): $MONOREPO_ROOT  — includes ../locava-contracts for @locava/contracts"
-echo "🧾 Carrying over old backend env families: Wasabi, Redis, analytics, admin tokens, worker flags, Firebase creds"
+echo "🧾 Carrying over old backend env families: Wasabi, Redis, analytics, admin tokens, worker flags, Firebase creds, client telemetry (defaults on)"
 echo "⚙️  Cloud Run: memory=$MEMORY cpu=$CPU min=$MIN_INSTANCES max=$MAX_INSTANCES concurrency=$CONCURRENCY timeout=$TIMEOUT"
 echo "🩺 Startup probe: $STARTUP_PROBE"
 

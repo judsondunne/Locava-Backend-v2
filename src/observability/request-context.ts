@@ -88,6 +88,8 @@ export type RequestContext = {
     clientBuildProfile: string | null;
     clientPlatform: string | null;
   };
+  /** From `x-locava-field-test-session-id` when present (outdoor field tests). */
+  fieldTestSessionId?: string | null;
   audit?: AuditRequestContext;
   /** Firebase read containment gate for this HTTP request (see `classifyFirebaseAccessForRequest`). */
   firebaseAccess?: FirebaseAccessGate;

@@ -2,11 +2,15 @@ import type { FastifyInstance } from "fastify";
 import { failure, success } from "../../lib/response.js";
 import { clientTelemetryBatchSchema } from "../../observability/clientTelemetry/clientTelemetry.schema.js";
 import { clientTelemetryService } from "../../observability/clientTelemetry/clientTelemetry.service.js";
+import {
+  isClientTelemetryIngestEnvEnabled,
+  logFieldTestClientEvents,
+  resolveFieldTestSessionIdFromRequest
+} from "../../observability/fieldTestCloudLogging.js";
 
 function isEnabled(app: FastifyInstance): boolean {
   const env = app.config.NODE_ENV;
-  const explicit = process.env.ENABLE_CLIENT_TELEMETRY_INGEST === "1" || process.env.ENABLE_CLIENT_TELEMETRY_INGEST === "true";
-  return env === "development" || explicit;
+  return env === "development" || isClientTelemetryIngestEnvEnabled();
 }
 
 export async function registerClientTelemetryRoutes(app: FastifyInstance): Promise<void> {
@@ -24,6 +28,17 @@ export async function registerClientTelemetryRoutes(app: FastifyInstance): Promi
       return reply.status(400).send(failure("validation_error", "invalid telemetry batch"));
     }
     clientTelemetryService.ingest(parsed.data, request.log, process.env.CLIENT_TELEMETRY_VERBOSE === "1");
+    const fieldTestSessionId = resolveFieldTestSessionIdFromRequest(
+      request.headers as Record<string, string | string[] | undefined>,
+      parsed.data
+    );
+    if (fieldTestSessionId) {
+      logFieldTestClientEvents({
+        logger: request.log,
+        fieldTestSessionId,
+        events: parsed.data.events
+      });
+    }
     return reply.status(202).send(success({ accepted: parsed.data.events.length }));
   });
 

@@ -377,14 +377,24 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           optionalWorkSkipped: false
         },
         client: {
-          clientSessionId: request.headers["x-client-session-id"]?.toString() ?? null,
-          clientRequestId: request.headers["x-client-request-id"]?.toString() ?? null,
+          clientSessionId:
+            request.headers["x-locava-client-session-id"]?.toString() ??
+            request.headers["x-client-session-id"]?.toString() ??
+            null,
+          clientRequestId:
+            request.headers["x-locava-client-request-id"]?.toString() ??
+            request.headers["x-client-request-id"]?.toString() ??
+            null,
           clientSentAtMs: request.headers["x-client-sent-at-ms"]?.toString() ?? null,
           clientRouteName: request.headers["x-client-route-name"]?.toString() ?? null,
           clientSurface: request.headers["x-client-surface"]?.toString() ?? null,
           clientBuildProfile: request.headers["x-client-build-profile"]?.toString() ?? null,
           clientPlatform: request.headers["x-client-platform"]?.toString() ?? null
         },
+        fieldTestSessionId: (() => {
+          const raw = request.headers["x-locava-field-test-session-id"]?.toString().trim() ?? "";
+          return raw.length > 0 ? raw.slice(0, 220) : null;
+        })(),
         audit: {
           auditRunId: request.headers["x-audit-run-id"]?.toString(),
           auditSpecId: request.headers["x-audit-spec-id"]?.toString(),
@@ -540,11 +550,15 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     requestMetricsCollector.record(requestDiagnostic);
 
     const verboseRequestLogs = process.env.BACKENDV2_VERBOSE_REQUEST_LOGS === "1";
+    const fieldTestSessionId = ctx?.fieldTestSessionId ?? null;
+    const fieldTestLogFields =
+      fieldTestSessionId != null && fieldTestSessionId.length > 0 ? { fieldTestSessionId } : {};
     if (verboseRequestLogs) {
       request.log.info(
         {
           event: "request_complete",
           routeName: ctx?.routeName,
+          ...fieldTestLogFields,
           statusCode: reply.statusCode,
           latencyMs: Number(latencyMs.toFixed(2)),
           payloadBytes: ctx?.payloadBytes ?? 0,
@@ -578,10 +592,14 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
         "request complete"
       );
     } else {
+      const hasFieldTest = Boolean(fieldTestSessionId && fieldTestSessionId.length > 0);
+      const compactFallbacks = hasFieldTest ? (ctx?.fallbacks ?? []) : (ctx?.fallbacks ?? []).length;
+      const compactTimeouts = hasFieldTest ? (ctx?.timeouts ?? []) : (ctx?.timeouts ?? []).length;
       request.log.info(
         {
           event: "request_complete",
           routeName: ctx?.routeName,
+          ...fieldTestLogFields,
           routePolicyPriority: ctx?.routePolicy?.priority ?? null,
           routePolicyLane: ctx?.routePolicy?.lane ?? null,
           statusCode: reply.statusCode,
@@ -607,8 +625,8 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
           optionalWorkSkipped: ctx?.orchestration?.optionalWorkSkipped ?? false,
           budgetViolations,
           dbOps: ctx?.dbOps ?? { reads: 0, writes: 0, queries: 0 },
-          fallbacks: (ctx?.fallbacks ?? []).length,
-          timeouts: (ctx?.timeouts ?? []).length
+          fallbacks: compactFallbacks,
+          timeouts: compactTimeouts
         },
         "request complete"
       );
@@ -801,10 +819,10 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     });
   }
   app.register(registerAppPostV2SurfaceCompareRoutes);
+  app.register(registerClientTelemetryRoutes);
   if (env.NODE_ENV !== "production") {
     app.register(registerDebugPostGradientAuditRoutes);
     app.register(registerDebugPostCanonicalStatusRoutes);
-    app.register(registerClientTelemetryRoutes);
   }
   // Client debug log ingest is opt-in via ENABLE_CLIENT_DEBUG_LOG_INGEST.
   // Registered unconditionally so production-profile native builds pointed at a

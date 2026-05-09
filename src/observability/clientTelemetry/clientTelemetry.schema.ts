@@ -82,6 +82,7 @@ export const clientTelemetryBatchSchema = z
     buildProfile: maybeStringField,
     appVersion: maybeStringField,
     platform: z.enum(["ios", "android"]).optional(),
+    fieldTestSessionId: z.string().trim().min(1).max(220).optional(),
     events: z.array(clientTelemetryEventSchema).min(1).max(50)
   })
   .strict();
