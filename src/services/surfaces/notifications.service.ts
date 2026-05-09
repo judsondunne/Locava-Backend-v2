@@ -5,6 +5,29 @@ import { withMutationLock } from "../../lib/mutation-lock.js";
 import type { NotificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
 import { legacyNotificationPushPublisher } from "../notifications/legacy-notification-push.publisher.js";
 
+/** Expo push + ticket handling; keeps route contracts unchanged (internal to NotificationsService). */
+async function dispatchLegacyExpoPushAfterNotificationCreate(result: {
+  notificationId: string | null;
+  viewerId: string | null;
+  notificationData: Record<string, unknown> | null | undefined;
+  senderData: unknown;
+}): Promise<void> {
+  if (!result.notificationId || !result.viewerId || !result.notificationData) return;
+  const pushResult = await legacyNotificationPushPublisher.sendToRecipient({
+    notificationId: result.notificationId,
+    recipientUserId: result.viewerId,
+    notificationData: result.notificationData as never,
+    senderData: (result.senderData as never) ?? null,
+  });
+  if (!pushResult.success && !pushResult.skippedNoExpoToken) {
+    console.warn("[notifications] push delivery failed", {
+      notificationId: result.notificationId,
+      recipientUserId: result.viewerId,
+      error: pushResult.error ?? "unknown_push_error",
+    });
+  }
+}
+
 export class NotificationsService {
   constructor(private readonly repository: NotificationsRepository) {}
 
@@ -49,19 +72,12 @@ export class NotificationsService {
         const result = await this.repository.createFromMutation(input);
         if (result.created && result.viewerId) {
           if (result.notificationId && result.notificationData) {
-            const pushResult = await legacyNotificationPushPublisher.sendToRecipient({
+            await dispatchLegacyExpoPushAfterNotificationCreate({
               notificationId: result.notificationId,
-              recipientUserId: result.viewerId,
-              notificationData: result.notificationData as never,
-              senderData: (result.senderData as never) ?? null,
+              viewerId: result.viewerId,
+              notificationData: result.notificationData,
+              senderData: result.senderData,
             });
-            if (!pushResult.success && !pushResult.skippedNoExpoToken) {
-              console.warn("[notifications] push delivery failed", {
-                notificationId: result.notificationId,
-                recipientUserId: result.viewerId,
-                error: pushResult.error ?? "unknown_push_error",
-              });
-            }
           }
           const inv = invalidateEntitiesForMutation({
             mutationType: "notification.create",

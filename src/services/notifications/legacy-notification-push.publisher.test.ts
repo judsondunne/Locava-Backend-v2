@@ -1,7 +1,17 @@
-import { describe, expect, it } from "vitest";
-import { buildLegacyExpoPushPayload } from "./legacy-notification-push.publisher.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as firestoreClient from "../../repositories/source-of-truth/firestore-client.js";
+import {
+  buildLegacyExpoPushPayload,
+  collectExponentPushTokenTargets,
+  inferPushTargetType,
+  legacyNotificationPushPublisher,
+} from "./legacy-notification-push.publisher.js";
 
 describe("legacy notification push publisher", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
   it("builds legacy post-like push payloads with deep-link route", () => {
     const payload = buildLegacyExpoPushPayload(
       {
@@ -149,5 +159,151 @@ describe("legacy notification push publisher", () => {
     expect(payload).not.toHaveProperty("mutableContent");
     expect(payload).not.toHaveProperty("richContent");
     expect((payload.data as Record<string, unknown>).imageUrl).toBeUndefined();
+  });
+
+  it("merges routing meta into stringified data for client dedupe and tap routing", () => {
+    const payload = buildLegacyExpoPushPayload(
+      {
+        senderUserId: "actor-7",
+        type: "like",
+        message: "liked your post.",
+        postId: "post-9",
+      },
+      { senderName: "Actor" },
+      { notificationId: "notif-doc-1", recipientUserId: "recipient-1" },
+    );
+    const data = payload.data as Record<string, string>;
+    expect(data.notificationId).toBe("notif-doc-1");
+    expect(data.recipientUserId).toBe("recipient-1");
+    expect(data.targetType).toBe("post");
+    expect(data.routeIntent).toBe("/display/display");
+  });
+
+  it("collectExponentPushTokenTargets dedupes and prefers scalar first with cap", () => {
+    const t1 = "ExponentPushToken[aaa]";
+    const t2 = "ExponentPushToken[bbb]";
+    const t3 = "ExponentPushToken[ccc]";
+    const targets = collectExponentPushTokenTargets(
+      {
+        expoPushToken: t1,
+        expoPushTokens: [t2, t1, t3],
+        pushTokens: [t2],
+      },
+      2,
+    );
+    expect(targets).toEqual([t1, t2]);
+  });
+
+  it("inferPushTargetType classifies like as post and follow as user", () => {
+    expect(
+      inferPushTargetType({
+        senderUserId: "a",
+        type: "like",
+        message: "x",
+        postId: "p",
+      }),
+    ).toBe("post");
+    expect(
+      inferPushTargetType({
+        senderUserId: "a",
+        type: "follow",
+        message: "x",
+      }),
+    ).toBe("user");
+    expect(
+      inferPushTargetType({
+        senderUserId: "a",
+        type: "chat",
+        message: "x",
+        chatId: "c1",
+      }),
+    ).toBe("chat");
+  });
+
+  it("sendToRecipient posts to Expo with mocked fetch and strips DeviceNotRegistered tokens", async () => {
+    const updateMock = vi.fn().mockResolvedValue(undefined);
+    const docMock = {
+      get: vi.fn().mockResolvedValue({
+        exists: true,
+        data: () => ({
+          expoPushToken: "ExponentPushToken[stale]",
+          expoPushTokens: [],
+          pushTokens: [],
+        }),
+      }),
+      update: updateMock,
+    };
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue({
+      collection: () => ({
+        doc: () => docMock,
+      }),
+    } as never);
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        data: { status: "error", message: "DeviceNotRegistered", details: { error: "DeviceNotRegistered" } },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await legacyNotificationPushPublisher.sendToRecipient({
+      notificationId: "nid-1",
+      recipientUserId: "user-99",
+      notificationData: {
+        senderUserId: "actor",
+        type: "like",
+        message: "liked your post.",
+        postId: "post-z",
+      },
+      senderData: { senderName: "Actor" },
+    });
+
+    expect(fetchMock).toHaveBeenCalled();
+    const rawBody = fetchMock.mock.calls[0]?.[1]?.body;
+    expect(typeof rawBody).toBe("string");
+    const parsed = JSON.parse(String(rawBody)) as { to: string; data: Record<string, string> };
+    expect(parsed.to).toBe("ExponentPushToken[stale]");
+    expect(parsed.data.notificationId).toBe("nid-1");
+    expect(status.attempted).toBe(true);
+    expect(status.success).toBe(false);
+    expect(updateMock).toHaveBeenCalled();
+  });
+
+  it("sendToRecipient marks success when Expo returns ok ticket", async () => {
+    const docMock = {
+      get: vi.fn().mockResolvedValue({
+        exists: true,
+        data: () => ({
+          expoPushToken: "ExponentPushToken[good]",
+        }),
+      }),
+      update: vi.fn(),
+    };
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue({
+      collection: () => ({
+        doc: () => docMock,
+      }),
+    } as never);
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({ data: { status: "ok", id: "ticket-1" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await legacyNotificationPushPublisher.sendToRecipient({
+      notificationId: "nid-2",
+      recipientUserId: "user-1",
+      notificationData: {
+        senderUserId: "actor",
+        type: "comment",
+        message: "commented on your post.",
+        postId: "post-q",
+      },
+      senderData: null,
+    });
+
+    expect(status.success).toBe(true);
   });
 });

@@ -1,3 +1,4 @@
+import { FieldValue, type Firestore } from "firebase-admin/firestore";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
 export type LegacyNotificationSender = {
@@ -36,7 +37,14 @@ export type PushDeliveryDebugStatus = {
   updatedAtMs: number;
 };
 
+/** Optional routing envelope merged into Expo `data` for client dedupe, filtering, and tap routing. */
+export type LegacyPushRoutingMeta = {
+  notificationId: string;
+  recipientUserId: string;
+};
+
 const DEFAULT_EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const MAX_EXPO_PUSH_TARGETS_PER_SEND = 5;
 const pushDebugByNotificationId = new Map<string, PushDeliveryDebugStatus>();
 const POST_RELATED_PUSH_TYPES = new Set([
   "post",
@@ -169,6 +177,123 @@ function buildLegacyRoute(notificationData: LegacyNotificationData): string {
   return "/map";
 }
 
+/** Explicit routing hint for native clients (alongside legacy `route`). */
+export function inferPushTargetType(notificationData: LegacyNotificationData): "post" | "user" | "chat" | "collection" | "route" {
+  const t = asTrimmedString(notificationData.type)?.toLowerCase() ?? "";
+  if (t === "chat") return "chat";
+  if (t === "follow" || t === "contact_joined") return "user";
+  if (t === "invite" || t === "collection_shared" || t === "addedcollaborator") return "collection";
+  if (
+    t === "like" ||
+    t === "comment" ||
+    t === "mention" ||
+    t === "post" ||
+    t === "post_discovery" ||
+    t === "push_image_test" ||
+    asTrimmedString(notificationData.postId)
+  ) {
+    return "post";
+  }
+  if (t === "group_joined" || t === "group_invite" || t === "group_faceoff") return "route";
+  return "route";
+}
+
+function isLikelyExpoPushToken(value: string): boolean {
+  return /^ExponentPushToken\[/.test(value) || /^ExpoPushToken\[/.test(value);
+}
+
+/** Bounded unique Expo device tokens from user doc (scalar + arrays). */
+export function collectExponentPushTokenTargets(userData: Record<string, unknown>, max: number = MAX_EXPO_PUSH_TARGETS_PER_SEND): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const pushOne = (raw: unknown) => {
+    const s = asTrimmedString(raw);
+    if (!s || !isLikelyExpoPushToken(s) || seen.has(s)) return;
+    seen.add(s);
+    out.push(s);
+  };
+  pushOne(userData.expoPushToken);
+  const expoArr = userData.expoPushTokens;
+  if (Array.isArray(expoArr)) {
+    for (const x of expoArr) pushOne(x);
+  }
+  const pushArr = userData.pushTokens;
+  if (Array.isArray(pushArr)) {
+    for (const x of pushArr) pushOne(x);
+  }
+  pushOne(userData.pushToken);
+  return out.slice(0, max);
+}
+
+function isDeviceNotRegisteredMessage(message: unknown): boolean {
+  if (typeof message !== "string") return false;
+  const m = message.trim().toLowerCase();
+  return m.includes("devicenotregistered") || m === "devicenotregistered";
+}
+
+function expoPushResponseRows(responseBody: unknown): unknown[] {
+  if (!responseBody || typeof responseBody !== "object") return [];
+  const d = (responseBody as { data?: unknown }).data;
+  if (Array.isArray(d)) return d;
+  if (d != null && typeof d === "object") return [d];
+  return [];
+}
+
+function parseExpoPushInvalidTokens(tokensSent: readonly string[], responseBody: unknown): string[] {
+  const invalid = new Set<string>();
+  const rows = expoPushResponseRows(responseBody);
+  if (rows.length === 0) return [...invalid];
+  rows.forEach((row, i) => {
+    if (!row || typeof row !== "object") return;
+    const r = row as { status?: unknown; message?: unknown };
+    const status = typeof r.status === "string" ? r.status.toLowerCase() : "";
+    if (status === "error" && isDeviceNotRegisteredMessage(r.message)) {
+      const token = tokensSent[i] ?? tokensSent[0];
+      if (token) invalid.add(token);
+    }
+  });
+  return [...invalid];
+}
+
+function expoResponseHasOkTicket(responseBody: unknown): boolean {
+  return expoPushResponseRows(responseBody).some(
+    (row) =>
+      row &&
+      typeof row === "object" &&
+      String((row as { status?: unknown }).status ?? "").toLowerCase() === "ok"
+  );
+}
+
+async function removeStaleExpoPushTokensFromUserDoc(
+  db: Firestore,
+  recipientUserId: string,
+  staleTokens: readonly string[]
+): Promise<void> {
+  if (staleTokens.length === 0) return;
+  const unique = [...new Set(staleTokens.filter((t) => t.trim().length > 0))];
+  if (unique.length === 0) return;
+  const ref = db.collection("users").doc(recipientUserId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+  const data = (snap.data() ?? {}) as Record<string, unknown>;
+  const scalar = asTrimmedString(data.expoPushToken);
+  const patch: Record<string, unknown> = {
+    expoPushTokens: FieldValue.arrayRemove(...unique),
+    pushTokens: FieldValue.arrayRemove(...unique),
+  };
+  if (scalar && unique.includes(scalar)) {
+    patch.expoPushToken = FieldValue.delete();
+  }
+  try {
+    await ref.update(patch);
+  } catch (error) {
+    console.warn("[notifications] failed to strip stale expo push tokens", {
+      recipientUserId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 function resolvePushText(notificationData: LegacyNotificationData, senderData: LegacyNotificationSender | null): {
   title: string;
   body: string;
@@ -212,7 +337,8 @@ function resolvePushText(notificationData: LegacyNotificationData, senderData: L
 
 export function buildLegacyExpoPushPayload(
   notificationData: LegacyNotificationData,
-  senderData: LegacyNotificationSender | null
+  senderData: LegacyNotificationSender | null,
+  routingMeta?: LegacyPushRoutingMeta | null
 ): Record<string, unknown> {
   const { title, body } = resolvePushText(notificationData, senderData);
   const metadata = notificationData.metadata ?? {};
@@ -220,12 +346,19 @@ export function buildLegacyExpoPushPayload(
     asTrimmedString(notificationData.targetUserId) ??
     asTrimmedString(notificationData.profileUserId) ??
     asTrimmedString(notificationData.senderUserId);
+  const routeIntent = buildLegacyRoute(notificationData);
   const data: Record<string, unknown> = {
     type: notificationData.type || "",
     senderUserId: notificationData.senderUserId || "",
-    route: buildLegacyRoute(notificationData),
+    route: routeIntent,
     ...(notificationData.pushData ?? {}),
   };
+  if (routingMeta) {
+    data.notificationId = routingMeta.notificationId;
+    data.recipientUserId = routingMeta.recipientUserId;
+    data.targetType = inferPushTargetType(notificationData);
+    data.routeIntent = routeIntent;
+  }
   const optionalData: Array<[string, unknown]> = [
     ["collectionId", notificationData.collectionId],
     ["collectionName", metadata.collectionName],
@@ -293,6 +426,10 @@ class LegacyNotificationPushPublisher {
       success: false,
       updatedAtMs: Date.now(),
     };
+    const routingMeta: LegacyPushRoutingMeta = {
+      notificationId: input.notificationId,
+      recipientUserId: input.recipientUserId,
+    };
     const db = getFirestoreSourceClient();
     if (!db) {
       pushDebugByNotificationId.set(input.notificationId, {
@@ -304,8 +441,8 @@ class LegacyNotificationPushPublisher {
     try {
       const userSnap = await db.collection("users").doc(input.recipientUserId).get();
       const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
-      const expoPushToken = asTrimmedString(userData.expoPushToken);
-      if (!expoPushToken) {
+      const targets = collectExponentPushTokenTargets(userData, MAX_EXPO_PUSH_TARGETS_PER_SEND);
+      if (targets.length === 0) {
         const status = {
           ...baseStatus,
           attempted: true,
@@ -316,7 +453,12 @@ class LegacyNotificationPushPublisher {
         pushDebugByNotificationId.set(input.notificationId, status);
         return status;
       }
-      const payload = buildLegacyExpoPushPayload(input.notificationData, input.senderData);
+      const payloadBase = buildLegacyExpoPushPayload(input.notificationData, input.senderData, routingMeta);
+      const messages = targets.map((to) => ({
+        ...payloadBase,
+        to,
+        priority: "high" as const,
+      }));
       const response = await fetch(DEFAULT_EXPO_PUSH_URL, {
         method: "POST",
         headers: {
@@ -324,20 +466,22 @@ class LegacyNotificationPushPublisher {
           "accept-encoding": "gzip, deflate",
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          ...payload,
-          to: expoPushToken,
-          priority: "high",
-        }),
+        body: JSON.stringify(messages.length === 1 ? messages[0] : messages),
       });
       const responseBody = await response.json().catch(() => null);
+      const stale = parseExpoPushInvalidTokens(targets, responseBody);
+      if (stale.length > 0) {
+        void removeStaleExpoPushTokensFromUserDoc(db, input.recipientUserId, stale);
+      }
+      const ticketsOk = expoResponseHasOkTicket(responseBody);
+      const success = response.ok && ticketsOk;
       const status: PushDeliveryDebugStatus = {
         ...baseStatus,
         attempted: true,
-        success: response.ok,
-        payload,
+        success,
+        payload: payloadBase,
         responseBody,
-        error: response.ok ? undefined : `expo_http_${response.status}`,
+        error: success ? undefined : response.ok ? "expo_ticket_all_errors" : `expo_http_${response.status}`,
         updatedAtMs: Date.now(),
       };
       pushDebugByNotificationId.set(input.notificationId, status);

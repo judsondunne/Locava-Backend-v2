@@ -6,6 +6,7 @@ import { SuggestedFriendsService } from "./suggested-friends.service.js";
 import { getBestPostCover, pickPostVideoProgressivePreviewUrl } from "../mixes/mixCover.service.js";
 import { SearchMixesServiceV2 } from "../mixes/v2/searchMixes.service.js";
 import { mediaTypeFromRow } from "./search-home-v1.projection.js";
+import { getRequestContext } from "../../observability/request-context.js";
 
 export {
   SEARCH_HOME_V1_ACTIVITY_KEYS,
@@ -98,10 +99,13 @@ export class SearchHomeV1Service {
 
   async build(viewerId: string, opts?: { bypassSuggestedFriendsCache?: boolean }): Promise<SearchHomeV1BuildResult> {
     const now = new Date().toISOString();
+    const startedSuggestedMs = Date.now();
+    const readsBeforeSuggested = getRequestContext()?.dbOps.reads ?? 0;
+    const suggestedFriendsLimit = 18;
     const suggestions = await this.suggested
       .getSuggestionsForUser(viewerId, {
         surface: "search",
-        limit: 24,
+        limit: suggestedFriendsLimit,
         excludeAlreadyFollowing: true,
         excludeBlocked: true,
         bypassCache: Boolean(opts?.bypassSuggestedFriendsCache),
@@ -115,7 +119,7 @@ export class SearchHomeV1Service {
     const candidates = suggestions.users
       .filter((u) => u.userId && u.userId !== viewerId && !u.isFollowing)
       .slice(0, 8);
-    const firstPostProbeUserIds = new Set(candidates.slice(0, 6).map((candidate) => candidate.userId));
+    const firstPostProbeUserIds = new Set(candidates.slice(0, 4).map((candidate) => candidate.userId));
 
     const userIds = candidates.map((c) => c.userId);
     const summaryMap = await this.usersRepo.loadUserSummaries(userIds).catch(() => new Map<string, SearchHomeV1UserSummary>());
@@ -142,6 +146,26 @@ export class SearchHomeV1Service {
       })
     );
     const suggestedUsers: SearchHomeV1BuildResult["suggestedUsers"] = suggestedUsersRaw.filter((row) => row !== null);
+
+    try {
+      const readsAfterSuggested = getRequestContext()?.dbOps.reads ?? 0;
+      const readDelta = Math.max(0, readsAfterSuggested - readsBeforeSuggested);
+      const budgetLimit = 24;
+      console.info(
+        JSON.stringify({
+          event: "SEARCH_BOOTSTRAP_SUGGESTED_USERS_SUMMARY",
+          viewerId,
+          returnedUsers: suggestedUsers.length,
+          usersWithRecentPosts: suggestedUsers.filter((s) => s.firstPost != null).length,
+          readDelta,
+          budgetLimit,
+          capped: readDelta > budgetLimit,
+          elapsedMs: Date.now() - startedSuggestedMs,
+        })
+      );
+    } catch {
+      // logging must never fail bootstrap
+    }
 
     const mixBootstrap = await this.searchMixes
       .bootstrap({
