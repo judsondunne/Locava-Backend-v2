@@ -5,18 +5,34 @@ import { globalCache } from "../../cache/global-cache.js";
 import type { CommentSummary } from "../../contracts/entities/comment-entities.contract.js";
 import { decodeCursor, encodeCursor } from "../../lib/pagination.js";
 import { incrementDbOps, recordSurfaceTimings } from "../../observability/request-context.js";
-import { withTimeout } from "../../orchestration/timeouts.js";
 import { AuthBootstrapFirestoreAdapter } from "../source-of-truth/auth-bootstrap-firestore.adapter.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 
 type CommentRecord = CommentSummary & {
   deletedAtMs: number | null;
+  preview?: boolean;
 };
 
 type GifAttachment = NonNullable<CommentSummary["gif"]>;
 
 type CommentStorageMode = "embedded" | "subcollection";
+type CommentSourceUsed = "subcollection" | "embedded_comments" | "comments_preview" | "engagement_preview" | "none";
+
+export type CommentsListSourceDebug = {
+  postId: string;
+  countHint: number;
+  rawTopLevelCommentCount: number;
+  rawTopLevelCommentsCount: number;
+  rawEngagementCommentCount: number;
+  sourceUsed: CommentSourceUsed;
+  embeddedCount: number;
+  previewCount: number;
+  engagementPreviewCount: number;
+  subcollectionCount: number;
+  returnedRows: number;
+  contractMismatch: boolean;
+};
 
 export class CommentRepositoryError extends Error {
   constructor(
@@ -28,6 +44,19 @@ export class CommentRepositoryError extends Error {
 }
 
 const DUPLICATE_WINDOW_MS = 4_000;
+
+function readCommentMillis(...values: unknown[]): number {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Date.parse(value.trim());
+      if (Number.isFinite(parsed)) return parsed;
+    }
+    const parsed = readMaybeMillis(value);
+    if (parsed != null) return parsed;
+  }
+  return Date.now();
+}
+
 export class CommentsRepository {
   private readonly db = getFirestoreSourceClient();
   private readonly authBootstrapAdapter = new AuthBootstrapFirestoreAdapter();
@@ -36,6 +65,7 @@ export class CommentsRepository {
   private readonly commentWireById = new Map<string, Record<string, unknown>>();
   private readonly embeddedCommentWireById = new Map<string, Record<string, unknown>>();
   private readonly commentWiresByPost = new Map<string, Record<string, unknown>[]>();
+  private readonly commentDebugByPost = new Map<string, CommentsListSourceDebug>();
   private readonly commentStorageById = new Map<string, CommentStorageMode>();
   private readonly commentStorageByPost = new Map<string, CommentStorageMode>();
   private readonly createIdempotencyByViewerKey = new Map<string, { commentId: string; createdAtMs: number }>();
@@ -46,25 +76,22 @@ export class CommentsRepository {
   }
 
   private mapWireToRecord(postId: string, wire: Record<string, unknown>, viewerId: string): CommentRecord {
+    const authorWire = wire.author && typeof wire.author === "object" ? (wire.author as Record<string, unknown>) : null;
     const commentId = String(wire.id ?? wire.commentId ?? "").trim();
-    const authorId = String(wire.userId ?? "").trim();
+    const authorId = String(wire.userId ?? authorWire?.userId ?? "").trim();
     const likedBy = Array.isArray(wire.likedBy) ? wire.likedBy.filter((id): id is string => typeof id === "string") : [];
     const gifWire = wire.gif && typeof wire.gif === "object" ? (wire.gif as Record<string, unknown>) : null;
-    const safeCreatedAtMs =
-      readMaybeMillis(wire.createdAtMs) ??
-      readMaybeMillis(wire.createdAt) ??
-      readMaybeMillis(wire.time) ??
-      Date.now();
+    const safeCreatedAtMs = readCommentMillis(wire.createdAtMs, wire.createdAt, wire.time);
     const record: CommentRecord = {
       commentId,
       postId,
       author: {
         userId: authorId,
-        handle: String(wire.userHandle ?? wire.handle ?? `user_${authorId.slice(0, 8)}`),
-        name: String(wire.userName ?? wire.handle ?? "User"),
-        pic: String(wire.userPic ?? "").trim() || null
+        handle: String(wire.userHandle ?? wire.handle ?? authorWire?.handle ?? `user_${authorId.slice(0, 8)}`),
+        name: String(wire.userName ?? wire.displayName ?? wire.name ?? authorWire?.name ?? authorWire?.displayName ?? wire.handle ?? "User"),
+        pic: String(wire.userPic ?? wire.profilePicUrl ?? wire.pic ?? authorWire?.pic ?? authorWire?.profilePicUrl ?? "").trim() || null
       },
-      text: String(wire.content ?? wire.text ?? "").trim(),
+      text: String(wire.content ?? wire.text ?? wire.body ?? "").trim(),
       gif:
         gifWire &&
         typeof gifWire.provider === "string" &&
@@ -99,12 +126,16 @@ export class CommentsRepository {
           : null,
       replyingTo: typeof wire.replyingTo === "string" ? wire.replyingTo : null,
       createdAtMs: safeCreatedAtMs,
-      likeCount: likedBy.length,
+      likeCount:
+        typeof wire.likeCount === "number" && Number.isFinite(wire.likeCount)
+          ? Math.max(0, Math.floor(wire.likeCount))
+          : likedBy.length,
       viewerState: {
         liked: likedBy.includes(viewerId),
         owned: authorId === viewerId
       },
-      deletedAtMs: wire.deletedAt ? safeCreatedAtMs : null
+      deletedAtMs: wire.deletedAt ? safeCreatedAtMs : null,
+      ...(wire.preview === true ? { preview: true } : {})
     };
     if (commentId) {
       this.commentWireById.set(commentId, wire);
@@ -112,10 +143,27 @@ export class CommentsRepository {
     return record;
   }
 
-  private async loadPostComments(postId: string, viewerId: string): Promise<CommentRecord[]> {
+  private async loadPostComments(postId: string, viewerId: string): Promise<{ comments: CommentRecord[]; debug: CommentsListSourceDebug }> {
     const mode = this.assertOrUseFallback();
     if (mode === "fallback") {
-      return (this.commentsByPostFallback.get(postId) ?? []).filter((comment) => comment.deletedAtMs == null);
+      const comments = (this.commentsByPostFallback.get(postId) ?? []).filter((comment) => comment.deletedAtMs == null);
+      return {
+        comments,
+        debug: {
+          postId,
+          countHint: comments.length,
+          rawTopLevelCommentCount: comments.length,
+          rawTopLevelCommentsCount: comments.length,
+          rawEngagementCommentCount: comments.length,
+          sourceUsed: comments.length > 0 ? "embedded_comments" : "none",
+          embeddedCount: comments.length,
+          previewCount: 0,
+          engagementPreviewCount: 0,
+          subcollectionCount: 0,
+          returnedRows: comments.length,
+          contractMismatch: false
+        }
+      };
     }
     const cachedWires = this.commentWiresByPost.get(postId);
     if (cachedWires) {
@@ -126,25 +174,48 @@ export class CommentsRepository {
       for (const comment of mapped) {
         this.commentById.set(comment.commentId, comment);
       }
-      return mapped;
+      const cachedDebug = this.commentDebugByPost.get(postId);
+      return {
+        comments: mapped,
+        debug: cachedDebug
+          ? { ...cachedDebug, returnedRows: mapped.length, contractMismatch: cachedDebug.countHint > 0 && mapped.length === 0 }
+          : {
+              postId,
+              countHint: mapped.length,
+              rawTopLevelCommentCount: mapped.length,
+              rawTopLevelCommentsCount: mapped.length,
+              rawEngagementCommentCount: mapped.length,
+              sourceUsed: mapped.length > 0 ? "embedded_comments" : "none",
+              embeddedCount: mapped.length,
+              previewCount: 0,
+              engagementPreviewCount: 0,
+              subcollectionCount: 0,
+              returnedRows: mapped.length,
+              contractMismatch: false
+            }
+      };
     }
     const postStorageMode = this.commentStorageByPost.get(postId);
     const prefersSubcollection = postStorageMode === "subcollection";
     const embeddedSource = prefersSubcollection
-      ? { wires: [] as Record<string, unknown>[], hasEmbeddedField: false, postCommentCount: 0 }
+      ? {
+          comments: [] as Record<string, unknown>[],
+          commentsPreview: [] as Record<string, unknown>[],
+          engagementPreviewRecentComments: [] as Record<string, unknown>[],
+          latestCommentPreview: null as Record<string, unknown> | null,
+          hasEmbeddedField: false,
+          countHint: 0,
+          rawTopLevelCommentCount: 0,
+          rawTopLevelCommentsCount: 0,
+          rawEngagementCommentCount: 0
+        }
       : await this.loadEmbeddedCommentSource(postId);
-    const embeddedWires = embeddedSource.wires;
-    /**
-     * COMMENT_CONTRACT_FIX: legacy posts often carry an empty `comments: []` field on the
-     * post doc while real comments live in `posts/{postId}/comments` subcollection. Previously
-     * we only loaded the subcollection when `hasEmbeddedField === false` AND embedded was empty,
-     * which silently returned `items: []` even when `commentCount > 0` — producing the
-     * "View 1 comment" + empty bottom sheet user-visible bug. Now we ALSO load the
-     * subcollection whenever the embedded array is empty (regardless of field presence) or
-     * whenever the post-level commentCount indicates additional rows should exist.
-     */
-    const embeddedSignalsMore =
-      embeddedSource.postCommentCount > embeddedWires.length;
+    const embeddedWires = embeddedSource.comments;
+    const previewWires = embeddedSource.commentsPreview;
+    const engagementPreviewWires = embeddedSource.engagementPreviewRecentComments;
+    const latestCommentPreviewWire = embeddedSource.latestCommentPreview;
+    const embeddedVisibleCount = Math.max(embeddedWires.length, previewWires.length, engagementPreviewWires.length, latestCommentPreviewWire ? 1 : 0);
+    const embeddedSignalsMore = embeddedSource.countHint > embeddedVisibleCount;
     const shouldLoadSub =
       prefersSubcollection || embeddedWires.length === 0 || embeddedSignalsMore;
     const subcollectionWires = shouldLoadSub
@@ -164,7 +235,16 @@ export class CommentsRepository {
       this.commentStorageById.set(id, "subcollection");
       mergedWires.push(wire);
     }
-    const fallbackWires = embeddedWires;
+    const fallbackWires =
+      embeddedWires.length > 0
+        ? embeddedWires
+        : previewWires.length > 0
+          ? previewWires
+          : engagementPreviewWires.length > 0
+            ? engagementPreviewWires
+            : latestCommentPreviewWire
+              ? [latestCommentPreviewWire]
+              : [];
     for (const wire of fallbackWires) {
       const id = String((wire as { id?: unknown; commentId?: unknown }).id ?? (wire as { id?: unknown; commentId?: unknown }).commentId ?? "").trim();
       if (!id || seen.has(id)) {
@@ -183,7 +263,34 @@ export class CommentsRepository {
     for (const comment of mapped) {
       this.commentById.set(comment.commentId, comment);
     }
-    return mapped;
+    const sourceUsed: CommentSourceUsed =
+      subcollectionWires.length > 0
+        ? "subcollection"
+        : embeddedWires.length > 0
+          ? "embedded_comments"
+          : previewWires.length > 0
+            ? "comments_preview"
+            : engagementPreviewWires.length > 0
+              ? "engagement_preview"
+              : latestCommentPreviewWire
+                ? "comments_preview"
+                : "none";
+    const debug: CommentsListSourceDebug = {
+      postId,
+      countHint: embeddedSource.countHint,
+      rawTopLevelCommentCount: embeddedSource.rawTopLevelCommentCount,
+      rawTopLevelCommentsCount: embeddedSource.rawTopLevelCommentsCount,
+      rawEngagementCommentCount: embeddedSource.rawEngagementCommentCount,
+      sourceUsed,
+      embeddedCount: embeddedWires.length,
+      previewCount: previewWires.length,
+      engagementPreviewCount: engagementPreviewWires.length,
+      subcollectionCount: subcollectionWires.length,
+      returnedRows: mapped.length,
+      contractMismatch: embeddedSource.countHint > 0 && mapped.length === 0
+    };
+    this.commentDebugByPost.set(postId, debug);
+    return { comments: mapped, debug };
   }
 
   private async resolveViewerAuthor(viewerId: string): Promise<CommentRecord["author"]> {
@@ -304,31 +411,105 @@ export class CommentsRepository {
   }
 
   private async loadEmbeddedCommentSource(postId: string): Promise<{
-    wires: Record<string, unknown>[];
+    comments: Record<string, unknown>[];
+    commentsPreview: Record<string, unknown>[];
+    engagementPreviewRecentComments: Record<string, unknown>[];
+    latestCommentPreview: Record<string, unknown> | null;
     hasEmbeddedField: boolean;
-    /** Post doc-level commentCount/commentsCount used to detect storage drift vs embedded array length. */
-    postCommentCount: number;
+    /** Best post doc-level count hint used to detect storage drift vs row sources. */
+    countHint: number;
+    rawTopLevelCommentCount: number;
+    rawTopLevelCommentsCount: number;
+    rawEngagementCommentCount: number;
   }> {
     incrementDbOps("queries", 1);
     const snap = await this.db!.collection("posts").doc(postId).get();
     incrementDbOps("reads", 1);
     if (!snap.exists) {
-      return { wires: [], hasEmbeddedField: false, postCommentCount: 0 };
+      return {
+        comments: [],
+        commentsPreview: [],
+        engagementPreviewRecentComments: [],
+        latestCommentPreview: null,
+        hasEmbeddedField: false,
+        countHint: 0,
+        rawTopLevelCommentCount: 0,
+        rawTopLevelCommentsCount: 0,
+        rawEngagementCommentCount: 0
+      };
     }
     const data = (snap.data() ?? {}) as Record<string, unknown>;
-    const wires = Array.isArray(data.comments)
+    const comments = Array.isArray(data.comments)
       ? data.comments.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
       : [];
-    const rawCommentCount =
+    const commentsPreview = Array.isArray(data.commentsPreview)
+      ? data.commentsPreview
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+          .map((entry, index) => this.normalizePreviewWire(postId, entry, "comments_preview", index))
+      : [];
+    const engagementPreview = data.engagementPreview && typeof data.engagementPreview === "object"
+      ? (data.engagementPreview as Record<string, unknown>)
+      : null;
+    const engagementPreviewRecentComments = Array.isArray(engagementPreview?.recentComments)
+      ? engagementPreview.recentComments
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+          .map((entry, index) => this.normalizePreviewWire(postId, entry, "engagement_preview", index))
+      : [];
+    const latestCommentPreview =
+      data.latestCommentPreview && typeof data.latestCommentPreview === "object"
+        ? this.normalizePreviewWire(postId, data.latestCommentPreview as Record<string, unknown>, "latest_comment_preview", 0)
+        : null;
+    const engagement = data.engagement && typeof data.engagement === "object" ? (data.engagement as Record<string, unknown>) : null;
+    const rawTopLevelCommentCount =
       typeof data.commentCount === "number" && Number.isFinite(data.commentCount)
         ? data.commentCount
-        : typeof data.commentsCount === "number" && Number.isFinite(data.commentsCount)
-          ? data.commentsCount
-          : 0;
+        : 0;
+    const rawTopLevelCommentsCount =
+      typeof data.commentsCount === "number" && Number.isFinite(data.commentsCount)
+        ? data.commentsCount
+        : 0;
+    const rawEngagementCommentCount =
+      typeof engagement?.commentCount === "number" && Number.isFinite(engagement.commentCount)
+        ? engagement.commentCount
+        : 0;
     return {
-      wires,
+      comments,
+      commentsPreview,
+      engagementPreviewRecentComments,
+      latestCommentPreview,
       hasEmbeddedField: Object.prototype.hasOwnProperty.call(data, "comments"),
-      postCommentCount: Math.max(0, Math.floor(rawCommentCount))
+      rawTopLevelCommentCount: Math.max(0, Math.floor(rawTopLevelCommentCount)),
+      rawTopLevelCommentsCount: Math.max(0, Math.floor(rawTopLevelCommentsCount)),
+      rawEngagementCommentCount: Math.max(0, Math.floor(rawEngagementCommentCount)),
+      countHint: Math.max(
+        0,
+        Math.floor(rawTopLevelCommentCount),
+        Math.floor(rawTopLevelCommentsCount),
+        Math.floor(rawEngagementCommentCount)
+      )
+    };
+  }
+
+  private normalizePreviewWire(
+    postId: string,
+    wire: Record<string, unknown>,
+    source: "comments_preview" | "engagement_preview" | "latest_comment_preview",
+    index: number
+  ): Record<string, unknown> {
+    const author = wire.author && typeof wire.author === "object" ? (wire.author as Record<string, unknown>) : null;
+    const id = String(wire.id ?? wire.commentId ?? "").trim() || `${source}_${postId}_${index}`;
+    const text = String(wire.content ?? wire.text ?? wire.body ?? "").trim();
+    return {
+      ...wire,
+      id,
+      commentId: String(wire.commentId ?? id).trim(),
+      postId,
+      preview: true,
+      ...(text ? { content: text, text } : {}),
+      userId: String(wire.userId ?? author?.userId ?? "").trim(),
+      userName: String(wire.userName ?? wire.displayName ?? wire.name ?? author?.name ?? author?.displayName ?? "User").trim(),
+      userHandle: String(wire.userHandle ?? wire.handle ?? author?.handle ?? "").trim(),
+      userPic: String(wire.userPic ?? wire.profilePicUrl ?? wire.pic ?? author?.pic ?? author?.profilePicUrl ?? "").trim()
     };
   }
 
@@ -393,8 +574,10 @@ export class CommentsRepository {
     totalCount: number;
     hasMore: boolean;
     nextCursor: string | null;
+    sourceDebug: CommentsListSourceDebug;
   }> {
-    const all = await this.loadPostComments(input.postId, input.viewerId);
+    const loaded = await this.loadPostComments(input.postId, input.viewerId);
+    const all = loaded.comments;
 
     let start = 0;
     if (input.cursor) {
@@ -428,9 +611,14 @@ export class CommentsRepository {
     return {
       cursorIn: input.cursor,
       items,
-      totalCount: all.length,
+      totalCount: Math.max(all.length, loaded.debug.countHint),
       hasMore,
-      nextCursor
+      nextCursor,
+      sourceDebug: {
+        ...loaded.debug,
+        returnedRows: items.length,
+        contractMismatch: loaded.debug.countHint > 0 && all.length === 0
+      }
     };
   }
 
@@ -580,8 +768,8 @@ export class CommentsRepository {
         );
         incrementDbOps("writes", 1);
       } else {
-        const all = await this.loadPostComments(comment.postId, input.viewerId);
-        const nextWire = all
+        const loaded = await this.loadPostComments(comment.postId, input.viewerId);
+        const nextWire = loaded.comments
           .filter((c) => c.commentId !== comment.commentId)
           .map((c) => ({
             id: c.commentId,
@@ -840,6 +1028,7 @@ export class CommentsRepository {
     this.commentWireById.clear();
     this.embeddedCommentWireById.clear();
     this.commentWiresByPost.clear();
+    this.commentDebugByPost.clear();
     this.commentStorageById.clear();
     this.commentStorageByPost.clear();
     this.commentsByPostFallback.clear();

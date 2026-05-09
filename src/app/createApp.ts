@@ -115,6 +115,7 @@ import { registerV2CollectionsSavedRoutes } from "../routes/v2/collections-saved
 import { registerV2CollectionsGeneratedRoutes } from "../routes/v2/collections-generated.routes.js";
 import { registerV2CollectionsRoutes } from "../routes/v2/collections-v2.routes.js";
 import { registerV2PostsDetailRoutes } from "../routes/v2/posts-detail.routes.js";
+import { registerV2PostsRenderStandardizedBatchRoutes } from "../routes/v2/posts-render-standardized-batch.routes.js";
 import { registerV2AchievementsHeroRoutes } from "../routes/v2/achievements-hero.routes.js";
 import { registerV2AchievementsBootstrapRoutes } from "../routes/v2/achievements-bootstrap.routes.js";
 import { registerV2AchievementsSnapshotRoutes } from "../routes/v2/achievements-snapshot.routes.js";
@@ -745,6 +746,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2CollectionsRoutes);
   app.register(registerV2CollectionsGeneratedRoutes);
   app.register(registerV2PostsDetailRoutes);
+  app.register(registerV2PostsRenderStandardizedBatchRoutes);
   app.register(registerV2AchievementsHeroRoutes);
   app.register(registerV2AchievementsBootstrapRoutes);
   app.register(registerV2AchievementsSnapshotRoutes);

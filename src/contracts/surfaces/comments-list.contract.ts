@@ -37,6 +37,22 @@ export const CommentsListResponseSchema = z.object({
     })
     .nullable()
     .optional(),
+  debug: z
+    .object({
+      postId: z.string(),
+      countHint: z.number().int().nonnegative(),
+      rawTopLevelCommentCount: z.number().int().nonnegative(),
+      rawTopLevelCommentsCount: z.number().int().nonnegative(),
+      rawEngagementCommentCount: z.number().int().nonnegative(),
+      sourceUsed: z.enum(["subcollection", "embedded_comments", "comments_preview", "engagement_preview", "none"]),
+      embeddedCount: z.number().int().nonnegative(),
+      previewCount: z.number().int().nonnegative(),
+      engagementPreviewCount: z.number().int().nonnegative(),
+      subcollectionCount: z.number().int().nonnegative(),
+      returnedRows: z.number().int().nonnegative(),
+      contractMismatch: z.boolean()
+    })
+    .optional(),
   degraded: z.boolean(),
   fallbacks: z.array(z.string())
 });

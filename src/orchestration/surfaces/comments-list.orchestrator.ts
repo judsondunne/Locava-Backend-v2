@@ -34,11 +34,18 @@ export class CommentsListOrchestrator {
         : null
       : undefined;
 
+    const debug = page.sourceDebug
+      ? {
+          ...page.sourceDebug,
+          returnedRows: page.items.length,
+          contractMismatch: page.sourceDebug.countHint > 0 && page.items.length === 0
+        }
+      : undefined;
     const contractMismatch =
-      page.totalCount > 0 && page.items.length === 0
+      (debug?.countHint ?? page.totalCount) > 0 && page.items.length === 0
         ? ({
             reason: "count_positive_items_empty" as const,
-            countHint: page.totalCount
+            countHint: debug?.countHint ?? page.totalCount
           })
         : null;
 
@@ -50,16 +57,36 @@ export class CommentsListOrchestrator {
         count: page.totalCount,
         itemsLength: page.items.length,
         cursorIn: input.cursor,
-        reason: "count_positive_items_empty"
+        reason: "count_positive_items_empty",
+        debug: debug ?? null
       }));
     } else if (isBootstrap) {
       debugLog("comments", "COMMENT_BOOTSTRAP_READY", () => ({
         postId: input.postId,
         count: page.totalCount,
         itemsLength: page.items.length,
+        sourceUsed: debug?.sourceUsed ?? null,
         hasPreview: Boolean(latestCommentPreview),
         previewTextLength:
           latestCommentPreview?.text != null ? latestCommentPreview.text.length : 0
+      }));
+    }
+
+    if (debug && input.postId === "0qcjjsO0IZNXBxLp1qkZ") {
+      debugLog("comments", "COMMENT_E2E_TRACE", () => ({
+        postId: input.postId,
+        rawEmbeddedCommentsLen: debug.embeddedCount,
+        rawCommentsPreviewLen: debug.previewCount,
+        rawEngagementPreviewRecentCommentsLen: debug.engagementPreviewCount,
+        rawTopLevelCommentCount: debug.rawTopLevelCommentCount,
+        rawTopLevelCommentsCount: debug.rawTopLevelCommentsCount,
+        rawEngagementCommentCount: debug.rawEngagementCommentCount,
+        subcollectionCommentCount: debug.subcollectionCount,
+        backendRows: page.items.length,
+        backendCount: page.totalCount,
+        nativeSheetRows: null,
+        buttonCount: debug.countHint,
+        mismatchStage: debug.contractMismatch ? "backend_rows_empty" : "none"
       }));
     }
 
@@ -77,6 +104,7 @@ export class CommentsListOrchestrator {
       items: page.items,
       ...(latestCommentPreview !== undefined ? { latestCommentPreview } : {}),
       ...(contractMismatch ? { contractMismatch } : {}),
+      ...(debug ? { debug } : {}),
       degraded: false,
       fallbacks: []
     };

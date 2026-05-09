@@ -15,6 +15,8 @@ export const CommentSummarySchema = z.object({
   gif: GifAttachmentSchema.nullable().optional(),
   /** Parent commentId when this is a reply. Null/undefined for top-level comments. */
   replyingTo: z.string().nullable().optional(),
+  /** True when the row came from a bounded preview source rather than the full comments source. */
+  preview: z.boolean().optional(),
   createdAtMs: z.number().int().nonnegative(),
   likeCount: z.number().int().nonnegative().optional(),
   viewerState: CommentViewerStateSchema
