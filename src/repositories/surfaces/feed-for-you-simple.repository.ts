@@ -1,5 +1,6 @@
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import { FEED_READ_NORMALIZED_ASSET_MAX } from "../../constants/feed-read-assets.js";
+import { getPostCoordinates, getPostGeohash } from "../../lib/posts/postFieldSelectors.js";
 import { accumulateSurfaceTiming, incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
@@ -126,11 +127,14 @@ const SIMPLE_FEED_SELECT_FIELDS = [
   "userPic",
   "activities",
   "address",
+  "location",
   "lat",
   "lng",
   "long",
   "latitude",
   "longitude",
+  "coordinates",
+  "geohash",
   "geoData",
   "assets",
   "carouselFitWidth",
@@ -355,6 +359,126 @@ export class FeedForYouSimpleRepository {
       stats,
       tailRandomKey,
       tailDocId
+    };
+  }
+
+  /**
+   * Read-only bounded scan: recent public posts (same mapping as feed), distance-filtered in memory.
+   * Used when randomKey/reel deck refill yields zero in radius mode but coordinates exist on newer docs.
+   */
+  async probeRecentPlayablePostsWithinRadius(input: {
+    centerLat: number;
+    centerLng: number;
+    radiusMiles: number;
+    maxDocs: number;
+  }): Promise<{
+    items: SimpleFeedCandidate[];
+    readCount: number;
+    shapeCounts: {
+      totalDocs: number;
+      topLevelLatLong: number;
+      nestedLocationCoordinates: number;
+      invalidCoords: number;
+      outsideRadius: number;
+      playableMapped: number;
+    };
+  }> {
+    if (!this.db) {
+      return {
+        items: [],
+        readCount: 0,
+        shapeCounts: {
+          totalDocs: 0,
+          topLevelLatLong: 0,
+          nestedLocationCoordinates: 0,
+          invalidCoords: 0,
+          outsideRadius: 0,
+          playableMapped: 0
+        }
+      };
+    }
+    const limitKm = input.radiusMiles * 1.609344;
+    const bounded = Math.max(24, Math.min(200, Math.floor(input.maxDocs)));
+    incrementDbOps("queries", 1);
+    let snap;
+    try {
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .orderBy("time", "desc")
+        .limit(bounded)
+        .get();
+    } catch {
+      incrementDbOps("reads", 0);
+      return {
+        items: [],
+        readCount: 0,
+        shapeCounts: {
+          totalDocs: 0,
+          topLevelLatLong: 0,
+          nestedLocationCoordinates: 0,
+          invalidCoords: 0,
+          outsideRadius: 0,
+          playableMapped: 0
+        }
+      };
+    }
+    incrementDbOps("reads", snap.docs.length);
+    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+      const R = 6371;
+      const dLat = ((lat2 - lat1) * Math.PI) / 180;
+      const dLon = ((lon2 - lon1) * Math.PI) / 180;
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    };
+    const items: SimpleFeedCandidate[] = [];
+    let topLevelLatLong = 0;
+    let nestedLocationCoordinates = 0;
+    let invalidCoords = 0;
+    let outsideRadius = 0;
+    let playableMapped = 0;
+    for (const doc of snap.docs) {
+      const raw = doc.data() as Record<string, unknown>;
+      const loc = raw.location as Record<string, unknown> | undefined;
+      const coords = loc && typeof loc === "object" ? (loc.coordinates as Record<string, unknown> | undefined) : undefined;
+      const hasNested =
+        coords &&
+        (typeof coords.lat === "number" || typeof coords.latitude === "number") &&
+        (typeof coords.lng === "number" || typeof coords.long === "number" || typeof coords.longitude === "number");
+      const hasTop =
+        (typeof raw.lat === "number" || typeof raw.latitude === "number") &&
+        (typeof raw.lng === "number" || typeof raw.long === "number" || typeof raw.longitude === "number");
+      if (hasNested) nestedLocationCoordinates += 1;
+      if (hasTop) topLevelLatLong += 1;
+      const mapped = tryMapSimpleFeedCandidate("docId", doc.id, raw);
+      if (!("candidate" in mapped)) continue;
+      playableMapped += 1;
+      const c = mapped.candidate;
+      const lat = typeof c.geo?.lat === "number" && Number.isFinite(c.geo.lat) ? c.geo.lat : null;
+      const lng = typeof c.geo?.long === "number" && Number.isFinite(c.geo.long) ? c.geo.long : null;
+      if (lat == null || lng == null) {
+        invalidCoords += 1;
+        continue;
+      }
+      if (haversineKm(input.centerLat, input.centerLng, lat, lng) > limitKm) {
+        outsideRadius += 1;
+        continue;
+      }
+      items.push(c);
+    }
+    return {
+      items,
+      readCount: snap.docs.length,
+      shapeCounts: {
+        totalDocs: snap.docs.length,
+        topLevelLatLong,
+        nestedLocationCoordinates,
+        invalidCoords,
+        outsideRadius,
+        playableMapped
+      }
     };
   }
 
@@ -720,14 +844,18 @@ function tryMapSimpleFeedCandidate(
       authorPic: pickString(data.userPic),
       activities: Array.isArray(data.activities) ? data.activities.map((value) => String(value ?? "").trim()).filter(Boolean).slice(0, 4) : [],
       address: trimPreviewText(pickString(data.address), 72),
-      geo: {
-        lat: num(data.lat, data.latitude),
-        long: num(data.long, data.lng, data.longitude),
-        city: pickString((data.geoData as Record<string, unknown> | undefined)?.city),
-        state: pickString((data.geoData as Record<string, unknown> | undefined)?.state),
-        country: pickString((data.geoData as Record<string, unknown> | undefined)?.country),
-        geohash: pickString((data.geoData as Record<string, unknown> | undefined)?.geohash)
-      },
+      geo: (() => {
+        const coords = getPostCoordinates(data);
+        const ghFromCanon = getPostGeohash(data);
+        return {
+          lat: coords.lat,
+          long: coords.lng,
+          city: pickString((data.geoData as Record<string, unknown> | undefined)?.city),
+          state: pickString((data.geoData as Record<string, unknown> | undefined)?.state),
+          country: pickString((data.geoData as Record<string, unknown> | undefined)?.country),
+          geohash: ghFromCanon ?? pickString((data.geoData as Record<string, unknown> | undefined)?.geohash)
+        };
+      })(),
       assets,
       carouselFitWidth: typeof data.carouselFitWidth === "boolean" ? data.carouselFitWidth : undefined,
       layoutLetterbox: typeof data.layoutLetterbox === "boolean" ? data.layoutLetterbox : undefined,

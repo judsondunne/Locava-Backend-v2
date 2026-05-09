@@ -466,8 +466,55 @@ function normalizeAspectRatio(value: number | null | undefined, fallback = 9 / 1
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function pickCompactSeedImageDisplayUrl(asset: CompactAssetSeed): string | null {
+  const variants = asUnknownRecord(asset.variants) ?? {};
+  const lg = asUnknownRecord(variants.lg);
+  const fallbackJpg = asUnknownRecord(variants.fallbackJpg);
+  return (
+    cleanString(typeof lg?.webp === "string" ? lg.webp : null) ??
+    cleanString(typeof lg?.jpg === "string" ? lg.jpg : null) ??
+    cleanString(typeof fallbackJpg?.jpg === "string" ? fallbackJpg.jpg : null) ??
+    cleanString(asset.originalUrl) ??
+    cleanString(asset.previewUrl) ??
+    cleanString(asset.posterUrl)
+  );
+}
+
+function pickCompactSeedImageThumbnailUrl(asset: CompactAssetSeed): string | null {
+  const variants = asUnknownRecord(asset.variants) ?? {};
+  const thumb = asUnknownRecord(variants.thumb);
+  const sm = asUnknownRecord(variants.sm);
+  const md = asUnknownRecord(variants.md);
+  const lg = asUnknownRecord(variants.lg);
+  const fallbackJpg = asUnknownRecord(variants.fallbackJpg);
+  return (
+    cleanString(typeof thumb?.webp === "string" ? thumb.webp : null) ??
+    cleanString(typeof sm?.webp === "string" ? sm.webp : null) ??
+    cleanString(typeof md?.webp === "string" ? md.webp : null) ??
+    cleanString(typeof lg?.webp === "string" ? lg.webp : null) ??
+    cleanString(typeof fallbackJpg?.jpg === "string" ? fallbackJpg.jpg : null) ??
+    cleanString(asset.previewUrl) ??
+    cleanString(asset.posterUrl) ??
+    cleanString(asset.originalUrl)
+  );
+}
+
 function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unknown> {
   const assets = Array.isArray(seed.assets) ? seed.assets : [];
+  const firstImageAsset = assets.find((asset) => asset?.type !== "video") ?? assets[0] ?? null;
+  const imageCoverUrl =
+    firstImageAsset && firstImageAsset.type !== "video"
+      ? pickCompactSeedImageDisplayUrl(firstImageAsset)
+      : null;
+  const imageThumbUrl =
+    firstImageAsset && firstImageAsset.type !== "video"
+      ? pickCompactSeedImageThumbnailUrl(firstImageAsset)
+      : null;
+  const coverUrl = seed.media.type === "image" ? imageCoverUrl ?? seed.media.posterUrl : seed.media.posterUrl;
+  const coverThumbUrl =
+    seed.media.type === "image"
+      ? imageThumbUrl ?? imageCoverUrl ?? seed.media.posterUrl
+      : seed.media.posterUrl;
   const canonicalMediaAssets = assets.map((a, index) => {
     const playbackUrl = a.mp4Url ?? a.originalUrl ?? null;
     if (a.type === "video") {
@@ -529,8 +576,8 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
       type: "image",
       image: {
         originalUrl: a.originalUrl ?? null,
-        displayUrl: a.previewUrl ?? a.originalUrl ?? null,
-        thumbnailUrl: a.previewUrl ?? a.posterUrl ?? null,
+        displayUrl: pickCompactSeedImageDisplayUrl(a),
+        thumbnailUrl: pickCompactSeedImageThumbnailUrl(a),
         blurhash: a.blurhash ?? null,
         width: a.width ?? null,
         height: a.height ?? null,
@@ -572,7 +619,7 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
       original: a.originalUrl,
       url: a.originalUrl,
       poster: a.posterUrl,
-      thumbnail: a.previewUrl,
+      thumbnail: a.type === "video" ? a.previewUrl : pickCompactSeedImageThumbnailUrl(a),
       blurhash: a.blurhash,
       width: a.width,
       height: a.height,
@@ -609,9 +656,9 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
       coverAssetId: canonicalMediaAssets[0]?.id ?? null,
       cover: {
         type: seed.media.type,
-        url: seed.media.posterUrl,
-        posterUrl: seed.media.posterUrl,
-        thumbUrl: seed.media.posterUrl,
+        url: coverUrl,
+        posterUrl: coverUrl,
+        thumbUrl: coverThumbUrl,
         width: assets[0]?.width ?? null,
         height: assets[0]?.height ?? null,
         aspectRatio: assets[0]?.aspectRatio ?? null,
@@ -623,9 +670,9 @@ function syntheticRawFromCompactSeed(seed: CompactCardSeed): Record<string, unkn
       },
       assets: canonicalMediaAssets
     },
-    thumbUrl: seed.media.posterUrl,
-    displayPhotoLink: seed.media.posterUrl,
-    photoLink: seed.photoLink ?? seed.displayPhotoLink,
+    thumbUrl: coverThumbUrl,
+    displayPhotoLink: coverUrl,
+    photoLink: seed.photoLink ?? seed.displayPhotoLink ?? coverUrl,
     photoLinks2: seed.playbackUrl ?? seed.fallbackVideoUrl,
     fallbackVideoUrl: seed.fallbackVideoUrl,
     createdAtMs: seed.createdAtMs,

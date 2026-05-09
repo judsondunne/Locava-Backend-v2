@@ -221,3 +221,44 @@ export function enrichPresignSlotsForLegacyCompat(
     };
   });
 }
+
+export async function presignWasabiPutObject(input: {
+  key: string;
+  contentType: string;
+  expiresInSeconds?: number;
+}): Promise<
+  | { ok: true; uploadUrl: string; bucket: string }
+  | { ok: false; code: "not_configured" | "presign_failed"; message: string }
+> {
+  const cfg = readWasabiConfigFromEnv();
+  if (!cfg) {
+    return {
+      ok: false,
+      code: "not_configured",
+      message: "Wasabi credentials missing"
+    };
+  }
+  try {
+    const client = createS3Client(cfg);
+    const command = new PutObjectCommand({
+      Bucket: cfg.bucketName,
+      Key: input.key,
+      ContentType: input.contentType,
+      ACL: "public-read"
+    });
+    const uploadUrl = await getSignedUrl(client, command, {
+      expiresIn: input.expiresInSeconds ?? PRESIGN_EXPIRES_SECONDS
+    });
+    return {
+      ok: true,
+      uploadUrl,
+      bucket: cfg.bucketName
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      code: "presign_failed",
+      message: error instanceof Error ? error.message : String(error)
+    };
+  }
+}

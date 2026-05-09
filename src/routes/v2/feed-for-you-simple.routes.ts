@@ -48,6 +48,18 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
       }
       return { mode, centerLat: lat, centerLng: lng, radiusMiles: miles };
     })();
+    if (radiusFilter.mode !== "global") {
+      request.log.info(
+        {
+          event: "RADIUS_FEED_REQUEST_PARSED",
+          radiusMode: radiusFilter.mode,
+          centerLat: radiusFilter.centerLat,
+          centerLng: radiusFilter.centerLng,
+          radiusMiles: radiusFilter.radiusMiles
+        },
+        "RADIUS_FEED_REQUEST_PARSED"
+      );
+    }
     setOrchestrationMetadata({
       surface: "home_feed",
       requestGroup: query.cursor ? "pagination" : "first_paint",

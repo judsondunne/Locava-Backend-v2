@@ -653,4 +653,93 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
     expect(body.data.items.some((i) => i.postId === postId)).toBe(true);
     expect(body.data.debug.degradedMediaCount).toBeGreaterThanOrEqual(1);
   });
+
+  it("radius nearMe returns posts with coordinates only under location.coordinates (mixed reel=false)", async () => {
+    await wipePostsCollection();
+    await wipeFeedSeenCollection();
+    confirmEmulatorOnlyTestWrite("feed-for-you-simple.routes.test.radiusLocationOnly", "posts");
+    const db = getFirestoreSourceClient();
+    if (!db) throw new Error("firestore_unavailable_for_test");
+    const seedKey = `radius-loc-${Date.now()}`;
+    const viewerId = `${seedKey}-viewer`;
+    const baseMs = Date.now() + 900_000;
+    const nearId = `${seedKey}-near`;
+    const farId = `${seedKey}-far`;
+    const baseDoc = {
+      userId: `${seedKey}-author`,
+      ownerId: `${seedKey}-author`,
+      userHandle: `${seedKey}.author`,
+      userName: "Radius Author",
+      userPic: "https://cdn.locava.test/u.jpg",
+      title: "Radius geo",
+      caption: "c",
+      mediaType: "image",
+      thumbUrl: "https://cdn.locava.test/near.jpg",
+      displayPhotoLink: "https://cdn.locava.test/near.jpg",
+      assets: [{ id: "a1", type: "image", url: "https://cdn.locava.test/near.jpg" }],
+      time: baseMs,
+      createdAtMs: baseMs,
+      updatedAtMs: baseMs,
+      lastUpdated: baseMs,
+      randomKey: 0.56,
+      reel: false,
+      privacy: "public",
+      visibility: "public",
+      status: "active",
+      deleted: false,
+      hidden: false,
+      archived: false,
+      likeCount: 1,
+      commentCount: 0
+    };
+    await db
+      .collection("posts")
+      .doc(nearId)
+      .set({
+        ...baseDoc,
+        title: "near",
+        location: { coordinates: { lat: 40.68843, lng: -75.22073, geohash: "dr4e3x" } }
+      });
+    await db
+      .collection("posts")
+      .doc(farId)
+      .set({
+        ...baseDoc,
+        title: "far",
+        thumbUrl: "https://cdn.locava.test/far.jpg",
+        displayPhotoLink: "https://cdn.locava.test/far.jpg",
+        assets: [{ id: "a2", type: "image", url: "https://cdn.locava.test/far.jpg" }],
+        time: baseMs - 50_000,
+        createdAtMs: baseMs - 50_000,
+        updatedAtMs: baseMs - 50_000,
+        lastUpdated: baseMs - 50_000,
+        randomKey: 0.57,
+        location: { coordinates: { lat: 40.25, lng: -75.21062607164923, geohash: "dr4e" } }
+      });
+
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const centerLat = 40.69842189738677;
+    const centerLng = -75.21062607164923;
+    const r10 = await app.inject({
+      method: "GET",
+      url: `/v2/feed/for-you/simple?viewerId=${encodeURIComponent(viewerId)}&limit=5&radiusMode=nearMe&centerLat=${centerLat}&centerLng=${centerLng}&radiusMiles=10`,
+      headers
+    });
+    expect(r10.statusCode).toBe(200);
+    const b10 = r10.json() as { data: { items: Array<{ postId: string }> } };
+    const ids10 = new Set(b10.data.items.map((i) => i.postId));
+    expect(ids10.has(nearId)).toBe(true);
+    expect(ids10.has(farId)).toBe(false);
+
+    const r50 = await app.inject({
+      method: "GET",
+      url: `/v2/feed/for-you/simple?viewerId=${encodeURIComponent(viewerId)}&limit=12&radiusMode=nearMe&centerLat=${centerLat}&centerLng=${centerLng}&radiusMiles=50`,
+      headers
+    });
+    expect(r50.statusCode).toBe(200);
+    const b50 = r50.json() as { data: { items: Array<{ postId: string }> } };
+    const ids50 = new Set(b50.data.items.map((i) => i.postId));
+    expect(ids50.has(nearId)).toBe(true);
+    expect(ids50.has(farId)).toBe(true);
+  });
 });

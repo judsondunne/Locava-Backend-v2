@@ -308,12 +308,63 @@ export function getPostUpdatedAtMs(record: PostRecord | null | undefined): numbe
   return c > 0 ? c : Date.now();
 }
 
+/** Firestore GeoPoint or plain { latitude, longitude } / lat+lng shapes. */
+function readGeoPointLikeLatLng(value: unknown): { lat: number; lng: number } | null {
+  if (!value || typeof value !== "object") return null;
+  const o = value as Record<string, unknown>;
+  const latRaw = o.latitude ?? o._latitude ?? o.lat;
+  const lngRaw = o.longitude ?? o._longitude ?? o.lng ?? o.long;
+  const lat = typeof latRaw === "number" ? latRaw : Number(latRaw);
+  const lng = typeof lngRaw === "number" ? lngRaw : Number(lngRaw);
+  if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat, lng };
+  return null;
+}
+
 export function getPostCoordinates(record: PostRecord | null | undefined): PostCoordinates {
   if (!record) return { lat: null, lng: null };
   const loc = locationFrom(record);
   const coords = loc ? asRecord(loc.coordinates) : null;
-  const lat = num(coords?.lat) ?? num(record.lat);
-  const lng = num(coords?.lng) ?? num(record.lng ?? record.long);
+  const topCoords = asRecord(record.coordinates);
+  const geo = asRecord(record.geo);
+  const geoData = asRecord(record.geoData);
+  const locCoordsGp = readGeoPointLikeLatLng(loc?.coordinates);
+  const topCoordsGp = readGeoPointLikeLatLng(record.coordinates);
+  const geoGp = readGeoPointLikeLatLng(geo?.geopoint ?? geo?.geoPoint);
+  const geoDataGp = readGeoPointLikeLatLng(geoData?.geopoint ?? geoData?.geoPoint);
+  const lat =
+    num(coords?.lat) ??
+    num(coords?.latitude) ??
+    locCoordsGp?.lat ??
+    num(topCoords?.lat) ??
+    num(topCoords?.latitude) ??
+    topCoordsGp?.lat ??
+    num(loc?.lat) ??
+    num(loc?.latitude) ??
+    num(record.lat) ??
+    num(record.latitude) ??
+    geoGp?.lat ??
+    geoDataGp?.lat ??
+    num(geoData?.lat) ??
+    num(geoData?.latitude);
+  const lng =
+    num(coords?.lng) ??
+    num(coords?.long) ??
+    num(coords?.longitude) ??
+    locCoordsGp?.lng ??
+    num(topCoords?.lng) ??
+    num(topCoords?.long) ??
+    num(topCoords?.longitude) ??
+    topCoordsGp?.lng ??
+    num(loc?.lng) ??
+    num(loc?.long) ??
+    num(loc?.longitude) ??
+    num(record.lng ?? record.long) ??
+    num(record.longitude) ??
+    geoGp?.lng ??
+    geoDataGp?.lng ??
+    num(geoData?.lng) ??
+    num(geoData?.long) ??
+    num(geoData?.longitude);
   return {
     lat: lat != null && Number.isFinite(lat) ? lat : null,
     lng: lng != null && Number.isFinite(lng) ? lng : null,

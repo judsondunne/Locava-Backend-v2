@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { geoPrefixesAroundCenter } from "../../lib/geo-prefixes-around-center.js";
+import { getPostCoordinates } from "../../lib/posts/postFieldSelectors.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import {
   beginBackgroundWarmer,
@@ -188,21 +189,47 @@ function getNearMeFirestoreFallbackMaxDocs(): number {
   return 12000;
 }
 
-function isDiscoverablePublicPrivacy(privacy: unknown): boolean {
-  if (privacy == null || privacy === "") return true;
-  const p = String(privacy).trim().toLowerCase();
-  if (p === "friends spot" || p === "secret spot" || p === "private") return false;
-  return p === "public spot" || p === "public";
+/** Same rules as feed-for-you-simple `isVisible` (privacy + visibility, lifecycle status). */
+function isVisibleForNearMePool(post: NearMePost): boolean {
+  if (post.deleted === true || post.isDeleted === true || post.archived === true || post.hidden === true) return false;
+  const privacy = String(post.privacy ?? post.visibility ?? "public").toLowerCase();
+  if (privacy === "private" || privacy === "followers") return false;
+  const status = String(post.status ?? "active").toLowerCase();
+  return status !== "deleted" && status !== "archived";
+}
+
+function firstNearMeAssetRecord(post: NearMePost): Record<string, unknown> | undefined {
+  const legacy = post.assets;
+  if (Array.isArray(legacy) && legacy.length > 0 && legacy[0] && typeof legacy[0] === "object") {
+    return legacy[0] as Record<string, unknown>;
+  }
+  const r = post as Record<string, unknown>;
+  const media = r.media as Record<string, unknown> | undefined;
+  const mediaAssets = media?.assets;
+  if (Array.isArray(mediaAssets) && mediaAssets.length > 0 && mediaAssets[0] && typeof mediaAssets[0] === "object") {
+    return mediaAssets[0] as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+/** Count / pool parity with For You simple: poster links or legacy `assets` or canonical `media.assets`. */
+function hasNearMeCountableMedia(post: NearMePost): boolean {
+  const r = post as Record<string, unknown>;
+  if (typeof r.displayPhotoLink === "string" && r.displayPhotoLink.trim()) return true;
+  if (typeof r.thumbUrl === "string" && r.thumbUrl.trim()) return true;
+  if (typeof r.photoLink === "string" && r.photoLink.trim()) return true;
+  if (Array.isArray(post.assets) && post.assets.length > 0) return true;
+  const media = r.media as Record<string, unknown> | undefined;
+  if (media && Array.isArray(media.assets) && media.assets.length > 0) return true;
+  return false;
 }
 
 function filterReelEligible(post: NearMePost): boolean {
-  if (!isDiscoverablePublicPrivacy(post.privacy)) return false;
-  if (post.assetsReady === false) return false;
-  if (post.deleted === true || post.isDeleted === true || post.archived === true || post.hidden === true) return false;
-  const assets = post.assets;
-  if (!Array.isArray(assets) || assets.length === 0) return false;
-  const first = assets[0] as Record<string, unknown> | undefined;
-  const firstType = String(first?.type ?? "").toLowerCase();
+  if (!isVisibleForNearMePool(post)) return false;
+  if (!hasNearMeCountableMedia(post)) return false;
+  const first = firstNearMeAssetRecord(post);
+  if (!first) return true;
+  const firstType = String(first.type ?? "").toLowerCase();
   if (firstType === "video" && post.videoProcessingStatus != null && post.videoProcessingStatus !== "completed") {
     return false;
   }
@@ -210,23 +237,9 @@ function filterReelEligible(post: NearMePost): boolean {
 }
 
 function getPostLatLng(post: NearMePost): { lat: number; lng: number } | null {
-  const loc = (post.location ?? {}) as Record<string, unknown>;
-  const geoData = (post.geoData ?? {}) as Record<string, unknown>;
-  const rawLat = post.lat ?? post.latitude ?? loc.lat ?? loc.latitude ?? geoData.lat ?? geoData.latitude;
-  const rawLng =
-    post.long ??
-    post.longitude ??
-    post.lng ??
-    loc.long ??
-    loc.lng ??
-    loc.longitude ??
-    geoData.lng ??
-    geoData.long ??
-    geoData.longitude;
-  const lat = typeof rawLat === "number" ? rawLat : Number(rawLat);
-  const lng = typeof rawLng === "number" ? rawLng : Number(rawLng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat, lng };
+  const c = getPostCoordinates(post);
+  if (c.lat != null && c.lng != null) return { lat: c.lat, lng: c.lng };
+  return null;
 }
 
 function computeDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -1218,11 +1231,10 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     if (radiusMiles < 1 || radiusMiles > 500) return reply.status(400).send({ error: "radiusMiles must be 1-500" });
     if (!getFirestoreSourceClient()) return reply.status(503).send({ error: "Near me count unavailable" });
 
+    // Must await the full quick pool load: racing with nearMeColdWaitMs() can resolve
+    // before Firestore returns (quick scan often >1.2s), producing a false count of 0.
     if (pool.posts.length === 0) {
-      await Promise.race([
-        rebuildPostPoolQuick(app),
-        new Promise<void>((resolve) => setTimeout(resolve, nearMeColdWaitMs()))
-      ]);
+      await rebuildPostPoolQuick(app);
     } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
       nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
     }
@@ -1232,6 +1244,17 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
     incrementDbOps("queries", 0);
     incrementDbOps("reads", 0);
     reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=60");
+    request.log.info(
+      {
+        event: "RADIUS_COUNT_READY",
+        lat,
+        lng,
+        radiusMiles,
+        count: candidates.length,
+        poolDocCount: pool.posts.length
+      },
+      "RADIUS_COUNT_READY"
+    );
     return reply.send({ count: candidates.length });
   });
 }

@@ -36,8 +36,8 @@ export class NearbyMixRepository {
     incrementDbOps("reads", snap.docs.length);
     const pooled = snap.docs.map((doc) => ({ id: doc.id, postId: doc.id, ...doc.data() })) as Array<Record<string, unknown>>;
     const visible = pooled.filter((row) => {
-      const privacy = String((row as any)?.privacy ?? "public");
-      if (privacy !== "public") return false;
+      const privacy = String((row as any)?.privacy ?? (row as any)?.visibility ?? "public").toLowerCase();
+      if (privacy === "private" || privacy === "followers") return false;
       if ((row as any)?.deleted === true || (row as any)?.isDeleted === true) return false;
       if ((row as any)?.archived === true) return false;
       if ((row as any)?.hidden === true) return false;

@@ -14,6 +14,7 @@ import {
 } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { debugLog } from "../../lib/logging/debug-log.js";
 import { LOG_FEED_DEBUG, LOG_VIDEO_DEBUG } from "../../lib/logging/log-config.js";
+import { getPostCoordinates, type PostRecord } from "../../lib/posts/postFieldSelectors.js";
 import { isReadOnlyLatencyAuditEnabled } from "../../safety/read-only-latency-audit-guard.js";
 
 const CURSOR_PREFIX = "fys:v2:";
@@ -126,10 +127,15 @@ function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
 
 function candidateMatchesRadius(candidate: SimpleFeedCandidate, filter: ForYouRadiusFilter): boolean {
   if (!isActiveRadius(filter)) return true;
-  const lat = candidate.geo?.lat;
-  const lng = candidate.geo?.long;
-  if (typeof lat !== "number" || !Number.isFinite(lat)) return false;
-  if (typeof lng !== "number" || !Number.isFinite(lng)) return false;
+  let lat: number | null = typeof candidate.geo?.lat === "number" && Number.isFinite(candidate.geo.lat) ? candidate.geo.lat : null;
+  let lng: number | null = typeof candidate.geo?.long === "number" && Number.isFinite(candidate.geo.long) ? candidate.geo.long : null;
+  if (lat == null || lng == null) {
+    const raw = candidate.rawFirestore;
+    const recovered = raw ? getPostCoordinates(raw as PostRecord) : { lat: null, lng: null };
+    lat = recovered.lat;
+    lng = recovered.lng;
+  }
+  if (lat == null || lng == null) return false;
   const km = haversineDistanceKm(filter.centerLat as number, filter.centerLng as number, lat, lng);
   const limitKm = (filter.radiusMiles as number) * RADIUS_MILES_TO_KM;
   return km <= limitKm;
@@ -298,6 +304,7 @@ export class FeedForYouSimpleService {
       | "readReadyDeck"
       | "writeReadyDeck"
       | "fetchEmergencyPlayableSlice"
+      | "probeRecentPlayablePostsWithinRadius"
       | "loadBlockedAuthorIdsForViewer"
       | "fetchCandidatesByPostIds"
     >
@@ -663,6 +670,42 @@ export class FeedForYouSimpleService {
     diag.softServedRecentPicks = softServedRecentPicks;
     if (!diag.deckStarvationRefillUsed) diag.deckStarvationRefillUsed = false;
 
+    if (items.length === 0 && filterIsActive && isActiveRadius(radiusFilter)) {
+      const probeStartedAt = Date.now();
+      const probe = await this.repository.probeRecentPlayablePostsWithinRadius({
+        centerLat: radiusFilter.centerLat as number,
+        centerLng: radiusFilter.centerLng as number,
+        radiusMiles: radiusFilter.radiusMiles as number,
+        maxDocs: 160
+      });
+      accumulateSurfaceTiming("feed_simple_stage_radius_probe_ms", Date.now() - probeStartedAt);
+      let admitted = 0;
+      for (const candidate of probe.items) {
+        if (items.length >= limit) break;
+        if (effectiveDurableSeen.has(candidate.postId)) continue;
+        if (servedRecent.postIds.has(candidate.postId)) continue;
+        if (blockedAuthors.has(candidate.authorId)) continue;
+        if (viewerId && candidate.authorId === viewerId) continue;
+        if (!candidateMatchesRadius(candidate, radiusFilter)) continue;
+        items.push(candidate);
+        updateMediaDiagnostics(candidate, diag);
+        admitted += 1;
+      }
+      debugLog("feed", "RADIUS_FEED_COORDINATE_SHAPE_COUNTS", () => ({
+        radiusMode: radiusFilter.mode,
+        radiusMiles: radiusFilter.radiusMiles,
+        ...probe.shapeCounts
+      }));
+      if (probe.readCount > 0 && admitted > 0) {
+        debugLog("feed", "RADIUS_FEED_FALSE_ZERO_PREVENTED", () => ({
+          radiusMode: radiusFilter.mode,
+          radiusMiles: radiusFilter.radiusMiles,
+          probeReads: probe.readCount,
+          admitted
+        }));
+      }
+    }
+
     const servedRecentFilteredCount = localServedRecentFiltered.size;
     const finalItems = debugFixedIdsEnabled
       ? items.filter((candidate) => FOR_YOU_SIMPLE_DEBUG_FIXED_IDS.has(candidate.postId))
@@ -840,6 +883,16 @@ export class FeedForYouSimpleService {
         deckKeyHash: shortHash(deckKey),
         cursorCarriesFilter
       }));
+      debugLog("feed", "RADIUS_FEED_FILTER_BREAKDOWN", () => ({
+        radiusFilteredOutCount,
+        returnedCount: finalItems.length,
+        deckItemsAfter: deck.items.length
+      }));
+      debugLog("feed", "RADIUS_FEED_ELIGIBLE_READY", () => ({
+        returnedCount: finalItems.length,
+        exhausted,
+        nextCursorPresent: Boolean(nextCursor)
+      }));
     }
 
     return {
@@ -904,45 +957,63 @@ export class FeedForYouSimpleService {
       : input.firstPaintTight
         ? 8
         : MAX_MAIN_READ_BUDGET;
-    const reel = await scanPhase({
-      repository: this.repository,
-      reelOnly: true,
-      limit: READY_DECK_TARGET_SIZE,
-      mode: input.mode,
-      phaseState: reelPhaseState,
-      pass: "strict",
-      tryGate: (candidate) => tryGate(candidate),
-      items,
-      sessionSeen,
-      onCandidate: () => undefined,
-      maxReads: reelReadCap,
-      maxAttempts: scanAttemptsCap
-    });
+    const fallbackReadCap = paginationMode
+      ? PAGINATION_FALLBACK_READ_CAP
+      : input.firstPaintTight
+        ? Math.max(4, 15 - reelReadCap)
+        : Math.max(12, MAX_MAIN_READ_BUDGET - reelReadCap);
+    let reel: Awaited<ReturnType<typeof scanPhase>>;
     let usedFallbackScan = false;
-    let fallbackSummary:
-      | Awaited<ReturnType<typeof scanPhase>>
-      | null = null;
-    if (items.length < READY_DECK_TARGET_SIZE) {
-      usedFallbackScan = true;
-      const fallbackReadCap = paginationMode
-        ? PAGINATION_FALLBACK_READ_CAP
-        : input.firstPaintTight
-          ? Math.max(4, 15 - reel.readCount)
-          : Math.max(12, MAX_MAIN_READ_BUDGET - reel.readCount);
-      fallbackSummary = await scanPhase({
+    let fallbackSummary: Awaited<ReturnType<typeof scanPhase>> | null = null;
+    if (filterIsActive) {
+      const unifiedReadCap = reelReadCap + fallbackReadCap;
+      reel = await scanPhase({
         repository: this.repository,
         reelOnly: false,
         limit: READY_DECK_TARGET_SIZE,
         mode: input.mode,
-        phaseState: fallbackPhaseState,
+        phaseState: reelPhaseState,
         pass: "strict",
         tryGate: (candidate) => tryGate(candidate),
         items,
         sessionSeen,
         onCandidate: () => undefined,
-        maxReads: fallbackReadCap,
+        maxReads: unifiedReadCap,
         maxAttempts: scanAttemptsCap
       });
+      usedFallbackScan = true;
+    } else {
+      reel = await scanPhase({
+        repository: this.repository,
+        reelOnly: true,
+        limit: READY_DECK_TARGET_SIZE,
+        mode: input.mode,
+        phaseState: reelPhaseState,
+        pass: "strict",
+        tryGate: (candidate) => tryGate(candidate),
+        items,
+        sessionSeen,
+        onCandidate: () => undefined,
+        maxReads: reelReadCap,
+        maxAttempts: scanAttemptsCap
+      });
+      if (items.length < READY_DECK_TARGET_SIZE) {
+        usedFallbackScan = true;
+        fallbackSummary = await scanPhase({
+          repository: this.repository,
+          reelOnly: false,
+          limit: READY_DECK_TARGET_SIZE,
+          mode: input.mode,
+          phaseState: fallbackPhaseState,
+          pass: "strict",
+          tryGate: (candidate) => tryGate(candidate),
+          items,
+          sessionSeen,
+          onCandidate: () => undefined,
+          maxReads: fallbackReadCap,
+          maxAttempts: scanAttemptsCap
+        });
+      }
     }
     input.deck.items = [...input.deck.items, ...items].slice(0, 60);
     input.deck.updatedAtMs = Date.now();

@@ -6,9 +6,12 @@ export const CommentsListParamsSchema = z.object({
   postId: z.string().min(6)
 });
 
+export const COMMENTS_LIST_LIMIT_MAX = 20;
+export const COMMENTS_LIST_LIMIT_ACCEPTED_MAX = 200;
+
 export const CommentsListQuerySchema = z.object({
   cursor: z.string().optional(),
-  limit: z.coerce.number().int().min(5).max(20).default(10)
+  limit: z.coerce.number().int().min(1).max(COMMENTS_LIST_LIMIT_ACCEPTED_MAX).default(10)
 });
 
 export const CommentsListResponseSchema = z.object({

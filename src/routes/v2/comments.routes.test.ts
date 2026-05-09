@@ -43,6 +43,19 @@ describe("v2 comments routes", () => {
     expect(secondBody.items[0].commentId).not.toBe(firstBody.items[0].commentId);
   });
 
+  it("clamps oversized bootstrap limits instead of returning 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/v2/posts/${encodeURIComponent(postId)}/comments/bootstrap?limit=40`,
+      headers: viewerHeaders
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json().data;
+    expect(body.page.limit).toBe(20);
+    expect(Array.isArray(body.items)).toBe(true);
+    expect(body.items.length).toBeLessThanOrEqual(20);
+  });
+
   it("uses one query on cold page and near-zero reads on repeated same request", async () => {
     await app.inject({
       method: "POST",

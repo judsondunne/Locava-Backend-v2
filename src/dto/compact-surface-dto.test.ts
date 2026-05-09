@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  firestoreAssetsToCompactSeeds,
   listForbiddenCompactFieldViolations,
   toFeedCardDTO,
   toMapMarkerCompactDTO,
@@ -641,6 +642,49 @@ describe("compact surface dto mappers", () => {
 
     expect(dto.locationSummary).toBe("Skamania County, Washington");
     expect(listForbiddenCompactFieldViolations(dto)).toEqual([]);
+  });
+
+  it("preserves canonical image displayUrl over preview-sized variants for mix cards", () => {
+    const raw = {
+      postId: "mix-image-1",
+      mediaType: "image",
+      assets: [
+        {
+          id: "img_1",
+          type: "image",
+          original: "https://cdn.test/mix-image-1/original.webp",
+          variants: {
+            lg: { webp: "https://cdn.test/mix-image-1/lg.webp" },
+            md: { webp: "https://cdn.test/mix-image-1/md.webp" },
+            thumb: { webp: "https://cdn.test/mix-image-1/thumb.webp" },
+          },
+        },
+      ],
+    };
+    const dto = toSearchMixPreviewDTO({
+      postId: "mix-image-1",
+      rankToken: "mix-rank-1",
+      author: { userId: "u1", handle: "@mixer", name: "Mixer", pic: null },
+      assets: firestoreAssetsToCompactSeeds(raw.assets, "mix-image-1", 12),
+      sourceRawPost: raw as never,
+      media: {
+        type: "image",
+        posterUrl: "https://cdn.test/mix-image-1/md.webp",
+        aspectRatio: 1,
+        startupHint: "poster_only",
+      },
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    } as never);
+
+    const appPost = dto.appPostV2 as {
+      media?: { assets?: Array<{ image?: { displayUrl?: string | null; thumbnailUrl?: string | null } }> };
+      compatibility?: { displayPhotoLink?: string | null; thumbUrl?: string | null };
+    };
+    expect(appPost.media?.assets?.[0]?.image?.displayUrl).toBe("https://cdn.test/mix-image-1/lg.webp");
+    expect(appPost.media?.assets?.[0]?.image?.thumbnailUrl).toBe("https://cdn.test/mix-image-1/thumb.webp");
+    expect(appPost.compatibility?.displayPhotoLink).toBe("https://cdn.test/mix-image-1/lg.webp");
+    expect(appPost.compatibility?.thumbUrl).toBe("https://cdn.test/mix-image-1/thumb.webp");
   });
 
   it("maps every compact card asset into the playback shell when compactAssetLimit > 1", () => {

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import {
   commentsListContract,
+  COMMENTS_LIST_LIMIT_MAX,
   CommentsListParamsSchema,
   CommentsListQuerySchema
 } from "../../contracts/surfaces/comments-list.contract.js";
@@ -24,6 +25,7 @@ export async function registerV2CommentsListRoutes(app: FastifyInstance): Promis
 
     const params = CommentsListParamsSchema.parse(request.params);
     const query = CommentsListQuerySchema.parse(request.query);
+    const limit = Math.max(1, Math.min(COMMENTS_LIST_LIMIT_MAX, query.limit));
     setRouteName(commentsListContract.routeName);
     try {
       request.log.info({ event: "comments_bootstrap_start", postId: params.postId, viewerId: viewer.viewerId }, "comments bootstrap start");
@@ -31,7 +33,7 @@ export async function registerV2CommentsListRoutes(app: FastifyInstance): Promis
         viewerId: viewer.viewerId,
         postId: params.postId,
         cursor: query.cursor ?? null,
-        limit: query.limit
+        limit
       });
       request.log.info(
         { event: query.cursor ? "comments_page_success" : "comments_bootstrap_success", postId: params.postId, count: payload.page.count },
