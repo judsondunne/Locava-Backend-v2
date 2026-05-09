@@ -112,7 +112,9 @@
     "security:assert-no-production-delete-scripts": "tsx scripts/safety/assert-no-production-delete-scripts.ts",
     "emergency:inspect-post-backups": "tsx scripts/emergency-inspect-post-canonical-backups.ts",
     "emergency:restore-posts:dry-run": "tsx scripts/emergency-restore-posts-from-canonical-backups.ts --dry-run",
-    "emergency:restore-posts:apply": "node scripts/safety/refuse-dangerous-script.cjs emergency:restore-posts:apply"
+    "emergency:restore-posts:apply": "node scripts/safety/refuse-dangerous-script.cjs emergency:restore-posts:apply",
+    "audit:posting-contract-v2": "tsx scripts/audit-posting-contract-v2.mts",
+    "test:contract-v2": "vitest run src/contracts/posts/postContractV2.test.ts src/contracts/posts/audit-safe-repairs.test.ts src/services/posting/native-async-video-post-complete.fieldvalue-delete.test.ts src/services/video/hdr-poster-pipeline.test.ts"
   },
   "dependencies": {
     "@locava/contracts": "file:../locava-contracts",

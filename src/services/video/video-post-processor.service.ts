@@ -176,6 +176,19 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
   const generateErrors: string[] = [];
   let assetsEncodedAndVerified = 0;
   const allTrustUrls: string[] = [];
+  /** First encoded asset's HDR / filter mode summary — surfaced into diagnostics. */
+  let firstEncodedHdrInfo: {
+    hdrKind: string;
+    isHdr: boolean;
+    isWideGamutOrHdr: boolean;
+    colorPrimaries: string | null;
+    colorTransfer: string | null;
+    colorSpace: string | null;
+    pixFmt: string | null;
+    dolbyVisionSideData: boolean;
+    filterMode: string;
+    posterToneMappingApplied: boolean;
+  } | null = null;
 
   try {
     for (const job of payload.videoAssets) {
@@ -234,6 +247,20 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
           enableMain720Hevc: false,
           encodeOnly
         });
+        if (encoded && !firstEncodedHdrInfo) {
+          firstEncodedHdrInfo = {
+            hdrKind: encoded.hdr.kind,
+            isHdr: encoded.hdr.isHdr,
+            isWideGamutOrHdr: encoded.hdr.isWideGamutOrHdr,
+            colorPrimaries: encoded.hdr.colorPrimaries,
+            colorTransfer: encoded.hdr.colorTransfer,
+            colorSpace: encoded.hdr.colorSpace,
+            pixFmt: encoded.hdr.pixFmt,
+            dolbyVisionSideData: encoded.hdr.dolbyVisionSideData,
+            filterMode: encoded.filterMode,
+            posterToneMappingApplied: encoded.filterMode === "hdr_tonemap",
+          };
+        }
       }
 
       const mergedRow = mergeEncodedIntoVideoAssetRow({
@@ -508,6 +535,27 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
       }
     }
 
+    /**
+     * Surface HDR / color / poster-source diagnostics for ops + audit tooling. Only present when
+     * we actually re-encoded in this run; existing-variants-only runs don't have hdr data.
+     * The audit script uses `sourceHdrDetected` + `posterToneMappingApplied` to flag the
+     * `possible_hdr_poster_mismatch` classification.
+     */
+    const hdrDiagnostics: Record<string, unknown> = firstEncodedHdrInfo
+      ? {
+          sourceHdrDetected: firstEncodedHdrInfo.isHdr,
+          sourceWideGamutOrHdrDetected: firstEncodedHdrInfo.isWideGamutOrHdr,
+          sourceColorPrimaries: firstEncodedHdrInfo.colorPrimaries,
+          sourceColorTransfer: firstEncodedHdrInfo.colorTransfer,
+          sourceColorSpace: firstEncodedHdrInfo.colorSpace,
+          sourcePixFmt: firstEncodedHdrInfo.pixFmt,
+          sourceDolbyVisionSideData: firstEncodedHdrInfo.dolbyVisionSideData,
+          outputFilterMode: firstEncodedHdrInfo.filterMode,
+          posterToneMappingApplied: firstEncodedHdrInfo.posterToneMappingApplied,
+          posterColorNormalizationApplied: firstEncodedHdrInfo.filterMode !== "sdr",
+        }
+      : {};
+
     const writeResult = await writeCompactLivePostAfterNativeVideoProcessing({
       db,
       postRef,
@@ -519,7 +567,8 @@ export async function processVideoPostJob(payload: VideoProcessorPayload): Promi
         variantPlan: variantPlan.requiredForReady,
         includePreview360,
         includeMain720,
-        encodedNewOutputs: assetsEncodedAndVerified
+        encodedNewOutputs: assetsEncodedAndVerified,
+        ...hdrDiagnostics,
       },
       ...(extraLiveTopLevel ? { extraLiveTopLevel } : {})
     });

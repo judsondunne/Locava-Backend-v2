@@ -6,6 +6,16 @@ import { normalizeMasterPostV2 } from "../../lib/posts/master-post-v2/normalizeM
 import { validateMasterPostV2 } from "../../lib/posts/master-post-v2/validateMasterPostV2.js";
 import type { EncodedVideoAssetResult } from "../video/video-post-encoding.pipeline.js";
 
+/**
+ * Top-level keys that are dropped from the final compact `set(..., merge:false)` payload so the
+ * full-document replacement implicitly removes them from /posts/{id}. This is the safe equivalent
+ * of `FieldValue.delete()` for a non-merge `set` write — using `FieldValue.delete()` inside a
+ * `set(..., merge: false)` payload throws:
+ *   "FieldValue.delete() must appear at the top-level and can only be used in update() or set() with {merge:true}"
+ * which previously poisoned successful video processing runs after all media was generated/verified.
+ */
+const DROPPED_ON_LIVE_WRITE_KEYS = new Set(["videoProcessingProgress"]);
+
 function asRecord(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : null;
 }
@@ -181,12 +191,51 @@ export async function writeCompactLivePostAfterNativeVideoProcessing(input: {
       .catch(() => {});
 
     const firePayload = encodeFirestoreTimestampsInPostWrite(live as Record<string, unknown>);
-    (firePayload as Record<string, unknown>).videoProcessingProgress = FieldValue.delete();
+    /**
+     * `set(..., { merge: false })` REPLACES the document, so any field absent from `firePayload` is
+     * implicitly removed. That makes it both incorrect AND unnecessary to embed `FieldValue.delete()`
+     * here. Strip the keys we want gone; do NOT inject sentinels into a non-merge set payload.
+     */
+    for (const k of DROPPED_ON_LIVE_WRITE_KEYS) {
+      if (k in (firePayload as Record<string, unknown>)) {
+        delete (firePayload as Record<string, unknown>)[k];
+      }
+    }
     await postRef.set(firePayload, { merge: false });
+
+    /**
+     * Best-effort metadata cleanup AFTER the canonical replacement succeeds. If a stale
+     * `videoProcessingProgress` somehow lands on the doc through a concurrent partial writer,
+     * a follow-up `update()` is the legal place to use `FieldValue.delete()`. Failure here must
+     * NOT poison the post — the canonical media is already live.
+     */
+    try {
+      await postRef.update({ videoProcessingProgress: FieldValue.delete() });
+    } catch {
+      /* metadata cleanup is best-effort and never fails the success path */
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * Pure helper for tests: returns the firestore payload that would be written, minus keys that are
+ * dropped on full-replace. Used by regression tests to assert no `FieldValue.delete()` sentinel is
+ * left embedded inside a non-merge set payload (which throws against real Firestore).
+ */
+export function buildLivePostFirestorePayloadForTests(live: Record<string, unknown>): Record<string, unknown> {
+  const firePayload = encodeFirestoreTimestampsInPostWrite({ ...live });
+  for (const k of DROPPED_ON_LIVE_WRITE_KEYS) {
+    if (k in firePayload) delete (firePayload as Record<string, unknown>)[k];
+  }
+  return firePayload;
+}
+
+/** Exposed for tests: the keys that are stripped from the live full-replace payload. */
+export function getDroppedKeysOnLiveWriteForTests(): string[] {
+  return [...DROPPED_ON_LIVE_WRITE_KEYS];
 }
 
 /** Merge encoder output into a legacy `assets[]` row for normalizeMasterPostV2. */
