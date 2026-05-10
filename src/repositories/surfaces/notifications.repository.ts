@@ -112,6 +112,73 @@ function normalizeType(input: unknown): NotificationSummary["type"] {
   return "post";
 }
 
+/** Adds native-friendly routing fields (additive; preserves legacy keys). */
+export function applyCanonicalRoutingOnLegacyNotificationDoc(
+  doc: Record<string, unknown>,
+  input: { type: string; actorId: string; targetId: string },
+): void {
+  const t = String(doc.type ?? input.type ?? "").toLowerCase();
+
+  const postLikeTypes = new Set([
+    "like",
+    "comment",
+    "mention",
+    "post",
+    "post_discovery",
+    "post_like",
+    "post_comment",
+    "reply",
+    "saved_post",
+    "collection_add",
+    "tag",
+    "system_post_featured",
+    "generic_post",
+    "push_image_test",
+  ]);
+  if (postLikeTypes.has(t)) {
+    const pid = asTrimmedString(doc.postId) ?? input.targetId;
+    if (pid) {
+      doc.targetType = "post";
+      doc.postId = doc.postId ?? pid;
+      doc.targetId = pid;
+      doc.routeIntent = { targetType: "post", postId: pid, targetId: pid };
+    }
+    return;
+  }
+
+  const userLikeTypes = new Set([
+    "follow",
+    "contact_joined",
+    "new_follower",
+    "user_follow",
+    "friend_request",
+    "friend_accept",
+  ]);
+  if (userLikeTypes.has(t)) {
+    const uid = asTrimmedString(doc.senderUserId) ?? input.actorId;
+    doc.targetType = "user";
+    doc.targetUserId = uid;
+    doc.targetId = uid;
+    doc.routeIntent = { targetType: "user", userId: uid, targetId: uid };
+    return;
+  }
+
+  const chatLikeTypes = new Set(["chat", "message", "dm", "new_message", "direct_message", "groupchat"]);
+  if (chatLikeTypes.has(t)) {
+    const cid =
+      asTrimmedString(doc.chatId) ??
+      asTrimmedString(doc.conversationId) ??
+      asTrimmedString(doc.threadId) ??
+      input.targetId;
+    if (cid) {
+      doc.targetType = "chat";
+      doc.chatId = doc.chatId ?? cid;
+      doc.targetId = cid;
+      doc.routeIntent = { targetType: "chat", chatId: cid, targetId: cid };
+    }
+  }
+}
+
 function sanitizeProfilePic(input: unknown): string | null {
   if (typeof input !== "string") return null;
   const value = input.trim();
@@ -830,6 +897,11 @@ export class NotificationsRepository {
     if (Object.keys(metadata).length > 0) {
       notificationData.metadata = metadata;
     }
+    applyCanonicalRoutingOnLegacyNotificationDoc(notificationData, {
+      type: String(input.type),
+      actorId: input.actorId,
+      targetId: input.targetId,
+    });
     const { notificationId } = await this.createLegacyNotificationDoc({
       recipientUserId: input.recipientUserId,
       notificationData,
@@ -929,6 +1001,11 @@ export class NotificationsRepository {
           priority: "high",
           metadata: { postTitle },
         };
+        applyCanonicalRoutingOnLegacyNotificationDoc(notificationData, {
+          type: "like",
+          actorId: input.actorId,
+          targetId: input.targetId,
+        });
         tx.set(newRef, notificationData);
         tx.set(
           stateRef,
@@ -978,6 +1055,11 @@ export class NotificationsRepository {
           pushBody: `${othersPhrase} liked your post`,
           skipStoredPushTemplate: true,
         };
+        applyCanonicalRoutingOnLegacyNotificationDoc(notificationData, {
+          type: "like",
+          actorId: input.actorId,
+          targetId: input.targetId,
+        });
         tx.set(sumRef, notificationData);
         summaryNotificationId = sumRef.id;
         resultNotificationId = sumRef.id;
@@ -994,6 +1076,9 @@ export class NotificationsRepository {
           metadata,
           timestamp: FieldValue.serverTimestamp(),
           postId: input.targetId,
+          targetType: "post",
+          targetId: input.targetId,
+          routeIntent: { targetType: "post", postId: input.targetId, targetId: input.targetId },
         });
         resultNotificationId = summaryNotificationId;
         outcome.value = "summary_update";
@@ -1467,6 +1552,20 @@ export class NotificationsRepository {
       ...input,
       recipientUserId,
       metadata,
+    });
+  }
+
+  /**
+   * Debug/test helper: persist a legacy `users/{recipient}/notifications` row using the same
+   * path as production notifications (including unread counters in real Firestore mode).
+   */
+  async debugWriteInboxNotification(input: {
+    recipientUserId: string;
+    notificationData: Record<string, unknown>;
+  }): Promise<{ notificationId: string }> {
+    return this.createLegacyNotificationDoc({
+      recipientUserId: input.recipientUserId,
+      notificationData: input.notificationData,
     });
   }
 

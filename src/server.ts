@@ -1,6 +1,7 @@
 import 'dotenv/config'
 import { createApp } from "./app/createApp.js";
 import { collectDevHttpBaseUrls, printDevListenUrlBanner } from "./boot/printDevListenUrls.js";
+import { getAnalyticsStartupLogPayload } from "./repositories/analytics/analytics-publisher.js";
 import { logVideoProcessingCloudTasksStartup } from "./services/posting/video-processing-cloud-tasks.diagnostics.js";
 
 const app = createApp();
@@ -25,6 +26,7 @@ const start = async (): Promise<void> => {
       },
       "server started"
     );
+    app.log.info(getAnalyticsStartupLogPayload(app.config), "analytics_config");
     logVideoProcessingCloudTasksStartup(app.log);
 
     printDevListenUrlBanner(app.config.PORT, app.config.NODE_ENV, app.config);

@@ -176,7 +176,12 @@ describe("legacy notification push publisher", () => {
     expect(data.notificationId).toBe("notif-doc-1");
     expect(data.recipientUserId).toBe("recipient-1");
     expect(data.targetType).toBe("post");
-    expect(data.routeIntent).toBe("/display/display");
+    expect(data.targetId).toBe("post-9");
+    expect(data.routeIntent).toBeDefined();
+    const ri = JSON.parse(String(data.routeIntent)) as { targetType: string; postId: string; targetId: string };
+    expect(ri.targetType).toBe("post");
+    expect(ri.postId).toBe("post-9");
+    expect(ri.targetId).toBe("post-9");
   });
 
   it("collectExponentPushTokenTargets dedupes and prefers scalar first with cap", () => {
@@ -218,6 +223,9 @@ describe("legacy notification push publisher", () => {
         chatId: "c1",
       }),
     ).toBe("chat");
+    expect(inferPushTargetType({ senderUserId: "a", type: "dm", message: "x", chatId: "c2" })).toBe("chat");
+    expect(inferPushTargetType({ senderUserId: "a", type: "new_follower", message: "x" })).toBe("user");
+    expect(inferPushTargetType({ senderUserId: "a", type: "post_like", message: "x", postId: "p2" })).toBe("post");
   });
 
   it("sendToRecipient posts to Expo with mocked fetch and strips DeviceNotRegistered tokens", async () => {

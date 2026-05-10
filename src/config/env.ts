@@ -52,6 +52,13 @@ const EnvSchema = z.object({
   ANALYTICS_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(100).max(60_000).default(1_500),
   ANALYTICS_RETRY_MAX_DELAY_MS: z.coerce.number().int().min(500).max(300_000).default(30_000),
   ANALYTICS_DEBUG_RECENT_LIMIT: z.coerce.number().int().min(20).max(1_000).default(200),
+  /**
+   * Optional service account JSON (raw string) used **only** for BigQuery analytics ingest.
+   * Prefer this or ANALYTICS_BIGQUERY_SERVICE_ACCOUNT_FILE over GOOGLE_APPLICATION_CREDENTIALS so Firebase Admin can use a different key.
+   */
+  ANALYTICS_BIGQUERY_SERVICE_ACCOUNT_JSON: z.string().optional(),
+  /** Path to a service account JSON file used only for BigQuery analytics ingest. */
+  ANALYTICS_BIGQUERY_SERVICE_ACCOUNT_FILE: z.string().optional(),
   COHERENCE_MODE: z.enum(["process_local", "external_coordinator_stub", "redis"]).default("process_local"),
   /**
    * Optional explicit Cloud Run max instances hint for coherence checks.
@@ -147,6 +154,13 @@ const EnvSchema = z.object({
   /** Read-only real-data profiling mode: probe routes may read production Firebase but must never mutate it. */
   READ_ONLY_LATENCY_AUDIT: z.coerce.boolean().default(false),
   ENABLE_ACHIEVEMENTS_VERBOSE_LOGS: z.coerce.boolean().default(false),
+  /**
+   * When set to "1", allows POST /debug/notifications/send-test while NODE_ENV=production.
+   * Non-production environments do not require this flag.
+   */
+  ENABLE_NOTIFICATION_TEST_ROUTES: z.string().optional(),
+  /** Shared secret for `x-locava-debug-secret` on notification test routes. */
+  NOTIFICATION_TEST_SECRET: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

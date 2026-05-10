@@ -8,4 +8,5 @@ coverage
 logs
 tmp
 state
+.analytics-spool
 src/data/geonames-places.json

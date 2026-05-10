@@ -53,11 +53,28 @@ const POST_RELATED_PUSH_TYPES = new Set([
   "comment",
   "mention",
   "push_image_test",
+  "post_like",
+  "post_comment",
+  "reply",
+  "saved_post",
+  "collection_add",
+  "tag",
+  "system_post_featured",
+  "generic_post",
 ]);
 const PEOPLE_RELATED_PUSH_TYPES = new Set([
   "follow",
   "contact_joined",
+  "new_follower",
+  "user_follow",
+  "friend_request",
+  "friend_accept",
   "chat",
+  "message",
+  "dm",
+  "new_message",
+  "direct_message",
+  "groupchat",
   "invite",
   "collection_shared",
   "group_invite",
@@ -146,7 +163,15 @@ function buildLegacyRoute(notificationData: LegacyNotificationData): string {
     notificationData.type === "mention" ||
     notificationData.type === "post" ||
     notificationData.type === "post_discovery" ||
-    notificationData.type === "push_image_test"
+    notificationData.type === "push_image_test" ||
+    notificationData.type === "post_like" ||
+    notificationData.type === "post_comment" ||
+    notificationData.type === "reply" ||
+    notificationData.type === "saved_post" ||
+    notificationData.type === "collection_add" ||
+    notificationData.type === "tag" ||
+    notificationData.type === "system_post_featured" ||
+    notificationData.type === "generic_post"
   ) {
     return "/display/display";
   }
@@ -159,7 +184,14 @@ function buildLegacyRoute(notificationData: LegacyNotificationData): string {
   ) {
     return "/achievements/leaderboard";
   }
-  if (notificationData.type === "follow" || notificationData.type === "contact_joined") {
+  if (
+    notificationData.type === "follow" ||
+    notificationData.type === "contact_joined" ||
+    notificationData.type === "new_follower" ||
+    notificationData.type === "user_follow" ||
+    notificationData.type === "friend_request" ||
+    notificationData.type === "friend_accept"
+  ) {
     return profileUserId
       ? `/userDisplay?userId=${encodeURIComponent(profileUserId)}`
       : "/userDisplay/userDisplay";
@@ -171,7 +203,14 @@ function buildLegacyRoute(notificationData: LegacyNotificationData): string {
   if (notificationData.type === "invite" || notificationData.type === "collection_shared") {
     return "/collections/collection";
   }
-  if (notificationData.type === "chat") {
+  if (
+    notificationData.type === "chat" ||
+    notificationData.type === "message" ||
+    notificationData.type === "dm" ||
+    notificationData.type === "new_message" ||
+    notificationData.type === "direct_message" ||
+    notificationData.type === "groupchat"
+  ) {
     return "/chat/chatScreen";
   }
   return "/map";
@@ -180,8 +219,26 @@ function buildLegacyRoute(notificationData: LegacyNotificationData): string {
 /** Explicit routing hint for native clients (alongside legacy `route`). */
 export function inferPushTargetType(notificationData: LegacyNotificationData): "post" | "user" | "chat" | "collection" | "route" {
   const t = asTrimmedString(notificationData.type)?.toLowerCase() ?? "";
-  if (t === "chat") return "chat";
-  if (t === "follow" || t === "contact_joined") return "user";
+  if (
+    t === "chat" ||
+    t === "message" ||
+    t === "dm" ||
+    t === "new_message" ||
+    t === "direct_message" ||
+    t === "groupchat"
+  ) {
+    return "chat";
+  }
+  if (
+    t === "follow" ||
+    t === "contact_joined" ||
+    t === "new_follower" ||
+    t === "user_follow" ||
+    t === "friend_request" ||
+    t === "friend_accept"
+  ) {
+    return "user";
+  }
   if (t === "invite" || t === "collection_shared" || t === "addedcollaborator") return "collection";
   if (
     t === "like" ||
@@ -190,6 +247,14 @@ export function inferPushTargetType(notificationData: LegacyNotificationData): "
     t === "post" ||
     t === "post_discovery" ||
     t === "push_image_test" ||
+    t === "post_like" ||
+    t === "post_comment" ||
+    t === "reply" ||
+    t === "saved_post" ||
+    t === "collection_add" ||
+    t === "tag" ||
+    t === "system_post_featured" ||
+    t === "generic_post" ||
     asTrimmedString(notificationData.postId)
   ) {
     return "post";
@@ -353,12 +418,6 @@ export function buildLegacyExpoPushPayload(
     route: routeIntent,
     ...(notificationData.pushData ?? {}),
   };
-  if (routingMeta) {
-    data.notificationId = routingMeta.notificationId;
-    data.recipientUserId = routingMeta.recipientUserId;
-    data.targetType = inferPushTargetType(notificationData);
-    data.routeIntent = routeIntent;
-  }
   const optionalData: Array<[string, unknown]> = [
     ["collectionId", notificationData.collectionId],
     ["collectionName", metadata.collectionName],
@@ -376,6 +435,31 @@ export function buildLegacyExpoPushPayload(
     const resolved = typeof value === "string" ? value.trim() : value;
     if (typeof resolved === "string" && resolved.length > 0) {
       data[key] = resolved;
+    }
+  }
+  if (routingMeta) {
+    data.notificationId = routingMeta.notificationId;
+    data.recipientUserId = routingMeta.recipientUserId;
+    const targetType = inferPushTargetType(notificationData);
+    data.targetType = targetType;
+    const postId = asTrimmedString(data.postId ?? notificationData.postId);
+    if (targetType === "post" && postId) {
+      data.targetId = postId;
+      data.routeIntent = { targetType: "post", postId, targetId: postId };
+    } else if (targetType === "user") {
+      const userId = asTrimmedString(profileUserId) ?? "";
+      if (userId) {
+        data.targetId = userId;
+        data.routeIntent = { targetType: "user", userId, targetId: userId };
+      }
+    } else if (targetType === "chat") {
+      const chatId = asTrimmedString(data.chatId ?? notificationData.chatId);
+      if (chatId) {
+        data.targetId = chatId;
+        data.routeIntent = { targetType: "chat", chatId, targetId: chatId };
+      }
+    } else {
+      data.routeIntent = routeIntent;
     }
   }
   if (asTrimmedString(senderData?.senderProfilePic)) {

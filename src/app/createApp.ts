@@ -152,6 +152,7 @@ import { registerDebugPostGradientAuditRoutes } from "../routes/debug/post-gradi
 import { registerDebugPostCanonicalStatusRoutes } from "../routes/debug/post-canonical-status.routes.js";
 import { registerClientTelemetryRoutes } from "../routes/debug/client-telemetry.routes.js";
 import { registerClientDebugLogIngestRoutes } from "../routes/debug/client-debug-logs.routes.js";
+import { registerDebugNotificationsSendTestRoutes } from "../routes/debug/notifications-send-test.routes.js";
 import { registerEmergencyPostRestoreRoutes } from "../routes/debug/emergency-post-restore.routes.js";
 import { registerPostCanonicalBackupsRestorePreviewRoutes } from "../routes/debug/post-canonical-backups-restore-preview.routes.js";
 import { registerPublicExpoPushRoutes } from "../routes/public/expo-push.routes.js";
@@ -829,6 +830,13 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   // local Backendv2 (NODE_ENV=development) keep working; the route itself returns
   // 404 when the flag is off so production deploys are never surprised.
   app.register(registerClientDebugLogIngestRoutes);
+  app.register(async (instance) => {
+    registerDebugNotificationsSendTestRoutes(instance, {
+      routeEnabled:
+        env.NODE_ENV !== "production" || String(env.ENABLE_NOTIFICATION_TEST_ROUTES ?? "").trim() === "1",
+      notificationTestSecret: (env.NOTIFICATION_TEST_SECRET ?? "").trim() || null,
+    });
+  });
 
   app.addHook("onReady", async () => {
     const db = getFirestoreSourceClient();
