@@ -757,4 +757,63 @@ describe("normalizeMasterPostV2", () => {
     });
     expect((livePost as { lifecycle: { status: string } }).lifecycle.status).toBe("deleted");
   });
+
+  it("preserves video.colorPipeline from raw media.assets onto canonical (color-v2 publish metadata)", () => {
+    const colorPipeline = { presetId: "phone-hlg-sdr-v1-mobius", sourceClass: "HDR_HLG_BT2020" };
+    const startup720 =
+      "https://s3.us-east-1.wasabisys.com/locava.app/videos-lab/post_cp_meta/vid0/color-v2/startup720_faststart_avc.mp4";
+    const preview360 = "https://s3.us-east-1.wasabisys.com/locava.app/videos-lab/post_cp_meta/vid0/color-v2/preview360_avc.mp4";
+    const raw = {
+      id: "post_cp_meta",
+      userId: "u1",
+      mediaType: "video",
+      reel: true,
+      privacy: "Public Spot",
+      videoProcessingStatus: "completed",
+      playbackLabStatus: "ready",
+      assetsReady: true,
+      instantPlaybackReady: true,
+      createdAt: "2026-05-11T00:00:00.000Z",
+      activities: [],
+      title: "",
+      caption: "",
+      description: "",
+      content: "",
+      geohash: "dr4x",
+      placeName: "Test",
+      media: {
+        assets: [
+          {
+            id: "video_0",
+            type: "video",
+            original: "https://s3.example/original.mp4",
+            codecs: { video: "hevc", audio: "aac" },
+            video: {
+              colorPipeline,
+              playback: {
+                defaultUrl: startup720,
+                primaryUrl: startup720,
+                selectedReason: "verified_startup_avc_faststart_720"
+              }
+            }
+          }
+        ]
+      },
+      playbackLab: {
+        status: "ready",
+        assets: {
+          video_0: {
+            generated: { startup720FaststartAvc: startup720, preview360Avc: preview360 },
+            lastVerifyResults: [
+              { label: "startup720FaststartAvc", url: startup720, ok: true, moovHint: "moov_before_mdat_in_prefix" },
+              { label: "preview360Avc", url: preview360, ok: true, moovHint: "moov_before_mdat_in_prefix" }
+            ]
+          }
+        },
+        lastVerifyResults: []
+      }
+    };
+    const { canonical } = normalizeMasterPostV2(raw as Record<string, unknown>, { postId: "post_cp_meta" });
+    expect(canonical.media.assets[0]?.video?.colorPipeline).toEqual(colorPipeline);
+  });
 });

@@ -1809,6 +1809,72 @@ const policies: Record<string, RouteBudgetPolicy> = {
     },
     cacheExpectation: "optional",
     concurrency: { expectedDedupe: true, maxConcurrentRepoOps: 4 }
+  },
+  "internal.admin.reels_mvp_publisher.staged.get": {
+    routeName: "internal.admin.reels_mvp_publisher.staged.get",
+    priority: "internal_debug",
+    budgets: {
+      latency: { p50Ms: 2_000, p95Ms: 12_000 },
+      dbOps: { maxReadsCold: 30, maxQueriesCold: 4, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 600_000, targetBytes: 150_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 1 }
+  },
+  "internal.admin.reels_mvp_publisher.dry_run.post": {
+    routeName: "internal.admin.reels_mvp_publisher.dry_run.post",
+    priority: "internal_debug",
+    budgets: {
+      latency: { p50Ms: 5_000, p95Ms: 120_000 },
+      dbOps: { maxReadsCold: 20, maxQueriesCold: 4, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 200_000, targetBytes: 40_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 1 }
+  },
+  "internal.admin.reels_mvp_publisher.publish_one.post": {
+    routeName: "internal.admin.reels_mvp_publisher.publish_one.post",
+    priority: "internal_debug",
+    budgets: {
+      latency: { p50Ms: 120_000, p95Ms: 900_000 },
+      dbOps: { maxReadsCold: 40, maxQueriesCold: 6, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 200_000, targetBytes: 40_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 1 }
+  },
+  "internal.admin.reels_mvp_publisher.batch_dry_run.post": {
+    routeName: "internal.admin.reels_mvp_publisher.batch_dry_run.post",
+    priority: "internal_debug",
+    budgets: {
+      latency: { p50Ms: 30_000, p95Ms: 300_000 },
+      dbOps: { maxReadsCold: 80, maxQueriesCold: 10, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 400_000, targetBytes: 100_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 1 }
+  },
+  "internal.admin.reels_mvp_publisher.batch_publish.post": {
+    routeName: "internal.admin.reels_mvp_publisher.batch_publish.post",
+    priority: "internal_debug",
+    budgets: {
+      latency: { p50Ms: 600_000, p95Ms: 3_600_000 },
+      dbOps: { maxReadsCold: 200, maxQueriesCold: 20, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 400_000, targetBytes: 100_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 1 }
+  },
+  "internal.admin.reels_mvp_publisher.verify_post.get": {
+    routeName: "internal.admin.reels_mvp_publisher.verify_post.get",
+    priority: "internal_debug",
+    budgets: {
+      latency: { p50Ms: 2_000, p95Ms: 15_000 },
+      dbOps: { maxReadsCold: 8, maxQueriesCold: 2, expectedReadsWarm: 0, expectedQueriesWarm: 0 },
+      payload: { maxBytes: 200_000, targetBytes: 50_000 }
+    },
+    cacheExpectation: "optional",
+    concurrency: { expectedDedupe: false, maxConcurrentRepoOps: 1 }
   }
 };
 

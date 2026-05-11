@@ -17,6 +17,15 @@ import type { WasabiRuntimeConfig } from "../storage/wasabi-config.js";
 import { shouldGenerate1080Ladder } from "./video-source-policy.js";
 import { normalizeVideoLabPostFolder } from "./normalizeVideoLabPostFolder.js";
 import { buildHdrAwareEncodeFilter, hdrFilterMode } from "./hdr-poster-pipeline.js";
+import {
+  assertFfmpegSupportsZscaleTonemap,
+  classifySourceColorFromStream,
+  colorPipelineMetaBase,
+  DEFAULT_REELS_COLOR_PRESET_ID,
+  posterSeekSeconds,
+  resolveColorPipeline,
+  type ResolvedColorPipeline
+} from "../../media/colorPipeline/index.js";
 
 export type VideoAssetJob = { id: string; original: string };
 
@@ -67,9 +76,18 @@ async function runEncodeJobsConcurrent(jobs: Array<() => Promise<void>>, concurr
   await Promise.all(Array.from({ length: workers }, worker));
 }
 
+/** When enabled, encodes under `videos-lab/.../{assetId}/{labSubfolder}/` with centralized HDR→SDR presets. */
+export type EncodeColorPipelineOptions = {
+  enabled: true;
+  /** e.g. phone-hlg-sdr-v1-mobius */
+  presetId?: string;
+  /** S3 path segment after asset id (default `color-v2`). */
+  labSubfolder?: string;
+};
+
 export type EncodedVideoAssetResult = {
   assetId: string;
-  /** `videos-lab/{normalizedPostFolder}/{assetId}` — verify lab MP4s with authenticated S3, not anonymous HTTP. */
+  /** `videos-lab/{normalizedPostFolder}/{assetId}` or with `/{labSubfolder}` when color pipeline v2 is enabled. */
   videosLabKeyPrefix: string;
   variants: Record<string, string>;
   variantMetadata: Record<string, unknown>;
@@ -80,10 +98,18 @@ export type EncodedVideoAssetResult = {
   sourceWidth: number;
   sourceHeight: number;
   durationSec: number;
+  /** Source file (downloaded original) before ladder encode. */
+  hasAudio: boolean;
+  sourceSizeBytes: number;
+  sourceVideoCodec: string;
+  sourceAudioCodec: string | null;
+  sourceBitrateKbps: number;
   /** HDR / wide-gamut diagnostics for the source. Always populated; used by audit + ops tooling. */
   hdr: HdrDetectionResult;
   /** Filter mode actually applied to BOTH the encoded videos and the poster JPG. */
   filterMode: "sdr" | "wide_gamut" | "hdr_tonemap";
+  /** Populated when `colorPipeline.enabled` was used (reels color-v2 path). */
+  colorPipelineMeta?: Record<string, unknown>;
 };
 
 /** S3 key prefix for lab outputs: `videos-lab/{normalizedPostFolder}/{assetId}`. */
@@ -139,7 +165,10 @@ async function encodeAvcFaststart(input: {
   vf: string;
   crf: number;
   preset: string;
+  /** Appended before output path — e.g. Rec.709 SDR tagging for libx264. */
+  x264ColorMetadata?: string[];
 }): Promise<void> {
+  const colorMeta = input.x264ColorMetadata?.length ? input.x264ColorMetadata : [];
   const args = [
     "-y",
     "-hide_banner",
@@ -160,6 +189,7 @@ async function encodeAvcFaststart(input: {
     String(input.crf),
     "-pix_fmt",
     "yuv420p",
+    ...colorMeta,
     "-movflags",
     "+faststart",
     ...(input.audioAbsIndex != null ? ["-c:a", "aac", "-b:a", "128k"] : []),
@@ -218,6 +248,21 @@ async function encodeHevcFaststart(input: {
   }
 }
 
+/**
+ * `libx264` + our tags emit **limited** (`tv`) YUV in `yuv420p`. MJPEG wants **full swing** `yuvj420p`.
+ * A bare `format=yuvj420p` relabels levels and posters look **too dark** vs the same pixels in MP4.
+ * Insert a same-size `scale` step with explicit range conversion (swscale) before `yuvj420p`.
+ */
+export function buildMjpegPosterFilterChain(vf: string): string {
+  if (vf.includes("yuvj420p")) return vf;
+  const withSwing = vf.replace(
+    /,format=yuv420p$/i,
+    ",scale=iw:ih:flags=lanczos:in_range=tv:out_range=jpeg,format=yuvj420p"
+  );
+  if (withSwing !== vf) return withSwing;
+  return `${vf},scale=iw:ih:flags=lanczos:in_range=tv:out_range=jpeg,format=yuvj420p`;
+}
+
 async function encodePosterHighJpeg(input: {
   ffmpeg: string;
   inputPath: string;
@@ -231,33 +276,49 @@ async function encodePosterHighJpeg(input: {
    *   pixels the user will see during playback, instead of a second-pass tonemap of the raw HDR.
    */
   fromNormalizedSdrInput?: boolean;
+  /** Input seek in seconds (placed before `-i`). */
+  seekInputSeconds?: number;
 }): Promise<void> {
+  /**
+   * MJPEG (.jpg) must receive *full-range* 4:2:0 (`yuvj420p`). Limited-range `yuv420p` + `-color_range tv`
+   * triggers "Non full-range YUV is non-standard" and encoder init failure, even with global `-strict`
+   * (strict_std_compliance is enforced on the mjpeg codec, not the global flag, on many FFmpeg builds).
+   */
+  const vfPoster = buildMjpegPosterFilterChain(input.vf);
+  const seek =
+    typeof input.seekInputSeconds === "number" && Number.isFinite(input.seekInputSeconds) && input.seekInputSeconds > 0
+      ? Math.min(Math.max(0.05, input.seekInputSeconds), 3600)
+      : null;
   await runFfmpeg(
     [
       "-y",
       "-hide_banner",
       "-loglevel",
       "error",
-      "-ss",
-      "0",
+      ...(seek != null ? ["-ss", String(seek)] : ["-ss", "0"]),
       "-i",
       input.inputPath,
       ...(input.fromNormalizedSdrInput ? [] : ["-map", `0:${input.videoAbsIndex}`]),
+      "-an",
       "-frames:v",
       "1",
+      "-threads",
+      "1",
+      "-vf",
+      vfPoster,
+      "-c:v",
+      "mjpeg",
+      "-strict",
+      "unofficial",
       "-q:v",
       "3",
-      // Tag the JPEG as Rec.709-compatible (sRGB-like) so iOS/Android image viewers don't reinterpret it.
+      // Rec.709 tagging for viewers; do NOT set color_range=tv — that re-limits chroma and breaks mjpeg.
       "-color_primaries",
       "bt709",
       "-color_trc",
       "bt709",
       "-colorspace",
       "bt709",
-      "-color_range",
-      "tv",
-      "-vf",
-      input.vf,
       input.outputPath
     ],
     input.ffmpeg,
@@ -280,6 +341,8 @@ export async function encodeAndUploadVideoAsset(input: {
   /** When set, skips HTTP download and uses this file as `source_in` (same as default layout under `workDir`). */
   preDownloadedSourcePath?: string;
   onProgress?: (evt: VideoEncoderProgress) => void;
+  /** Reels / color-v2: deterministic HDR→SDR presets + versioned Wasabi prefix. */
+  colorPipeline?: EncodeColorPipelineOptions;
 }): Promise<EncodedVideoAssetResult> {
   const ffmpeg = input.ffmpegBin ?? "ffmpeg";
   const ffprobe = process.env.FFPROBE_BIN?.trim() || "ffprobe";
@@ -329,6 +392,21 @@ export async function encodeAndUploadVideoAsset(input: {
    */
   const hdr = detectHdrFromFfprobe(probe, video);
   const filterMode = hdrFilterMode(hdr);
+  const useColorV2 = input.colorPipeline?.enabled === true;
+  const colorClass = classifySourceColorFromStream(video, probe);
+  let effectiveColor: ResolvedColorPipeline | null = null;
+  if (useColorV2) {
+    const presetReq = String(input.colorPipeline?.presetId ?? "").trim() || DEFAULT_REELS_COLOR_PRESET_ID;
+    effectiveColor = resolveColorPipeline({ presetId: presetReq, sourceClass: colorClass.sourceClass });
+    if (effectiveColor.requiresHdrTonemap) {
+      await assertFfmpegSupportsZscaleTonemap(ffmpeg);
+    }
+    emit("encoder_color_pipeline", `${effectiveColor.id} source=${colorClass.sourceClass} hash=${colorClass.reason}`);
+  }
+  /** Full zscale+tonemap path: give startup720 a bit more bitrate + encoder effort (primary instant-play URL). */
+  const hdrTonemapHeavy = useColorV2 ? Boolean(effectiveColor?.requiresHdrTonemap) : filterMode === "hdr_tonemap";
+  const startup720Crf = hdrTonemapHeavy ? 20 : 24;
+  const startup720Preset = hdrTonemapHeavy ? "medium" : "veryfast";
   emit(
     "encoder_ffprobe_done",
     `${w}x${h} dur=${durationSec.toFixed(2)}s vcodec=${String(video.codec_name ?? "?")} hdr=${hdr.kind}/${filterMode}`
@@ -343,17 +421,43 @@ export async function encodeAndUploadVideoAsset(input: {
   const main720Preset = partial ? "veryfast" : "medium";
   const upgrade1080Preset = partial ? "veryfast" : "medium";
 
-  const prefix = videosLabKeyPrefix(input.postId, input.asset.id);
+  const basePrefix = videosLabKeyPrefix(input.postId, input.asset.id);
+  const labSeg =
+    useColorV2 && String(input.colorPipeline?.labSubfolder ?? "color-v2").trim().length > 0
+      ? String(input.colorPipeline?.labSubfolder ?? "color-v2")
+          .trim()
+          .replace(/^\/+|\/+$/g, "")
+      : "";
+  const prefix = labSeg ? `${basePrefix}/${labSeg}` : basePrefix;
+
+  const x264Color = effectiveColor?.ffmpegOutputColorArgs ?? [
+    "-color_primaries",
+    "bt709",
+    "-color_trc",
+    "bt709",
+    "-colorspace",
+    "bt709",
+    "-color_range",
+    "tv"
+  ];
   const variants: Record<string, string> = {};
   const variantMetadata: Record<string, unknown> = {};
   const playbackLabGenerated: Record<string, string> = {};
   const generationMetadata: Record<string, Record<string, unknown>> = {};
   const lastVerifyResults: Array<Record<string, unknown>> = [];
 
-  const vf360 = buildHdrAwareEncodeFilter(hdr, w, h, 360, 360);
-  const vf540 = buildHdrAwareEncodeFilter(hdr, w, h, 540, 540);
-  const vf720 = buildHdrAwareEncodeFilter(hdr, w, h, 720, 720);
-  const vf1080 = buildHdrAwareEncodeFilter(hdr, w, h, 1080, 1080);
+  const vf360 = useColorV2 && effectiveColor
+    ? effectiveColor.buildVideoFilter(w, h, 360, 360)
+    : buildHdrAwareEncodeFilter(hdr, w, h, 360, 360);
+  const vf540 = useColorV2 && effectiveColor
+    ? effectiveColor.buildVideoFilter(w, h, 540, 540)
+    : buildHdrAwareEncodeFilter(hdr, w, h, 540, 540);
+  const vf720 = useColorV2 && effectiveColor
+    ? effectiveColor.buildVideoFilter(w, h, 720, 720)
+    : buildHdrAwareEncodeFilter(hdr, w, h, 720, 720);
+  const vf1080 = useColorV2 && effectiveColor
+    ? effectiveColor.buildVideoFilter(w, h, 1080, 1080)
+    : buildHdrAwareEncodeFilter(hdr, w, h, 1080, 1080);
 
   const outPreview = path.join(input.workDir, "out_preview360_avc.mp4");
   const outMain720Avc = path.join(input.workDir, "out_main720_avc.mp4");
@@ -390,7 +494,8 @@ export async function encodeAndUploadVideoAsset(input: {
         audioAbsIndex: audioIdx,
         vf: vf360,
         crf: 24,
-        preset: "veryfast"
+        preset: "veryfast",
+        x264ColorMetadata: x264Color
       })
     );
   }
@@ -404,7 +509,8 @@ export async function encodeAndUploadVideoAsset(input: {
         audioAbsIndex: audioIdx,
         vf: vf720,
         crf: 20,
-        preset: main720Preset
+        preset: main720Preset,
+        x264ColorMetadata: x264Color
       })
     );
   }
@@ -418,12 +524,13 @@ export async function encodeAndUploadVideoAsset(input: {
         audioAbsIndex: audioIdx,
         vf: vf540,
         crf: 26,
-        preset: "veryfast"
+        preset: "veryfast",
+        x264ColorMetadata: x264Color
       })
     );
   }
   if (wantEncode(encodeOnly, "startup720FaststartAvc")) {
-    pushEnc("startup720FaststartAvc_crf24_veryfast", () =>
+    pushEnc(`startup720FaststartAvc_crf${startup720Crf}_${startup720Preset}`, () =>
       encodeAvcFaststart({
         ffmpeg,
         inputPath: localIn,
@@ -431,8 +538,9 @@ export async function encodeAndUploadVideoAsset(input: {
         videoAbsIndex: video.index,
         audioAbsIndex: audioIdx,
         vf: vf720,
-        crf: 24,
-        preset: "veryfast"
+        crf: startup720Crf,
+        preset: startup720Preset,
+        x264ColorMetadata: x264Color
       })
     );
   }
@@ -446,7 +554,8 @@ export async function encodeAndUploadVideoAsset(input: {
         audioAbsIndex: audioIdx,
         vf: vf1080,
         crf: 24,
-        preset: "veryfast"
+        preset: "veryfast",
+        x264ColorMetadata: x264Color
       })
     );
   }
@@ -460,7 +569,8 @@ export async function encodeAndUploadVideoAsset(input: {
         audioAbsIndex: audioIdx,
         vf: vf1080,
         crf: 18,
-        preset: upgrade1080Preset
+        preset: upgrade1080Preset,
+        x264ColorMetadata: x264Color
       })
     );
   }
@@ -478,13 +588,19 @@ export async function encodeAndUploadVideoAsset(input: {
    */
   let posterFromNormalizedSdr = false;
   let posterSourceFile = localIn;
-  let posterVf = buildHdrAwareEncodeFilter(hdr, w, h, 1080, 1080);
+  let posterVf = useColorV2 && effectiveColor
+    ? effectiveColor.buildVideoFilter(w, h, 1080, 1080)
+    : buildHdrAwareEncodeFilter(hdr, w, h, 1080, 1080);
+  const posterSeekT = posterSeekSeconds(durationSec);
+  let posterSeekInput: number | undefined;
   if (wantEncode(encodeOnly, "posterHigh")) {
-    if (filterMode !== "sdr" && wantEncode(encodeOnly, "startup720FaststartAvc")) {
-      // Defer the poster encode until after startup720 has finished — push as a separate job below.
+    const posterUseNormalized720 =
+      wantEncode(encodeOnly, "startup720FaststartAvc") && (useColorV2 || filterMode !== "sdr");
+    if (posterUseNormalized720) {
       posterFromNormalizedSdr = true;
       posterSourceFile = outStartup720;
       posterVf = buildPlaybackLabScaleFilter(w, h, 1080, 1080);
+      posterSeekInput = posterSeekT;
     }
     if (!posterFromNormalizedSdr) {
       pushEnc("posterHigh_jpeg", () =>
@@ -494,6 +610,7 @@ export async function encodeAndUploadVideoAsset(input: {
           outputPath: outPosterHigh,
           videoAbsIndex: video.index,
           vf: posterVf,
+          seekInputSeconds: useColorV2 ? posterSeekT : undefined
         })
       );
     }
@@ -501,7 +618,7 @@ export async function encodeAndUploadVideoAsset(input: {
 
   emit(
     "encoder_ffprobe_summary",
-    `${w}x${h} dur=${durationSec.toFixed(2)}s audio=${audioIdx != null} 1080ladder=${enable1080} jobs=${encodeJobs.length} parallel=${encodeConcurrency(partial)} hdr=${hdr.kind} filterMode=${filterMode}`
+    `${w}x${h} dur=${durationSec.toFixed(2)}s audio=${audioIdx != null} 1080ladder=${enable1080} jobs=${encodeJobs.length} parallel=${encodeConcurrency(partial)} hdr=${hdr.kind} filterMode=${filterMode} colorV2=${useColorV2}${effectiveColor ? ` preset=${effectiveColor.id}` : ""}`
   );
   emit("encoder_transcode_batch_start", String(encodeJobs.length));
   await runEncodeJobsConcurrent(encodeJobs, encodeConcurrency(partial));
@@ -522,6 +639,7 @@ export async function encodeAndUploadVideoAsset(input: {
         videoAbsIndex: 0,
         vf: posterVf,
         fromNormalizedSdrInput: true,
+        seekInputSeconds: posterSeekInput
       });
       emit("encoder_ffmpeg_done", `posterHigh_from_normalized_sdr ${Date.now() - t}ms`);
     } catch (err) {
@@ -535,7 +653,11 @@ export async function encodeAndUploadVideoAsset(input: {
         inputPath: localIn,
         outputPath: outPosterHigh,
         videoAbsIndex: video.index,
-        vf: buildHdrAwareEncodeFilter(hdr, w, h, 1080, 1080),
+        vf:
+          useColorV2 && effectiveColor
+            ? effectiveColor.buildVideoFilter(w, h, 1080, 1080)
+            : buildHdrAwareEncodeFilter(hdr, w, h, 1080, 1080),
+        seekInputSeconds: useColorV2 ? posterSeekT : undefined
       });
       emit("encoder_ffmpeg_done", `posterHigh_fallback_raw ${Date.now() - t}ms`);
     }
@@ -773,10 +895,32 @@ export async function encodeAndUploadVideoAsset(input: {
 
   emit("encoder_pipeline_complete", `totalMs=${Date.now() - tPipeline}`);
 
+  const emittedFilterMode: typeof filterMode = useColorV2
+    ? effectiveColor!.requiresHdrTonemap
+      ? "hdr_tonemap"
+      : "sdr"
+    : filterMode;
+
+  let colorPipelineMetaOut: Record<string, unknown> | undefined;
+  if (useColorV2 && effectiveColor) {
+    const presetReq = String(input.colorPipeline?.presetId ?? "").trim() || DEFAULT_REELS_COLOR_PRESET_ID;
+    colorPipelineMetaOut = {
+      ...colorPipelineMetaBase({
+        sourceClass: colorClass.sourceClass,
+        presetId: presetReq,
+        effectivePreset: effectiveColor,
+        details: colorClass.details
+      }),
+      videosLabKeyPrefix: prefix,
+      classifyReason: colorClass.reason
+    };
+  }
+
   const diagnostics = {
-    generationPolicyVersion: "backend_v2_video_pipeline_v1",
+    generationPolicyVersion: useColorV2 ? "backend_v2_video_color_pipeline_v2" : "backend_v2_video_pipeline_v1",
     timingsMs: timings,
     encodeMode: partial ? "partial_selection" : "full_ladder",
+    ...(colorPipelineMetaOut ? { colorPipeline: colorPipelineMetaOut } : {}),
     source: {
       width: w,
       height: h,
@@ -794,9 +938,9 @@ export async function encodeAndUploadVideoAsset(input: {
       hdrDetectionReason: hdr.reason,
     },
     output: {
-      filterMode,
-      toneMappingApplied: filterMode === "hdr_tonemap",
-      colorNormalizationApplied: filterMode !== "sdr",
+      filterMode: emittedFilterMode,
+      toneMappingApplied: emittedFilterMode === "hdr_tonemap",
+      colorNormalizationApplied: emittedFilterMode !== "sdr",
       colorPrimaries: "bt709",
       colorTransfer: "bt709",
       colorSpace: "bt709",
@@ -805,7 +949,13 @@ export async function encodeAndUploadVideoAsset(input: {
     },
     poster: {
       generatedFromNormalizedSdrInput: posterFromNormalizedSdr,
-      generationMode: filterMode === "sdr" ? "raw_sdr" : posterFromNormalizedSdr ? "normalized_startup720" : "raw_with_hdr_filter",
+      generationMode:
+        emittedFilterMode === "sdr"
+          ? "raw_sdr"
+          : posterFromNormalizedSdr
+            ? "normalized_startup720"
+            : "raw_with_hdr_filter",
+      posterSeekSeconds: posterSeekT
     },
     outputs: {
       ...(previewUrl ? { preview360Avc: previewUrl } : {}),
@@ -831,7 +981,13 @@ export async function encodeAndUploadVideoAsset(input: {
     sourceWidth: w,
     sourceHeight: h,
     durationSec,
+    hasAudio: audioIdx != null,
+    sourceSizeBytes: stIn.size,
+    sourceVideoCodec: String(video.codec_name ?? ""),
+    sourceAudioCodec: audio ? String(audio.codec_name ?? "") : null,
+    sourceBitrateKbps: bitrateKbpsFromFile(stIn.size, durationSec),
     hdr,
-    filterMode,
+    filterMode: emittedFilterMode,
+    colorPipelineMeta: colorPipelineMetaOut
   };
 }

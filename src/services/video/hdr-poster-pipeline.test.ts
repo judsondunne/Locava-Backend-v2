@@ -150,10 +150,25 @@ describe("hdrFilterMode + makeHdrAwareFilterChain", () => {
     );
     expect(hdrFilterMode(r)).toBe("hdr_tonemap");
     const out = buildHdrAwareEncodeFilter(r, 1080, 1920, 720, 720);
-    expect(out).toContain("zscale=t=linear");
-    expect(out).toContain("tonemap=tonemap=hable");
+    expect(out).toMatch(/zscale=t=linear:npl=\d+/);
+    expect(out).toContain("tonemap=tonemap=hable"); // PQ / smpte2084
     expect(out).toContain("zscale=t=bt709:m=bt709:r=tv");
     expect(out).toContain("format=yuv420p");
+  });
+
+  it("hlg hdr_tonemap uses hable + ~900 nit linear npl (phone HLG, avoids low-npl washout)", () => {
+    const r = detectHdrFromFfprobe(
+      probe({
+        color_space: "bt2020nc",
+        color_transfer: "arib-std-b67",
+        color_primaries: "bt2020",
+      }),
+    );
+    expect(hdrFilterMode(r)).toBe("hdr_tonemap");
+    const out = buildHdrAwareEncodeFilter(r, 2160, 3840, 720, 720);
+    expect(out).toContain("tin=arib-std-b67");
+    expect(out).toContain("tonemap=tonemap=hable");
+    expect(out).toContain("zscale=t=linear:npl=900");
   });
 
   it("respects LOCAVA_HDR_TONEMAP_FALLBACK=1 for HDR sources", () => {

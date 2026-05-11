@@ -29,6 +29,8 @@ import { cacheMetricsCollector } from "../observability/cache-metrics.collector.
 import { registerAdminRoutes } from "../routes/admin.routes.js";
 import { registerInternalHealthDashboardRoutes } from "../routes/internal/health-dashboard.routes.js";
 import { registerInternalOpsRoutes } from "../routes/internal/internal-ops.routes.js";
+import { registerReelsMvpPublisherRoutes } from "../admin/reelsMvpPublisher/reelsMvpPublisher.routes.js";
+import { registerPostSingleVideoRepairRoutes } from "../admin/postSingleVideoRepair/postSingleVideoRepair.routes.js";
 import { registerSystemRoutes } from "../routes/system.routes.js";
 import { registerTestRoutes } from "../routes/test.routes.js";
 import { registerV2AuthBootstrapRoutes } from "../routes/v2/auth-bootstrap.routes.js";
@@ -147,6 +149,7 @@ import { registerLocalDebugRoutes } from "../routes/debug/local-debug.routes.js"
 import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-firestore-probe.routes.js";
 import { registerPostRebuilderRoutes } from "../routes/debug/post-rebuilder.routes.js";
 import { registerAddressBackfillRoutes } from "../routes/debug/address-backfill.routes.js";
+import { registerPostDescriptionCleanupRoutes } from "../routes/debug/post-description-cleanup.routes.js";
 import { registerAppPostV2SurfaceCompareRoutes } from "../routes/debug/app-post-v2-surface.routes.js";
 import { registerDebugPostGradientAuditRoutes } from "../routes/debug/post-gradient-audit.routes.js";
 import { registerDebugPostCanonicalStatusRoutes } from "../routes/debug/post-canonical-status.routes.js";
@@ -797,6 +800,8 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerLegacyReelsNearMeRoutes);
   app.register(registerVideoProcessorRoutes);
   app.register(registerInternalOpsRoutes);
+  app.register(registerReelsMvpPublisherRoutes);
+  app.register(registerPostSingleVideoRepairRoutes);
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerAdminRoutes);
   app.register(registerPublicExpoPushRoutes);
@@ -808,6 +813,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   if (env.ENABLE_POST_REBUILDER_DEBUG_ROUTES) {
     app.register(registerPostRebuilderRoutes);
     app.register(registerAddressBackfillRoutes);
+    app.register(registerPostDescriptionCleanupRoutes);
   }
   if (shouldRegisterDangerousFirestoreDebugRoutes()) {
     app.register(registerEmergencyPostRestoreRoutes);

@@ -89,6 +89,10 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     APPLE_WEB_SERVICES_ID: undefined,
     OPENWEATHER_API_KEY: undefined,
     CLOUD_RUN_MAX_INSTANCES: undefined,
+    REELS_MVP_PUBLISHER_ENABLED: undefined,
+    REELS_MVP_PUBLISHER_WRITE_ENABLED: undefined,
+    REELS_MVP_PUBLISHER_MAX_BATCH: 1,
+    REELS_MVP_PUBLISHER_REQUIRE_READY: undefined,
     ...overrides
   };
 }

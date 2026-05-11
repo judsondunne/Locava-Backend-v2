@@ -59,6 +59,14 @@ const EnvSchema = z.object({
   ANALYTICS_BIGQUERY_SERVICE_ACCOUNT_JSON: z.string().optional(),
   /** Path to a service account JSON file used only for BigQuery analytics ingest. */
   ANALYTICS_BIGQUERY_SERVICE_ACCOUNT_FILE: z.string().optional(),
+  /**
+   * Optional overrides for BigQuery analytics destination (same semantics as legacy
+   * `Locava Backend` `bigqueryWriter.ts`: `GCP_PROJECT_ID` + `ANALYTICS_DATASET` + `ANALYTICS_EVENTS_TABLE`).
+   * When unset, Backendv2 falls back to `GCP_PROJECT_ID` / `GOOGLE_CLOUD_PROJECT` and `ANALYTICS_*`.
+   */
+  ANALYTICS_BIGQUERY_PROJECT_ID: z.string().optional(),
+  ANALYTICS_BIGQUERY_DATASET: z.string().optional(),
+  ANALYTICS_BIGQUERY_TABLE: z.string().optional(),
   COHERENCE_MODE: z.enum(["process_local", "external_coordinator_stub", "redis"]).default("process_local"),
   /**
    * Optional explicit Cloud Run max instances hint for coherence checks.
@@ -161,6 +169,15 @@ const EnvSchema = z.object({
   ENABLE_NOTIFICATION_TEST_ROUTES: z.string().optional(),
   /** Shared secret for `x-locava-debug-secret` on notification test routes. */
   NOTIFICATION_TEST_SECRET: z.string().optional(),
+  /**
+   * Reels MVP publisher: register `/internal/admin/reels-mvp-publisher/*` + HTML console when exactly `"true"`.
+   * Batch publish writes additionally require `REELS_MVP_PUBLISHER_WRITE_ENABLED==="true"` and `confirmWrite` in POST bodies.
+   * Post single-video repair (`/internal/admin/post-single-video-repair/*`) uses this flag plus `confirmWrite` on regenerate only.
+   */
+  REELS_MVP_PUBLISHER_ENABLED: z.string().optional(),
+  REELS_MVP_PUBLISHER_WRITE_ENABLED: z.string().optional(),
+  REELS_MVP_PUBLISHER_MAX_BATCH: z.coerce.number().int().min(1).max(50).default(1),
+  REELS_MVP_PUBLISHER_REQUIRE_READY: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

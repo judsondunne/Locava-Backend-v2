@@ -97,6 +97,31 @@ describe("videoFastStartRepair", () => {
     expect(rebuilt.canonical.media.assets[0]?.video?.playback.startupUrl).toBe("https://cdn/startup720.mp4");
   });
 
+  it("video without width/height, missing 1080 URLs, and still needing lower ladder → not already optimized", () => {
+    const raw = {
+      id: "p-4k-skeleton",
+      userId: "u",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      media: {
+        assets: [
+          {
+            id: "v1",
+            type: "video",
+            video: {
+              originalUrl: "https://cdn/original.mp4",
+              variants: {},
+              playback: { defaultUrl: "https://cdn/original.mp4", primaryUrl: "https://cdn/original.mp4" }
+            }
+          }
+        ]
+      }
+    };
+    const analyze = analyzeVideoFastStartNeeds(raw, { postId: "p-4k-skeleton" });
+    expect(analyze.assetNeeds[0]?.alreadyOptimized).toBe(false);
+    expect(analyze.assetNeeds[0]?.supports1080).toBe(false);
+    expect(analyze.needsGenerationCount).toBe(1);
+  });
+
   it("single video already optimized skips generation and keeps startup selection", async () => {
     const raw = {
       id: "p-ready",

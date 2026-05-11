@@ -7,6 +7,7 @@ coverage
 .DS_Store
 logs
 tmp
+artifacts
 state
 .analytics-spool
 src/data/geonames-places.json

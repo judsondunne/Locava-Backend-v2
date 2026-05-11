@@ -5,7 +5,10 @@ import type { AppEnv } from "../../config/env.js";
 import { LOG_ANALYTICS_DEBUG } from "../../lib/logging/log-config.js";
 import { rateLimitedLog, warnOnce } from "../../lib/logging/debug-log.js";
 import {
+  buildAnalyticsBigQueryStartupWarnings,
+  formatAnalyticsBigQueryCredentialSource,
   resolveAnalyticsBigQueryClientInit,
+  resolveAnalyticsBigQueryTableLocation,
   type AnalyticsBigQueryCredentialSource
 } from "./analytics-bigquery-credentials.js";
 
@@ -61,16 +64,15 @@ export function extractMissingBigQueryPermission(message: string): string | null
 
 export function getAnalyticsBigQueryRuntimeConfig(env: AppEnv): AnalyticsBigQueryRuntimeConfig {
   const init = resolveAnalyticsBigQueryClientInit(env);
-  const bigQueryEnabled = Boolean(
-    env.ANALYTICS_ENABLED && env.GCP_PROJECT_ID && env.ANALYTICS_DATASET && env.ANALYTICS_EVENTS_TABLE
-  );
+  const loc = resolveAnalyticsBigQueryTableLocation(env);
+  const bigQueryEnabled = Boolean(env.ANALYTICS_ENABLED && loc.projectId && loc.dataset && loc.table);
   return {
     analyticsEnabled: env.ANALYTICS_ENABLED,
     bigQueryEnabled,
     enabled: bigQueryEnabled,
-    projectId: env.GCP_PROJECT_ID ?? null,
-    dataset: env.ANALYTICS_DATASET ?? null,
-    table: env.ANALYTICS_EVENTS_TABLE ?? null,
+    projectId: loc.projectId,
+    dataset: loc.dataset,
+    table: loc.table,
     credentialSource: init.credentialSource,
     serviceAccountEmail: init.serviceAccountEmail,
     nonBlockingFailures: true
@@ -80,15 +82,22 @@ export function getAnalyticsBigQueryRuntimeConfig(env: AppEnv): AnalyticsBigQuer
 /** Safe structured payload for server startup / health (no secrets). */
 export function getAnalyticsStartupLogPayload(env: AppEnv): Record<string, unknown> {
   const rt = getAnalyticsBigQueryRuntimeConfig(env);
+  const warnings = buildAnalyticsBigQueryStartupWarnings(rt.bigQueryEnabled, rt.credentialSource, rt.serviceAccountEmail);
   return {
     analyticsEnabled: rt.analyticsEnabled,
     bigQueryEnabled: rt.bigQueryEnabled,
     projectId: rt.projectId,
     dataset: rt.dataset,
     table: rt.table,
+    datasetId: rt.dataset,
+    tableId: rt.table,
     credentialSource: rt.credentialSource,
+    credentialSourceDisplay: rt.bigQueryEnabled
+      ? formatAnalyticsBigQueryCredentialSource(rt.credentialSource)
+      : "disabled",
     serviceAccountEmail: rt.serviceAccountEmail,
-    nonBlocking: rt.nonBlockingFailures
+    nonBlocking: rt.nonBlockingFailures,
+    warnings
   };
 }
 
@@ -143,13 +152,13 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
 
   constructor(private readonly env: AppEnv) {
     this.bqInit = resolveAnalyticsBigQueryClientInit(env);
-    this.destination = {
-      enabled: Boolean(env.ANALYTICS_ENABLED && env.GCP_PROJECT_ID && env.ANALYTICS_DATASET && env.ANALYTICS_EVENTS_TABLE),
-      projectId: env.GCP_PROJECT_ID ?? null,
-      dataset: env.ANALYTICS_DATASET ?? null,
-      table: env.ANALYTICS_EVENTS_TABLE ?? null
-    };
     this.runtimeConfig = getAnalyticsBigQueryRuntimeConfig(env);
+    this.destination = {
+      enabled: this.runtimeConfig.bigQueryEnabled,
+      projectId: this.runtimeConfig.projectId,
+      dataset: this.runtimeConfig.dataset,
+      table: this.runtimeConfig.table
+    };
   }
 
   getDestination(): AnalyticsPublisherDestination {
@@ -240,9 +249,9 @@ export class BigQueryAnalyticsPublisher implements AnalyticsPublisher {
     if (!this.runtimeConfig.bigQueryEnabled) {
       warnOnce("analytics", "analytics bigquery_publishing_disabled_by_env", () => ({
         analyticsEnabled: this.env.ANALYTICS_ENABLED,
-        hasProjectId: Boolean(this.env.GCP_PROJECT_ID),
-        hasDataset: Boolean(this.env.ANALYTICS_DATASET),
-        hasTable: Boolean(this.env.ANALYTICS_EVENTS_TABLE)
+        hasProjectId: Boolean(this.runtimeConfig.projectId),
+        hasDataset: Boolean(this.runtimeConfig.dataset),
+        hasTable: Boolean(this.runtimeConfig.table)
       }));
     }
   }

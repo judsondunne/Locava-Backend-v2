@@ -3,6 +3,7 @@ import type {
   CanonicalizationResult,
   CanonicalizationWarning,
   MasterPostAssetTypeV2,
+  MasterPostCanonicalizedByV2,
   MasterPostLetterboxGradientV2,
   MasterPostLifecycleStatusV2,
   MasterPostMediaKindV2,
@@ -27,6 +28,8 @@ export type NormalizeMasterPostV2Options = {
    * (not a rebuilder backfill).
    */
   postingFinalizeV2?: boolean;
+  /** When `postingFinalizeV2` is true, overrides `schema.canonicalizedBy` (default `posting_finalize_v2`). */
+  postingFinalizeCanonicalizedBy?: MasterPostCanonicalizedByV2;
 };
 
 type NormalizeOptions = NormalizeMasterPostV2Options;
@@ -1044,7 +1047,12 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
                 processingStatus: playbackReady
                   ? toTrimmed(rawPost.videoProcessingStatus, playbackLab.status, rawPost.mediaStatus) ?? "completed"
                   : toTrimmed(rawPost.videoProcessingStatus, playbackLab.status, rawPost.mediaStatus)
-              }
+              },
+              ...(rowVideo.colorPipeline &&
+              typeof rowVideo.colorPipeline === "object" &&
+              !Array.isArray(rowVideo.colorPipeline)
+                ? { colorPipeline: rowVideo.colorPipeline as Record<string, unknown> }
+                : {})
             }
           : null,
       presentation: {
@@ -1637,7 +1645,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       : "valid";
 
   if (options.postingFinalizeV2) {
-    canonical.schema.canonicalizedBy = "posting_finalize_v2";
+    canonical.schema.canonicalizedBy = options.postingFinalizeCanonicalizedBy ?? "posting_finalize_v2";
     canonical.schema.sourceShape = "native_posting_v2";
   }
 

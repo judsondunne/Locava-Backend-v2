@@ -12,6 +12,7 @@ export type FastStartSkipReason =
   | "already_has_verified_preview360"
   | "source_missing"
   | "source_too_low_for_1080"
+  | "source_resolution_unknown_for_1080"
   | "verification_failed"
   | "generation_failed"
   | "asset_already_optimized";
@@ -69,6 +70,15 @@ export type GenerateAssetOutput = {
   diagnosticsJson?: string;
   sourceWidth?: number;
   sourceHeight?: number;
+  durationSec?: number;
+  hasAudio?: boolean;
+  bitrateKbps?: number;
+  sizeBytes?: number;
+  sourceVideoCodec?: string | null;
+  sourceAudioCodec?: string | null;
+  /** When encoder used color-v2 prefix (reels publisher). */
+  videosLabKeyPrefix?: string;
+  colorPipelineMeta?: Record<string, unknown>;
 };
 
 export type FastStartRepairProgress = {
@@ -237,7 +247,8 @@ export function analyzeVideoFastStartNeeds(rawPost: RawPost, options?: { postId?
     const videoObj = toObject(asset.video) ?? {};
     const sourceWidth = toNum(asset.width, toObject(asset.variantMetadata)?.width, videoObj.width);
     const sourceHeight = toNum(asset.height, toObject(asset.variantMetadata)?.height, videoObj.height);
-    const supports1080 = shouldGenerate1080Ladder(sourceWidth ?? 0, sourceHeight ?? 0);
+    const dimsKnown = (sourceWidth ?? 0) > 0 && (sourceHeight ?? 0) > 0;
+    const supports1080 = dimsKnown && shouldGenerate1080Ladder(sourceWidth ?? 0, sourceHeight ?? 0);
     const needs = {
       posterHigh: !candidates.posterHigh,
       preview360Avc: !isVerifiedRowForUrl(verifyRows, candidates.preview360Avc),
@@ -247,10 +258,29 @@ export function analyzeVideoFastStartNeeds(rawPost: RawPost, options?: { postId?
       startup1080FaststartAvc: supports1080 ? !isVerifiedRowForUrl(verifyRows, candidates.startup1080FaststartAvc) : false,
       upgrade1080FaststartAvc: supports1080 ? !isVerifiedRowForUrl(verifyRows, candidates.upgrade1080FaststartAvc) : false
     };
+    const anyLowerLadderNeed =
+      needs.posterHigh ||
+      needs.preview360Avc ||
+      needs.main720Avc ||
+      needs.startup540FaststartAvc ||
+      needs.startup720FaststartAvc;
+    /** Native skeleton rows often omit width/height; encoder ffprobes the original and can still emit 1080p ladder. */
+    const probe1080AtEncode =
+      !dimsKnown &&
+      Boolean(candidates.original) &&
+      !toTrimmed(candidates.startup1080FaststartAvc) &&
+      !toTrimmed(candidates.upgrade1080FaststartAvc) &&
+      anyLowerLadderNeed;
     const skipReasons: FastStartSkipReason[] = [];
     if (!candidates.original) skipReasons.push("source_missing");
-    if (!supports1080) skipReasons.push("source_too_low_for_1080");
-    if (!needs.startup1080FaststartAvc) skipReasons.push("already_has_verified_startup1080");
+    if (dimsKnown && !shouldGenerate1080Ladder(sourceWidth ?? 0, sourceHeight ?? 0)) {
+      skipReasons.push("source_too_low_for_1080");
+    } else if (!dimsKnown) {
+      skipReasons.push("source_resolution_unknown_for_1080");
+    }
+    if (supports1080 && !needs.startup1080FaststartAvc) {
+      skipReasons.push("already_has_verified_startup1080");
+    }
     if (!needs.startup720FaststartAvc) skipReasons.push("already_has_verified_startup720");
     if (!needs.startup540FaststartAvc) skipReasons.push("already_has_verified_startup540");
     if (!needs.preview360Avc) skipReasons.push("already_has_verified_preview360");
@@ -259,7 +289,8 @@ export function analyzeVideoFastStartNeeds(rawPost: RawPost, options?: { postId?
       !needs.main720Avc &&
       !needs.startup540FaststartAvc &&
       !needs.startup720FaststartAvc &&
-      (!supports1080 || !needs.startup1080FaststartAvc);
+      (!supports1080 || !needs.startup1080FaststartAvc) &&
+      !probe1080AtEncode;
     if (alreadyOptimized) skipReasons.push("asset_already_optimized");
     for (const reason of skipReasons) postSkipReasons.add(reason);
     assetNeeds.push({
@@ -294,7 +325,7 @@ export async function generateMissingFastStartVariantsForAsset(
   rawAsset: RawAsset,
   needs: FastStartAssetNeeds["needs"],
   options: FastStartRepairOptions
-): Promise<{ generated: Record<string, string>; verifyResults: VerifyOutput[]; warnings: string[]; errors: string[] }> {
+): Promise<GenerateAssetOutput & { verifyResults: VerifyOutput[]; warnings: string[]; errors: string[] }> {
   const warnings: string[] = [];
   const errors: string[] = [];
   const generator = options.generateMissingForAsset;
@@ -342,7 +373,24 @@ export async function generateMissingFastStartVariantsForAsset(
     verifyResults.push(verify);
     if (!verify.ok) errors.push(`verification_failed:${label}`);
   }
-  return { generated, verifyResults, warnings, errors };
+  return {
+    generated,
+    verifyResults,
+    warnings,
+    errors,
+    durationSec: output.durationSec,
+    hasAudio: output.hasAudio,
+    bitrateKbps: output.bitrateKbps,
+    sizeBytes: output.sizeBytes,
+    sourceVideoCodec: output.sourceVideoCodec,
+    sourceAudioCodec: output.sourceAudioCodec,
+    sourceWidth: output.sourceWidth,
+    sourceHeight: output.sourceHeight,
+    generationMetadata: output.generationMetadata,
+    diagnosticsJson: output.diagnosticsJson,
+    videosLabKeyPrefix: output.videosLabKeyPrefix,
+    colorPipelineMeta: output.colorPipelineMeta
+  };
 }
 
 export async function generateMissingFastStartVariantsForPost(
@@ -358,6 +406,8 @@ export async function generateMissingFastStartVariantsForPost(
     warnings: string[];
     errors: string[];
     skipped: boolean;
+    videosLabKeyPrefix?: string;
+    colorPipelineMeta?: Record<string, unknown>;
   }>;
 }> {
   const analyze = analyzeVideoFastStartNeeds(rawPost, { postId });
@@ -368,6 +418,8 @@ export async function generateMissingFastStartVariantsForPost(
     warnings: string[];
     errors: string[];
     skipped: boolean;
+    videosLabKeyPrefix?: string;
+    colorPipelineMeta?: Record<string, unknown>;
   }> = [];
   const assets = getFastStartRawAssetRows(rawPost);
   const workable = analyze.assetNeeds.filter((need) => {
@@ -404,7 +456,13 @@ export async function generateMissingFastStartVariantsForPost(
     });
     try {
       const result = await generateMissingFastStartVariantsForAsset(postId, asset, need.needs, options);
-      generationResults.push({ assetId: need.assetId, ...result, skipped: false });
+      generationResults.push({
+        assetId: need.assetId,
+        ...result,
+        skipped: false,
+        videosLabKeyPrefix: result.videosLabKeyPrefix,
+        colorPipelineMeta: result.colorPipelineMeta
+      });
     } catch (error) {
       generationResults.push({
         assetId: need.assetId,
@@ -489,6 +547,7 @@ export function mergePlaybackLabResultsIntoRawPost(
     verifyResults: VerifyOutput[];
     errors: string[];
     skipped?: boolean;
+    colorPipelineMeta?: Record<string, unknown>;
   }>
 ): RawPost {
   const next = { ...rawPost };
@@ -541,6 +600,10 @@ export function mergePlaybackLabResultsIntoRawPost(
     asset.playbackLab = nextAssetPlaybackLab;
     promoteVerifiedLadderIntoNestedVideo(asset, variants, verifiedGenerated);
     asset.variants = variants;
+    if (result.colorPipelineMeta && typeof result.colorPipelineMeta === "object") {
+      const videoAfter = toObject(asset.video) ?? {};
+      asset.video = { ...videoAfter, colorPipeline: result.colorPipelineMeta };
+    }
     if (toTrimmed(verifiedGenerated.startup720FaststartAvc)) promotedVerifiedStartup720 = true;
     postPlaybackLabAssets[result.assetId] = {
       ...(toObject(postPlaybackLabAssets[result.assetId]) ?? {}),

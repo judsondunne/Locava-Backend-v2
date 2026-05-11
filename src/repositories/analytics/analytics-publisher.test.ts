@@ -60,6 +60,21 @@ describe("analytics publisher runtime diagnostics", () => {
     ]).toContain(runtime.credentialSource);
   });
 
+  it("enables BigQuery when only ANALYTICS_BIGQUERY_PROJECT_ID is set (no GCP_PROJECT_ID)", () => {
+    const env = loadEnv({
+      NODE_ENV: "test",
+      LOG_LEVEL: "silent",
+      ANALYTICS_ENABLED: "true",
+      ANALYTICS_BIGQUERY_PROJECT_ID: "learn-32d72",
+      ANALYTICS_DATASET: "analytics_prod",
+      ANALYTICS_EVENTS_TABLE: "client_events",
+      ANALYTICS_BIGQUERY_SERVICE_ACCOUNT_JSON: dummySaJson
+    });
+    const runtime = getAnalyticsBigQueryRuntimeConfig(env);
+    expect(runtime.bigQueryEnabled).toBe(true);
+    expect(runtime.projectId).toBe("learn-32d72");
+  });
+
   it("prefers ANALYTICS_BIGQUERY_SERVICE_ACCOUNT_JSON over GOOGLE_APPLICATION_CREDENTIALS for metadata", () => {
     const env = loadEnv({
       NODE_ENV: "test",

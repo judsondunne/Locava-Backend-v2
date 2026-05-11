@@ -12,7 +12,10 @@
  *     branching:
  *       * `"sdr"`           — plain `scale=...,format=yuv420p`
  *       * `"wide_gamut"`    — convert primaries to BT.709 with `colorspace=all=bt709:iall=...`
- *       * `"hdr_tonemap"`   — full HDR -> SDR tone-mapping chain via `zscale` + `tonemap=hable`
+ *       * `"hdr_tonemap"`   — full HDR -> SDR tone-mapping chain via `zscale` + `tonemap=…` (PQ/HLG default
+ *         `hable`; override with `LOCAVA_HDR_PQ_TONEMAP` / `LOCAVA_HDR_HLG_TONEMAP`, e.g. `mobius`.)
+ *         Linear `npl` from `linearizeNplForHdr`; override with `LOCAVA_HDR_HLG_LINEAR_NPL` /
+ *         `LOCAVA_HDR_PQ_LINEAR_NPL`.
  *
  *   - `buildHdrAwareEncodeFilter` — convenience wrapper that mirrors `buildPlaybackLabScaleFilter`'s
  *     orientation handling so the SAME normalized filter chain is applied to BOTH the startup AVC
@@ -30,6 +33,36 @@
 import type { HdrDetectionResult } from "./ffprobe.js";
 
 export type HdrFilterChainKind = "sdr" | "wide_gamut" | "hdr_tonemap";
+
+/** Nominal peak luminance (nits) passed to `zscale=t=linear:npl=…` before tonemap. Too low → flat/washed SDR. */
+function linearizeNplForHdr(input: { isHlg: boolean }): number {
+  /**
+   * `npl` is nominal peak luminance (nits) for `zscale=t=linear:npl=…`. Too low → compressed linear
+   * range → flat / washed SDR after tonemap (common complaint at ~500 for phone HLG). Too high with
+   * aggressive curves can read harsh. Default HLG **900** targets consumer phone HLG (~1000 nit
+   * diffuse white) without the old npl=100 bug. Override: `LOCAVA_HDR_HLG_LINEAR_NPL`.
+   */
+  const raw = input.isHlg
+    ? Number(process.env.LOCAVA_HDR_HLG_LINEAR_NPL ?? "900")
+    : Number(process.env.LOCAVA_HDR_PQ_LINEAR_NPL ?? "400");
+  const n = Number.isFinite(raw) && raw > 0 ? raw : input.isHlg ? 900 : 400;
+  return Math.min(10000, Math.max(50, Math.floor(n)));
+}
+
+/** PQ and HLG both default to `hable` (contrast); use `mobius` for softer rolloff via `LOCAVA_HDR_HLG_TONEMAP`. */
+function tonemapOpForHdr(isHlg: boolean): string {
+  const allowed = new Set(["hable", "mobius", "reinhard", "gamma", "clipping"]);
+  if (isHlg) {
+    const t = String(process.env.LOCAVA_HDR_HLG_TONEMAP ?? "hable")
+      .trim()
+      .toLowerCase();
+    return allowed.has(t) ? t : "hable";
+  }
+  const t = String(process.env.LOCAVA_HDR_PQ_TONEMAP ?? "hable")
+    .trim()
+    .toLowerCase();
+  return allowed.has(t) ? t : "hable";
+}
 
 export type HdrFilterChainBuilder = {
   kind: HdrFilterChainKind;
@@ -92,6 +125,9 @@ export function makeHdrAwareFilterChain(hdr: HdrDetectionResult): HdrFilterChain
   /**
    * HDR (HDR10, Dolby Vision, HLG). Tonemap with `zscale + tonemap=hable + zscale + format=yuv420p`.
    * The chain is: linearize PQ/HLG → tonemap to SDR (Hable, no desat) → BT.709 transfer/matrix/range.
+   * `npl` must match how the source was mastered: HLG consumer clips expect ~1000 nit diffuse white
+   * reference; using 100 nits here linearizes into a tiny luminance range and produces very washed
+   * transcodes (see `linearizeNplForHdr` + `LOCAVA_HDR_*_LINEAR_NPL` overrides).
    *
    * If the user explicitly sets LOCAVA_HDR_TONEMAP_FALLBACK=1 (or zscale is unavailable in their
    * ffmpeg build), the fallback uses `colorspace=all=bt709:iall=bt2020nc`. This is not a true tone
@@ -117,12 +153,14 @@ export function makeHdrAwareFilterChain(hdr: HdrDetectionResult): HdrFilterChain
       const isHlg = (hdr.colorTransfer ?? "").toLowerCase() === "arib-std-b67";
       const tin = isHlg ? "arib-std-b67" : "smpte2084";
       const pin = (hdr.colorPrimaries ?? "bt2020").toLowerCase() === "bt2020" ? "bt2020" : "bt2020";
+      const npl = linearizeNplForHdr({ isHlg });
+      const tmap = tonemapOpForHdr(isHlg);
       return [
         scalePart(input.width, input.height, input.targetH, input.targetW),
-        `zscale=t=linear:npl=100:p=${pin}:tin=${tin}`,
+        `zscale=t=linear:npl=${npl}:p=${pin}:tin=${tin}`,
         "format=gbrpf32le",
         "zscale=p=bt709",
-        "tonemap=tonemap=hable:desat=0",
+        `tonemap=tonemap=${tmap}:desat=0`,
         "zscale=t=bt709:m=bt709:r=tv",
         "format=yuv420p",
       ].join(",");

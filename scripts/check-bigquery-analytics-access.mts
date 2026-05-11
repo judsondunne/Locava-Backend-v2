@@ -5,7 +5,10 @@ import {
   extractMissingBigQueryPermission,
   getAnalyticsBigQueryRuntimeConfig
 } from "../src/repositories/analytics/analytics-publisher.js";
-import { resolveAnalyticsBigQueryClientInit } from "../src/repositories/analytics/analytics-bigquery-credentials.js";
+import {
+  formatAnalyticsBigQueryCredentialSource,
+  resolveAnalyticsBigQueryClientInit
+} from "../src/repositories/analytics/analytics-bigquery-credentials.js";
 import {
   ANALYTICS_CLIENT_EVENTS_EXPECTED_FIELDS,
   buildClientEventsTableSchemaJson,
@@ -21,7 +24,8 @@ type CheckResult =
   | "FAIL_METADATA_READ"
   | "FAIL_PERMISSION_DENIED"
   | "FAIL_CONFIG_MISMATCH"
-  | "UNKNOWN_ERROR";
+  | "UNKNOWN_ERROR"
+  | "FAIL_QUERY_BACK";
 
 function isPermissionError(message: string): boolean {
   return /permission|access denied|denied/i.test(message);
@@ -75,11 +79,14 @@ async function main(): Promise<void> {
 
   console.log("=== Analytics BigQuery diagnostics ===\n");
   console.log(`projectId:          ${runtime.projectId ?? "(missing)"}`);
-  console.log(`dataset:            ${runtime.dataset ?? "(missing)"}`);
-  console.log(`table:              ${runtime.table ?? "(missing)"}`);
+  console.log(`datasetId:          ${runtime.dataset ?? "(missing)"}`);
+  console.log(`tableId:            ${runtime.table ?? "(missing)"}`);
   console.log(`analyticsEnabled:   ${runtime.analyticsEnabled}`);
   console.log(`bigQueryEnabled:    ${runtime.bigQueryEnabled}`);
   console.log(`credentialSource:   ${runtime.credentialSource}`);
+  console.log(
+    `credentialDisplay:  ${runtime.bigQueryEnabled ? formatAnalyticsBigQueryCredentialSource(runtime.credentialSource) : "disabled"}`
+  );
   console.log(`serviceAccountEmail:${runtime.serviceAccountEmail ? ` ${runtime.serviceAccountEmail}` : " (unknown)"}`);
   console.log(`writeTest:          ${writeTest ? "yes (--write-test or ANALYTICS_BIGQUERY_TEST_WRITE=1)" : "no"}`);
 
@@ -194,16 +201,38 @@ async function main(): Promise<void> {
         properties: JSON.stringify({ probeId, source: "check-bigquery-analytics-access" })
       }
     ]);
+
+    let queryBackOk = false;
+    let queryBackDetail = "";
+    try {
+      const fq = `${runtime.projectId}.${runtime.dataset}.${runtime.table}`;
+      const [rows] = await bigQuery.query({
+        query: `SELECT anonId FROM \`${fq}\` WHERE anonId = @probe LIMIT 3`,
+        params: { probe: probeId }
+      });
+      queryBackOk = Array.isArray(rows) && rows.length > 0;
+      if (!queryBackOk) queryBackDetail = "query returned 0 rows (streaming buffer delay is possible; retry bq query).";
+    } catch (qe) {
+      queryBackDetail = qe instanceof Error ? qe.message : String(qe);
+    }
+
     console.log(
       "\n" +
         JSON.stringify({
-          result: "PASS" satisfies CheckResult,
+          result: (queryBackOk ? "PASS" : "FAIL_QUERY_BACK") satisfies CheckResult,
           metadataReadOk,
           schemaOk: true,
-          detail: "Metadata checks passed and test write succeeded.",
-          probeId
+          detail: queryBackOk
+            ? "Metadata checks passed, test write succeeded, and read-back query saw the row."
+            : "Insert succeeded but read-back query failed or saw no rows yet.",
+          probeId,
+          queryBackOk,
+          queryBackDetail
         })
     );
+    if (!queryBackOk) {
+      process.exitCode = 1;
+    }
     printGcloudFixCommands(runtime.projectId, runtime.dataset, runtime.serviceAccountEmail);
     printCurlExample();
     printBqVerifyQuery(runtime.projectId, runtime.dataset, runtime.table);

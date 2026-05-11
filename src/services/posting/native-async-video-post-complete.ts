@@ -2,7 +2,7 @@ import { FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore"
 import type { DocumentReference } from "firebase-admin/firestore";
 import { compactCanonicalPostForLiveWrite } from "../../lib/posts/master-post-v2/compactCanonicalPostV2.js";
 import { encodeFirestoreTimestampsInPostWrite } from "../../lib/posts/master-post-v2/encodeFirestoreTimestampsInPostWrite.js";
-import { normalizeMasterPostV2 } from "../../lib/posts/master-post-v2/normalizeMasterPostV2.js";
+import { normalizeMasterPostV2, type NormalizeMasterPostV2Options } from "../../lib/posts/master-post-v2/normalizeMasterPostV2.js";
 import { validateMasterPostV2 } from "../../lib/posts/master-post-v2/validateMasterPostV2.js";
 import type { EncodedVideoAssetResult } from "../video/video-post-encoding.pipeline.js";
 
@@ -110,6 +110,12 @@ export async function writeCompactLivePostAfterNativeVideoProcessing(input: {
   diagnosticsExtra?: Record<string, unknown>;
   /** Merged onto the final live write after compaction (e.g. `deferred1080Upgrade`). */
   extraLiveTopLevel?: Record<string, unknown>;
+  /** Forwarded to `normalizeMasterPostV2` (e.g. `postingFinalizeCanonicalizedBy` for alternate finalize pipelines). */
+  normalizeMasterPostV2Extras?: Omit<NormalizeMasterPostV2Options, "postId" | "now" | "postingFinalizeV2">;
+  /** Overrides `live.processing.source` (default `native_v2_finalize`). */
+  processingCompletedSource?: string;
+  /** Overrides diagnostics `source` field (default `native_v2_finalize`). */
+  diagnosticsDocSource?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const {
     db,
@@ -119,7 +125,10 @@ export async function writeCompactLivePostAfterNativeVideoProcessing(input: {
     workingPost,
     playbackLabDiagnosticsAssets,
     diagnosticsExtra,
-    extraLiveTopLevel
+    extraLiveTopLevel,
+    normalizeMasterPostV2Extras,
+    processingCompletedSource,
+    diagnosticsDocSource
   } = input;
   const nowMs = Date.now();
   const nowTs = Timestamp.fromMillis(nowMs);
@@ -128,7 +137,8 @@ export async function writeCompactLivePostAfterNativeVideoProcessing(input: {
     const normalized = normalizeMasterPostV2(workingPost, {
       postId,
       postingFinalizeV2: true,
-      now: new Date(nowMs)
+      now: new Date(nowMs),
+      ...(normalizeMasterPostV2Extras ?? {})
     });
     const validation = validateMasterPostV2(normalized.canonical);
     if (validation.blockingErrors.length > 0) {
@@ -163,13 +173,20 @@ export async function writeCompactLivePostAfterNativeVideoProcessing(input: {
       : Array.isArray(mediaObj?.assets)
         ? (mediaObj.assets as unknown[]).length
         : 0;
+    const wpProc = asRecord(workingPost.processing);
     live.processing = {
       status: "completed",
       phase: "ready",
       updatedAt: nowTs,
       updatedAtMs: nowMs,
       assetCount,
-      source: "native_v2_finalize"
+      source: processingCompletedSource ?? "native_v2_finalize",
+      ...(typeof wpProc?.colorPipelinePreset === "string" && wpProc.colorPipelinePreset.trim()
+        ? { colorPipelinePreset: wpProc.colorPipelinePreset.trim() }
+        : {}),
+      ...(typeof wpProc?.colorPipelineVersion === "number" && Number.isFinite(wpProc.colorPipelineVersion)
+        ? { colorPipelineVersion: wpProc.colorPipelineVersion }
+        : {})
     };
 
     const diagId = `${postId}_${nowMs}`;
@@ -179,7 +196,7 @@ export async function writeCompactLivePostAfterNativeVideoProcessing(input: {
       .set({
         postId,
         createdAt: new Date().toISOString(),
-        source: "native_v2_finalize",
+        source: diagnosticsDocSource ?? "native_v2_finalize",
         playbackLabAssets: playbackLabDiagnosticsAssets,
         compaction: {
           byteEstimateBefore: compact.byteEstimateBefore,

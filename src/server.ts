@@ -26,7 +26,12 @@ const start = async (): Promise<void> => {
       },
       "server started"
     );
-    app.log.info(getAnalyticsStartupLogPayload(app.config), "analytics_config");
+    const analyticsBoot = getAnalyticsStartupLogPayload(app.config);
+    const analyticsWarnings = Array.isArray(analyticsBoot.warnings) ? analyticsBoot.warnings : [];
+    app.log.info(analyticsBoot, "analytics_config");
+    if (analyticsWarnings.length > 0) {
+      app.log.warn({ ...analyticsBoot, warnings: analyticsWarnings }, "analytics_config_warnings");
+    }
     logVideoProcessingCloudTasksStartup(app.log);
 
     printDevListenUrlBanner(app.config.PORT, app.config.NODE_ENV, app.config);

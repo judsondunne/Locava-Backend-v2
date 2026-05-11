@@ -55,6 +55,8 @@ export type MasterPostVideoBlockV2 = {
     faststartVerified: boolean | null;
     processingStatus: string | null;
   };
+  /** Present when ladder URLs were produced under color-v2 (HDR tonemap / preset metadata). */
+  colorPipeline?: Record<string, unknown> | null;
 };
 
 /** Letterbox colors for contain / carousel presentation (optional provenance `source`). */
@@ -64,7 +66,11 @@ export type MasterPostLetterboxGradientV2 = {
   source?: string | null;
 };
 
-export type MasterPostCanonicalizedByV2 = "backend_v2_post_rebuilder" | "posting_finalize_v2";
+export type MasterPostCanonicalizedByV2 =
+  | "backend_v2_post_rebuilder"
+  | "posting_finalize_v2"
+  | "backend_v2_reels_mvp_publisher"
+  | "backend_v2_post_single_video_repair";
 
 export type MasterPostSourceShapeV2 =
   | "legacy_assets_video"
