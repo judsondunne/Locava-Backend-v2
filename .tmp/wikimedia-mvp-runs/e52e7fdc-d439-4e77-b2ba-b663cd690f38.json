@@ -1,0 +1,1367 @@
+{
+  "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+  "status": "complete",
+  "createdAtMs": 1778532971931,
+  "updatedAtMs": 1778532974391,
+  "places": [
+    "Shelburne Farms, Vermont, VT, Vermont, VT"
+  ],
+  "normalizedPlaces": [
+    "shelburne farms, vermont, vt, vermont, vt"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 3,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 60000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] grouping started",
+    "[info] group rejected because no located assets",
+    "[info] asset hygiene started",
+    "[info] visual hash computed",
+    "[info] visual hash computed",
+    "[info] group asset counts before/after hygiene",
+    "[info] generated post preview created after hygiene",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T20:56:11.932Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 3,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T20:56:11.935Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T20:56:11.937Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T20:56:12.450Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 3,
+        "queryTerms": [
+          "Shelburne Farms, Vermont, VT, Vermont, VT",
+          "Shelburne Farms, Vermont, VT, Vermont, VT landscape",
+          "Shelburne Farms, Vermont, VT, Vermont, VT hiking trail"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T20:56:12.699Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 3
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T20:56:12.712Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "7838dc87c9eddaf2",
+        "status": "KEEP",
+        "generatedTitle": "ShelburneFarns VT winter b"
+      }
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T20:56:12.714Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "9d0442ef61aff2c1",
+        "status": "KEEP",
+        "generatedTitle": "ShelburneFarns VT winter a"
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T20:56:12.714Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "1472633faf6476f3",
+        "status": "REJECT",
+        "generatedTitle": "Among the Pines Shelburne Farms , Burlington, Vt NYPL b"
+      }
+    },
+    {
+      "cursor": 8,
+      "timestamp": "2026-05-11T20:56:12.715Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 9,
+      "timestamp": "2026-05-11T20:56:12.717Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "group rejected because no located assets",
+      "data": {
+        "groupId": "8f0435fb71a4f14a",
+        "groupMethod": "exactDate",
+        "assetCount": 2,
+        "locatedAssetCount": 0,
+        "status": "REJECT"
+      }
+    },
+    {
+      "cursor": 10,
+      "timestamp": "2026-05-11T20:56:12.718Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "asset hygiene started",
+      "data": {
+        "groupId": "8f0435fb71a4f14a",
+        "originalAssetCount": 2
+      }
+    },
+    {
+      "cursor": 11,
+      "timestamp": "2026-05-11T20:56:13.550Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "visual hash computed",
+      "data": {
+        "candidateId": "7838dc87c9eddaf2",
+        "visualHash": "b2ba9b9a9697c961"
+      }
+    },
+    {
+      "cursor": 12,
+      "timestamp": "2026-05-11T20:56:14.382Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "visual hash computed",
+      "data": {
+        "candidateId": "9d0442ef61aff2c1",
+        "visualHash": "3f3f3f3f27a63737"
+      }
+    },
+    {
+      "cursor": 13,
+      "timestamp": "2026-05-11T20:56:14.386Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "group asset counts before/after hygiene",
+      "data": {
+        "groupId": "8f0435fb71a4f14a",
+        "before": 2,
+        "after": 2
+      }
+    },
+    {
+      "cursor": 14,
+      "timestamp": "2026-05-11T20:56:14.389Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "generated post preview created after hygiene",
+      "data": {
+        "postId": "8f0435fb71a4f14a",
+        "status": "REJECT",
+        "assetCount": 2,
+        "originalAssetCount": 2,
+        "keptAssetCount": 2,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "reviewAssetCount": 0,
+        "generatedTitle": "ShelburneFarns VT winter b"
+      }
+    },
+    {
+      "cursor": 15,
+      "timestamp": "2026-05-11T20:56:14.390Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 3,
+        "assetGroupsCount": 1,
+        "generatedPostsCount": 1,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 1,
+        "rejectedNoLocationGroupCount": 1,
+        "multiAssetPostCount": 1,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 2,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 2,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 16,
+          "elapsedMs": 2455
+        }
+      }
+    },
+    {
+      "cursor": 16,
+      "timestamp": "2026-05-11T20:56:14.391Z",
+      "level": "info",
+      "runId": "e52e7fdc-d439-4e77-b2ba-b663cd690f38",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 17,
+  "placeResults": [
+    {
+      "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+      "normalizedPlaceName": "shelburne farms, vermont, vt, vermont, vt",
+      "wikimediaQueryTerms": [
+        "Shelburne Farms, Vermont, VT, Vermont, VT",
+        "Shelburne Farms, Vermont, VT, Vermont, VT landscape",
+        "Shelburne Farms, Vermont, VT, Vermont, VT hiking trail"
+      ],
+      "candidateCount": 3,
+      "keptCount": 2,
+      "rejectedCount": 1,
+      "reviewCount": 0,
+      "totalRuntimeMs": 2455,
+      "budget": {
+        "wikimediaRequests": 2,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 16,
+        "elapsedMs": 2455
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [
+        {
+          "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+          "generatedTitle": "ShelburneFarns VT winter b",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "GilboNormand",
+          "license": "CC BY-SA 4.0",
+          "credit": "Own work",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 24,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=24.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 24,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 24,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "ShelburneFarns VT winter b",
+            "displayTitle": "ShelburneFarns VT winter b",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "locationLabel": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 2048,
+                "height": 1536,
+                "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778532972711,
+            "updatedAtMs": 1778532972711,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:ShelburneFarns VT winter1b.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "7838dc87c9eddaf2",
+          "dayKey": "2014-08-29",
+          "capturedAtMs": 1409277804000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 2048,
+          "height": 1536,
+          "groupId": "8f0435fb71a4f14a",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "b2ba9b9a9697c961",
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+          "generatedTitle": "ShelburneFarns VT winter a",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "GilboNormand",
+          "license": "CC BY-SA 4.0",
+          "credit": "Own work",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 24,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=24.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 24,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 24,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "ShelburneFarns VT winter a",
+            "displayTitle": "ShelburneFarns VT winter a",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "locationLabel": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 1684,
+                "height": 1347,
+                "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778532972714,
+            "updatedAtMs": 1778532972714,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:ShelburneFarns VT winter1a.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "9d0442ef61aff2c1",
+          "dayKey": "2014-08-29",
+          "capturedAtMs": 1409277805000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1684,
+          "height": 1347,
+          "groupId": "8f0435fb71a4f14a",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "3f3f3f3f27a63737",
+          "visualHashDistanceToPrimary": 32,
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:Among the Pines (Shelburne Farms), Burlington, Vt (NYPL b12647398-62993).tiff",
+          "generatedTitle": "Among the Pines Shelburne Farms , Burlington, Vt NYPL b",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAmong_the_Pines_(Shelburne_Farms)%2C_Burlington%2C_Vt_(NYPL_b12647398-62993).tiff",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Among_the_Pines_%28Shelburne_Farms%29%2C_Burlington%2C_Vt_%28NYPL_b12647398-62993%29.tiff/lossy-page1-330px-Among_the_Pines_%28Shelburne_Farms%29%2C_Burlington%2C_Vt_%28NYPL_b12647398-62993%29.tiff.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/7/72/Among_the_Pines_%28Shelburne_Farms%29%2C_Burlington%2C_Vt_%28NYPL_b12647398-62993%29.tiff?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Detroit Publishing Company",
+          "license": "Public domain",
+          "credit": "https://digitalcollections.nypl.org/items/510d47d9-a6e1-a3d9-e040-e00a18064a99",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1472633faf6476f3",
+          "dayKey": "2016-02-10",
+          "capturedAtMs": 1455125209000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1561,
+          "height": 2432
+        }
+      ],
+      "generatedPosts": [
+        {
+          "postId": "8f0435fb71a4f14a",
+          "groupId": "8f0435fb71a4f14a",
+          "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+          "generatedTitle": "ShelburneFarns VT winter b",
+          "titleReasoning": [
+            "Filename-like Commons title cleaned for display"
+          ],
+          "titleConfidence": "medium",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "status": "REJECT",
+          "rejectionReasons": [
+            "group_has_no_located_assets"
+          ],
+          "reasoning": [
+            "groupMethod=exactDate",
+            "groupKey=2014-08-29",
+            "assetCount=2",
+            "locatedAssetCount=0"
+          ],
+          "groupMethod": "exactDate",
+          "dateRange": {
+            "earliest": "2014-08-29",
+            "latest": "2014-08-29"
+          },
+          "assetCount": 2,
+          "locatedAssetCount": 0,
+          "originalAssetCount": 2,
+          "keptAssetCount": 2,
+          "rejectedAssetCount": 0,
+          "reviewAssetCount": 0,
+          "rejectedDuplicateCount": 0,
+          "rejectedHygieneCount": 0,
+          "removedAssets": [],
+          "reviewAssets": [],
+          "assetHygieneSummary": {
+            "originalAssetCount": 2,
+            "keptAssetCount": 2,
+            "rejectedAssetCount": 0,
+            "reviewAssetCount": 0,
+            "rejectedDuplicateCount": 0,
+            "rejectedHygieneCount": 0,
+            "rejectedPanoramaCount": 0,
+            "rejectedLowQualityCount": 0,
+            "rejectedBlackAndWhiteOrFilterCount": 0,
+            "possibleDuplicateReviewCount": 0
+          },
+          "selectedLocation": {
+            "candidateId": "7838dc87c9eddaf2",
+            "latitude": null,
+            "longitude": null,
+            "reasoning": "group_has_no_located_assets"
+          },
+          "groupedCandidateIds": [
+            "7838dc87c9eddaf2",
+            "9d0442ef61aff2c1"
+          ],
+          "media": [
+            {
+              "candidateId": "7838dc87c9eddaf2",
+              "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "GilboNormand",
+              "license": "CC BY-SA 4.0",
+              "credit": "Own work",
+              "width": 2048,
+              "height": 1536,
+              "suppliesPostLocation": false,
+              "hasRealAssetLocation": false,
+              "hygieneStatus": "PASS",
+              "duplicateDecision": "UNIQUE",
+              "hygieneReasons": [],
+              "hygieneWarnings": []
+            },
+            {
+              "candidateId": "9d0442ef61aff2c1",
+              "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "GilboNormand",
+              "license": "CC BY-SA 4.0",
+              "credit": "Own work",
+              "width": 1684,
+              "height": 1347,
+              "suppliesPostLocation": false,
+              "hasRealAssetLocation": false,
+              "hygieneStatus": "PASS",
+              "duplicateDecision": "UNIQUE",
+              "hygieneReasons": [],
+              "hygieneWarnings": [],
+              "visualHashDistanceToPrimary": 32
+            }
+          ],
+          "dryRunPostPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "title": "ShelburneFarns VT winter b",
+            "displayTitle": "ShelburneFarns VT winter b",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "activityReasoning": [
+              "default outdoor fallback"
+            ],
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "locationLabel": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "locationSelection": {
+              "candidateId": "7838dc87c9eddaf2",
+              "latitude": null,
+              "longitude": null,
+              "reasoning": "no located asset available"
+            },
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+                "author": "GilboNormand",
+                "license": "CC BY-SA 4.0",
+                "credit": "Own work",
+                "suppliesPostLocation": false
+              },
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+                "author": "GilboNormand",
+                "license": "CC BY-SA 4.0",
+                "credit": "Own work",
+                "suppliesPostLocation": false
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "groupedCandidateIds": [
+              "7838dc87c9eddaf2",
+              "9d0442ef61aff2c1"
+            ],
+            "groupId": "8f0435fb71a4f14a",
+            "groupMethod": "exactDate",
+            "groupReasoning": [
+              "groupMethod=exactDate",
+              "groupKey=2014-08-29",
+              "assetCount=2",
+              "locatedAssetCount=0"
+            ],
+            "candidateReasoning": [
+              {
+                "candidateId": "7838dc87c9eddaf2",
+                "reasoning": [
+                  "Filename-like Commons title cleaned for display",
+                  "default outdoor fallback",
+                  "relevance=24.0 quality=9.5 coolness=3.0"
+                ]
+              },
+              {
+                "candidateId": "9d0442ef61aff2c1",
+                "reasoning": [
+                  "Filename-like Commons title cleaned for display",
+                  "default outdoor fallback",
+                  "relevance=24.0 quality=9.5 coolness=3.0"
+                ]
+              }
+            ],
+            "status": "REJECT",
+            "rejectionReasons": [
+              "group_has_no_located_assets"
+            ],
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image_set",
+              "source": "wikimedia_commons"
+            }
+          },
+          "candidateReasoning": [
+            {
+              "candidateId": "7838dc87c9eddaf2",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=24.0 quality=9.5 coolness=3.0"
+              ]
+            },
+            {
+              "candidateId": "9d0442ef61aff2c1",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=24.0 quality=9.5 coolness=3.0"
+              ]
+            }
+          ]
+        }
+      ],
+      "assetGroups": [
+        {
+          "groupId": "8f0435fb71a4f14a",
+          "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+          "groupKey": "2014-08-29",
+          "groupMethod": "exactDate",
+          "dateRange": {
+            "earliest": "2014-08-29",
+            "latest": "2014-08-29"
+          },
+          "hasLocatedAsset": false,
+          "locatedAssetCount": 0,
+          "assetCount": 2,
+          "assets": [
+            {
+              "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+              "generatedTitle": "ShelburneFarns VT winter b",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "GilboNormand",
+              "license": "CC BY-SA 4.0",
+              "credit": "Own work",
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "activityReasoning": [
+                "default outdoor fallback"
+              ],
+              "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+              "titleConfidence": "medium",
+              "placeMatchConfidence": 1,
+              "qualityScore": 9.5,
+              "relevanceScore": 24,
+              "coolnessScore": 3,
+              "duplicateScore": null,
+              "duplicateReason": null,
+              "status": "KEEP",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=24.0 quality=9.5 coolness=3.0"
+              ],
+              "scores": {
+                "textMatch": 24,
+                "resolution": 8,
+                "coordinates": 0,
+                "outdoor": 0,
+                "metadata": 1.5,
+                "relevanceScore": 24,
+                "qualityScore": 9.5,
+                "coolnessScore": 3
+              },
+              "postPreview": {
+                "dryRun": true,
+                "source": "wikimedia_mvp_dev",
+                "title": "ShelburneFarns VT winter b",
+                "displayTitle": "ShelburneFarns VT winter b",
+                "content": "",
+                "caption": "",
+                "activities": [
+                  "walking",
+                  "view"
+                ],
+                "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+                "lat": null,
+                "long": null,
+                "lng": null,
+                "address": "Shelburne Farms, Vermont, VT, Vermont, VT",
+                "locationLabel": "Shelburne Farms, Vermont, VT, Vermont, VT",
+                "mediaType": "image",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "photoLink": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "assets": [
+                  {
+                    "type": "image",
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                    "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                    "width": 2048,
+                    "height": 1536,
+                    "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+                    "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+                    "mime": "image/jpeg"
+                  }
+                ],
+                "assetsReady": true,
+                "mediaStatus": "ready",
+                "createdAtMs": 1778532972711,
+                "updatedAtMs": 1778532972711,
+                "likesCount": 0,
+                "commentsCount": 0,
+                "classification": {
+                  "activities": [
+                    "walking",
+                    "view"
+                  ],
+                  "primaryActivity": "walking",
+                  "mediaKind": "image",
+                  "source": "wikimedia_commons"
+                },
+                "provenance": {
+                  "commonsFileTitle": "File:ShelburneFarns VT winter1b.jpg",
+                  "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+                  "candidateStatus": "KEEP"
+                }
+              },
+              "candidateId": "7838dc87c9eddaf2",
+              "dayKey": "2014-08-29",
+              "capturedAtMs": 1409277804000,
+              "assetLatitude": null,
+              "assetLongitude": null,
+              "hasRealAssetLocation": false,
+              "width": 2048,
+              "height": 1536,
+              "groupId": "8f0435fb71a4f14a",
+              "hygieneStatus": "PASS",
+              "hygieneReasons": [],
+              "hygieneWarnings": [],
+              "duplicateDecision": "UNIQUE",
+              "qualityFlags": {},
+              "visualHash": "b2ba9b9a9697c961"
+            },
+            {
+              "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+              "generatedTitle": "ShelburneFarns VT winter a",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "GilboNormand",
+              "license": "CC BY-SA 4.0",
+              "credit": "Own work",
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "activityReasoning": [
+                "default outdoor fallback"
+              ],
+              "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+              "titleConfidence": "medium",
+              "placeMatchConfidence": 1,
+              "qualityScore": 9.5,
+              "relevanceScore": 24,
+              "coolnessScore": 3,
+              "duplicateScore": null,
+              "duplicateReason": null,
+              "status": "KEEP",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=24.0 quality=9.5 coolness=3.0"
+              ],
+              "scores": {
+                "textMatch": 24,
+                "resolution": 8,
+                "coordinates": 0,
+                "outdoor": 0,
+                "metadata": 1.5,
+                "relevanceScore": 24,
+                "qualityScore": 9.5,
+                "coolnessScore": 3
+              },
+              "postPreview": {
+                "dryRun": true,
+                "source": "wikimedia_mvp_dev",
+                "title": "ShelburneFarns VT winter a",
+                "displayTitle": "ShelburneFarns VT winter a",
+                "content": "",
+                "caption": "",
+                "activities": [
+                  "walking",
+                  "view"
+                ],
+                "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+                "lat": null,
+                "long": null,
+                "lng": null,
+                "address": "Shelburne Farms, Vermont, VT, Vermont, VT",
+                "locationLabel": "Shelburne Farms, Vermont, VT, Vermont, VT",
+                "mediaType": "image",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "photoLink": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "assets": [
+                  {
+                    "type": "image",
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                    "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                    "width": 1684,
+                    "height": 1347,
+                    "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+                    "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+                    "mime": "image/jpeg"
+                  }
+                ],
+                "assetsReady": true,
+                "mediaStatus": "ready",
+                "createdAtMs": 1778532972714,
+                "updatedAtMs": 1778532972714,
+                "likesCount": 0,
+                "commentsCount": 0,
+                "classification": {
+                  "activities": [
+                    "walking",
+                    "view"
+                  ],
+                  "primaryActivity": "walking",
+                  "mediaKind": "image",
+                  "source": "wikimedia_commons"
+                },
+                "provenance": {
+                  "commonsFileTitle": "File:ShelburneFarns VT winter1a.jpg",
+                  "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+                  "candidateStatus": "KEEP"
+                }
+              },
+              "candidateId": "9d0442ef61aff2c1",
+              "dayKey": "2014-08-29",
+              "capturedAtMs": 1409277805000,
+              "assetLatitude": null,
+              "assetLongitude": null,
+              "hasRealAssetLocation": false,
+              "width": 1684,
+              "height": 1347,
+              "groupId": "8f0435fb71a4f14a",
+              "hygieneStatus": "PASS",
+              "hygieneReasons": [],
+              "hygieneWarnings": [],
+              "duplicateDecision": "UNIQUE",
+              "qualityFlags": {},
+              "visualHash": "3f3f3f3f27a63737",
+              "visualHashDistanceToPrimary": 32
+            }
+          ],
+          "representativeAssetId": "7838dc87c9eddaf2",
+          "generatedTitle": "ShelburneFarns VT winter b",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "status": "REJECT",
+          "rejectionReasons": [
+            "group_has_no_located_assets"
+          ],
+          "reasoning": [
+            "groupMethod=exactDate",
+            "groupKey=2014-08-29",
+            "assetCount=2",
+            "locatedAssetCount=0"
+          ],
+          "originalAssetCount": 2,
+          "keptAssetCount": 2,
+          "rejectedAssetCount": 0,
+          "reviewAssetCount": 0,
+          "rejectedDuplicateCount": 0,
+          "rejectedHygieneCount": 0,
+          "removedAssets": [],
+          "reviewAssets": [],
+          "assetHygieneSummary": {
+            "originalAssetCount": 2,
+            "keptAssetCount": 2,
+            "rejectedAssetCount": 0,
+            "reviewAssetCount": 0,
+            "rejectedDuplicateCount": 0,
+            "rejectedHygieneCount": 0,
+            "rejectedPanoramaCount": 0,
+            "rejectedLowQualityCount": 0,
+            "rejectedBlackAndWhiteOrFilterCount": 0,
+            "possibleDuplicateReviewCount": 0
+          }
+        }
+      ],
+      "summary": {
+        "candidateCount": 3,
+        "assetGroupsCount": 1,
+        "generatedPostsCount": 1,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 1,
+        "rejectedNoLocationGroupCount": 1,
+        "multiAssetPostCount": 1,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 2,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 2,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 16,
+          "elapsedMs": 2455
+        }
+      },
+      "candidates": [
+        {
+          "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+          "generatedTitle": "ShelburneFarns VT winter b",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "GilboNormand",
+          "license": "CC BY-SA 4.0",
+          "credit": "Own work",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 24,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=24.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 24,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 24,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "ShelburneFarns VT winter b",
+            "displayTitle": "ShelburneFarns VT winter b",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "locationLabel": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/5/5b/ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5b/ShelburneFarns_VT_winter1b.jpg/330px-ShelburneFarns_VT_winter1b.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 2048,
+                "height": 1536,
+                "sourceTitle": "File:ShelburneFarns VT winter1b.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778532972711,
+            "updatedAtMs": 1778532972711,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:ShelburneFarns VT winter1b.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1b.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "7838dc87c9eddaf2",
+          "dayKey": "2014-08-29",
+          "capturedAtMs": 1409277804000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 2048,
+          "height": 1536,
+          "groupId": "8f0435fb71a4f14a",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "b2ba9b9a9697c961",
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+          "generatedTitle": "ShelburneFarns VT winter a",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "GilboNormand",
+          "license": "CC BY-SA 4.0",
+          "credit": "Own work",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 24,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=24.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 24,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 24,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "ShelburneFarns VT winter a",
+            "displayTitle": "ShelburneFarns VT winter a",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "locationLabel": "Shelburne Farms, Vermont, VT, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/8/8f/ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8f/ShelburneFarns_VT_winter1a.jpg/330px-ShelburneFarns_VT_winter1a.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 1684,
+                "height": 1347,
+                "sourceTitle": "File:ShelburneFarns VT winter1a.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778532972714,
+            "updatedAtMs": 1778532972714,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:ShelburneFarns VT winter1a.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AShelburneFarns_VT_winter1a.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "9d0442ef61aff2c1",
+          "dayKey": "2014-08-29",
+          "capturedAtMs": 1409277805000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1684,
+          "height": 1347,
+          "groupId": "8f0435fb71a4f14a",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "3f3f3f3f27a63737",
+          "visualHashDistanceToPrimary": 32,
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:Among the Pines (Shelburne Farms), Burlington, Vt (NYPL b12647398-62993).tiff",
+          "generatedTitle": "Among the Pines Shelburne Farms , Burlington, Vt NYPL b",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAmong_the_Pines_(Shelburne_Farms)%2C_Burlington%2C_Vt_(NYPL_b12647398-62993).tiff",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/72/Among_the_Pines_%28Shelburne_Farms%29%2C_Burlington%2C_Vt_%28NYPL_b12647398-62993%29.tiff/lossy-page1-330px-Among_the_Pines_%28Shelburne_Farms%29%2C_Burlington%2C_Vt_%28NYPL_b12647398-62993%29.tiff.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/7/72/Among_the_Pines_%28Shelburne_Farms%29%2C_Burlington%2C_Vt_%28NYPL_b12647398-62993%29.tiff?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Detroit Publishing Company",
+          "license": "Public domain",
+          "credit": "https://digitalcollections.nypl.org/items/510d47d9-a6e1-a3d9-e040-e00a18064a99",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1472633faf6476f3",
+          "dayKey": "2016-02-10",
+          "capturedAtMs": 1455125209000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1561,
+          "height": 2432
+        }
+      ]
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 2,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 16,
+    "elapsedMs": 2455
+  },
+  "error": null
+}

@@ -56,6 +56,7 @@ async function seedSimplePosts(input: {
   privateEvery?: number;
   omitMediaEvery?: number;
   reelPredicate?: (slot: number) => boolean;
+  tierForSlot?: (slot: number) => number | null;
 }): Promise<string[]> {
   confirmEmulatorOnlyTestWrite("feed-for-you-simple.routes.test.seedSimplePosts", "posts");
   const db = getFirestoreSourceClient();
@@ -111,6 +112,8 @@ async function seedSimplePosts(input: {
         lastUpdated: baseMs - slot * 1_000 + 200,
         randomKey: (slot + 0.5) / 100,
         reel: input.reelPredicate ? input.reelPredicate(slot) : true,
+        moderatorTier: input.tierForSlot ? input.tierForSlot(slot) : null,
+        classification: input.tierForSlot ? { moderatorTier: input.tierForSlot(slot) } : undefined,
         privacy: isPrivate ? "private" : "public",
         visibility: isPrivate ? "private" : "public",
         status: hidden ? "archived" : "active",
@@ -741,5 +744,46 @@ describe.runIf(isEmulator)("v2 feed for-you simple route (emulator)", () => {
     const ids50 = new Set(b50.data.items.map((i) => i.postId));
     expect(ids50.has(nearId)).toBe(true);
     expect(ids50.has(farId)).toBe(true);
+  });
+
+  it("serves tier 5 reels before tier 4 reels on the first page", async () => {
+    await wipePostsCollection();
+    await wipeFeedSeenCollection();
+    const viewerId = "simple-viewer-tier-order";
+    const seedKey = `simple-tier-order-${Date.now()}`;
+    await seedSimplePosts({
+      seedKey,
+      count: 10,
+      reelPredicate: () => true,
+      tierForSlot: (slot) => (slot <= 3 ? 5 : slot <= 6 ? 4 : 2)
+    });
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const response = await app.inject({
+      method: "GET",
+      url: `/v2/feed/for-you/simple?viewerId=${viewerId}&limit=5`,
+      headers
+    });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as {
+      data: {
+        items: Array<{ postId: string }>;
+        exhausted: boolean;
+        nextCursor: string | null;
+      };
+    };
+    expect(body.data.items).toHaveLength(5);
+    expect(body.data.exhausted).toBe(false);
+    expect(body.data.nextCursor).toBeTruthy();
+    const db = getFirestoreSourceClient();
+    if (!db) throw new Error("firestore_unavailable_for_test");
+    const tiers = await Promise.all(
+      body.data.items.map(async (item) => {
+        const snap = await db.collection("posts").doc(item.postId).get();
+        const data = snap.data() as { classification?: { moderatorTier?: number }; moderatorTier?: number };
+        return data.classification?.moderatorTier ?? data.moderatorTier ?? null;
+      })
+    );
+    expect(tiers.filter((tier) => tier === 5).length).toBeGreaterThanOrEqual(3);
+    expect(tiers.every((tier) => tier === 5 || tier === 4)).toBe(true);
   });
 });

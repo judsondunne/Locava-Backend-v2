@@ -1,0 +1,501 @@
+{
+  "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+  "status": "complete",
+  "createdAtMs": 1778536283823,
+  "updatedAtMs": 1778536285848,
+  "places": [
+    "Balm of Gilead Beach, Vermont, VT"
+  ],
+  "normalizedPlaces": [
+    "balm of gilead beach, vermont, vt"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 500,
+  "fetchAll": true,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 180000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] grouping started",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T21:51:23.823Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 500,
+        "fetchAll": true
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T21:51:23.825Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T21:51:23.825Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T21:51:25.707Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 3,
+        "queryTerms": [
+          "Balm of Gilead Beach, Vermont, VT"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T21:51:25.839Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 3
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T21:51:25.841Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "3e44c459251a5518",
+        "status": "REJECT",
+        "generatedTitle": "Flora of Willoughby, Vermont IA floraofwilloughb kennrich .pdf"
+      }
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T21:51:25.842Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "a9c622028f675721",
+        "status": "REJECT",
+        "generatedTitle": "History of Dakota and Goodhue counties, Minnesota"
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T21:51:25.843Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "e727b6f184ecf4d3",
+        "status": "REJECT",
+        "generatedTitle": "A geographical view of the province of Upper Canada and promiscuous remarks of the government microform"
+      }
+    },
+    {
+      "cursor": 8,
+      "timestamp": "2026-05-11T21:51:25.844Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 9,
+      "timestamp": "2026-05-11T21:51:25.847Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 3,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 2,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 52,
+          "elapsedMs": 2022
+        }
+      }
+    },
+    {
+      "cursor": 10,
+      "timestamp": "2026-05-11T21:51:25.848Z",
+      "level": "info",
+      "runId": "676673d6-8921-44f6-9bc8-2df8da101ef1",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 11,
+  "placeResults": [
+    {
+      "placeName": "Balm of Gilead Beach, Vermont, VT",
+      "normalizedPlaceName": "balm of gilead beach, vermont, vt",
+      "wikimediaQueryTerms": [
+        "Balm of Gilead Beach, Vermont, VT"
+      ],
+      "candidateCount": 3,
+      "keptCount": 0,
+      "rejectedCount": 3,
+      "reviewCount": 0,
+      "totalRuntimeMs": 2022,
+      "budget": {
+        "wikimediaRequests": 2,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 52,
+        "elapsedMs": 2022
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [
+        {
+          "sourceTitle": "File:Flora of Willoughby, Vermont (IA floraofwilloughb00kennrich).pdf",
+          "generatedTitle": "Flora of Willoughby, Vermont IA floraofwilloughb kennrich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFlora_of_Willoughby%2C_Vermont_(IA_floraofwilloughb00kennrich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Flora_of_Willoughby%2C_Vermont_%28IA_floraofwilloughb00kennrich%29.pdf/page1-330px-Flora_of_Willoughby%2C_Vermont_%28IA_floraofwilloughb00kennrich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/e0/Flora_of_Willoughby%2C_Vermont_%28IA_floraofwilloughb00kennrich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Kennedy, George Golding",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : floraofwilloughb00kennrich https://archive.org/download/floraofwilloughb00kennrich/floraofwilloughb00kennrich.pdf",
+          "activities": [
+            "swimming"
+          ],
+          "activityReasoning": [
+            "place swim/beach keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.25,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "place swim/beach keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "3e44c459251a5518",
+          "dayKey": "2020-10-19",
+          "capturedAtMs": 1603118796000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 814,
+          "height": 1327
+        },
+        {
+          "sourceTitle": "File:History of Dakota and Goodhue counties, Minnesota - (IA historyofdakotag21curt).pdf",
+          "generatedTitle": "History of Dakota and Goodhue counties, Minnesota",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AHistory_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_(IA_historyofdakotag21curt).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8b/History_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_%28IA_historyofdakotag21curt%29.pdf/page1-330px-History_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_%28IA_historyofdakotag21curt%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/8b/History_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_%28IA_historyofdakotag21curt%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Curtiss-Wedge, Franklyn",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : historyofdakotag21curt https://archive.org/download/historyofdakotag21curt/historyofdakotag21curt.pdf",
+          "activities": [
+            "swimming"
+          ],
+          "activityReasoning": [
+            "place swim/beach keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "place swim/beach keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "a9c622028f675721",
+          "dayKey": "2020-11-06",
+          "capturedAtMs": 1604693146000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 870,
+          "height": 1441
+        },
+        {
+          "sourceTitle": "File:A geographical view of the province of Upper Canada and promiscuous remarks of the government (microform) - in two parts with an appendix containing a complete description of the Niagara Falls and (IA cihm 41899).pdf",
+          "generatedTitle": "A geographical view of the province of Upper Canada and promiscuous remarks of the government microform",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AA_geographical_view_of_the_province_of_Upper_Canada_and_promiscuous_remarks_of_the_government_(microform)_-_in_two_parts_with_an_appendix_containing_a_complete_description_of_the_Niagara_Falls_and_(IA_cihm_41899).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/A_geographical_view_of_the_province_of_Upper_Canada_and_promiscuous_remarks_of_the_government_%28microform%29_-_in_two_parts_with_an_appendix_containing_a_complete_description_of_the_Niagara_Falls_and_%28IA_cihm_41899%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/b0/A_geographical_view_of_the_province_of_Upper_Canada_and_promiscuous_remarks_of_the_government_%28microform%29_-_in_two_parts_with_an_appendix_containing_a_complete_description_of_the_Niagara_Falls_and_%28IA_cihm_41899%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "by M. Smith.",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_41899 https://archive.org/download/cihm_41899/cihm_41899.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "waterfall",
+            "swimming"
+          ],
+          "activityReasoning": [
+            "asset water feature keyword",
+            "place swim/beach keyword"
+          ],
+          "activityUncertainty": "Weak activity signal",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset water feature keyword",
+            "place swim/beach keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "e727b6f184ecf4d3",
+          "dayKey": "2021-01-30",
+          "capturedAtMs": 1612043823000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1170,
+          "height": 1435
+        }
+      ],
+      "generatedPosts": [],
+      "assetGroups": [],
+      "summary": {
+        "candidateCount": 3,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 2,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 52,
+          "elapsedMs": 2022
+        }
+      },
+      "candidates": [
+        {
+          "sourceTitle": "File:Flora of Willoughby, Vermont (IA floraofwilloughb00kennrich).pdf",
+          "generatedTitle": "Flora of Willoughby, Vermont IA floraofwilloughb kennrich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFlora_of_Willoughby%2C_Vermont_(IA_floraofwilloughb00kennrich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e0/Flora_of_Willoughby%2C_Vermont_%28IA_floraofwilloughb00kennrich%29.pdf/page1-330px-Flora_of_Willoughby%2C_Vermont_%28IA_floraofwilloughb00kennrich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/e0/Flora_of_Willoughby%2C_Vermont_%28IA_floraofwilloughb00kennrich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Kennedy, George Golding",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : floraofwilloughb00kennrich https://archive.org/download/floraofwilloughb00kennrich/floraofwilloughb00kennrich.pdf",
+          "activities": [
+            "swimming"
+          ],
+          "activityReasoning": [
+            "place swim/beach keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.25,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "place swim/beach keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "3e44c459251a5518",
+          "dayKey": "2020-10-19",
+          "capturedAtMs": 1603118796000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 814,
+          "height": 1327
+        },
+        {
+          "sourceTitle": "File:History of Dakota and Goodhue counties, Minnesota - (IA historyofdakotag21curt).pdf",
+          "generatedTitle": "History of Dakota and Goodhue counties, Minnesota",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AHistory_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_(IA_historyofdakotag21curt).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/8b/History_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_%28IA_historyofdakotag21curt%29.pdf/page1-330px-History_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_%28IA_historyofdakotag21curt%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/8b/History_of_Dakota_and_Goodhue_counties%2C_Minnesota_-_%28IA_historyofdakotag21curt%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Curtiss-Wedge, Franklyn",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : historyofdakotag21curt https://archive.org/download/historyofdakotag21curt/historyofdakotag21curt.pdf",
+          "activities": [
+            "swimming"
+          ],
+          "activityReasoning": [
+            "place swim/beach keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "place swim/beach keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "a9c622028f675721",
+          "dayKey": "2020-11-06",
+          "capturedAtMs": 1604693146000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 870,
+          "height": 1441
+        },
+        {
+          "sourceTitle": "File:A geographical view of the province of Upper Canada and promiscuous remarks of the government (microform) - in two parts with an appendix containing a complete description of the Niagara Falls and (IA cihm 41899).pdf",
+          "generatedTitle": "A geographical view of the province of Upper Canada and promiscuous remarks of the government microform",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AA_geographical_view_of_the_province_of_Upper_Canada_and_promiscuous_remarks_of_the_government_(microform)_-_in_two_parts_with_an_appendix_containing_a_complete_description_of_the_Niagara_Falls_and_(IA_cihm_41899).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b0/A_geographical_view_of_the_province_of_Upper_Canada_and_promiscuous_remarks_of_the_government_%28microform%29_-_in_two_parts_with_an_appendix_containing_a_complete_description_of_the_Niagara_Falls_and_%28IA_cihm_41899%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/b0/A_geographical_view_of_the_province_of_Upper_Canada_and_promiscuous_remarks_of_the_government_%28microform%29_-_in_two_parts_with_an_appendix_containing_a_complete_description_of_the_Niagara_Falls_and_%28IA_cihm_41899%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "by M. Smith.",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_41899 https://archive.org/download/cihm_41899/cihm_41899.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "waterfall",
+            "swimming"
+          ],
+          "activityReasoning": [
+            "asset water feature keyword",
+            "place swim/beach keyword"
+          ],
+          "activityUncertainty": "Weak activity signal",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset water feature keyword",
+            "place swim/beach keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "e727b6f184ecf4d3",
+          "dayKey": "2021-01-30",
+          "capturedAtMs": 1612043823000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1170,
+          "height": 1435
+        }
+      ]
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 2,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 52,
+    "elapsedMs": 2022
+  },
+  "error": null
+}

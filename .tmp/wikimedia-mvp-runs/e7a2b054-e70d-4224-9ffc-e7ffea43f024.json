@@ -1,0 +1,215 @@
+{
+  "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+  "status": "complete",
+  "createdAtMs": 1778532566792,
+  "updatedAtMs": 1778532568029,
+  "places": [
+    "Lincoln Gap, Vermont, VT, 44.0952,-72.929"
+  ],
+  "normalizedPlaces": [
+    "lincoln gap, vermont, vt, 44.0952,-72.929"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 3,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 60000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] grouping started",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T20:49:26.792Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 3,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T20:49:26.792Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "placeName": "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T20:49:26.793Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "placeName": "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T20:49:28.028Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "placeName": "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 0,
+        "queryTerms": [
+          "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+          "Lincoln Gap, Vermont, VT, 44.0952,-72.929 landscape",
+          "Lincoln Gap, Vermont, VT, 44.0952,-72.929 hiking trail"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T20:49:28.029Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "placeName": "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 0
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T20:49:28.029Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "placeName": "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T20:49:28.029Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "placeName": "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 0,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 3,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 15,
+          "elapsedMs": 1237
+        }
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T20:49:28.029Z",
+      "level": "info",
+      "runId": "e7a2b054-e70d-4224-9ffc-e7ffea43f024",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 8,
+  "placeResults": [
+    {
+      "placeName": "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+      "normalizedPlaceName": "lincoln gap, vermont, vt, 44.0952,-72.929",
+      "wikimediaQueryTerms": [
+        "Lincoln Gap, Vermont, VT, 44.0952,-72.929",
+        "Lincoln Gap, Vermont, VT, 44.0952,-72.929 landscape",
+        "Lincoln Gap, Vermont, VT, 44.0952,-72.929 hiking trail"
+      ],
+      "candidateCount": 0,
+      "keptCount": 0,
+      "rejectedCount": 0,
+      "reviewCount": 0,
+      "totalRuntimeMs": 1237,
+      "budget": {
+        "wikimediaRequests": 3,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 15,
+        "elapsedMs": 1237
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [],
+      "generatedPosts": [],
+      "assetGroups": [],
+      "summary": {
+        "candidateCount": 0,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 3,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 15,
+          "elapsedMs": 1237
+        }
+      },
+      "candidates": []
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 3,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 15,
+    "elapsedMs": 1237
+  },
+  "error": null
+}

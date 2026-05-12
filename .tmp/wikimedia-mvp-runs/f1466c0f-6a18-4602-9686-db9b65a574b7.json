@@ -1,0 +1,3665 @@
+{
+  "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+  "status": "complete",
+  "createdAtMs": 1778535295082,
+  "updatedAtMs": 1778535296679,
+  "places": [
+    "Appalachian Gap, Vermont, VT"
+  ],
+  "normalizedPlaces": [
+    "appalachian gap, vermont, vt"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 200,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 60000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] grouping started",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T21:34:55.082Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 200,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T21:34:55.082Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T21:34:55.083Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T21:34:56.082Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 36,
+        "queryTerms": [
+          "Appalachian Gap, Vermont, VT",
+          "Appalachian Gap, Vermont, VT landscape",
+          "Appalachian Gap, Vermont, VT hiking trail"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T21:34:56.669Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 36
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T21:34:56.669Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "522a585e44cd1ca9",
+        "status": "REJECT",
+        "generatedTitle": "Woman s Who s who of America.pdf"
+      }
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T21:34:56.670Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "3e5bd3141a205a51",
+        "status": "REJECT",
+        "generatedTitle": "APPA Foundation-Document December .pdf"
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T21:34:56.670Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "44c307bd3b2b6d93",
+        "status": "REJECT",
+        "generatedTitle": "Appalachian NST CompPlan web.pdf"
+      }
+    },
+    {
+      "cursor": 8,
+      "timestamp": "2026-05-11T21:34:56.670Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "670f9fbfa06910db",
+        "status": "REJECT",
+        "generatedTitle": "FINANCING EMPLOYEE OWNERSHIP PROGRAMS"
+      }
+    },
+    {
+      "cursor": 9,
+      "timestamp": "2026-05-11T21:34:56.670Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "aa000f1da02c414e",
+        "status": "REJECT",
+        "generatedTitle": "A geographical description of the states of Maryland and Delaware IA geographicaldesc scot .pdf"
+      }
+    },
+    {
+      "cursor": 10,
+      "timestamp": "2026-05-11T21:34:56.670Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "45d82764cef03574",
+        "status": "REJECT",
+        "generatedTitle": "Agriculture fact book IA CAT .pdf"
+      }
+    },
+    {
+      "cursor": 11,
+      "timestamp": "2026-05-11T21:34:56.670Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "b677a1ce9ce20aaa",
+        "status": "REJECT",
+        "generatedTitle": "Fire history of the White Mountain National Forest and Green Mountain National Forests"
+      }
+    },
+    {
+      "cursor": 12,
+      "timestamp": "2026-05-11T21:34:56.671Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "37e1f4c79ac932e6",
+        "status": "REJECT",
+        "generatedTitle": "Snow and ice bulletin IA CAT .pdf"
+      }
+    },
+    {
+      "cursor": 13,
+      "timestamp": "2026-05-11T21:34:56.671Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "e75bcb828ca43b7c",
+        "status": "REJECT",
+        "generatedTitle": "The New imperial encyclopedia and dictionary a library of universal knowledge and an unabridged dictionary of the English language under one alphabet Vol. , VIRE-WIGTON IA newimper"
+      }
+    },
+    {
+      "cursor": 14,
+      "timestamp": "2026-05-11T21:34:56.671Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "097de7fc2031b188",
+        "status": "REJECT",
+        "generatedTitle": "The Appalachian Trail IA appalachiantrail unit .pdf"
+      }
+    },
+    {
+      "cursor": 15,
+      "timestamp": "2026-05-11T21:34:56.671Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "ffe4e62db4a116e0",
+        "status": "REJECT",
+        "generatedTitle": "The national gazetteer a geographical dictionary of the United States IA nationalgazettee cola .pdf"
+      }
+    },
+    {
+      "cursor": 16,
+      "timestamp": "2026-05-11T21:34:56.671Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "5d2fa7f0ed7085f1",
+        "status": "REJECT",
+        "generatedTitle": "Connecticut River Streambank Erosion Study, Massachusetts, New Hampshire and Vermont"
+      }
+    },
+    {
+      "cursor": 17,
+      "timestamp": "2026-05-11T21:34:56.672Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "1f2967bb5a1945c5",
+        "status": "REJECT",
+        "generatedTitle": "NOMINATIONS OF SANTANU K. BARUAH GEORGE M. GRAY LYONS GRAY H. DALE HALL AND EDWARD McGAFFIGAN, JR. IA gov.gpo.fdsys.CHRG"
+      }
+    },
+    {
+      "cursor": 18,
+      "timestamp": "2026-05-11T21:34:56.672Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "4cf1f103f4274912",
+        "status": "REJECT",
+        "generatedTitle": "Report of Second National Apple Utilization Conference held at Yakima, Wash., May"
+      }
+    },
+    {
+      "cursor": 19,
+      "timestamp": "2026-05-11T21:34:56.672Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "194c345578ad9bce",
+        "status": "REJECT",
+        "generatedTitle": "Soil and water conservation news IA CAT .pdf"
+      }
+    },
+    {
+      "cursor": 20,
+      "timestamp": "2026-05-11T21:34:56.672Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "ed2e55f6571afc23",
+        "status": "REJECT",
+        "generatedTitle": "Snow and ice bulletin IA CAT .pdf"
+      }
+    },
+    {
+      "cursor": 21,
+      "timestamp": "2026-05-11T21:34:56.673Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "b398e2394e339ba0",
+        "status": "REJECT",
+        "generatedTitle": "The imperial encyclopedia and dictionary a library of universal knowledge and an unabridged dictionary of the English language under one alphabet... Vol. , Vire"
+      }
+    },
+    {
+      "cursor": 22,
+      "timestamp": "2026-05-11T21:34:56.673Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "b80b6780f4b888c7",
+        "status": "REJECT",
+        "generatedTitle": "Genetics of sugar maple IA geneticsofsugarm krie .pdf"
+      }
+    },
+    {
+      "cursor": 23,
+      "timestamp": "2026-05-11T21:34:56.673Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "ff37b40247066528",
+        "status": "REJECT",
+        "generatedTitle": "The Engineering and Mining Journal January-June"
+      }
+    },
+    {
+      "cursor": 24,
+      "timestamp": "2026-05-11T21:34:56.673Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "3396d463481a15f7",
+        "status": "REJECT",
+        "generatedTitle": "The Engineering and Mining Journal July"
+      }
+    },
+    {
+      "cursor": 25,
+      "timestamp": "2026-05-11T21:34:56.674Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "ef8226d51a74c2b9",
+        "status": "REJECT",
+        "generatedTitle": "Federal Register"
+      }
+    },
+    {
+      "cursor": 26,
+      "timestamp": "2026-05-11T21:34:56.674Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "e79cfc3552771c74",
+        "status": "REJECT",
+        "generatedTitle": "Federal Register"
+      }
+    },
+    {
+      "cursor": 27,
+      "timestamp": "2026-05-11T21:34:56.674Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "5e2fc1d3d89ff002",
+        "status": "REJECT",
+        "generatedTitle": "Travels in North America microform"
+      }
+    },
+    {
+      "cursor": 28,
+      "timestamp": "2026-05-11T21:34:56.674Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "06becf624cce8c12",
+        "status": "REJECT",
+        "generatedTitle": "Comprehensive Database of Diameter-based Biomass Regressions for North American Tree Species.pdf"
+      }
+    },
+    {
+      "cursor": 29,
+      "timestamp": "2026-05-11T21:34:56.674Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "bdc39310bfdaa641",
+        "status": "REJECT",
+        "generatedTitle": "Woman's who's who of America,"
+      }
+    },
+    {
+      "cursor": 30,
+      "timestamp": "2026-05-11T21:34:56.675Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "87b8f896bb5a2920",
+        "status": "REJECT",
+        "generatedTitle": "The Morris and Essex R. R., and the anthracite coal regions of Pennsylvania IA morrisessexrrant wall .pdf"
+      }
+    },
+    {
+      "cursor": 31,
+      "timestamp": "2026-05-11T21:34:56.675Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "9c3a867096554a49",
+        "status": "REJECT",
+        "generatedTitle": "The centennial gazetteer of the United States IA centennialgazett stei .pdf"
+      }
+    },
+    {
+      "cursor": 32,
+      "timestamp": "2026-05-11T21:34:56.675Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "8842b45ecf49ab22",
+        "status": "REJECT",
+        "generatedTitle": "The centennial gazetteer of the United States IA centennialgazett stei .pdf"
+      }
+    },
+    {
+      "cursor": 33,
+      "timestamp": "2026-05-11T21:34:56.675Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "a3fdf941f23c43a2",
+        "status": "REJECT",
+        "generatedTitle": "Bulletin of the Museum of Comparative Zoology at Harvard College IA p bulletinofmuse harv .pdf"
+      }
+    },
+    {
+      "cursor": 34,
+      "timestamp": "2026-05-11T21:34:56.675Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "5ceeb484722be28d",
+        "status": "REJECT",
+        "generatedTitle": "The national gazetteer a geographical dictionary of the United States IA nationalgazettee cola .pdf"
+      }
+    },
+    {
+      "cursor": 35,
+      "timestamp": "2026-05-11T21:34:56.675Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "6cafef97df05400c",
+        "status": "REJECT",
+        "generatedTitle": "An introduction to geology IA introductionto scot .pdf"
+      }
+    },
+    {
+      "cursor": 36,
+      "timestamp": "2026-05-11T21:34:56.676Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "ede66ab650a02015",
+        "status": "REJECT",
+        "generatedTitle": "Departments of Labor, Health and Human Services, and Education, and related agencies appropriation bill,"
+      }
+    },
+    {
+      "cursor": 37,
+      "timestamp": "2026-05-11T21:34:56.676Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "48165860300399e9",
+        "status": "REJECT",
+        "generatedTitle": "A dictionary of altitudes in the United States IA dictionaryofalti gannrich .pdf"
+      }
+    },
+    {
+      "cursor": 38,
+      "timestamp": "2026-05-11T21:34:56.676Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "b17caa4cabd8f61d",
+        "status": "REJECT",
+        "generatedTitle": "Notes on special collections in American libraries IA notesonspecialco lanerich .pdf"
+      }
+    },
+    {
+      "cursor": 39,
+      "timestamp": "2026-05-11T21:34:56.677Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "a92316e2f7b87d84",
+        "status": "REJECT",
+        "generatedTitle": "Federal Register"
+      }
+    },
+    {
+      "cursor": 40,
+      "timestamp": "2026-05-11T21:34:56.677Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "d7dff0cb91e301d6",
+        "status": "REJECT",
+        "generatedTitle": "North America the United States microform IA cihm .pdf"
+      }
+    },
+    {
+      "cursor": 41,
+      "timestamp": "2026-05-11T21:34:56.677Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 42,
+      "timestamp": "2026-05-11T21:34:56.677Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 36,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 6,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 6,
+          "elapsedMs": 1595
+        }
+      }
+    },
+    {
+      "cursor": 43,
+      "timestamp": "2026-05-11T21:34:56.679Z",
+      "level": "info",
+      "runId": "f1466c0f-6a18-4602-9686-db9b65a574b7",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 44,
+  "placeResults": [
+    {
+      "placeName": "Appalachian Gap, Vermont, VT",
+      "normalizedPlaceName": "appalachian gap, vermont, vt",
+      "wikimediaQueryTerms": [
+        "Appalachian Gap, Vermont, VT",
+        "Appalachian Gap, Vermont, VT landscape",
+        "Appalachian Gap, Vermont, VT hiking trail"
+      ],
+      "candidateCount": 36,
+      "keptCount": 0,
+      "rejectedCount": 36,
+      "reviewCount": 0,
+      "totalRuntimeMs": 1595,
+      "budget": {
+        "wikimediaRequests": 6,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 6,
+        "elapsedMs": 1595
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [
+        {
+          "sourceTitle": "File:Woman s Who s who of America.pdf",
+          "generatedTitle": "Woman s Who s who of America.pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AWoman_s_Who_s_who_of_America.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Woman_s_Who_s_who_of_America.pdf/page1-330px-Woman_s_Who_s_who_of_America.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fc/Woman_s_Who_s_who_of_America.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "https://books.google.com/books?id=aHUEAAAAYAAJ&amp;dq=%22vernon+row%22+address+washington&amp;source=gbs_navlinks_s",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "522a585e44cd1ca9",
+          "dayKey": "2017-01-24",
+          "capturedAtMs": 1485224393000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 820,
+          "height": 1283
+        },
+        {
+          "sourceTitle": "File:APPA Foundation-Document December 2014.pdf",
+          "generatedTitle": "APPA Foundation-Document December .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAPPA_Foundation-Document_December_2014.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/APPA_Foundation-Document_December_2014.pdf/page1-330px-APPA_Foundation-Document_December_2014.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5e/APPA_Foundation-Document_December_2014.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States National Park Service",
+          "license": "Public domain",
+          "credit": "https://www.nps.gov/appa/getinvolved/planning.htm",
+          "activities": [
+            "hiking"
+          ],
+          "activityReasoning": [
+            "asset trail keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset trail keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "3e5bd3141a205a51",
+          "dayKey": "2018-06-12",
+          "capturedAtMs": 1528829588000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Appalachian NST CompPlan web.pdf",
+          "generatedTitle": "Appalachian NST CompPlan web.pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAppalachian_NST_CompPlan_web.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Appalachian_NST_CompPlan_web.pdf/page1-330px-Appalachian_NST_CompPlan_web.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/e1/Appalachian_NST_CompPlan_web.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States National Park Service",
+          "license": "Public domain",
+          "credit": "https://www.nps.gov/appa/getinvolved/planning.htm",
+          "activities": [
+            "hiking"
+          ],
+          "activityReasoning": [
+            "asset trail keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset trail keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "44c307bd3b2b6d93",
+          "dayKey": "2018-06-12",
+          "capturedAtMs": 1528829596000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:FINANCING EMPLOYEE OWNERSHIP PROGRAMS- AN OVERVIEW (IA gov.gpo.fdsys.CHRG-108hhrg89890).pdf",
+          "generatedTitle": "FINANCING EMPLOYEE OWNERSHIP PROGRAMS",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_(IA_gov.gpo.fdsys.CHRG-108hhrg89890).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/FINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_%28IA_gov.gpo.fdsys.CHRG-108hhrg89890%29.pdf/page1-330px-FINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_%28IA_gov.gpo.fdsys.CHRG-108hhrg89890%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f5/FINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_%28IA_gov.gpo.fdsys.CHRG-108hhrg89890%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Committee on Financial Services",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : gov.gpo.fdsys.CHRG-108hhrg89890 https://archive.org/download/gov.gpo.fdsys.CHRG-108hhrg89890/CHRG-108hhrg89890.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "670f9fbfa06910db",
+          "dayKey": "2020-06-21",
+          "capturedAtMs": 1592783583000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:A geographical description of the states of Maryland and Delaware; (IA geographicaldesc01scot).pdf",
+          "generatedTitle": "A geographical description of the states of Maryland and Delaware IA geographicaldesc scot .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AA_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_(IA_geographicaldesc01scot).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/A_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_%28IA_geographicaldesc01scot%29.pdf/page1-330px-A_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_%28IA_geographicaldesc01scot%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/97/A_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_%28IA_geographicaldesc01scot%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Scott, Joseph. [from old catalog]",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/geographicaldesc01scot https://archive.org/download/geographicaldesc01scot/geographicaldesc01scot.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "aa000f1da02c414e",
+          "dayKey": "2020-06-23",
+          "capturedAtMs": 1592911062000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 568,
+          "height": 916
+        },
+        {
+          "sourceTitle": "File:Agriculture fact book (IA CAT10699495002).pdf",
+          "generatedTitle": "Agriculture fact book IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAgriculture_fact_book_(IA_CAT10699495002).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Agriculture_fact_book_%28IA_CAT10699495002%29.pdf/page1-330px-Agriculture_fact_book_%28IA_CAT10699495002%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/0c/Agriculture_fact_book_%28IA_CAT10699495002%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Department of Agriculture. Office of Communications",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT10699495002 https://archive.org/download/CAT10699495002/CAT10699495002.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "45d82764cef03574",
+          "dayKey": "2020-10-14",
+          "capturedAtMs": 1602640740000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 885,
+          "height": 1312
+        },
+        {
+          "sourceTitle": "File:Fire history of the White Mountain National Forest and Green Mountain National Forests - a report submitted to the White Mountain National Forest, USDA, Forest Service (IA CAT31365422).pdf",
+          "generatedTitle": "Fire history of the White Mountain National Forest and Green Mountain National Forests",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFire_history_of_the_White_Mountain_National_Forest_and_Green_Mountain_National_Forests_-_a_report_submitted_to_the_White_Mountain_National_Forest%2C_USDA%2C_Forest_Service_(IA_CAT31365422).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Fire_history_of_the_White_Mountain_National_Forest_and_Green_Mountain_National_Forests_-_a_report_submitted_to_the_White_Mountain_National_Forest%2C_USDA%2C_Forest_Service_%28IA_CAT31365422%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/a/ac/Fire_history_of_the_White_Mountain_National_Forest_and_Green_Mountain_National_Forests_-_a_report_submitted_to_the_White_Mountain_National_Forest%2C_USDA%2C_Forest_Service_%28IA_CAT31365422%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Richburg, Julie A., 1967- Patterson, William A White Mountain National Forest (Agency : U.S.)",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT31365422 https://archive.org/download/CAT31365422/cat31365422.pdf",
+          "activities": [
+            "mountain"
+          ],
+          "activityReasoning": [
+            "asset mountain keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset mountain keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b677a1ce9ce20aaa",
+          "dayKey": "2020-07-13",
+          "capturedAtMs": 1594635748000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Snow and ice bulletin (IA CAT11088652004).pdf",
+          "generatedTitle": "Snow and ice bulletin IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ASnow_and_ice_bulletin_(IA_CAT11088652004).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Snow_and_ice_bulletin_%28IA_CAT11088652004%29.pdf/page1-330px-Snow_and_ice_bulletin_%28IA_CAT11088652004%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Snow_and_ice_bulletin_%28IA_CAT11088652004%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT11088652004 https://archive.org/download/CAT11088652004/CAT11088652004.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "37e1f4c79ac932e6",
+          "dayKey": "2020-10-27",
+          "capturedAtMs": 1603819507000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1356,
+          "height": 1752
+        },
+        {
+          "sourceTitle": "File:The New imperial encyclopedia and dictionary;a library of universal knowledge and an unabridged dictionary of the English language under one alphabet;(Vol. 39, VIRE-WIGTON) (IA newimperialencyc39unse).pdf",
+          "generatedTitle": "The New imperial encyclopedia and dictionary a library of universal knowledge and an unabridged dictionary of the English language under one alphabet Vol. , VIRE-WIGTON IA newimper",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_New_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet%3B(Vol._39%2C_VIRE-WIGTON)_(IA_newimperialencyc39unse).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/The_New_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet%3B%28Vol._39%2C_VIRE-WIGTON%29_%28IA_newimperialencyc39unse%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/63/The_New_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet%3B%28Vol._39%2C_VIRE-WIGTON%29_%28IA_newimperialencyc39unse%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : newimperialencyc39unse https://archive.org/download/newimperialencyc39unse/newimperialencyc39unse.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "e75bcb828ca43b7c",
+          "dayKey": "2020-08-22",
+          "capturedAtMs": 1598093056000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1060,
+          "height": 1931
+        },
+        {
+          "sourceTitle": "File:The Appalachian Trail (IA appalachiantrail951unit).pdf",
+          "generatedTitle": "The Appalachian Trail IA appalachiantrail unit .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Appalachian_Trail_(IA_appalachiantrail951unit).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/The_Appalachian_Trail_%28IA_appalachiantrail951unit%29.pdf/page1-330px-The_Appalachian_Trail_%28IA_appalachiantrail951unit%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/22/The_Appalachian_Trail_%28IA_appalachiantrail951unit%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Forest Service",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : appalachiantrail951unit https://archive.org/download/appalachiantrail951unit/appalachiantrail951unit.pdf",
+          "activities": [
+            "hiking"
+          ],
+          "activityReasoning": [
+            "asset trail keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset trail keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "097de7fc2031b188",
+          "dayKey": "2020-09-11",
+          "capturedAtMs": 1599817960000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1168,
+          "height": 1908
+        },
+        {
+          "sourceTitle": "File:The national gazetteer; a geographical dictionary of the United States (IA nationalgazettee1884cola).pdf",
+          "generatedTitle": "The national gazetteer a geographical dictionary of the United States IA nationalgazettee cola .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_(IA_nationalgazettee1884cola).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee1884cola%29.pdf/page1-330px-The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee1884cola%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/35/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee1884cola%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Colange, Leo de, 1819-",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : nationalgazettee1884cola https://archive.org/download/nationalgazettee1884cola/nationalgazettee1884cola.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ffe4e62db4a116e0",
+          "dayKey": "2020-11-07",
+          "capturedAtMs": 1604784859000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 954,
+          "height": 1470
+        },
+        {
+          "sourceTitle": "File:Connecticut River Streambank Erosion Study, Massachusetts, New Hampshire and Vermont - USACE-p266001coll1-5331.pdf",
+          "generatedTitle": "Connecticut River Streambank Erosion Study, Massachusetts, New Hampshire and Vermont",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AConnecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Connecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf/page1-330px-Connecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/ef/Connecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Army. Corps of Engineers. New England Division",
+          "license": "Public domain",
+          "credit": "https://usace.contentdm.oclc.org/digital/collection/p266001coll1/id/5331",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5d2fa7f0ed7085f1",
+          "dayKey": "2024-10-10",
+          "capturedAtMs": 1728569906000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1620
+        },
+        {
+          "sourceTitle": "File:NOMINATIONS OF SANTANU K. BARUAH; GEORGE M. GRAY; LYONS GRAY; H. DALE HALL; AND EDWARD McGAFFIGAN, JR. (IA gov.gpo.fdsys.CHRG-109shrg28852).pdf",
+          "generatedTitle": "NOMINATIONS OF SANTANU K. BARUAH GEORGE M. GRAY LYONS GRAY H. DALE HALL AND EDWARD McGAFFIGAN, JR. IA gov.gpo.fdsys.CHRG",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ANOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._(IA_gov.gpo.fdsys.CHRG-109shrg28852).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/NOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._%28IA_gov.gpo.fdsys.CHRG-109shrg28852%29.pdf/page1-330px-NOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._%28IA_gov.gpo.fdsys.CHRG-109shrg28852%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/6a/NOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._%28IA_gov.gpo.fdsys.CHRG-109shrg28852%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Committee on Environment and Public Works",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/gov.gpo.fdsys.CHRG-109shrg28852 https://archive.org/download/gov.gpo.fdsys.CHRG-109shrg28852/CHRG-109shrg28852.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1f2967bb5a1945c5",
+          "dayKey": "2020-06-23",
+          "capturedAtMs": 1592882402000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Report of Second National Apple Utilization Conference held at Yakima, Wash., May 19-21, 1969 (IA reportofsecondna7453nati).pdf",
+          "generatedTitle": "Report of Second National Apple Utilization Conference held at Yakima, Wash., May",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AReport_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_(IA_reportofsecondna7453nati).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Report_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_%28IA_reportofsecondna7453nati%29.pdf/page1-330px-Report_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_%28IA_reportofsecondna7453nati%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/36/Report_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_%28IA_reportofsecondna7453nati%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "National Apple Utilization Conference (2nd : 1969 : Yakima, Wash.) United States. Agricultural Research Service",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : reportofsecondna7453nati https://archive.org/download/reportofsecondna7453nati/reportofsecondna7453nati.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "4cf1f103f4274912",
+          "dayKey": "2020-06-26",
+          "capturedAtMs": 1593212705000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1131,
+          "height": 1520
+        },
+        {
+          "sourceTitle": "File:Soil and water conservation news (IA CAT81757230068).pdf",
+          "generatedTitle": "Soil and water conservation news IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ASoil_and_water_conservation_news_(IA_CAT81757230068).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Soil_and_water_conservation_news_%28IA_CAT81757230068%29.pdf/page1-330px-Soil_and_water_conservation_news_%28IA_CAT81757230068%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/0c/Soil_and_water_conservation_news_%28IA_CAT81757230068%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Soil Conservation Service United States. Soil Conservation Service. Information Division",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT81757230068 https://archive.org/download/CAT81757230068/CAT81757230068.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "194c345578ad9bce",
+          "dayKey": "2020-06-29",
+          "capturedAtMs": 1593405376000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 966,
+          "height": 1493
+        },
+        {
+          "sourceTitle": "File:Snow and ice bulletin (IA CAT11088652002).pdf",
+          "generatedTitle": "Snow and ice bulletin IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ASnow_and_ice_bulletin_(IA_CAT11088652002).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Snow_and_ice_bulletin_%28IA_CAT11088652002%29.pdf/page1-120px-Snow_and_ice_bulletin_%28IA_CAT11088652002%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/d/d5/Snow_and_ice_bulletin_%28IA_CAT11088652002%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Weather Bureau",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT11088652002 https://archive.org/download/CAT11088652002/cat11088652002.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ed2e55f6571afc23",
+          "dayKey": "2020-08-14",
+          "capturedAtMs": 1597433062000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 143,
+          "height": 197
+        },
+        {
+          "sourceTitle": "File:The imperial encyclopedia and dictionary;a library of universal knowledge and an unabridged dictionary of the English language under one alphabet... (Vol. 39, Vire - Wigton) (IA imperialencyclop39unse).pdf",
+          "generatedTitle": "The imperial encyclopedia and dictionary a library of universal knowledge and an unabridged dictionary of the English language under one alphabet... Vol. , Vire",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet..._(Vol._39%2C_Vire_-_Wigton)_(IA_imperialencyclop39unse).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/The_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet..._%28Vol._39%2C_Vire_-_Wigton%29_%28IA_imperialencyclop39unse%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/05/The_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet..._%28Vol._39%2C_Vire_-_Wigton%29_%28IA_imperialencyclop39unse%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : imperialencyclop39unse https://archive.org/download/imperialencyclop39unse/imperialencyclop39unse.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b398e2394e339ba0",
+          "dayKey": "2020-08-18",
+          "capturedAtMs": 1597752844000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 941,
+          "height": 1760
+        },
+        {
+          "sourceTitle": "File:Genetics of sugar maple (IA geneticsofsugarm07krie).pdf",
+          "generatedTitle": "Genetics of sugar maple IA geneticsofsugarm krie .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AGenetics_of_sugar_maple_(IA_geneticsofsugarm07krie).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Genetics_of_sugar_maple_%28IA_geneticsofsugarm07krie%29.pdf/page1-330px-Genetics_of_sugar_maple_%28IA_geneticsofsugarm07krie%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/84/Genetics_of_sugar_maple_%28IA_geneticsofsugarm07krie%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Kriebel, Howard B Gabriel, William J. cn",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : geneticsofsugarm07krie https://archive.org/download/geneticsofsugarm07krie/geneticsofsugarm07krie.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b80b6780f4b888c7",
+          "dayKey": "2020-09-03",
+          "capturedAtMs": 1599150780000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1391,
+          "height": 1856
+        },
+        {
+          "sourceTitle": "File:The Engineering and Mining Journal January-June 1908- Vol 85 Index (IA sim engineering-and-mining-journal january-june-1908 85 index).pdf",
+          "generatedTitle": "The Engineering and Mining Journal January-June",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_(IA_sim_engineering-and-mining-journal_january-june-1908_85_index).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/The_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_%28IA_sim_engineering-and-mining-journal_january-june-1908_85_index%29.pdf/page1-330px-The_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_%28IA_sim_engineering-and-mining-journal_january-june-1908_85_index%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/95/The_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_%28IA_sim_engineering-and-mining-journal_january-june-1908_85_index%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_engineering-and-mining-journal_january-june-1908_85_index https://archive.org/download/sim_engineering-and-mining-journal_january-june-1908_85_index/sim_engineering-and-mining-journal_january-june-1908_85_index.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ff37b40247066528",
+          "dayKey": "2021-01-01",
+          "capturedAtMs": 1609481410000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1331,
+          "height": 1806
+        },
+        {
+          "sourceTitle": "File:The Engineering and Mining Journal July - December 1891- Vol 52 Index (IA sim engineering-and-mining-journal july-december-1891 52 index).pdf",
+          "generatedTitle": "The Engineering and Mining Journal July",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_(IA_sim_engineering-and-mining-journal_july-december-1891_52_index).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/The_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_%28IA_sim_engineering-and-mining-journal_july-december-1891_52_index%29.pdf/page1-330px-The_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_%28IA_sim_engineering-and-mining-journal_july-december-1891_52_index%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/65/The_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_%28IA_sim_engineering-and-mining-journal_july-december-1891_52_index%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_engineering-and-mining-journal_july-december-1891_52_index https://archive.org/download/sim_engineering-and-mining-journal_july-december-1891_52_index/sim_engineering-and-mining-journal_july-december-1891_52_index.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "3396d463481a15f7",
+          "dayKey": "2021-01-01",
+          "capturedAtMs": 1609482270000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1435,
+          "height": 1868
+        },
+        {
+          "sourceTitle": "File:Federal Register 1971-02-09- Vol 36 Iss 27 (IA sim federal-register-find 1971-02-09 36 27 0).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1971-02-09-_Vol_36_Iss_27_(IA_sim_federal-register-find_1971-02-09_36_27_0).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Federal_Register_1971-02-09-_Vol_36_Iss_27_%28IA_sim_federal-register-find_1971-02-09_36_27_0%29.pdf/page1-330px-Federal_Register_1971-02-09-_Vol_36_Iss_27_%28IA_sim_federal-register-find_1971-02-09_36_27_0%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/be/Federal_Register_1971-02-09-_Vol_36_Iss_27_%28IA_sim_federal-register-find_1971-02-09_36_27_0%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1971-02-09_36_27_0 https://archive.org/download/sim_federal-register-find_1971-02-09_36_27_0/sim_federal-register-find_1971-02-09_36_27_0.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ef8226d51a74c2b9",
+          "dayKey": "2021-01-02",
+          "capturedAtMs": 1609586397000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1164,
+          "height": 1681
+        },
+        {
+          "sourceTitle": "File:Federal Register 1977-09-07- Vol 42 Iss 173 (IA sim federal-register-find 1977-09-07 42 173).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1977-09-07-_Vol_42_Iss_173_(IA_sim_federal-register-find_1977-09-07_42_173).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/Federal_Register_1977-09-07-_Vol_42_Iss_173_%28IA_sim_federal-register-find_1977-09-07_42_173%29.pdf/page1-330px-Federal_Register_1977-09-07-_Vol_42_Iss_173_%28IA_sim_federal-register-find_1977-09-07_42_173%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/04/Federal_Register_1977-09-07-_Vol_42_Iss_173_%28IA_sim_federal-register-find_1977-09-07_42_173%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1977-09-07_42_173 https://archive.org/download/sim_federal-register-find_1977-09-07_42_173/sim_federal-register-find_1977-09-07_42_173.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "e79cfc3552771c74",
+          "dayKey": "2021-01-04",
+          "capturedAtMs": 1609754747000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1200,
+          "height": 1627
+        },
+        {
+          "sourceTitle": "File:Travels in North America (microform) - in the years 1841-2 - with geological observations on the United States, Canada and Nova Scotia (IA cihm 36397).pdf",
+          "generatedTitle": "Travels in North America microform",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ATravels_in_North_America_(microform)_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_(IA_cihm_36397).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/Travels_in_North_America_%28microform%29_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_%28IA_cihm_36397%29.pdf/page1-330px-Travels_in_North_America_%28microform%29_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_%28IA_cihm_36397%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/85/Travels_in_North_America_%28microform%29_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_%28IA_cihm_36397%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Lyell, Charles, Sir, 1797-1875",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_36397 https://archive.org/download/cihm_36397/cihm_36397.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5e2fc1d3d89ff002",
+          "dayKey": "2021-01-29",
+          "capturedAtMs": 1611886474000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1202,
+          "height": 1429
+        },
+        {
+          "sourceTitle": "File:Comprehensive Database of Diameter-based Biomass Regressions for North American Tree Species.pdf",
+          "generatedTitle": "Comprehensive Database of Diameter-based Biomass Regressions for North American Tree Species.pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AComprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Comprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf/page1-330px-Comprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/c/c5/Comprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Jennifer C. Jenkins, David C. Chojnacky, Linda S. Heath, and Richard A. Birdsey. USDA Forest Service, Northeastern Research Station",
+          "license": "Public domain",
+          "credit": "https://www.nrs.fs.fed.us/pubs/6725",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "06becf624cce8c12",
+          "dayKey": "2021-12-03",
+          "capturedAtMs": 1638518196000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Woman's who's who of America, 1914-15.djvu",
+          "generatedTitle": "Woman's who's who of America,",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AWoman's_who's_who_of_America%2C_1914-15.djvu",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Woman%27s_who%27s_who_of_America%2C_1914-15.djvu/page1-330px-Woman%27s_who%27s_who_of_America%2C_1914-15.djvu.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/9e/Woman%27s_who%27s_who_of_America%2C_1914-15.djvu?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "archive.org",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "bdc39310bfdaa641",
+          "dayKey": "2011-06-26",
+          "capturedAtMs": 1309091911000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1959,
+          "height": 3338
+        },
+        {
+          "sourceTitle": "File:The Morris and Essex R. R., and the anthracite coal regions of Pennsylvania (IA morrisessexrrant00wall).pdf",
+          "generatedTitle": "The Morris and Essex R. R., and the anthracite coal regions of Pennsylvania IA morrisessexrrant wall .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_(IA_morrisessexrrant00wall).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/The_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_%28IA_morrisessexrrant00wall%29.pdf/page1-330px-The_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_%28IA_morrisessexrrant00wall%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/1/1e/The_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_%28IA_morrisessexrrant00wall%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Walling, Henry Francis, 1825-1888. [from old catalog]",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/morrisessexrrant00wall https://archive.org/download/morrisessexrrant00wall/morrisessexrrant00wall.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "87b8f896bb5a2920",
+          "dayKey": "2020-07-01",
+          "capturedAtMs": 1593629679000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 714,
+          "height": 1135
+        },
+        {
+          "sourceTitle": "File:The centennial gazetteer of the United States (IA centennialgazett00stei).pdf",
+          "generatedTitle": "The centennial gazetteer of the United States IA centennialgazett stei .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_centennial_gazetteer_of_the_United_States_(IA_centennialgazett00stei).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett00stei%29.pdf/page1-330px-The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett00stei%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/86/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett00stei%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Steinwehr, Adolph Wilhelm August Friedrich von, 1822-1877, [from old catalog] comp",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : centennialgazett00stei https://archive.org/download/centennialgazett00stei/centennialgazett00stei.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "9c3a867096554a49",
+          "dayKey": "2020-07-02",
+          "capturedAtMs": 1593672135000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 795,
+          "height": 1302
+        },
+        {
+          "sourceTitle": "File:The centennial gazetteer of the United States (IA centennialgazett01stei).pdf",
+          "generatedTitle": "The centennial gazetteer of the United States IA centennialgazett stei .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_centennial_gazetteer_of_the_United_States_(IA_centennialgazett01stei).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett01stei%29.pdf/page1-330px-The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett01stei%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/a/a5/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett01stei%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Steinwehr, Adolph Wilhelm August Friedrich von, 1822-1877, [from old catalog] comp",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : centennialgazett01stei https://archive.org/download/centennialgazett01stei/centennialgazett01stei.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "8842b45ecf49ab22",
+          "dayKey": "2020-07-02",
+          "capturedAtMs": 1593672232000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 827,
+          "height": 1308
+        },
+        {
+          "sourceTitle": "File:Bulletin of the Museum of Comparative Zoology at Harvard College (IA p2bulletinofmuse07harv).pdf",
+          "generatedTitle": "Bulletin of the Museum of Comparative Zoology at Harvard College IA p bulletinofmuse harv .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ABulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_(IA_p2bulletinofmuse07harv).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Bulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_%28IA_p2bulletinofmuse07harv%29.pdf/page1-330px-Bulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_%28IA_p2bulletinofmuse07harv%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5a/Bulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_%28IA_p2bulletinofmuse07harv%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Harvard University. Museum of Comparative Zoology",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : p2bulletinofmuse07harv https://archive.org/download/p2bulletinofmuse07harv/p2bulletinofmuse07harv.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "a3fdf941f23c43a2",
+          "dayKey": "2020-07-04",
+          "capturedAtMs": 1593903264000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 789,
+          "height": 1352
+        },
+        {
+          "sourceTitle": "File:The national gazetteer; a geographical dictionary of the United States (IA nationalgazettee00cola).pdf",
+          "generatedTitle": "The national gazetteer a geographical dictionary of the United States IA nationalgazettee cola .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_(IA_nationalgazettee00cola).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee00cola%29.pdf/page1-330px-The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee00cola%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/d/dc/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee00cola%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Colange, Leo de, b. 1819",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : nationalgazettee00cola https://archive.org/download/nationalgazettee00cola/nationalgazettee00cola.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5ceeb484722be28d",
+          "dayKey": "2020-07-11",
+          "capturedAtMs": 1594484750000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 920,
+          "height": 1410
+        },
+        {
+          "sourceTitle": "File:An introduction to geology; (IA introductionto00scot).pdf",
+          "generatedTitle": "An introduction to geology IA introductionto scot .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAn_introduction_to_geology%3B_(IA_introductionto00scot).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/An_introduction_to_geology%3B_%28IA_introductionto00scot%29.pdf/page1-330px-An_introduction_to_geology%3B_%28IA_introductionto00scot%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f4/An_introduction_to_geology%3B_%28IA_introductionto00scot%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Scott, William Berryman, 1858-1947",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : introductionto00scot https://archive.org/download/introductionto00scot/introductionto00scot.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "6cafef97df05400c",
+          "dayKey": "2020-07-14",
+          "capturedAtMs": 1594723475000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 793,
+          "height": 1214
+        },
+        {
+          "sourceTitle": "File:Departments of Labor, Health and Human Services, and Education, and related agencies appropriation bill, 2008 - report of the Committee on Appropriations, U.S. Senate on S. 1710 (IA departmentsoflab00unit 22).pdf",
+          "generatedTitle": "Departments of Labor, Health and Human Services, and Education, and related agencies appropriation bill,",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ADepartments_of_Labor%2C_Health_and_Human_Services%2C_and_Education%2C_and_related_agencies_appropriation_bill%2C_2008_-_report_of_the_Committee_on_Appropriations%2C_U.S._Senate_on_S._1710_(IA_departmentsoflab00unit_22).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Departments_of_Labor%2C_Health_and_Human_Services%2C_and_Education%2C_and_related_agencies_appropriation_bill%2C_2008_-_report_of_the_Committee_on_Appropriations%2C_U.S._Senate_on_S._1710_%28IA_departmentsoflab00unit_22%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Departments_of_Labor%2C_Health_and_Human_Services%2C_and_Education%2C_and_related_agencies_appropriation_bill%2C_2008_-_report_of_the_Committee_on_Appropriations%2C_U.S._Senate_on_S._1710_%28IA_departmentsoflab00unit_22%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Congress. Senate. Committee on Appropriations",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : departmentsoflab00unit_22 https://archive.org/download/departmentsoflab00unit_22/departmentsoflab00unit_22.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ede66ab650a02015",
+          "dayKey": "2020-07-16",
+          "capturedAtMs": 1594909191000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1137,
+          "height": 1889
+        },
+        {
+          "sourceTitle": "File:A dictionary of altitudes in the United States (IA dictionaryofalti00gannrich).pdf",
+          "generatedTitle": "A dictionary of altitudes in the United States IA dictionaryofalti gannrich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AA_dictionary_of_altitudes_in_the_United_States_(IA_dictionaryofalti00gannrich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/A_dictionary_of_altitudes_in_the_United_States_%28IA_dictionaryofalti00gannrich%29.pdf/page1-330px-A_dictionary_of_altitudes_in_the_United_States_%28IA_dictionaryofalti00gannrich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5e/A_dictionary_of_altitudes_in_the_United_States_%28IA_dictionaryofalti00gannrich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Gannett, Henry, 1846-1914",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : dictionaryofalti00gannrich https://archive.org/download/dictionaryofalti00gannrich/dictionaryofalti00gannrich.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "48165860300399e9",
+          "dayKey": "2020-10-14",
+          "capturedAtMs": 1602706571000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 795,
+          "height": 1325
+        },
+        {
+          "sourceTitle": "File:Notes on special collections in American libraries (IA notesonspecialco00lanerich).pdf",
+          "generatedTitle": "Notes on special collections in American libraries IA notesonspecialco lanerich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ANotes_on_special_collections_in_American_libraries_(IA_notesonspecialco00lanerich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Notes_on_special_collections_in_American_libraries_%28IA_notesonspecialco00lanerich%29.pdf/page1-330px-Notes_on_special_collections_in_American_libraries_%28IA_notesonspecialco00lanerich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/4/47/Notes_on_special_collections_in_American_libraries_%28IA_notesonspecialco00lanerich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Lane, William Coolidge, 1859-1931 Bolton, Charles Knowles, 1867-1950",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : notesonspecialco00lanerich https://archive.org/download/notesonspecialco00lanerich/notesonspecialco00lanerich.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b17caa4cabd8f61d",
+          "dayKey": "2020-11-07",
+          "capturedAtMs": 1604728172000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 858,
+          "height": 1352
+        },
+        {
+          "sourceTitle": "File:Federal Register 1971-10-09- Vol 36 Iss 197 (IA sim federal-register-find 1971-10-09 36 197 0).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1971-10-09-_Vol_36_Iss_197_(IA_sim_federal-register-find_1971-10-09_36_197_0).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Federal_Register_1971-10-09-_Vol_36_Iss_197_%28IA_sim_federal-register-find_1971-10-09_36_197_0%29.pdf/page1-330px-Federal_Register_1971-10-09-_Vol_36_Iss_197_%28IA_sim_federal-register-find_1971-10-09_36_197_0%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/95/Federal_Register_1971-10-09-_Vol_36_Iss_197_%28IA_sim_federal-register-find_1971-10-09_36_197_0%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1971-10-09_36_197_0 https://archive.org/download/sim_federal-register-find_1971-10-09_36_197_0/sim_federal-register-find_1971-10-09_36_197_0.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "a92316e2f7b87d84",
+          "dayKey": "2021-01-02",
+          "capturedAtMs": 1609593811000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1189,
+          "height": 1606
+        },
+        {
+          "sourceTitle": "File:North America; the United States (microform) (IA cihm 06227).pdf",
+          "generatedTitle": "North America the United States microform IA cihm .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ANorth_America%3B_the_United_States_(microform)_(IA_cihm_06227).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/North_America%3B_the_United_States_%28microform%29_%28IA_cihm_06227%29.pdf/page1-330px-North_America%3B_the_United_States_%28microform%29_%28IA_cihm_06227%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/ea/North_America%3B_the_United_States_%28microform%29_%28IA_cihm_06227%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Gannett, Henry, 1846-1914",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_06227 https://archive.org/download/cihm_06227/cihm_06227.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "d7dff0cb91e301d6",
+          "dayKey": "2021-08-30",
+          "capturedAtMs": 1630295863000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1129,
+          "height": 1345
+        }
+      ],
+      "generatedPosts": [],
+      "assetGroups": [],
+      "summary": {
+        "candidateCount": 36,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 6,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 6,
+          "elapsedMs": 1595
+        }
+      },
+      "candidates": [
+        {
+          "sourceTitle": "File:Woman s Who s who of America.pdf",
+          "generatedTitle": "Woman s Who s who of America.pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AWoman_s_Who_s_who_of_America.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/Woman_s_Who_s_who_of_America.pdf/page1-330px-Woman_s_Who_s_who_of_America.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fc/Woman_s_Who_s_who_of_America.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "https://books.google.com/books?id=aHUEAAAAYAAJ&amp;dq=%22vernon+row%22+address+washington&amp;source=gbs_navlinks_s",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "522a585e44cd1ca9",
+          "dayKey": "2017-01-24",
+          "capturedAtMs": 1485224393000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 820,
+          "height": 1283
+        },
+        {
+          "sourceTitle": "File:APPA Foundation-Document December 2014.pdf",
+          "generatedTitle": "APPA Foundation-Document December .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAPPA_Foundation-Document_December_2014.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/APPA_Foundation-Document_December_2014.pdf/page1-330px-APPA_Foundation-Document_December_2014.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5e/APPA_Foundation-Document_December_2014.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States National Park Service",
+          "license": "Public domain",
+          "credit": "https://www.nps.gov/appa/getinvolved/planning.htm",
+          "activities": [
+            "hiking"
+          ],
+          "activityReasoning": [
+            "asset trail keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset trail keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "3e5bd3141a205a51",
+          "dayKey": "2018-06-12",
+          "capturedAtMs": 1528829588000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Appalachian NST CompPlan web.pdf",
+          "generatedTitle": "Appalachian NST CompPlan web.pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAppalachian_NST_CompPlan_web.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/Appalachian_NST_CompPlan_web.pdf/page1-330px-Appalachian_NST_CompPlan_web.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/e1/Appalachian_NST_CompPlan_web.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States National Park Service",
+          "license": "Public domain",
+          "credit": "https://www.nps.gov/appa/getinvolved/planning.htm",
+          "activities": [
+            "hiking"
+          ],
+          "activityReasoning": [
+            "asset trail keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset trail keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "44c307bd3b2b6d93",
+          "dayKey": "2018-06-12",
+          "capturedAtMs": 1528829596000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:FINANCING EMPLOYEE OWNERSHIP PROGRAMS- AN OVERVIEW (IA gov.gpo.fdsys.CHRG-108hhrg89890).pdf",
+          "generatedTitle": "FINANCING EMPLOYEE OWNERSHIP PROGRAMS",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_(IA_gov.gpo.fdsys.CHRG-108hhrg89890).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f5/FINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_%28IA_gov.gpo.fdsys.CHRG-108hhrg89890%29.pdf/page1-330px-FINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_%28IA_gov.gpo.fdsys.CHRG-108hhrg89890%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f5/FINANCING_EMPLOYEE_OWNERSHIP_PROGRAMS-_AN_OVERVIEW_%28IA_gov.gpo.fdsys.CHRG-108hhrg89890%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Committee on Financial Services",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : gov.gpo.fdsys.CHRG-108hhrg89890 https://archive.org/download/gov.gpo.fdsys.CHRG-108hhrg89890/CHRG-108hhrg89890.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "670f9fbfa06910db",
+          "dayKey": "2020-06-21",
+          "capturedAtMs": 1592783583000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:A geographical description of the states of Maryland and Delaware; (IA geographicaldesc01scot).pdf",
+          "generatedTitle": "A geographical description of the states of Maryland and Delaware IA geographicaldesc scot .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AA_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_(IA_geographicaldesc01scot).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/97/A_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_%28IA_geographicaldesc01scot%29.pdf/page1-330px-A_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_%28IA_geographicaldesc01scot%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/97/A_geographical_description_of_the_states_of_Maryland_and_Delaware%3B_%28IA_geographicaldesc01scot%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Scott, Joseph. [from old catalog]",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/geographicaldesc01scot https://archive.org/download/geographicaldesc01scot/geographicaldesc01scot.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "aa000f1da02c414e",
+          "dayKey": "2020-06-23",
+          "capturedAtMs": 1592911062000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 568,
+          "height": 916
+        },
+        {
+          "sourceTitle": "File:Agriculture fact book (IA CAT10699495002).pdf",
+          "generatedTitle": "Agriculture fact book IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAgriculture_fact_book_(IA_CAT10699495002).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Agriculture_fact_book_%28IA_CAT10699495002%29.pdf/page1-330px-Agriculture_fact_book_%28IA_CAT10699495002%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/0c/Agriculture_fact_book_%28IA_CAT10699495002%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Department of Agriculture. Office of Communications",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT10699495002 https://archive.org/download/CAT10699495002/CAT10699495002.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "45d82764cef03574",
+          "dayKey": "2020-10-14",
+          "capturedAtMs": 1602640740000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 885,
+          "height": 1312
+        },
+        {
+          "sourceTitle": "File:Fire history of the White Mountain National Forest and Green Mountain National Forests - a report submitted to the White Mountain National Forest, USDA, Forest Service (IA CAT31365422).pdf",
+          "generatedTitle": "Fire history of the White Mountain National Forest and Green Mountain National Forests",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFire_history_of_the_White_Mountain_National_Forest_and_Green_Mountain_National_Forests_-_a_report_submitted_to_the_White_Mountain_National_Forest%2C_USDA%2C_Forest_Service_(IA_CAT31365422).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Fire_history_of_the_White_Mountain_National_Forest_and_Green_Mountain_National_Forests_-_a_report_submitted_to_the_White_Mountain_National_Forest%2C_USDA%2C_Forest_Service_%28IA_CAT31365422%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/a/ac/Fire_history_of_the_White_Mountain_National_Forest_and_Green_Mountain_National_Forests_-_a_report_submitted_to_the_White_Mountain_National_Forest%2C_USDA%2C_Forest_Service_%28IA_CAT31365422%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Richburg, Julie A., 1967- Patterson, William A White Mountain National Forest (Agency : U.S.)",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT31365422 https://archive.org/download/CAT31365422/cat31365422.pdf",
+          "activities": [
+            "mountain"
+          ],
+          "activityReasoning": [
+            "asset mountain keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset mountain keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b677a1ce9ce20aaa",
+          "dayKey": "2020-07-13",
+          "capturedAtMs": 1594635748000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Snow and ice bulletin (IA CAT11088652004).pdf",
+          "generatedTitle": "Snow and ice bulletin IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ASnow_and_ice_bulletin_(IA_CAT11088652004).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1b/Snow_and_ice_bulletin_%28IA_CAT11088652004%29.pdf/page1-330px-Snow_and_ice_bulletin_%28IA_CAT11088652004%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Snow_and_ice_bulletin_%28IA_CAT11088652004%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT11088652004 https://archive.org/download/CAT11088652004/CAT11088652004.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "37e1f4c79ac932e6",
+          "dayKey": "2020-10-27",
+          "capturedAtMs": 1603819507000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1356,
+          "height": 1752
+        },
+        {
+          "sourceTitle": "File:The New imperial encyclopedia and dictionary;a library of universal knowledge and an unabridged dictionary of the English language under one alphabet;(Vol. 39, VIRE-WIGTON) (IA newimperialencyc39unse).pdf",
+          "generatedTitle": "The New imperial encyclopedia and dictionary a library of universal knowledge and an unabridged dictionary of the English language under one alphabet Vol. , VIRE-WIGTON IA newimper",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_New_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet%3B(Vol._39%2C_VIRE-WIGTON)_(IA_newimperialencyc39unse).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/63/The_New_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet%3B%28Vol._39%2C_VIRE-WIGTON%29_%28IA_newimperialencyc39unse%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/63/The_New_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet%3B%28Vol._39%2C_VIRE-WIGTON%29_%28IA_newimperialencyc39unse%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : newimperialencyc39unse https://archive.org/download/newimperialencyc39unse/newimperialencyc39unse.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "e75bcb828ca43b7c",
+          "dayKey": "2020-08-22",
+          "capturedAtMs": 1598093056000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1060,
+          "height": 1931
+        },
+        {
+          "sourceTitle": "File:The Appalachian Trail (IA appalachiantrail951unit).pdf",
+          "generatedTitle": "The Appalachian Trail IA appalachiantrail unit .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Appalachian_Trail_(IA_appalachiantrail951unit).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/22/The_Appalachian_Trail_%28IA_appalachiantrail951unit%29.pdf/page1-330px-The_Appalachian_Trail_%28IA_appalachiantrail951unit%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/22/The_Appalachian_Trail_%28IA_appalachiantrail951unit%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Forest Service",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : appalachiantrail951unit https://archive.org/download/appalachiantrail951unit/appalachiantrail951unit.pdf",
+          "activities": [
+            "hiking"
+          ],
+          "activityReasoning": [
+            "asset trail keyword"
+          ],
+          "activityUncertainty": null,
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "asset trail keyword",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "097de7fc2031b188",
+          "dayKey": "2020-09-11",
+          "capturedAtMs": 1599817960000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1168,
+          "height": 1908
+        },
+        {
+          "sourceTitle": "File:The national gazetteer; a geographical dictionary of the United States (IA nationalgazettee1884cola).pdf",
+          "generatedTitle": "The national gazetteer a geographical dictionary of the United States IA nationalgazettee cola .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_(IA_nationalgazettee1884cola).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee1884cola%29.pdf/page1-330px-The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee1884cola%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/35/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee1884cola%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Colange, Leo de, 1819-",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : nationalgazettee1884cola https://archive.org/download/nationalgazettee1884cola/nationalgazettee1884cola.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ffe4e62db4a116e0",
+          "dayKey": "2020-11-07",
+          "capturedAtMs": 1604784859000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 954,
+          "height": 1470
+        },
+        {
+          "sourceTitle": "File:Connecticut River Streambank Erosion Study, Massachusetts, New Hampshire and Vermont - USACE-p266001coll1-5331.pdf",
+          "generatedTitle": "Connecticut River Streambank Erosion Study, Massachusetts, New Hampshire and Vermont",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AConnecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Connecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf/page1-330px-Connecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/ef/Connecticut_River_Streambank_Erosion_Study%2C_Massachusetts%2C_New_Hampshire_and_Vermont_-_USACE-p266001coll1-5331.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Army. Corps of Engineers. New England Division",
+          "license": "Public domain",
+          "credit": "https://usace.contentdm.oclc.org/digital/collection/p266001coll1/id/5331",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.5,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5d2fa7f0ed7085f1",
+          "dayKey": "2024-10-10",
+          "capturedAtMs": 1728569906000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1620
+        },
+        {
+          "sourceTitle": "File:NOMINATIONS OF SANTANU K. BARUAH; GEORGE M. GRAY; LYONS GRAY; H. DALE HALL; AND EDWARD McGAFFIGAN, JR. (IA gov.gpo.fdsys.CHRG-109shrg28852).pdf",
+          "generatedTitle": "NOMINATIONS OF SANTANU K. BARUAH GEORGE M. GRAY LYONS GRAY H. DALE HALL AND EDWARD McGAFFIGAN, JR. IA gov.gpo.fdsys.CHRG",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ANOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._(IA_gov.gpo.fdsys.CHRG-109shrg28852).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6a/NOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._%28IA_gov.gpo.fdsys.CHRG-109shrg28852%29.pdf/page1-330px-NOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._%28IA_gov.gpo.fdsys.CHRG-109shrg28852%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/6a/NOMINATIONS_OF_SANTANU_K._BARUAH%3B_GEORGE_M._GRAY%3B_LYONS_GRAY%3B_H._DALE_HALL%3B_AND_EDWARD_McGAFFIGAN%2C_JR._%28IA_gov.gpo.fdsys.CHRG-109shrg28852%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Committee on Environment and Public Works",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/gov.gpo.fdsys.CHRG-109shrg28852 https://archive.org/download/gov.gpo.fdsys.CHRG-109shrg28852/CHRG-109shrg28852.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1f2967bb5a1945c5",
+          "dayKey": "2020-06-23",
+          "capturedAtMs": 1592882402000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Report of Second National Apple Utilization Conference held at Yakima, Wash., May 19-21, 1969 (IA reportofsecondna7453nati).pdf",
+          "generatedTitle": "Report of Second National Apple Utilization Conference held at Yakima, Wash., May",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AReport_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_(IA_reportofsecondna7453nati).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/36/Report_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_%28IA_reportofsecondna7453nati%29.pdf/page1-330px-Report_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_%28IA_reportofsecondna7453nati%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/36/Report_of_Second_National_Apple_Utilization_Conference_held_at_Yakima%2C_Wash.%2C_May_19-21%2C_1969_%28IA_reportofsecondna7453nati%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "National Apple Utilization Conference (2nd : 1969 : Yakima, Wash.) United States. Agricultural Research Service",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : reportofsecondna7453nati https://archive.org/download/reportofsecondna7453nati/reportofsecondna7453nati.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "4cf1f103f4274912",
+          "dayKey": "2020-06-26",
+          "capturedAtMs": 1593212705000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1131,
+          "height": 1520
+        },
+        {
+          "sourceTitle": "File:Soil and water conservation news (IA CAT81757230068).pdf",
+          "generatedTitle": "Soil and water conservation news IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ASoil_and_water_conservation_news_(IA_CAT81757230068).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Soil_and_water_conservation_news_%28IA_CAT81757230068%29.pdf/page1-330px-Soil_and_water_conservation_news_%28IA_CAT81757230068%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/0c/Soil_and_water_conservation_news_%28IA_CAT81757230068%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Soil Conservation Service United States. Soil Conservation Service. Information Division",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT81757230068 https://archive.org/download/CAT81757230068/CAT81757230068.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "194c345578ad9bce",
+          "dayKey": "2020-06-29",
+          "capturedAtMs": 1593405376000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 966,
+          "height": 1493
+        },
+        {
+          "sourceTitle": "File:Snow and ice bulletin (IA CAT11088652002).pdf",
+          "generatedTitle": "Snow and ice bulletin IA CAT .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ASnow_and_ice_bulletin_(IA_CAT11088652002).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d5/Snow_and_ice_bulletin_%28IA_CAT11088652002%29.pdf/page1-120px-Snow_and_ice_bulletin_%28IA_CAT11088652002%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/d/d5/Snow_and_ice_bulletin_%28IA_CAT11088652002%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Weather Bureau",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : CAT11088652002 https://archive.org/download/CAT11088652002/cat11088652002.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ed2e55f6571afc23",
+          "dayKey": "2020-08-14",
+          "capturedAtMs": 1597433062000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 143,
+          "height": 197
+        },
+        {
+          "sourceTitle": "File:The imperial encyclopedia and dictionary;a library of universal knowledge and an unabridged dictionary of the English language under one alphabet... (Vol. 39, Vire - Wigton) (IA imperialencyclop39unse).pdf",
+          "generatedTitle": "The imperial encyclopedia and dictionary a library of universal knowledge and an unabridged dictionary of the English language under one alphabet... Vol. , Vire",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet..._(Vol._39%2C_Vire_-_Wigton)_(IA_imperialencyclop39unse).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/The_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet..._%28Vol._39%2C_Vire_-_Wigton%29_%28IA_imperialencyclop39unse%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/05/The_imperial_encyclopedia_and_dictionary%3Ba_library_of_universal_knowledge_and_an_unabridged_dictionary_of_the_English_language_under_one_alphabet..._%28Vol._39%2C_Vire_-_Wigton%29_%28IA_imperialencyclop39unse%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : imperialencyclop39unse https://archive.org/download/imperialencyclop39unse/imperialencyclop39unse.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b398e2394e339ba0",
+          "dayKey": "2020-08-18",
+          "capturedAtMs": 1597752844000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 941,
+          "height": 1760
+        },
+        {
+          "sourceTitle": "File:Genetics of sugar maple (IA geneticsofsugarm07krie).pdf",
+          "generatedTitle": "Genetics of sugar maple IA geneticsofsugarm krie .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AGenetics_of_sugar_maple_(IA_geneticsofsugarm07krie).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/Genetics_of_sugar_maple_%28IA_geneticsofsugarm07krie%29.pdf/page1-330px-Genetics_of_sugar_maple_%28IA_geneticsofsugarm07krie%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/84/Genetics_of_sugar_maple_%28IA_geneticsofsugarm07krie%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Kriebel, Howard B Gabriel, William J. cn",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : geneticsofsugarm07krie https://archive.org/download/geneticsofsugarm07krie/geneticsofsugarm07krie.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b80b6780f4b888c7",
+          "dayKey": "2020-09-03",
+          "capturedAtMs": 1599150780000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1391,
+          "height": 1856
+        },
+        {
+          "sourceTitle": "File:The Engineering and Mining Journal January-June 1908- Vol 85 Index (IA sim engineering-and-mining-journal january-june-1908 85 index).pdf",
+          "generatedTitle": "The Engineering and Mining Journal January-June",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_(IA_sim_engineering-and-mining-journal_january-june-1908_85_index).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/The_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_%28IA_sim_engineering-and-mining-journal_january-june-1908_85_index%29.pdf/page1-330px-The_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_%28IA_sim_engineering-and-mining-journal_january-june-1908_85_index%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/95/The_Engineering_and_Mining_Journal_January-June_1908-_Vol_85_Index_%28IA_sim_engineering-and-mining-journal_january-june-1908_85_index%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_engineering-and-mining-journal_january-june-1908_85_index https://archive.org/download/sim_engineering-and-mining-journal_january-june-1908_85_index/sim_engineering-and-mining-journal_january-june-1908_85_index.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ff37b40247066528",
+          "dayKey": "2021-01-01",
+          "capturedAtMs": 1609481410000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1331,
+          "height": 1806
+        },
+        {
+          "sourceTitle": "File:The Engineering and Mining Journal July - December 1891- Vol 52 Index (IA sim engineering-and-mining-journal july-december-1891 52 index).pdf",
+          "generatedTitle": "The Engineering and Mining Journal July",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_(IA_sim_engineering-and-mining-journal_july-december-1891_52_index).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/The_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_%28IA_sim_engineering-and-mining-journal_july-december-1891_52_index%29.pdf/page1-330px-The_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_%28IA_sim_engineering-and-mining-journal_july-december-1891_52_index%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/6/65/The_Engineering_and_Mining_Journal_July_-_December_1891-_Vol_52_Index_%28IA_sim_engineering-and-mining-journal_july-december-1891_52_index%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_engineering-and-mining-journal_july-december-1891_52_index https://archive.org/download/sim_engineering-and-mining-journal_july-december-1891_52_index/sim_engineering-and-mining-journal_july-december-1891_52_index.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "3396d463481a15f7",
+          "dayKey": "2021-01-01",
+          "capturedAtMs": 1609482270000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1435,
+          "height": 1868
+        },
+        {
+          "sourceTitle": "File:Federal Register 1971-02-09- Vol 36 Iss 27 (IA sim federal-register-find 1971-02-09 36 27 0).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1971-02-09-_Vol_36_Iss_27_(IA_sim_federal-register-find_1971-02-09_36_27_0).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/b/be/Federal_Register_1971-02-09-_Vol_36_Iss_27_%28IA_sim_federal-register-find_1971-02-09_36_27_0%29.pdf/page1-330px-Federal_Register_1971-02-09-_Vol_36_Iss_27_%28IA_sim_federal-register-find_1971-02-09_36_27_0%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/b/be/Federal_Register_1971-02-09-_Vol_36_Iss_27_%28IA_sim_federal-register-find_1971-02-09_36_27_0%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1971-02-09_36_27_0 https://archive.org/download/sim_federal-register-find_1971-02-09_36_27_0/sim_federal-register-find_1971-02-09_36_27_0.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ef8226d51a74c2b9",
+          "dayKey": "2021-01-02",
+          "capturedAtMs": 1609586397000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1164,
+          "height": 1681
+        },
+        {
+          "sourceTitle": "File:Federal Register 1977-09-07- Vol 42 Iss 173 (IA sim federal-register-find 1977-09-07 42 173).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1977-09-07-_Vol_42_Iss_173_(IA_sim_federal-register-find_1977-09-07_42_173).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/04/Federal_Register_1977-09-07-_Vol_42_Iss_173_%28IA_sim_federal-register-find_1977-09-07_42_173%29.pdf/page1-330px-Federal_Register_1977-09-07-_Vol_42_Iss_173_%28IA_sim_federal-register-find_1977-09-07_42_173%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/04/Federal_Register_1977-09-07-_Vol_42_Iss_173_%28IA_sim_federal-register-find_1977-09-07_42_173%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1977-09-07_42_173 https://archive.org/download/sim_federal-register-find_1977-09-07_42_173/sim_federal-register-find_1977-09-07_42_173.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "e79cfc3552771c74",
+          "dayKey": "2021-01-04",
+          "capturedAtMs": 1609754747000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1200,
+          "height": 1627
+        },
+        {
+          "sourceTitle": "File:Travels in North America (microform) - in the years 1841-2 - with geological observations on the United States, Canada and Nova Scotia (IA cihm 36397).pdf",
+          "generatedTitle": "Travels in North America microform",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ATravels_in_North_America_(microform)_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_(IA_cihm_36397).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/85/Travels_in_North_America_%28microform%29_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_%28IA_cihm_36397%29.pdf/page1-330px-Travels_in_North_America_%28microform%29_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_%28IA_cihm_36397%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/85/Travels_in_North_America_%28microform%29_-_in_the_years_1841-2_-_with_geological_observations_on_the_United_States%2C_Canada_and_Nova_Scotia_%28IA_cihm_36397%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Lyell, Charles, Sir, 1797-1875",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_36397 https://archive.org/download/cihm_36397/cihm_36397.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5e2fc1d3d89ff002",
+          "dayKey": "2021-01-29",
+          "capturedAtMs": 1611886474000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1202,
+          "height": 1429
+        },
+        {
+          "sourceTitle": "File:Comprehensive Database of Diameter-based Biomass Regressions for North American Tree Species.pdf",
+          "generatedTitle": "Comprehensive Database of Diameter-based Biomass Regressions for North American Tree Species.pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AComprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/Comprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf/page1-330px-Comprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/c/c5/Comprehensive_Database_of_Diameter-based_Biomass_Regressions_for_North_American_Tree_Species.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Jennifer C. Jenkins, David C. Chojnacky, Linda S. Heath, and Richard A. Birdsey. USDA Forest Service, Northeastern Research Station",
+          "license": "Public domain",
+          "credit": "https://www.nrs.fs.fed.us/pubs/6725",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "06becf624cce8c12",
+          "dayKey": "2021-12-03",
+          "capturedAtMs": 1638518196000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        },
+        {
+          "sourceTitle": "File:Woman's who's who of America, 1914-15.djvu",
+          "generatedTitle": "Woman's who's who of America,",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AWoman's_who's_who_of_America%2C_1914-15.djvu",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/Woman%27s_who%27s_who_of_America%2C_1914-15.djvu/page1-330px-Woman%27s_who%27s_who_of_America%2C_1914-15.djvu.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/9e/Woman%27s_who%27s_who_of_America%2C_1914-15.djvu?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "archive.org",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "bdc39310bfdaa641",
+          "dayKey": "2011-06-26",
+          "capturedAtMs": 1309091911000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1959,
+          "height": 3338
+        },
+        {
+          "sourceTitle": "File:The Morris and Essex R. R., and the anthracite coal regions of Pennsylvania (IA morrisessexrrant00wall).pdf",
+          "generatedTitle": "The Morris and Essex R. R., and the anthracite coal regions of Pennsylvania IA morrisessexrrant wall .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_(IA_morrisessexrrant00wall).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1e/The_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_%28IA_morrisessexrrant00wall%29.pdf/page1-330px-The_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_%28IA_morrisessexrrant00wall%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/1/1e/The_Morris_and_Essex_R._R.%2C_and_the_anthracite_coal_regions_of_Pennsylvania_%28IA_morrisessexrrant00wall%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Walling, Henry Francis, 1825-1888. [from old catalog]",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/morrisessexrrant00wall https://archive.org/download/morrisessexrrant00wall/morrisessexrrant00wall.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "87b8f896bb5a2920",
+          "dayKey": "2020-07-01",
+          "capturedAtMs": 1593629679000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 714,
+          "height": 1135
+        },
+        {
+          "sourceTitle": "File:The centennial gazetteer of the United States (IA centennialgazett00stei).pdf",
+          "generatedTitle": "The centennial gazetteer of the United States IA centennialgazett stei .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_centennial_gazetteer_of_the_United_States_(IA_centennialgazett00stei).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/86/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett00stei%29.pdf/page1-330px-The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett00stei%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/86/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett00stei%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Steinwehr, Adolph Wilhelm August Friedrich von, 1822-1877, [from old catalog] comp",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : centennialgazett00stei https://archive.org/download/centennialgazett00stei/centennialgazett00stei.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "9c3a867096554a49",
+          "dayKey": "2020-07-02",
+          "capturedAtMs": 1593672135000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 795,
+          "height": 1302
+        },
+        {
+          "sourceTitle": "File:The centennial gazetteer of the United States (IA centennialgazett01stei).pdf",
+          "generatedTitle": "The centennial gazetteer of the United States IA centennialgazett stei .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_centennial_gazetteer_of_the_United_States_(IA_centennialgazett01stei).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a5/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett01stei%29.pdf/page1-330px-The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett01stei%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/a/a5/The_centennial_gazetteer_of_the_United_States_%28IA_centennialgazett01stei%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Steinwehr, Adolph Wilhelm August Friedrich von, 1822-1877, [from old catalog] comp",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : centennialgazett01stei https://archive.org/download/centennialgazett01stei/centennialgazett01stei.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "8842b45ecf49ab22",
+          "dayKey": "2020-07-02",
+          "capturedAtMs": 1593672232000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 827,
+          "height": 1308
+        },
+        {
+          "sourceTitle": "File:Bulletin of the Museum of Comparative Zoology at Harvard College (IA p2bulletinofmuse07harv).pdf",
+          "generatedTitle": "Bulletin of the Museum of Comparative Zoology at Harvard College IA p bulletinofmuse harv .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ABulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_(IA_p2bulletinofmuse07harv).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5a/Bulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_%28IA_p2bulletinofmuse07harv%29.pdf/page1-330px-Bulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_%28IA_p2bulletinofmuse07harv%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5a/Bulletin_of_the_Museum_of_Comparative_Zoology_at_Harvard_College_%28IA_p2bulletinofmuse07harv%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Harvard University. Museum of Comparative Zoology",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : p2bulletinofmuse07harv https://archive.org/download/p2bulletinofmuse07harv/p2bulletinofmuse07harv.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "a3fdf941f23c43a2",
+          "dayKey": "2020-07-04",
+          "capturedAtMs": 1593903264000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 789,
+          "height": 1352
+        },
+        {
+          "sourceTitle": "File:The national gazetteer; a geographical dictionary of the United States (IA nationalgazettee00cola).pdf",
+          "generatedTitle": "The national gazetteer a geographical dictionary of the United States IA nationalgazettee cola .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_(IA_nationalgazettee00cola).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee00cola%29.pdf/page1-330px-The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee00cola%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/d/dc/The_national_gazetteer%3B_a_geographical_dictionary_of_the_United_States_%28IA_nationalgazettee00cola%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Colange, Leo de, b. 1819",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : nationalgazettee00cola https://archive.org/download/nationalgazettee00cola/nationalgazettee00cola.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5ceeb484722be28d",
+          "dayKey": "2020-07-11",
+          "capturedAtMs": 1594484750000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 920,
+          "height": 1410
+        },
+        {
+          "sourceTitle": "File:An introduction to geology; (IA introductionto00scot).pdf",
+          "generatedTitle": "An introduction to geology IA introductionto scot .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAn_introduction_to_geology%3B_(IA_introductionto00scot).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f4/An_introduction_to_geology%3B_%28IA_introductionto00scot%29.pdf/page1-330px-An_introduction_to_geology%3B_%28IA_introductionto00scot%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f4/An_introduction_to_geology%3B_%28IA_introductionto00scot%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Scott, William Berryman, 1858-1947",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : introductionto00scot https://archive.org/download/introductionto00scot/introductionto00scot.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "6cafef97df05400c",
+          "dayKey": "2020-07-14",
+          "capturedAtMs": 1594723475000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 793,
+          "height": 1214
+        },
+        {
+          "sourceTitle": "File:Departments of Labor, Health and Human Services, and Education, and related agencies appropriation bill, 2008 - report of the Committee on Appropriations, U.S. Senate on S. 1710 (IA departmentsoflab00unit 22).pdf",
+          "generatedTitle": "Departments of Labor, Health and Human Services, and Education, and related agencies appropriation bill,",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ADepartments_of_Labor%2C_Health_and_Human_Services%2C_and_Education%2C_and_related_agencies_appropriation_bill%2C_2008_-_report_of_the_Committee_on_Appropriations%2C_U.S._Senate_on_S._1710_(IA_departmentsoflab00unit_22).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f2/Departments_of_Labor%2C_Health_and_Human_Services%2C_and_Education%2C_and_related_agencies_appropriation_bill%2C_2008_-_report_of_the_Committee_on_Appropriations%2C_U.S._Senate_on_S._1710_%28IA_departmentsoflab00unit_22%29.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f2/Departments_of_Labor%2C_Health_and_Human_Services%2C_and_Education%2C_and_related_agencies_appropriation_bill%2C_2008_-_report_of_the_Committee_on_Appropriations%2C_U.S._Senate_on_S._1710_%28IA_departmentsoflab00unit_22%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Congress. Senate. Committee on Appropriations",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : departmentsoflab00unit_22 https://archive.org/download/departmentsoflab00unit_22/departmentsoflab00unit_22.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ede66ab650a02015",
+          "dayKey": "2020-07-16",
+          "capturedAtMs": 1594909191000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1137,
+          "height": 1889
+        },
+        {
+          "sourceTitle": "File:A dictionary of altitudes in the United States (IA dictionaryofalti00gannrich).pdf",
+          "generatedTitle": "A dictionary of altitudes in the United States IA dictionaryofalti gannrich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AA_dictionary_of_altitudes_in_the_United_States_(IA_dictionaryofalti00gannrich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/A_dictionary_of_altitudes_in_the_United_States_%28IA_dictionaryofalti00gannrich%29.pdf/page1-330px-A_dictionary_of_altitudes_in_the_United_States_%28IA_dictionaryofalti00gannrich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5e/A_dictionary_of_altitudes_in_the_United_States_%28IA_dictionaryofalti00gannrich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Gannett, Henry, 1846-1914",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : dictionaryofalti00gannrich https://archive.org/download/dictionaryofalti00gannrich/dictionaryofalti00gannrich.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "48165860300399e9",
+          "dayKey": "2020-10-14",
+          "capturedAtMs": 1602706571000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 795,
+          "height": 1325
+        },
+        {
+          "sourceTitle": "File:Notes on special collections in American libraries (IA notesonspecialco00lanerich).pdf",
+          "generatedTitle": "Notes on special collections in American libraries IA notesonspecialco lanerich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ANotes_on_special_collections_in_American_libraries_(IA_notesonspecialco00lanerich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/Notes_on_special_collections_in_American_libraries_%28IA_notesonspecialco00lanerich%29.pdf/page1-330px-Notes_on_special_collections_in_American_libraries_%28IA_notesonspecialco00lanerich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/4/47/Notes_on_special_collections_in_American_libraries_%28IA_notesonspecialco00lanerich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Lane, William Coolidge, 1859-1931 Bolton, Charles Knowles, 1867-1950",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : notesonspecialco00lanerich https://archive.org/download/notesonspecialco00lanerich/notesonspecialco00lanerich.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "b17caa4cabd8f61d",
+          "dayKey": "2020-11-07",
+          "capturedAtMs": 1604728172000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 858,
+          "height": 1352
+        },
+        {
+          "sourceTitle": "File:Federal Register 1971-10-09- Vol 36 Iss 197 (IA sim federal-register-find 1971-10-09 36 197 0).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1971-10-09-_Vol_36_Iss_197_(IA_sim_federal-register-find_1971-10-09_36_197_0).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/Federal_Register_1971-10-09-_Vol_36_Iss_197_%28IA_sim_federal-register-find_1971-10-09_36_197_0%29.pdf/page1-330px-Federal_Register_1971-10-09-_Vol_36_Iss_197_%28IA_sim_federal-register-find_1971-10-09_36_197_0%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/95/Federal_Register_1971-10-09-_Vol_36_Iss_197_%28IA_sim_federal-register-find_1971-10-09_36_197_0%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1971-10-09_36_197_0 https://archive.org/download/sim_federal-register-find_1971-10-09_36_197_0/sim_federal-register-find_1971-10-09_36_197_0.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "a92316e2f7b87d84",
+          "dayKey": "2021-01-02",
+          "capturedAtMs": 1609593811000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1189,
+          "height": 1606
+        },
+        {
+          "sourceTitle": "File:North America; the United States (microform) (IA cihm 06227).pdf",
+          "generatedTitle": "North America the United States microform IA cihm .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ANorth_America%3B_the_United_States_(microform)_(IA_cihm_06227).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/North_America%3B_the_United_States_%28microform%29_%28IA_cihm_06227%29.pdf/page1-330px-North_America%3B_the_United_States_%28microform%29_%28IA_cihm_06227%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/ea/North_America%3B_the_United_States_%28microform%29_%28IA_cihm_06227%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Gannett, Henry, 1846-1914",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_06227 https://archive.org/download/cihm_06227/cihm_06227.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "d7dff0cb91e301d6",
+          "dayKey": "2021-08-30",
+          "capturedAtMs": 1630295863000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1129,
+          "height": 1345
+        }
+      ]
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 6,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 6,
+    "elapsedMs": 1595
+  },
+  "error": null
+}

@@ -1,0 +1,2371 @@
+{
+  "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+  "status": "complete",
+  "createdAtMs": 1778535297749,
+  "updatedAtMs": 1778535299116,
+  "places": [
+    "Hazen's Notch, Vermont, VT"
+  ],
+  "normalizedPlaces": [
+    "hazen's notch, vermont, vt"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 200,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 60000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] grouping started",
+    "[info] group rejected because no located assets",
+    "[info] group rejected because no located assets",
+    "[info] asset hygiene started",
+    "[info] visual hash computed",
+    "[info] group asset counts before/after hygiene",
+    "[info] asset hygiene started",
+    "[info] visual hash computed",
+    "[info] group asset counts before/after hygiene",
+    "[info] generated post preview created after hygiene",
+    "[info] generated post preview created after hygiene",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T21:34:57.749Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 200,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T21:34:57.749Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T21:34:57.749Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T21:34:58.765Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 11,
+        "queryTerms": [
+          "Hazen's Notch, Vermont, VT",
+          "Hazen's Notch, Vermont, VT landscape",
+          "Hazen's Notch, Vermont, VT hiking trail"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T21:34:58.841Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 11
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T21:34:58.842Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "b9c0292f2860a85f",
+        "status": "KEEP",
+        "generatedTitle": "VT at dirt in Hazens Notch"
+      }
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T21:34:58.842Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "0cf4646d6982dfbc",
+        "status": "KEEP",
+        "generatedTitle": "VT through Hazens Notch"
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T21:34:58.842Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "c20f4dcd2929fa6a",
+        "status": "REJECT",
+        "generatedTitle": "History of the Missisco Valley IA historyofmissisc sumn .pdf"
+      }
+    },
+    {
+      "cursor": 8,
+      "timestamp": "2026-05-11T21:34:58.843Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "65570d3ef1be25ad",
+        "status": "REJECT",
+        "generatedTitle": "George Golding Kennedy correspondence."
+      }
+    },
+    {
+      "cursor": 9,
+      "timestamp": "2026-05-11T21:34:58.843Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "4ce8d04744a219b7",
+        "status": "REJECT",
+        "generatedTitle": "Williamstown, the Berkshire hills and thereabout .. IA williamstownberk fitc .pdf"
+      }
+    },
+    {
+      "cursor": 10,
+      "timestamp": "2026-05-11T21:34:58.843Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "784ef1bb908f7388",
+        "status": "REJECT",
+        "generatedTitle": "The turnpikes of New England and evolution of the same through England, Virginia, and Maryland IA turnpikesofnewen woodrich .pdf"
+      }
+    },
+    {
+      "cursor": 11,
+      "timestamp": "2026-05-11T21:34:58.843Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "1fb15b5973f2dd26",
+        "status": "REJECT",
+        "generatedTitle": "The turnpikes of New England and evolution of the same through England, Virginia, and Maryland IA cu .pdf"
+      }
+    },
+    {
+      "cursor": 12,
+      "timestamp": "2026-05-11T21:34:58.843Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "49a11c22448581b6",
+        "status": "REJECT",
+        "generatedTitle": "Annual report of the American Dairymen's Association IA annualreportofam amer .pdf"
+      }
+    },
+    {
+      "cursor": 13,
+      "timestamp": "2026-05-11T21:34:58.844Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "2c4cd1537265bf17",
+        "status": "REJECT",
+        "generatedTitle": "The Paper Trade Journal"
+      }
+    },
+    {
+      "cursor": 14,
+      "timestamp": "2026-05-11T21:34:58.844Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "372946ae0881f127",
+        "status": "REJECT",
+        "generatedTitle": "The Hazen family microform"
+      }
+    },
+    {
+      "cursor": 15,
+      "timestamp": "2026-05-11T21:34:58.844Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "1a8554f179acd02b",
+        "status": "REJECT",
+        "generatedTitle": "Ausable River, N.Y."
+      }
+    },
+    {
+      "cursor": 16,
+      "timestamp": "2026-05-11T21:34:58.844Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 17,
+      "timestamp": "2026-05-11T21:34:58.845Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "group rejected because no located assets",
+      "data": {
+        "groupId": "93f8cb27bceaca44",
+        "groupMethod": "exactDate",
+        "assetCount": 1,
+        "locatedAssetCount": 0,
+        "status": "REJECT"
+      }
+    },
+    {
+      "cursor": 18,
+      "timestamp": "2026-05-11T21:34:58.845Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "group rejected because no located assets",
+      "data": {
+        "groupId": "860247ab7b837cef",
+        "groupMethod": "exactDate",
+        "assetCount": 1,
+        "locatedAssetCount": 0,
+        "status": "REJECT"
+      }
+    },
+    {
+      "cursor": 19,
+      "timestamp": "2026-05-11T21:34:58.845Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "asset hygiene started",
+      "data": {
+        "groupId": "93f8cb27bceaca44",
+        "originalAssetCount": 1
+      }
+    },
+    {
+      "cursor": 20,
+      "timestamp": "2026-05-11T21:34:59.042Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "visual hash computed",
+      "data": {
+        "candidateId": "b9c0292f2860a85f",
+        "visualHash": "9f1fb73f3d3f2f17"
+      }
+    },
+    {
+      "cursor": 21,
+      "timestamp": "2026-05-11T21:34:59.043Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "group asset counts before/after hygiene",
+      "data": {
+        "groupId": "93f8cb27bceaca44",
+        "before": 1,
+        "after": 1
+      }
+    },
+    {
+      "cursor": 22,
+      "timestamp": "2026-05-11T21:34:59.043Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "asset hygiene started",
+      "data": {
+        "groupId": "860247ab7b837cef",
+        "originalAssetCount": 1
+      }
+    },
+    {
+      "cursor": 23,
+      "timestamp": "2026-05-11T21:34:59.113Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "visual hash computed",
+      "data": {
+        "candidateId": "0cf4646d6982dfbc",
+        "visualHash": "c181cb9597456587"
+      }
+    },
+    {
+      "cursor": 24,
+      "timestamp": "2026-05-11T21:34:59.114Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "group asset counts before/after hygiene",
+      "data": {
+        "groupId": "860247ab7b837cef",
+        "before": 1,
+        "after": 1
+      }
+    },
+    {
+      "cursor": 25,
+      "timestamp": "2026-05-11T21:34:59.115Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "generated post preview created after hygiene",
+      "data": {
+        "postId": "93f8cb27bceaca44",
+        "status": "REJECT",
+        "assetCount": 1,
+        "originalAssetCount": 1,
+        "keptAssetCount": 1,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "reviewAssetCount": 0,
+        "generatedTitle": "VT at dirt in Hazens Notch"
+      }
+    },
+    {
+      "cursor": 26,
+      "timestamp": "2026-05-11T21:34:59.115Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "generated post preview created after hygiene",
+      "data": {
+        "postId": "860247ab7b837cef",
+        "status": "REJECT",
+        "assetCount": 1,
+        "originalAssetCount": 1,
+        "keptAssetCount": 1,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "reviewAssetCount": 0,
+        "generatedTitle": "VT through Hazens Notch"
+      }
+    },
+    {
+      "cursor": 27,
+      "timestamp": "2026-05-11T21:34:59.115Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 11,
+        "assetGroupsCount": 2,
+        "generatedPostsCount": 2,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 2,
+        "rejectedNoLocationGroupCount": 2,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 2,
+        "originalAssetCount": 2,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 4,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 12,
+          "elapsedMs": 1366
+        }
+      }
+    },
+    {
+      "cursor": 28,
+      "timestamp": "2026-05-11T21:34:59.116Z",
+      "level": "info",
+      "runId": "8bdb70d6-759a-4daa-9a8d-402d51625c09",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 29,
+  "placeResults": [
+    {
+      "placeName": "Hazen's Notch, Vermont, VT",
+      "normalizedPlaceName": "hazen's notch, vermont, vt",
+      "wikimediaQueryTerms": [
+        "Hazen's Notch, Vermont, VT",
+        "Hazen's Notch, Vermont, VT landscape",
+        "Hazen's Notch, Vermont, VT hiking trail"
+      ],
+      "candidateCount": 11,
+      "keptCount": 2,
+      "rejectedCount": 9,
+      "reviewCount": 0,
+      "totalRuntimeMs": 1366,
+      "budget": {
+        "wikimediaRequests": 4,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 12,
+        "elapsedMs": 1366
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [
+        {
+          "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+          "generatedTitle": "VT at dirt in Hazens Notch",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Doug Kerr",
+          "license": "CC BY-SA 2.0",
+          "credit": "https://www.flickr.com/photos/dougtone/4150202170/",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 18,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=18.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 18,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 18,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "VT at dirt in Hazens Notch",
+            "displayTitle": "VT at dirt in Hazens Notch",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Hazen's Notch, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Hazen's Notch, Vermont, VT",
+            "locationLabel": "Hazen's Notch, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 1024,
+                "height": 768,
+                "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778535298842,
+            "updatedAtMs": 1778535298842,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "b9c0292f2860a85f",
+          "dayKey": "2013-12-29",
+          "capturedAtMs": 1388360829000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1024,
+          "height": 768,
+          "groupId": "93f8cb27bceaca44",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "9f1fb73f3d3f2f17",
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+          "generatedTitle": "VT through Hazens Notch",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Mitchazenia",
+          "license": "CC BY-SA 4.0",
+          "credit": "Own work",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 18,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=18.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 18,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 18,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "VT through Hazens Notch",
+            "displayTitle": "VT through Hazens Notch",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Hazen's Notch, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Hazen's Notch, Vermont, VT",
+            "locationLabel": "Hazen's Notch, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 4608,
+                "height": 3456,
+                "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778535298842,
+            "updatedAtMs": 1778535298842,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:VT 58 through Hazens Notch.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "0cf4646d6982dfbc",
+          "dayKey": "2017-07-10",
+          "capturedAtMs": 1499724643000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 4608,
+          "height": 3456,
+          "groupId": "860247ab7b837cef",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "c181cb9597456587",
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:History of the Missisco Valley (IA historyofmissisc00sumn).pdf",
+          "generatedTitle": "History of the Missisco Valley IA historyofmissisc sumn .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AHistory_of_the_Missisco_Valley_(IA_historyofmissisc00sumn).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/History_of_the_Missisco_Valley_%28IA_historyofmissisc00sumn%29.pdf/page1-330px-History_of_the_Missisco_Valley_%28IA_historyofmissisc00sumn%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/32/History_of_the_Missisco_Valley_%28IA_historyofmissisc00sumn%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Sumner, Samuel Hall, S. R. (Samuel Read), 1795-1877 Orleans County Natural and Civil Historical Society (Orleans County, Vt.)",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/historyofmissisc00sumn https://archive.org/download/historyofmissisc00sumn/historyofmissisc00sumn.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "c20f4dcd2929fa6a",
+          "dayKey": "2020-06-28",
+          "capturedAtMs": 1593361304000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 756,
+          "height": 1285
+        },
+        {
+          "sourceTitle": "File:George Golding Kennedy correspondence. 1766-1917 (inclusive) 1871-1917 (bulk) (IA GeorgeGoldingKe00KennF).pdf",
+          "generatedTitle": "George Golding Kennedy correspondence.",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AGeorge_Golding_Kennedy_correspondence._1766-1917_(inclusive)_1871-1917_(bulk)_(IA_GeorgeGoldingKe00KennF).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/George_Golding_Kennedy_correspondence._1766-1917_%28inclusive%29_1871-1917_%28bulk%29_%28IA_GeorgeGoldingKe00KennF%29.pdf/page1-330px-George_Golding_Kennedy_correspondence._1766-1917_%28inclusive%29_1871-1917_%28bulk%29_%28IA_GeorgeGoldingKe00KennF%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fc/George_Golding_Kennedy_correspondence._1766-1917_%28inclusive%29_1871-1917_%28bulk%29_%28IA_GeorgeGoldingKe00KennF%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Kennedy, George G.(George Golding),1841-1918,addressee Floyd, Frederick Gillan, ,1869-1941,correspondent Faxon, Edwin, ,1823-1898,correspondent Farlow, W. G.(William Gilson),1844-1919,correspondent Faxon, Charles Edward,1846-1918,correspondent Faxon, Walter,1848-1920,correspondent Fernald, Merritt Lyndon,1873-1950,correspondent Gibbs, W. B.,correspondent Goodale, George L.(George Lincoln),1839-1923,correspondent Greenough, Charles P.(Charles Pelham),1844-1924,correspondent Grout, A. J.(Abel Joel),1867-correspondent Hancock, John,1737-1793,autographer Harvard University,correspondent Heller, Amos Arthur,1867-1944,correspondent Hodges, Almon Danforth,1801-1878,correspondent Holzinger, J. M.(John Michael),1853-1929,correspondent Hooker, Joseph Dalton,1817-1911,correspondent Huntington, John Warren,correspondent",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : GeorgeGoldingKe00KennF https://archive.org/download/GeorgeGoldingKe00KennF/GeorgeGoldingKe00KennF.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "65570d3ef1be25ad",
+          "dayKey": "2020-07-04",
+          "capturedAtMs": 1593883476000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 789,
+          "height": 616
+        },
+        {
+          "sourceTitle": "File:Williamstown, the \"Berkshire hills\" and thereabout .. (IA williamstownberk00fitc).pdf",
+          "generatedTitle": "Williamstown, the Berkshire hills and thereabout .. IA williamstownberk fitc .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AWilliamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._(IA_williamstownberk00fitc).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2d/Williamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._%28IA_williamstownberk00fitc%29.pdf/page1-330px-Williamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._%28IA_williamstownberk00fitc%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2d/Williamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._%28IA_williamstownberk00fitc%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Fitchburg railroad company. [from old catalog]",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : williamstownberk00fitc https://archive.org/download/williamstownberk00fitc/williamstownberk00fitc.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "4ce8d04744a219b7",
+          "dayKey": "2020-07-24",
+          "capturedAtMs": 1595601995000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 675,
+          "height": 997
+        },
+        {
+          "sourceTitle": "File:The turnpikes of New England and evolution of the same through England, Virginia, and Maryland (IA turnpikesofnewen00woodrich).pdf",
+          "generatedTitle": "The turnpikes of New England and evolution of the same through England, Virginia, and Maryland IA turnpikesofnewen woodrich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_(IA_turnpikesofnewen00woodrich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_turnpikesofnewen00woodrich%29.pdf/page1-330px-The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_turnpikesofnewen00woodrich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2c/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_turnpikesofnewen00woodrich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Wood, Frederic J. (Frederic James), 1867-1955",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : turnpikesofnewen00woodrich https://archive.org/download/turnpikesofnewen00woodrich/turnpikesofnewen00woodrich.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "784ef1bb908f7388",
+          "dayKey": "2020-11-26",
+          "capturedAtMs": 1606394749000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1116,
+          "height": 1668
+        },
+        {
+          "sourceTitle": "File:The turnpikes of New England and evolution of the same through England, Virginia, and Maryland (IA cu31924004992313).pdf",
+          "generatedTitle": "The turnpikes of New England and evolution of the same through England, Virginia, and Maryland IA cu .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_(IA_cu31924004992313).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_cu31924004992313%29.pdf/page1-330px-The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_cu31924004992313%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/38/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_cu31924004992313%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Wood, Frederic James",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cu31924004992313 https://archive.org/download/cu31924004992313/cu31924004992313.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1fb15b5973f2dd26",
+          "dayKey": "2020-12-13",
+          "capturedAtMs": 1607845608000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1147,
+          "height": 1718
+        },
+        {
+          "sourceTitle": "File:Annual report of the American Dairymen's Association (IA annualreportofam101874amer).pdf",
+          "generatedTitle": "Annual report of the American Dairymen's Association IA annualreportofam amer .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAnnual_report_of_the_American_Dairymen's_Association_(IA_annualreportofam101874amer).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam101874amer%29.pdf/page1-330px-Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam101874amer%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5c/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam101874amer%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "American Dairymen's Association",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : annualreportofam101874amer https://archive.org/download/annualreportofam101874amer/annualreportofam101874amer.pdf IA contributor: UMass Amherst Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "49a11c22448581b6",
+          "dayKey": "2020-12-25",
+          "capturedAtMs": 1608904863000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 602,
+          "height": 1039
+        },
+        {
+          "sourceTitle": "File:The Paper Trade Journal 1879-02-22- Vol 8 Iss 8 (IA sim paper-trade-journal 1879-02-22 8 8).pdf",
+          "generatedTitle": "The Paper Trade Journal",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_(IA_sim_paper-trade-journal_1879-02-22_8_8).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/The_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_%28IA_sim_paper-trade-journal_1879-02-22_8_8%29.pdf/page1-330px-The_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_%28IA_sim_paper-trade-journal_1879-02-22_8_8%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f0/The_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_%28IA_sim_paper-trade-journal_1879-02-22_8_8%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_paper-trade-journal_1879-02-22_8_8 https://archive.org/download/sim_paper-trade-journal_1879-02-22_8_8/sim_paper-trade-journal_1879-02-22_8_8.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "2c4cd1537265bf17",
+          "dayKey": "2021-01-09",
+          "capturedAtMs": 1610193713000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1812,
+          "height": 2527
+        },
+        {
+          "sourceTitle": "File:The Hazen family (microform) - four American generations (IA cihm 06978).pdf",
+          "generatedTitle": "The Hazen family microform",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Hazen_family_(microform)_-_four_American_generations_(IA_cihm_06978).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/The_Hazen_family_%28microform%29_-_four_American_generations_%28IA_cihm_06978%29.pdf/page1-330px-The_Hazen_family_%28microform%29_-_four_American_generations_%28IA_cihm_06978%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/98/The_Hazen_family_%28microform%29_-_four_American_generations_%28IA_cihm_06978%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Hazen, Henry A. (Henry Allen), 1832-1900",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_06978 https://archive.org/download/cihm_06978/cihm_06978.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.3333333333333333,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "372946ae0881f127",
+          "dayKey": "2021-08-30",
+          "capturedAtMs": 1630316701000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1152,
+          "height": 1352
+        },
+        {
+          "sourceTitle": "File:Ausable River, N.Y.- Letter from the Secretary of War transmitting from the Chief of Engineers on Ausable River, N.Y., covering navigation, flood control, power development, and irrigation - USACE-p16021coll5-133.pdf",
+          "generatedTitle": "Ausable River, N.Y.",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAusable_River%2C_N.Y.-_Letter_from_the_Secretary_of_War_transmitting_from_the_Chief_of_Engineers_on_Ausable_River%2C_N.Y.%2C_covering_navigation%2C_flood_control%2C_power_development%2C_and_irrigation_-_USACE-p16021coll5-133.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Ausable_River%2C_N.Y.-_Letter_from_the_Secretary_of_War_transmitting_from_the_Chief_of_Engineers_on_Ausable_River%2C_N.Y.%2C_covering_navigation%2C_flood_control%2C_power_development%2C_and_irrigation_-_USACE-p16021coll5-133.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/3b/Ausable_River%2C_N.Y.-_Letter_from_the_Secretary_of_War_transmitting_from_the_Chief_of_Engineers_on_Ausable_River%2C_N.Y.%2C_covering_navigation%2C_flood_control%2C_power_development%2C_and_irrigation_-_USACE-p16021coll5-133.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Congress. House",
+          "license": "Public domain",
+          "credit": "https://usace.contentdm.oclc.org/digital/collection/p16021coll5/id/133",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1a8554f179acd02b",
+          "dayKey": "2024-09-24",
+          "capturedAtMs": 1727176404000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        }
+      ],
+      "generatedPosts": [
+        {
+          "postId": "93f8cb27bceaca44",
+          "groupId": "93f8cb27bceaca44",
+          "placeName": "Hazen's Notch, Vermont, VT",
+          "generatedTitle": "VT at dirt in Hazens Notch",
+          "titleReasoning": [
+            "Filename-like Commons title cleaned for display"
+          ],
+          "titleConfidence": "medium",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "status": "REJECT",
+          "rejectionReasons": [
+            "group_has_no_located_assets"
+          ],
+          "reasoning": [
+            "groupMethod=exactDate",
+            "groupKey=2013-12-29",
+            "assetCount=1",
+            "locatedAssetCount=0"
+          ],
+          "groupMethod": "exactDate",
+          "dateRange": {
+            "earliest": "2013-12-29",
+            "latest": "2013-12-29"
+          },
+          "assetCount": 1,
+          "locatedAssetCount": 0,
+          "originalAssetCount": 1,
+          "keptAssetCount": 1,
+          "rejectedAssetCount": 0,
+          "reviewAssetCount": 0,
+          "rejectedDuplicateCount": 0,
+          "rejectedHygieneCount": 0,
+          "removedAssets": [],
+          "reviewAssets": [],
+          "assetHygieneSummary": {
+            "originalAssetCount": 1,
+            "keptAssetCount": 1,
+            "rejectedAssetCount": 0,
+            "reviewAssetCount": 0,
+            "rejectedDuplicateCount": 0,
+            "rejectedHygieneCount": 0,
+            "rejectedPanoramaCount": 0,
+            "rejectedLowQualityCount": 0,
+            "rejectedBlackAndWhiteOrFilterCount": 0,
+            "possibleDuplicateReviewCount": 0
+          },
+          "selectedLocation": {
+            "candidateId": "b9c0292f2860a85f",
+            "latitude": null,
+            "longitude": null,
+            "reasoning": "group_has_no_located_assets"
+          },
+          "groupedCandidateIds": [
+            "b9c0292f2860a85f"
+          ],
+          "media": [
+            {
+              "candidateId": "b9c0292f2860a85f",
+              "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "Doug Kerr",
+              "license": "CC BY-SA 2.0",
+              "credit": "https://www.flickr.com/photos/dougtone/4150202170/",
+              "width": 1024,
+              "height": 768,
+              "suppliesPostLocation": false,
+              "hasRealAssetLocation": false,
+              "hygieneStatus": "PASS",
+              "duplicateDecision": "UNIQUE",
+              "hygieneReasons": [],
+              "hygieneWarnings": []
+            }
+          ],
+          "dryRunPostPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "placeName": "Hazen's Notch, Vermont, VT",
+            "title": "VT at dirt in Hazens Notch",
+            "displayTitle": "VT at dirt in Hazens Notch",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "activityReasoning": [
+              "default outdoor fallback"
+            ],
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Hazen's Notch, Vermont, VT",
+            "locationLabel": "Hazen's Notch, Vermont, VT",
+            "locationSelection": {
+              "candidateId": "b9c0292f2860a85f",
+              "latitude": null,
+              "longitude": null,
+              "reasoning": "no located asset available"
+            },
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+                "author": "Doug Kerr",
+                "license": "CC BY-SA 2.0",
+                "credit": "https://www.flickr.com/photos/dougtone/4150202170/",
+                "suppliesPostLocation": false
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "groupedCandidateIds": [
+              "b9c0292f2860a85f"
+            ],
+            "groupId": "93f8cb27bceaca44",
+            "groupMethod": "exactDate",
+            "groupReasoning": [
+              "groupMethod=exactDate",
+              "groupKey=2013-12-29",
+              "assetCount=1",
+              "locatedAssetCount=0"
+            ],
+            "candidateReasoning": [
+              {
+                "candidateId": "b9c0292f2860a85f",
+                "reasoning": [
+                  "Filename-like Commons title cleaned for display",
+                  "default outdoor fallback",
+                  "relevance=18.0 quality=9.5 coolness=3.0"
+                ]
+              }
+            ],
+            "status": "REJECT",
+            "rejectionReasons": [
+              "group_has_no_located_assets"
+            ],
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            }
+          },
+          "candidateReasoning": [
+            {
+              "candidateId": "b9c0292f2860a85f",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=18.0 quality=9.5 coolness=3.0"
+              ]
+            }
+          ]
+        },
+        {
+          "postId": "860247ab7b837cef",
+          "groupId": "860247ab7b837cef",
+          "placeName": "Hazen's Notch, Vermont, VT",
+          "generatedTitle": "VT through Hazens Notch",
+          "titleReasoning": [
+            "Filename-like Commons title cleaned for display"
+          ],
+          "titleConfidence": "medium",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "status": "REJECT",
+          "rejectionReasons": [
+            "group_has_no_located_assets"
+          ],
+          "reasoning": [
+            "groupMethod=exactDate",
+            "groupKey=2017-07-10",
+            "assetCount=1",
+            "locatedAssetCount=0"
+          ],
+          "groupMethod": "exactDate",
+          "dateRange": {
+            "earliest": "2017-07-10",
+            "latest": "2017-07-10"
+          },
+          "assetCount": 1,
+          "locatedAssetCount": 0,
+          "originalAssetCount": 1,
+          "keptAssetCount": 1,
+          "rejectedAssetCount": 0,
+          "reviewAssetCount": 0,
+          "rejectedDuplicateCount": 0,
+          "rejectedHygieneCount": 0,
+          "removedAssets": [],
+          "reviewAssets": [],
+          "assetHygieneSummary": {
+            "originalAssetCount": 1,
+            "keptAssetCount": 1,
+            "rejectedAssetCount": 0,
+            "reviewAssetCount": 0,
+            "rejectedDuplicateCount": 0,
+            "rejectedHygieneCount": 0,
+            "rejectedPanoramaCount": 0,
+            "rejectedLowQualityCount": 0,
+            "rejectedBlackAndWhiteOrFilterCount": 0,
+            "possibleDuplicateReviewCount": 0
+          },
+          "selectedLocation": {
+            "candidateId": "0cf4646d6982dfbc",
+            "latitude": null,
+            "longitude": null,
+            "reasoning": "group_has_no_located_assets"
+          },
+          "groupedCandidateIds": [
+            "0cf4646d6982dfbc"
+          ],
+          "media": [
+            {
+              "candidateId": "0cf4646d6982dfbc",
+              "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "Mitchazenia",
+              "license": "CC BY-SA 4.0",
+              "credit": "Own work",
+              "width": 4608,
+              "height": 3456,
+              "suppliesPostLocation": false,
+              "hasRealAssetLocation": false,
+              "hygieneStatus": "PASS",
+              "duplicateDecision": "UNIQUE",
+              "hygieneReasons": [],
+              "hygieneWarnings": []
+            }
+          ],
+          "dryRunPostPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "placeName": "Hazen's Notch, Vermont, VT",
+            "title": "VT through Hazens Notch",
+            "displayTitle": "VT through Hazens Notch",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "activityReasoning": [
+              "default outdoor fallback"
+            ],
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Hazen's Notch, Vermont, VT",
+            "locationLabel": "Hazen's Notch, Vermont, VT",
+            "locationSelection": {
+              "candidateId": "0cf4646d6982dfbc",
+              "latitude": null,
+              "longitude": null,
+              "reasoning": "no located asset available"
+            },
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+                "author": "Mitchazenia",
+                "license": "CC BY-SA 4.0",
+                "credit": "Own work",
+                "suppliesPostLocation": false
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "groupedCandidateIds": [
+              "0cf4646d6982dfbc"
+            ],
+            "groupId": "860247ab7b837cef",
+            "groupMethod": "exactDate",
+            "groupReasoning": [
+              "groupMethod=exactDate",
+              "groupKey=2017-07-10",
+              "assetCount=1",
+              "locatedAssetCount=0"
+            ],
+            "candidateReasoning": [
+              {
+                "candidateId": "0cf4646d6982dfbc",
+                "reasoning": [
+                  "Filename-like Commons title cleaned for display",
+                  "default outdoor fallback",
+                  "relevance=18.0 quality=9.5 coolness=3.0"
+                ]
+              }
+            ],
+            "status": "REJECT",
+            "rejectionReasons": [
+              "group_has_no_located_assets"
+            ],
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            }
+          },
+          "candidateReasoning": [
+            {
+              "candidateId": "0cf4646d6982dfbc",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=18.0 quality=9.5 coolness=3.0"
+              ]
+            }
+          ]
+        }
+      ],
+      "assetGroups": [
+        {
+          "groupId": "93f8cb27bceaca44",
+          "placeName": "Hazen's Notch, Vermont, VT",
+          "groupKey": "2013-12-29",
+          "groupMethod": "exactDate",
+          "dateRange": {
+            "earliest": "2013-12-29",
+            "latest": "2013-12-29"
+          },
+          "hasLocatedAsset": false,
+          "locatedAssetCount": 0,
+          "assetCount": 1,
+          "assets": [
+            {
+              "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+              "generatedTitle": "VT at dirt in Hazens Notch",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "Doug Kerr",
+              "license": "CC BY-SA 2.0",
+              "credit": "https://www.flickr.com/photos/dougtone/4150202170/",
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "activityReasoning": [
+                "default outdoor fallback"
+              ],
+              "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+              "titleConfidence": "medium",
+              "placeMatchConfidence": 1,
+              "qualityScore": 9.5,
+              "relevanceScore": 18,
+              "coolnessScore": 3,
+              "duplicateScore": null,
+              "duplicateReason": null,
+              "status": "KEEP",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=18.0 quality=9.5 coolness=3.0"
+              ],
+              "scores": {
+                "textMatch": 18,
+                "resolution": 8,
+                "coordinates": 0,
+                "outdoor": 0,
+                "metadata": 1.5,
+                "relevanceScore": 18,
+                "qualityScore": 9.5,
+                "coolnessScore": 3
+              },
+              "postPreview": {
+                "dryRun": true,
+                "source": "wikimedia_mvp_dev",
+                "title": "VT at dirt in Hazens Notch",
+                "displayTitle": "VT at dirt in Hazens Notch",
+                "content": "",
+                "caption": "",
+                "activities": [
+                  "walking",
+                  "view"
+                ],
+                "placeName": "Hazen's Notch, Vermont, VT",
+                "lat": null,
+                "long": null,
+                "lng": null,
+                "address": "Hazen's Notch, Vermont, VT",
+                "locationLabel": "Hazen's Notch, Vermont, VT",
+                "mediaType": "image",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "photoLink": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "assets": [
+                  {
+                    "type": "image",
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                    "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                    "width": 1024,
+                    "height": 768,
+                    "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+                    "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+                    "mime": "image/jpeg"
+                  }
+                ],
+                "assetsReady": true,
+                "mediaStatus": "ready",
+                "createdAtMs": 1778535298842,
+                "updatedAtMs": 1778535298842,
+                "likesCount": 0,
+                "commentsCount": 0,
+                "classification": {
+                  "activities": [
+                    "walking",
+                    "view"
+                  ],
+                  "primaryActivity": "walking",
+                  "mediaKind": "image",
+                  "source": "wikimedia_commons"
+                },
+                "provenance": {
+                  "commonsFileTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+                  "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+                  "candidateStatus": "KEEP"
+                }
+              },
+              "candidateId": "b9c0292f2860a85f",
+              "dayKey": "2013-12-29",
+              "capturedAtMs": 1388360829000,
+              "assetLatitude": null,
+              "assetLongitude": null,
+              "hasRealAssetLocation": false,
+              "width": 1024,
+              "height": 768,
+              "groupId": "93f8cb27bceaca44",
+              "hygieneStatus": "PASS",
+              "hygieneReasons": [],
+              "hygieneWarnings": [],
+              "duplicateDecision": "UNIQUE",
+              "qualityFlags": {},
+              "visualHash": "9f1fb73f3d3f2f17"
+            }
+          ],
+          "representativeAssetId": "b9c0292f2860a85f",
+          "generatedTitle": "VT at dirt in Hazens Notch",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "status": "REJECT",
+          "rejectionReasons": [
+            "group_has_no_located_assets"
+          ],
+          "reasoning": [
+            "groupMethod=exactDate",
+            "groupKey=2013-12-29",
+            "assetCount=1",
+            "locatedAssetCount=0"
+          ],
+          "originalAssetCount": 1,
+          "keptAssetCount": 1,
+          "rejectedAssetCount": 0,
+          "reviewAssetCount": 0,
+          "rejectedDuplicateCount": 0,
+          "rejectedHygieneCount": 0,
+          "removedAssets": [],
+          "reviewAssets": [],
+          "assetHygieneSummary": {
+            "originalAssetCount": 1,
+            "keptAssetCount": 1,
+            "rejectedAssetCount": 0,
+            "reviewAssetCount": 0,
+            "rejectedDuplicateCount": 0,
+            "rejectedHygieneCount": 0,
+            "rejectedPanoramaCount": 0,
+            "rejectedLowQualityCount": 0,
+            "rejectedBlackAndWhiteOrFilterCount": 0,
+            "possibleDuplicateReviewCount": 0
+          }
+        },
+        {
+          "groupId": "860247ab7b837cef",
+          "placeName": "Hazen's Notch, Vermont, VT",
+          "groupKey": "2017-07-10",
+          "groupMethod": "exactDate",
+          "dateRange": {
+            "earliest": "2017-07-10",
+            "latest": "2017-07-10"
+          },
+          "hasLocatedAsset": false,
+          "locatedAssetCount": 0,
+          "assetCount": 1,
+          "assets": [
+            {
+              "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+              "generatedTitle": "VT through Hazens Notch",
+              "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+              "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+              "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+              "author": "Mitchazenia",
+              "license": "CC BY-SA 4.0",
+              "credit": "Own work",
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "activityReasoning": [
+                "default outdoor fallback"
+              ],
+              "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+              "titleConfidence": "medium",
+              "placeMatchConfidence": 1,
+              "qualityScore": 9.5,
+              "relevanceScore": 18,
+              "coolnessScore": 3,
+              "duplicateScore": null,
+              "duplicateReason": null,
+              "status": "KEEP",
+              "reasoning": [
+                "Filename-like Commons title cleaned for display",
+                "default outdoor fallback",
+                "relevance=18.0 quality=9.5 coolness=3.0"
+              ],
+              "scores": {
+                "textMatch": 18,
+                "resolution": 8,
+                "coordinates": 0,
+                "outdoor": 0,
+                "metadata": 1.5,
+                "relevanceScore": 18,
+                "qualityScore": 9.5,
+                "coolnessScore": 3
+              },
+              "postPreview": {
+                "dryRun": true,
+                "source": "wikimedia_mvp_dev",
+                "title": "VT through Hazens Notch",
+                "displayTitle": "VT through Hazens Notch",
+                "content": "",
+                "caption": "",
+                "activities": [
+                  "walking",
+                  "view"
+                ],
+                "placeName": "Hazen's Notch, Vermont, VT",
+                "lat": null,
+                "long": null,
+                "lng": null,
+                "address": "Hazen's Notch, Vermont, VT",
+                "locationLabel": "Hazen's Notch, Vermont, VT",
+                "mediaType": "image",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "photoLink": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "assets": [
+                  {
+                    "type": "image",
+                    "url": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                    "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                    "width": 4608,
+                    "height": 3456,
+                    "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+                    "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+                    "mime": "image/jpeg"
+                  }
+                ],
+                "assetsReady": true,
+                "mediaStatus": "ready",
+                "createdAtMs": 1778535298842,
+                "updatedAtMs": 1778535298842,
+                "likesCount": 0,
+                "commentsCount": 0,
+                "classification": {
+                  "activities": [
+                    "walking",
+                    "view"
+                  ],
+                  "primaryActivity": "walking",
+                  "mediaKind": "image",
+                  "source": "wikimedia_commons"
+                },
+                "provenance": {
+                  "commonsFileTitle": "File:VT 58 through Hazens Notch.jpg",
+                  "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+                  "candidateStatus": "KEEP"
+                }
+              },
+              "candidateId": "0cf4646d6982dfbc",
+              "dayKey": "2017-07-10",
+              "capturedAtMs": 1499724643000,
+              "assetLatitude": null,
+              "assetLongitude": null,
+              "hasRealAssetLocation": false,
+              "width": 4608,
+              "height": 3456,
+              "groupId": "860247ab7b837cef",
+              "hygieneStatus": "PASS",
+              "hygieneReasons": [],
+              "hygieneWarnings": [],
+              "duplicateDecision": "UNIQUE",
+              "qualityFlags": {},
+              "visualHash": "c181cb9597456587"
+            }
+          ],
+          "representativeAssetId": "0cf4646d6982dfbc",
+          "generatedTitle": "VT through Hazens Notch",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "status": "REJECT",
+          "rejectionReasons": [
+            "group_has_no_located_assets"
+          ],
+          "reasoning": [
+            "groupMethod=exactDate",
+            "groupKey=2017-07-10",
+            "assetCount=1",
+            "locatedAssetCount=0"
+          ],
+          "originalAssetCount": 1,
+          "keptAssetCount": 1,
+          "rejectedAssetCount": 0,
+          "reviewAssetCount": 0,
+          "rejectedDuplicateCount": 0,
+          "rejectedHygieneCount": 0,
+          "removedAssets": [],
+          "reviewAssets": [],
+          "assetHygieneSummary": {
+            "originalAssetCount": 1,
+            "keptAssetCount": 1,
+            "rejectedAssetCount": 0,
+            "reviewAssetCount": 0,
+            "rejectedDuplicateCount": 0,
+            "rejectedHygieneCount": 0,
+            "rejectedPanoramaCount": 0,
+            "rejectedLowQualityCount": 0,
+            "rejectedBlackAndWhiteOrFilterCount": 0,
+            "possibleDuplicateReviewCount": 0
+          }
+        }
+      ],
+      "summary": {
+        "candidateCount": 11,
+        "assetGroupsCount": 2,
+        "generatedPostsCount": 2,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 2,
+        "rejectedNoLocationGroupCount": 2,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 2,
+        "originalAssetCount": 2,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 4,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 12,
+          "elapsedMs": 1366
+        }
+      },
+      "candidates": [
+        {
+          "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+          "generatedTitle": "VT at dirt in Hazens Notch",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Doug Kerr",
+          "license": "CC BY-SA 2.0",
+          "credit": "https://www.flickr.com/photos/dougtone/4150202170/",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 18,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=18.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 18,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 18,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "VT at dirt in Hazens Notch",
+            "displayTitle": "VT at dirt in Hazens Notch",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Hazen's Notch, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Hazen's Notch, Vermont, VT",
+            "locationLabel": "Hazen's Notch, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/84/VT_58_at_dirt_in_Hazens_Notch.jpg/330px-VT_58_at_dirt_in_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 1024,
+                "height": 768,
+                "sourceTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778535298842,
+            "updatedAtMs": 1778535298842,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:VT 58 at dirt in Hazens Notch.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_at_dirt_in_Hazens_Notch.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "b9c0292f2860a85f",
+          "dayKey": "2013-12-29",
+          "capturedAtMs": 1388360829000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1024,
+          "height": 768,
+          "groupId": "93f8cb27bceaca44",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "9f1fb73f3d3f2f17",
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+          "generatedTitle": "VT through Hazens Notch",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Mitchazenia",
+          "license": "CC BY-SA 4.0",
+          "credit": "Own work",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 1,
+          "qualityScore": 9.5,
+          "relevanceScore": 18,
+          "coolnessScore": 3,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "KEEP",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "relevance=18.0 quality=9.5 coolness=3.0"
+          ],
+          "scores": {
+            "textMatch": 18,
+            "resolution": 8,
+            "coordinates": 0,
+            "outdoor": 0,
+            "metadata": 1.5,
+            "relevanceScore": 18,
+            "qualityScore": 9.5,
+            "coolnessScore": 3
+          },
+          "postPreview": {
+            "dryRun": true,
+            "source": "wikimedia_mvp_dev",
+            "title": "VT through Hazens Notch",
+            "displayTitle": "VT through Hazens Notch",
+            "content": "",
+            "caption": "",
+            "activities": [
+              "walking",
+              "view"
+            ],
+            "placeName": "Hazen's Notch, Vermont, VT",
+            "lat": null,
+            "long": null,
+            "lng": null,
+            "address": "Hazen's Notch, Vermont, VT",
+            "locationLabel": "Hazen's Notch, Vermont, VT",
+            "mediaType": "image",
+            "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "displayPhotoLink": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+            "photoLink": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+            "assets": [
+              {
+                "type": "image",
+                "url": "https://upload.wikimedia.org/wikipedia/commons/f/fb/VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+                "thumbUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fb/VT_58_through_Hazens_Notch.jpg/330px-VT_58_through_Hazens_Notch.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+                "width": 4608,
+                "height": 3456,
+                "sourceTitle": "File:VT 58 through Hazens Notch.jpg",
+                "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+                "mime": "image/jpeg"
+              }
+            ],
+            "assetsReady": true,
+            "mediaStatus": "ready",
+            "createdAtMs": 1778535298842,
+            "updatedAtMs": 1778535298842,
+            "likesCount": 0,
+            "commentsCount": 0,
+            "classification": {
+              "activities": [
+                "walking",
+                "view"
+              ],
+              "primaryActivity": "walking",
+              "mediaKind": "image",
+              "source": "wikimedia_commons"
+            },
+            "provenance": {
+              "commonsFileTitle": "File:VT 58 through Hazens Notch.jpg",
+              "commonsPageUrl": "https://commons.wikimedia.org/wiki/File%3AVT_58_through_Hazens_Notch.jpg",
+              "candidateStatus": "KEEP"
+            }
+          },
+          "candidateId": "0cf4646d6982dfbc",
+          "dayKey": "2017-07-10",
+          "capturedAtMs": 1499724643000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 4608,
+          "height": 3456,
+          "groupId": "860247ab7b837cef",
+          "hygieneStatus": "PASS",
+          "hygieneReasons": [],
+          "hygieneWarnings": [],
+          "duplicateDecision": "UNIQUE",
+          "visualHash": "c181cb9597456587",
+          "qualityFlags": {}
+        },
+        {
+          "sourceTitle": "File:History of the Missisco Valley (IA historyofmissisc00sumn).pdf",
+          "generatedTitle": "History of the Missisco Valley IA historyofmissisc sumn .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AHistory_of_the_Missisco_Valley_(IA_historyofmissisc00sumn).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/History_of_the_Missisco_Valley_%28IA_historyofmissisc00sumn%29.pdf/page1-330px-History_of_the_Missisco_Valley_%28IA_historyofmissisc00sumn%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/32/History_of_the_Missisco_Valley_%28IA_historyofmissisc00sumn%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Sumner, Samuel Hall, S. R. (Samuel Read), 1795-1877 Orleans County Natural and Civil Historical Society (Orleans County, Vt.)",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/historyofmissisc00sumn https://archive.org/download/historyofmissisc00sumn/historyofmissisc00sumn.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "c20f4dcd2929fa6a",
+          "dayKey": "2020-06-28",
+          "capturedAtMs": 1593361304000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 756,
+          "height": 1285
+        },
+        {
+          "sourceTitle": "File:George Golding Kennedy correspondence. 1766-1917 (inclusive) 1871-1917 (bulk) (IA GeorgeGoldingKe00KennF).pdf",
+          "generatedTitle": "George Golding Kennedy correspondence.",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AGeorge_Golding_Kennedy_correspondence._1766-1917_(inclusive)_1871-1917_(bulk)_(IA_GeorgeGoldingKe00KennF).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/fc/George_Golding_Kennedy_correspondence._1766-1917_%28inclusive%29_1871-1917_%28bulk%29_%28IA_GeorgeGoldingKe00KennF%29.pdf/page1-330px-George_Golding_Kennedy_correspondence._1766-1917_%28inclusive%29_1871-1917_%28bulk%29_%28IA_GeorgeGoldingKe00KennF%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/fc/George_Golding_Kennedy_correspondence._1766-1917_%28inclusive%29_1871-1917_%28bulk%29_%28IA_GeorgeGoldingKe00KennF%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Kennedy, George G.(George Golding),1841-1918,addressee Floyd, Frederick Gillan, ,1869-1941,correspondent Faxon, Edwin, ,1823-1898,correspondent Farlow, W. G.(William Gilson),1844-1919,correspondent Faxon, Charles Edward,1846-1918,correspondent Faxon, Walter,1848-1920,correspondent Fernald, Merritt Lyndon,1873-1950,correspondent Gibbs, W. B.,correspondent Goodale, George L.(George Lincoln),1839-1923,correspondent Greenough, Charles P.(Charles Pelham),1844-1924,correspondent Grout, A. J.(Abel Joel),1867-correspondent Hancock, John,1737-1793,autographer Harvard University,correspondent Heller, Amos Arthur,1867-1944,correspondent Hodges, Almon Danforth,1801-1878,correspondent Holzinger, J. M.(John Michael),1853-1929,correspondent Hooker, Joseph Dalton,1817-1911,correspondent Huntington, John Warren,correspondent",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : GeorgeGoldingKe00KennF https://archive.org/download/GeorgeGoldingKe00KennF/GeorgeGoldingKe00KennF.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "65570d3ef1be25ad",
+          "dayKey": "2020-07-04",
+          "capturedAtMs": 1593883476000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 789,
+          "height": 616
+        },
+        {
+          "sourceTitle": "File:Williamstown, the \"Berkshire hills\" and thereabout .. (IA williamstownberk00fitc).pdf",
+          "generatedTitle": "Williamstown, the Berkshire hills and thereabout .. IA williamstownberk fitc .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AWilliamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._(IA_williamstownberk00fitc).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2d/Williamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._%28IA_williamstownberk00fitc%29.pdf/page1-330px-Williamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._%28IA_williamstownberk00fitc%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2d/Williamstown%2C_the_%22Berkshire_hills%22_and_thereabout_.._%28IA_williamstownberk00fitc%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Fitchburg railroad company. [from old catalog]",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : williamstownberk00fitc https://archive.org/download/williamstownberk00fitc/williamstownberk00fitc.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "4ce8d04744a219b7",
+          "dayKey": "2020-07-24",
+          "capturedAtMs": 1595601995000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 675,
+          "height": 997
+        },
+        {
+          "sourceTitle": "File:The turnpikes of New England and evolution of the same through England, Virginia, and Maryland (IA turnpikesofnewen00woodrich).pdf",
+          "generatedTitle": "The turnpikes of New England and evolution of the same through England, Virginia, and Maryland IA turnpikesofnewen woodrich .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_(IA_turnpikesofnewen00woodrich).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_turnpikesofnewen00woodrich%29.pdf/page1-330px-The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_turnpikesofnewen00woodrich%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2c/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_turnpikesofnewen00woodrich%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Wood, Frederic J. (Frederic James), 1867-1955",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : turnpikesofnewen00woodrich https://archive.org/download/turnpikesofnewen00woodrich/turnpikesofnewen00woodrich.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "784ef1bb908f7388",
+          "dayKey": "2020-11-26",
+          "capturedAtMs": 1606394749000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1116,
+          "height": 1668
+        },
+        {
+          "sourceTitle": "File:The turnpikes of New England and evolution of the same through England, Virginia, and Maryland (IA cu31924004992313).pdf",
+          "generatedTitle": "The turnpikes of New England and evolution of the same through England, Virginia, and Maryland IA cu .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_(IA_cu31924004992313).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/38/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_cu31924004992313%29.pdf/page1-330px-The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_cu31924004992313%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/38/The_turnpikes_of_New_England_and_evolution_of_the_same_through_England%2C_Virginia%2C_and_Maryland_%28IA_cu31924004992313%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Wood, Frederic James",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cu31924004992313 https://archive.org/download/cu31924004992313/cu31924004992313.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1fb15b5973f2dd26",
+          "dayKey": "2020-12-13",
+          "capturedAtMs": 1607845608000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1147,
+          "height": 1718
+        },
+        {
+          "sourceTitle": "File:Annual report of the American Dairymen's Association (IA annualreportofam101874amer).pdf",
+          "generatedTitle": "Annual report of the American Dairymen's Association IA annualreportofam amer .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAnnual_report_of_the_American_Dairymen's_Association_(IA_annualreportofam101874amer).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5c/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam101874amer%29.pdf/page1-330px-Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam101874amer%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/5/5c/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam101874amer%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "American Dairymen's Association",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : annualreportofam101874amer https://archive.org/download/annualreportofam101874amer/annualreportofam101874amer.pdf IA contributor: UMass Amherst Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "49a11c22448581b6",
+          "dayKey": "2020-12-25",
+          "capturedAtMs": 1608904863000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 602,
+          "height": 1039
+        },
+        {
+          "sourceTitle": "File:The Paper Trade Journal 1879-02-22- Vol 8 Iss 8 (IA sim paper-trade-journal 1879-02-22 8 8).pdf",
+          "generatedTitle": "The Paper Trade Journal",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_(IA_sim_paper-trade-journal_1879-02-22_8_8).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/The_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_%28IA_sim_paper-trade-journal_1879-02-22_8_8%29.pdf/page1-330px-The_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_%28IA_sim_paper-trade-journal_1879-02-22_8_8%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f0/The_Paper_Trade_Journal_1879-02-22-_Vol_8_Iss_8_%28IA_sim_paper-trade-journal_1879-02-22_8_8%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_paper-trade-journal_1879-02-22_8_8 https://archive.org/download/sim_paper-trade-journal_1879-02-22_8_8/sim_paper-trade-journal_1879-02-22_8_8.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "2c4cd1537265bf17",
+          "dayKey": "2021-01-09",
+          "capturedAtMs": 1610193713000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1812,
+          "height": 2527
+        },
+        {
+          "sourceTitle": "File:The Hazen family (microform) - four American generations (IA cihm 06978).pdf",
+          "generatedTitle": "The Hazen family microform",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Hazen_family_(microform)_-_four_American_generations_(IA_cihm_06978).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/The_Hazen_family_%28microform%29_-_four_American_generations_%28IA_cihm_06978%29.pdf/page1-330px-The_Hazen_family_%28microform%29_-_four_American_generations_%28IA_cihm_06978%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/98/The_Hazen_family_%28microform%29_-_four_American_generations_%28IA_cihm_06978%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Hazen, Henry A. (Henry Allen), 1832-1900",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cihm_06978 https://archive.org/download/cihm_06978/cihm_06978.pdf IA contributor: Canadiana.org IA digitizing sponsor: University of Alberta Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.3333333333333333,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "372946ae0881f127",
+          "dayKey": "2021-08-30",
+          "capturedAtMs": 1630316701000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1152,
+          "height": 1352
+        },
+        {
+          "sourceTitle": "File:Ausable River, N.Y.- Letter from the Secretary of War transmitting from the Chief of Engineers on Ausable River, N.Y., covering navigation, flood control, power development, and irrigation - USACE-p16021coll5-133.pdf",
+          "generatedTitle": "Ausable River, N.Y.",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAusable_River%2C_N.Y.-_Letter_from_the_Secretary_of_War_transmitting_from_the_Chief_of_Engineers_on_Ausable_River%2C_N.Y.%2C_covering_navigation%2C_flood_control%2C_power_development%2C_and_irrigation_-_USACE-p16021coll5-133.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/Ausable_River%2C_N.Y.-_Letter_from_the_Secretary_of_War_transmitting_from_the_Chief_of_Engineers_on_Ausable_River%2C_N.Y.%2C_covering_navigation%2C_flood_control%2C_power_development%2C_and_irrigation_-_USACE-p16021coll5-133.pdf/page1-330px-thumbnail.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/3/3b/Ausable_River%2C_N.Y.-_Letter_from_the_Secretary_of_War_transmitting_from_the_Chief_of_Engineers_on_Ausable_River%2C_N.Y.%2C_covering_navigation%2C_flood_control%2C_power_development%2C_and_irrigation_-_USACE-p16021coll5-133.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "United States. Congress. House",
+          "license": "Public domain",
+          "credit": "https://usace.contentdm.oclc.org/digital/collection/p16021coll5/id/133",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1a8554f179acd02b",
+          "dayKey": "2024-09-24",
+          "capturedAtMs": 1727176404000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1275,
+          "height": 1650
+        }
+      ]
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 4,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 12,
+    "elapsedMs": 1366
+  },
+  "error": null
+}

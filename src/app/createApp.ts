@@ -31,6 +31,7 @@ import { registerInternalHealthDashboardRoutes } from "../routes/internal/health
 import { registerInternalOpsRoutes } from "../routes/internal/internal-ops.routes.js";
 import { registerReelsMvpPublisherRoutes } from "../admin/reelsMvpPublisher/reelsMvpPublisher.routes.js";
 import { registerPostSingleVideoRepairRoutes } from "../admin/postSingleVideoRepair/postSingleVideoRepair.routes.js";
+import { registerSeedLikesRoutes } from "../admin/seedLikes/seedLikes.routes.js";
 import { registerSystemRoutes } from "../routes/system.routes.js";
 import { registerTestRoutes } from "../routes/test.routes.js";
 import { registerV2AuthBootstrapRoutes } from "../routes/v2/auth-bootstrap.routes.js";
@@ -150,6 +151,10 @@ import { registerPublicFirestoreProbeRoutes } from "../routes/debug/public-fires
 import { registerPostRebuilderRoutes } from "../routes/debug/post-rebuilder.routes.js";
 import { registerAddressBackfillRoutes } from "../routes/debug/address-backfill.routes.js";
 import { registerPostDescriptionCleanupRoutes } from "../routes/debug/post-description-cleanup.routes.js";
+import { registerPlaceCandidateDevRoutes } from "../routes/dev/placeCandidatesApi.js";
+import { registerStateContentFactoryDevRoutes } from "../routes/dev/stateContentFactoryApi.js";
+import { registerWikimediaMvpDevRoutes } from "../routes/dev/wikimediaMvpApi.js";
+import { registerWikimediaCommonsByDateDevRoutes } from "../routes/dev/wikimediaCommonsByDateApi.js";
 import { registerAppPostV2SurfaceCompareRoutes } from "../routes/debug/app-post-v2-surface.routes.js";
 import { registerDebugPostGradientAuditRoutes } from "../routes/debug/post-gradient-audit.routes.js";
 import { registerDebugPostCanonicalStatusRoutes } from "../routes/debug/post-canonical-status.routes.js";
@@ -801,7 +806,12 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerVideoProcessorRoutes);
   app.register(registerInternalOpsRoutes);
   app.register(registerReelsMvpPublisherRoutes);
+  app.register(registerWikimediaMvpDevRoutes);
+  app.register(registerWikimediaCommonsByDateDevRoutes);
+  app.register(registerPlaceCandidateDevRoutes);
+  app.register(registerStateContentFactoryDevRoutes);
   app.register(registerPostSingleVideoRepairRoutes);
+  app.register(registerSeedLikesRoutes);
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerAdminRoutes);
   app.register(registerPublicExpoPushRoutes);

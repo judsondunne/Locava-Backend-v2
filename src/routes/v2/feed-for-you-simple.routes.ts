@@ -4,6 +4,7 @@ import { feedForYouSimpleContract, FeedForYouSimpleQuerySchema } from "../../con
 import { failure, success } from "../../lib/response.js";
 import { getRequestContext, setOrchestrationMetadata, setRouteName } from "../../observability/request-context.js";
 import { FeedForYouSimpleRepository } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
+import { startForYouSimpleReelPoolWarmup } from "../../services/surfaces/feed-for-you-simple-reel-pool.js";
 import { FeedForYouSimpleService } from "../../services/surfaces/feed-for-you-simple.service.js";
 import {
   buildFeedItemsMediaTracePayload,
@@ -14,6 +15,7 @@ import {
 
 export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Promise<void> {
   const repository = new FeedForYouSimpleRepository();
+  startForYouSimpleReelPoolWarmup(repository);
   const service = new FeedForYouSimpleService(repository);
 
   app.get(feedForYouSimpleContract.path, async (request, reply) => {

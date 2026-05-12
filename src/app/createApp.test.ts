@@ -63,10 +63,18 @@ describe("backend foundation routes", () => {
   it("stubs legacy monolith paths used by native dev (no 404 spam on Backendv2)", async () => {
     const version = await app.inject({ method: "GET", url: "/api/config/version" });
     expect(version.statusCode).toBe(200);
-    const vBody = version.json() as { ok?: boolean; data?: { success?: boolean; shouldUpdate?: boolean } };
-    expect(vBody.ok).toBe(true);
-    expect(vBody.data?.success).toBe(true);
-    expect(vBody.data?.shouldUpdate).toBe(false);
+    const vBody = version.json() as {
+      success?: boolean;
+      shouldUpdate?: boolean;
+      forceUpdate?: boolean;
+      versionNumber?: string;
+      ok?: boolean;
+    };
+    expect(vBody.ok).toBeUndefined();
+    expect(vBody.success).toBe(true);
+    expect(typeof vBody.versionNumber).toBe("string");
+    expect(vBody.shouldUpdate).toBeTypeOf("boolean");
+    expect(vBody.forceUpdate).toBeTypeOf("boolean");
 
     const analytics = await app.inject({
       method: "POST",

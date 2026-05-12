@@ -178,6 +178,25 @@ const EnvSchema = z.object({
   REELS_MVP_PUBLISHER_WRITE_ENABLED: z.string().optional(),
   REELS_MVP_PUBLISHER_MAX_BATCH: z.coerce.number().int().min(1).max(50).default(1),
   REELS_MVP_PUBLISHER_REQUIRE_READY: z.string().optional(),
+  /** Dev-only Wikimedia MVP analysis page at GET /dev/wikimedia-mvp. */
+  ENABLE_WIKIMEDIA_MVP_DEV_PAGE: z.string().optional(),
+  /** Separate guard for any future Firestore writes from Wikimedia MVP dev tooling. */
+  WIKIMEDIA_MVP_ALLOW_WRITES: z.string().optional(),
+  /** Optional bounded Firestore dedupe reads during dev analysis. */
+  WIKIMEDIA_MVP_ENABLE_FIRESTORE_DEDUPE: z.string().optional(),
+  WIKIMEDIA_MVP_MAX_PLACES_PER_RUN: z.coerce.number().int().min(1).max(50).default(10),
+  WIKIMEDIA_MVP_MAX_CANDIDATES_PER_PLACE: z.coerce.number().int().min(1).max(2000).default(200),
+  WIKIMEDIA_MVP_MAX_SEARCH_PAGES_PER_PLACE: z.coerce.number().int().min(1).max(200).default(25),
+  WIKIMEDIA_MVP_MAX_HYDRATE_TITLES_PER_PLACE: z.coerce.number().int().min(1).max(2000).default(500),
+  WIKIMEDIA_MVP_FETCH_ALL_MAX_CANDIDATES_PER_PLACE: z.coerce.number().int().min(1).max(2000).default(500),
+  WIKIMEDIA_MVP_FETCH_ALL_MAX_SEARCH_PAGES: z.coerce.number().int().min(1).max(200).default(100),
+  WIKIMEDIA_MVP_PLACE_TIMEOUT_MS: z.coerce.number().int().min(5_000).max(600_000).default(300_000),
+  /** Dev-only state place candidate generator at GET /dev/place-candidates. */
+  ENABLE_PLACE_CANDIDATE_DEV_PAGE: z.string().optional(),
+  /** Dev-only Locava State Content Factory dashboard at GET /dev/state-content-factory. */
+  ENABLE_STATE_CONTENT_FACTORY_DEV_PAGE: z.string().optional(),
+  /** Separate guard for staging-only Firestore writes from State Content Factory. */
+  STATE_CONTENT_FACTORY_ALLOW_STAGING_WRITES: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;

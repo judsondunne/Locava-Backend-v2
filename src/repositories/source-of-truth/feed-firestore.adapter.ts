@@ -4,6 +4,7 @@ import { getFirestoreSourceClient } from "./firestore-client.js";
 import { logFirestoreDebug } from "./firestore-debug.js";
 import { readPostOrderMillis } from "./post-firestore-projection.js";
 import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
+import { buildSafeDisplayTextBlock, sanitizeDisplayFieldValue } from "../../lib/posts/displayText.js";
 
 export type FirestoreFeedCandidate = {
   /** Firestore document ID — canonical post id */
@@ -497,24 +498,14 @@ function mapDocToCandidate(doc: QueryDocumentSnapshot): FirestoreFeedCandidate {
   const authorId = typeof data.userId === "string" && data.userId.trim() ? data.userId.trim() : "";
   const mediaType = inferMediaType(data);
   const posterUrl = readPosterUrl(data);
-  const captionPreview =
-    typeof data.caption === "string" && data.caption.trim()
-      ? data.caption.trim()
-      : typeof data.text === "string" && data.text.trim()
-        ? data.text.trim()
-        : typeof data.description === "string" && data.description.trim()
-          ? data.description.trim()
-          : null;
-  const title =
-    typeof data.title === "string" && data.title.trim()
-      ? data.title.trim()
-      : typeof data.content === "string" && data.content.trim()
-        ? data.content.trim()
-        : null;
-  const description =
-    typeof data.description === "string" && data.description.trim()
-      ? data.description.trim()
-      : null;
+  const safeText = buildSafeDisplayTextBlock(data as Record<string, unknown>);
+  const legacyText =
+    typeof data.text === "string" && data.text.trim()
+      ? sanitizeDisplayFieldValue(data.text, data as Record<string, unknown>)
+      : "";
+  const captionPreview = safeText.caption || safeText.description || safeText.content || legacyText || null;
+  const title = safeText.title || null;
+  const description = safeText.description || null;
   const firstAssetUrl = readFirstAssetUrl(data);
   const activities = Array.isArray(data.activities)
     ? data.activities.map((v) => String(v ?? "").trim()).filter(Boolean)

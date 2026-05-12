@@ -30,6 +30,11 @@
  */
 
 import type { StandardizedPostDoc } from "../../contracts/standardized-post-doc.contract.js";
+import {
+  buildSafeDisplayTextBlock,
+  sanitizeHydratedPostDisplayText,
+  type PostDocLike,
+} from "../../lib/posts/displayText.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -937,12 +942,13 @@ function buildText(
   sanitizer: FieldSanitizer,
 ): StandardizedPostDoc["text"] {
   const text = asRecord(raw.text) ?? {};
+  const safe = buildSafeDisplayTextBlock(raw as PostDocLike);
   return {
-    title: sanitizer.string(text.title ?? raw.title, "", "text.title"),
-    caption: sanitizer.string(text.caption ?? raw.caption, "", "text.caption"),
-    description: sanitizer.string(text.description ?? raw.description, "", "text.description"),
-    content: sanitizer.string(text.content ?? raw.content, "", "text.content"),
-    searchableText: sanitizer.string(text.searchableText, "", "text.searchableText"),
+    title: sanitizer.string(text.title ?? raw.title, safe.title, "text.title"),
+    caption: sanitizer.string(text.caption ?? raw.caption, safe.caption, "text.caption"),
+    description: sanitizer.string(text.description ?? raw.description, safe.description, "text.description"),
+    content: sanitizer.string(text.content ?? raw.content, safe.content, "text.content"),
+    searchableText: "",
   };
 }
 
@@ -1047,6 +1053,11 @@ export function standardizePostDocForRender(
     schema: schemaSection,
     text,
   };
+
+  sanitizeHydratedPostDisplayText(doc as PostDocLike, {
+    route: "standardizePostDocForRender",
+    postId,
+  });
 
   return { ok: true, doc, sanitizedFields: sanitizer.sanitizedFields };
 }

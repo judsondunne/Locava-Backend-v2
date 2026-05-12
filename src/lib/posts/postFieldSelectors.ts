@@ -3,6 +3,7 @@
  * Firestore queries may still filter on legacy top-level fields; after fetch, prefer these selectors.
  */
 import type { MasterPostMediaKindV2 } from "../../contracts/master-post-v2.types.js";
+import { sanitizeDisplayFieldValue } from "./displayText.js";
 
 export type PostRecord = Record<string, unknown>;
 
@@ -238,23 +239,28 @@ export function getPostTitle(record: PostRecord | null | undefined): string {
 
 export function getPostCaption(record: PostRecord | null | undefined): string {
   const t = record ? textFrom(record) : null;
-  const c = str(t?.caption);
+  const c = sanitizeDisplayFieldValue(str(t?.caption), record);
   if (c) return c;
-  return str(record?.caption);
+  return sanitizeDisplayFieldValue(str(record?.caption), record);
 }
 
 export function getPostDescription(record: PostRecord | null | undefined): string {
   const t = record ? textFrom(record) : null;
-  const d = str(t?.description);
+  const d = sanitizeDisplayFieldValue(str(t?.description), record);
   if (d) return d;
-  return str(record?.description);
+  return sanitizeDisplayFieldValue(str(record?.description), record);
 }
 
 export function getPostContent(record: PostRecord | null | undefined): string {
   const t = record ? textFrom(record) : null;
-  const body = [str(t?.caption), str(t?.description), str(t?.content)].filter(Boolean).join(" ");
+  const body = [getPostCaption(record), getPostDescription(record), sanitizeDisplayFieldValue(str(t?.content), record)]
+    .filter(Boolean)
+    .join(" ");
   if (body) return body;
-  return [str(record?.caption), str(record?.description), str(record?.content)].filter(Boolean).join(" ");
+  return sanitizeDisplayFieldValue(
+    [str(record?.caption), str(record?.description), str(record?.content)].filter(Boolean).join(" "),
+    record,
+  );
 }
 
 export function getPostSearchableText(record: PostRecord | null | undefined): string {

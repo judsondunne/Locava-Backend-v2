@@ -1,0 +1,215 @@
+{
+  "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+  "status": "complete",
+  "createdAtMs": 1778532757393,
+  "updatedAtMs": 1778532758155,
+  "places": [
+    "Appalachian Gap, Vermont, VT, 44.2108,-72.931"
+  ],
+  "normalizedPlaces": [
+    "appalachian gap, vermont, vt, 44.2108,-72.931"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 3,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 60000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] grouping started",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T20:52:37.393Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 3,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T20:52:37.394Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "placeName": "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T20:52:37.395Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "placeName": "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T20:52:38.152Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "placeName": "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 0,
+        "queryTerms": [
+          "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+          "Appalachian Gap, Vermont, VT, 44.2108,-72.931 landscape",
+          "Appalachian Gap, Vermont, VT, 44.2108,-72.931 hiking trail"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T20:52:38.153Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "placeName": "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 0
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T20:52:38.154Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "placeName": "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T20:52:38.155Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "placeName": "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 0,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 3,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 6,
+          "elapsedMs": 760
+        }
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T20:52:38.155Z",
+      "level": "info",
+      "runId": "840cd3fc-9813-4dea-af52-7c6d34a3890d",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 8,
+  "placeResults": [
+    {
+      "placeName": "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+      "normalizedPlaceName": "appalachian gap, vermont, vt, 44.2108,-72.931",
+      "wikimediaQueryTerms": [
+        "Appalachian Gap, Vermont, VT, 44.2108,-72.931",
+        "Appalachian Gap, Vermont, VT, 44.2108,-72.931 landscape",
+        "Appalachian Gap, Vermont, VT, 44.2108,-72.931 hiking trail"
+      ],
+      "candidateCount": 0,
+      "keptCount": 0,
+      "rejectedCount": 0,
+      "reviewCount": 0,
+      "totalRuntimeMs": 760,
+      "budget": {
+        "wikimediaRequests": 3,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 6,
+        "elapsedMs": 760
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [],
+      "generatedPosts": [],
+      "assetGroups": [],
+      "summary": {
+        "candidateCount": 0,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 3,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 6,
+          "elapsedMs": 760
+        }
+      },
+      "candidates": []
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 3,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 6,
+    "elapsedMs": 760
+  },
+  "error": null
+}

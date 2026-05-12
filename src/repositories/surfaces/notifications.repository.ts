@@ -1477,6 +1477,11 @@ export class NotificationsRepository {
     notificationData?: Record<string, unknown> | null;
     senderData?: LegacySenderData | null;
   }> {
+    const metadata = input.metadata ?? {};
+    if (metadata.suppressNotification === true || metadata.seeded === true) {
+      return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData: null };
+    }
+
     let recipientUserId = asTrimmedString(input.recipientUserId);
     let postContext:
       | {
@@ -1497,8 +1502,8 @@ export class NotificationsRepository {
       return { created: false, notificationId: null, viewerId: null, notificationData: null, senderData: null };
     }
 
-    const metadata: Record<string, unknown> = { ...(input.metadata ?? {}) };
-    if (input.commentId) metadata.commentId = input.commentId;
+    const mergedMetadata: Record<string, unknown> = { ...metadata };
+    if (input.commentId) mergedMetadata.commentId = input.commentId;
     if (postContext?.postTitle && !asTrimmedString(metadata.postTitle)) {
       metadata.postTitle = postContext.postTitle;
     }

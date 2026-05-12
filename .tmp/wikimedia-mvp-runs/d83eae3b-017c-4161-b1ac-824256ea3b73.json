@@ -1,0 +1,129 @@
+{
+  "runId": "d83eae3b-017c-4161-b1ac-824256ea3b73",
+  "status": "failed",
+  "createdAtMs": 1778541367264,
+  "updatedAtMs": 1778541392305,
+  "places": [
+    "Yosemite Valley"
+  ],
+  "normalizedPlaces": [
+    "yosemite valley"
+  ],
+  "nextPlaceIndex": 0,
+  "limitPerPlace": 75,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 150,
+    "maxSearchPagesPerPlace": 5,
+    "maxHydrateTitlesPerPlace": 75,
+    "fetchAllMaxCandidatesPerPlace": 150,
+    "fetchAllMaxSearchPages": 5,
+    "placeTimeoutMs": 25000,
+    "maxAnalyzedCandidatesForGrouping": 20
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[error] place failed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T23:16:07.264Z",
+      "level": "info",
+      "runId": "d83eae3b-017c-4161-b1ac-824256ea3b73",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 75,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T23:16:07.265Z",
+      "level": "info",
+      "runId": "d83eae3b-017c-4161-b1ac-824256ea3b73",
+      "placeName": "Yosemite Valley",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T23:16:07.267Z",
+      "level": "info",
+      "runId": "d83eae3b-017c-4161-b1ac-824256ea3b73",
+      "placeName": "Yosemite Valley",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T23:16:10.906Z",
+      "level": "info",
+      "runId": "d83eae3b-017c-4161-b1ac-824256ea3b73",
+      "placeName": "Yosemite Valley",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 75,
+        "queryTerms": [
+          "Yosemite Valley",
+          "Yosemite Valley California",
+          "Yosemite Valley CA",
+          "\"Yosemite Valley\""
+        ],
+        "queryPlanCount": 4
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T23:16:32.305Z",
+      "level": "error",
+      "runId": "d83eae3b-017c-4161-b1ac-824256ea3b73",
+      "placeName": "Yosemite Valley",
+      "message": "place failed",
+      "data": {
+        "error": "This operation was aborted"
+      }
+    }
+  ],
+  "nextEventCursor": 5,
+  "placeResults": [],
+  "seeds": [
+    {
+      "placeName": "Yosemite Valley",
+      "searchQuery": "Yosemite Valley",
+      "stateName": "California",
+      "stateCode": "CA",
+      "placeCategoryKeywords": [
+        "manual_post_test"
+      ],
+      "latitude": 36.78,
+      "longitude": -119.42,
+      "rationale": "priorityQueue=P0",
+      "themes": [
+        "manual",
+        "manual_post_test"
+      ]
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 0,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 0,
+    "elapsedMs": 0
+  },
+  "error": "This operation was aborted",
+  "collectEarlyStop": {
+    "enabled": true,
+    "minDiscoveredTitles": 8,
+    "maxPlanRankWhileEarly": 2
+  },
+  "silencePerCandidateWikimediaEvents": false
+}

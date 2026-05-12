@@ -14,12 +14,45 @@ import {
 } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { debugLog } from "../../lib/logging/debug-log.js";
 import { LOG_FEED_DEBUG, LOG_VIDEO_DEBUG } from "../../lib/logging/log-config.js";
+import { geoPrefixesAroundCenter } from "../../lib/geo-prefixes-around-center.js";
 import { getPostCoordinates, type PostRecord } from "../../lib/posts/postFieldSelectors.js";
 import { isReadOnlyLatencyAuditEnabled } from "../../safety/read-only-latency-audit-guard.js";
+import {
+  allReelPhasesExhausted,
+  appendCursorChainState,
+  createFreshCursorV3,
+  decodeForYouSimpleCursor,
+  encodeForYouSimpleCursor,
+  fallbackAllowed,
+  FOR_YOU_SIMPLE_MAX_SEEN_IDS,
+  FOR_YOU_SIMPLE_SERVE_PHASES,
+  getEarliestAllowedPhase,
+  normalizeCursorSeenIds,
+  repairCursorServingMode,
+  repairForYouSimpleCursor,
+  repairRadiusScanState,
+  type ForYouSimpleCursorV3,
+  type ForYouSimpleRadiusScanState,
+  type ForYouSimpleServePhase
+} from "./feed-for-you-simple-cursor.js";
+import { diversifyByAuthor } from "./feed-for-you-simple-author-diversity.js";
+import { canonicalizeFeedCandidate, normalizeFeedPostIdFromCandidate } from "./feed-for-you-simple-ids.js";
+import {
+  FOR_YOU_SIMPLE_DECK_FORMAT,
+  FOR_YOU_SIMPLE_PHASE_DECK_TARGET,
+  phaseDeckMemoryKey,
+  scanServePhase,
+  type PhaseReadyDeckEntry
+} from "./feed-for-you-simple-phase-runtime.js";
+import { pickForYouSimpleReelPoolPage } from "./feed-for-you-simple-reel-pool.js";
+import {
+  deckKeyForServingMode,
+  resolveForYouSimpleServingMode,
+  type ForYouSimpleServingMode
+} from "./feed-for-you-simple-serving-mode.js";
+import { candidateMatchesServePhase, isForYouSimpleReel } from "./feed-for-you-simple-tier.js";
 
-const CURSOR_PREFIX = "fys:v2:";
-const LEGACY_CURSOR_PREFIX = "fys:v1:";
-const MAX_SEEN_IDS = 50;
+const MAX_SEEN_IDS = FOR_YOU_SIMPLE_MAX_SEEN_IDS;
 const SERVED_RECENT_MAX_IDS = 240;
 const SERVED_RECENT_TTL_MS = 24 * 60 * 60 * 1000;
 const SERVED_RECENT_CACHE_TTL_MS = 60_000;
@@ -31,9 +64,10 @@ const BLOCKED_AUTHORS_CACHE_TTL_MS = 60_000;
 /** Hard caps for scroll pagination — prefer partial pages + background refill over deep Firestore scans. */
 const PAGINATION_MAX_DB_READS = 25;
 const PAGINATION_MAX_QUERIES = 5;
-const PAGINATION_REEL_READ_CAP = 10;
+const PAGINATION_REEL_READ_CAP = 12;
 const PAGINATION_FALLBACK_READ_CAP = 10;
-const PAGINATION_MAX_SCAN_ATTEMPTS = 3;
+const PAGINATION_MAX_SCAN_ATTEMPTS = 4;
+const RECYCLE_SEEN_WINDOW = 20;
 
 const LIMIT_DEFAULT = 5;
 const LIMIT_MIN = 1;
@@ -93,12 +127,8 @@ type PhaseCursorState = {
  * the deck key, cursor, and refill scans all key off these fields so radius-filtered decks never
  * leak into unfiltered requests and pagination preserves the filter.
  */
-export type ForYouRadiusFilter = {
-  mode: "global" | "nearMe" | "custom";
-  centerLat: number | null;
-  centerLng: number | null;
-  radiusMiles: number | null;
-};
+import type { ForYouRadiusFilter } from "./feed-for-you-simple-cursor.js";
+export type { ForYouRadiusFilter } from "./feed-for-you-simple-cursor.js";
 
 const RADIUS_MILES_TO_KM = 1.609344;
 
@@ -141,16 +171,6 @@ function candidateMatchesRadius(candidate: SimpleFeedCandidate, filter: ForYouRa
   return km <= limitKm;
 }
 
-function deckKeyForFilter(durableViewerId: string, filter: ForYouRadiusFilter): string {
-  const base = `${durableViewerId || "anon"}_${FOR_YOU_SIMPLE_SURFACE}`;
-  if (!isActiveRadius(filter)) return base;
-  // Round center to ~0.05 degrees (~3.5mi) to allow modest cache reuse without leaking precision.
-  const roundLat = (filter.centerLat as number).toFixed(2);
-  const roundLng = (filter.centerLng as number).toFixed(2);
-  const miles = Math.round(filter.radiusMiles as number);
-  return `${base}__${filter.mode}__${miles}mi__${roundLat}_${roundLng}`;
-}
-
 function shortHash(value: string): string {
   let h = 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -170,16 +190,7 @@ type FeedForYouSimpleCursor = {
 
 type SeenPass = "strict" | "relax_durable_seen" | "allow_all_seen";
 
-type ReadyDeckEntry = {
-  generation: number;
-  updatedAtMs: number;
-  refillReason: string | null;
-  items: SimpleFeedCandidate[];
-  refillInFlight: Promise<void> | null;
-  lastSummary: Record<string, unknown> | null;
-  /** Legacy in-memory decks without this field are discarded (pre–asset-normalize cover-only rows). */
-  deckFormat?: number;
-};
+type ReadyDeckEntry = PhaseReadyDeckEntry;
 
 type RefillDeckSummary = {
   reelReadCount: number;
@@ -274,6 +285,27 @@ export type FeedForYouSimplePageDebug = {
   paginationBudgetCapped?: boolean;
   candidateQueryCount?: number;
   payloadTrimMode?: string;
+  activePhase?: ForYouSimpleServePhase;
+  earliestAllowedPhase?: ForYouSimpleServePhase;
+  phaseExhaustedStates?: Record<ForYouSimpleServePhase, boolean>;
+  returnedNonReelCount?: number;
+  blockedNonReelBeforeReelExhaustionCount?: number;
+  servedRecentRelaxed?: boolean;
+  servedRecentCount?: number;
+  deckPhase?: ForYouSimpleServePhase | null;
+  fallbackAllowed?: boolean;
+  fallbackUsed?: boolean;
+  recycleMode?: boolean;
+  cursorSeenBefore?: number;
+  cursorSeenAfter?: number;
+  duplicateBlockedCount?: number;
+  seenSkippedCount?: number;
+  servedRecentSkippedCount?: number;
+  authorDiversityApplied?: boolean;
+  sameAuthorAdjacentCount?: number;
+  maxAuthorPageCount?: number;
+  recentAuthorIds?: string[];
+  continuationSeq?: number;
   /**
    * Radius filter diagnostics. When mode is "global" this records candidateCount/filteredOutCount=0
    * and hasCenter=false; otherwise records the active radius mode + filter stats so we can audit
@@ -297,6 +329,7 @@ export class FeedForYouSimpleService {
       | "isEnabled"
       | "resolveSortMode"
       | "fetchBatch"
+      | "fetchServePhaseBatch"
       | "listRecentSeenPostIdsForViewer"
       | "markPostsServedForViewer"
       | "readServedRecentForViewer"
@@ -304,9 +337,11 @@ export class FeedForYouSimpleService {
       | "readReadyDeck"
       | "writeReadyDeck"
       | "fetchEmergencyPlayableSlice"
+      | "probeGeohashPlayablePostsWithinRadius"
       | "probeRecentPlayablePostsWithinRadius"
       | "loadBlockedAuthorIdsForViewer"
       | "fetchCandidatesByPostIds"
+      | "fetchReelPoolBootstrap"
     >
   ) {}
 
@@ -344,9 +379,24 @@ export class FeedForYouSimpleService {
     diag.cursorUsed = Boolean(input.cursor) && !input.refresh;
     const noCursorRequest = !input.cursor || input.refresh === true;
 
-    const cursorState = input.refresh ? null : decodeCursor(input.cursor);
-    const mode = cursorState?.mode ?? (await this.repository.resolveSortMode());
-    const cursorSeen = new Set((cursorState?.seen ?? []).filter(Boolean).slice(-MAX_SEEN_IDS));
+    let cursorState: ForYouSimpleCursorV3 = input.refresh
+      ? createFreshCursorV3(await this.repository.resolveSortMode(), input.radiusFilter ?? undefined)
+      : input.cursor
+        ? (decodeForYouSimpleCursor(input.cursor, (repair) => {
+            debugLog("feed", "FOR_YOU_SIMPLE_CURSOR_PHASE_REPAIRED", () => ({
+              previousActivePhase: repair.previousActivePhase,
+              repairedActivePhase: repair.repairedActivePhase
+            }));
+          }) ??
+            (() => {
+              throw new Error("invalid_simple_feed_cursor");
+            })())
+        : createFreshCursorV3(await this.repository.resolveSortMode(), input.radiusFilter ?? undefined);
+    const mode = cursorState.mode;
+    const cursorSeenBefore = normalizeCursorSeenIds(cursorState.seen ?? []).length;
+    const cursorSeen = new Set(normalizeCursorSeenIds(cursorState.seen ?? []));
+    const recentAuthorIds = new Set((cursorState.recentAuthorIds ?? []).filter(Boolean));
+    const recycleMode = cursorState.recycleMode === true;
     /**
      * Radius filter resolution priority:
      * 1. Caller input wins (request-fresh state).
@@ -360,11 +410,37 @@ export class FeedForYouSimpleService {
     const radiusFilter: ForYouRadiusFilter = (() => {
       const fromInput = input.radiusFilter;
       if (fromInput) return fromInput;
-      const fromCursor = cursorState?.filter;
+      const fromCursor = cursorState.filter;
       if (fromCursor && fromCursor.mode !== "global") return fromCursor;
       return { mode: "global", centerLat: null, centerLng: null, radiusMiles: null };
     })();
     const filterIsActive = isActiveRadius(radiusFilter);
+    const servingMode = resolveForYouSimpleServingMode({ radiusFilter, followingMode: false });
+    let repairedCursorMode = false;
+    cursorState = repairCursorServingMode(
+      cursorState,
+      { servingMode, radiusFilter },
+      (repair) => {
+        repairedCursorMode = true;
+        debugLog("feed", "FOR_YOU_SIMPLE_CURSOR_MODE_REPAIRED", () => ({
+          previousServingMode: repair.previousServingMode ?? null,
+          repairedServingMode: repair.repairedServingMode
+        }));
+      }
+    );
+    const reelPhaseMachineEnabled = servingMode === "home_reel_first";
+    debugLog("feed", "FOR_YOU_SIMPLE_SERVING_MODE_RESOLVED", () => ({
+      servingMode,
+      radiusMode: radiusFilter.mode,
+      centerLat: radiusFilter.centerLat,
+      centerLng: radiusFilter.centerLng,
+      radiusMiles: radiusFilter.radiusMiles,
+      hasFollowingMode: false,
+      deckKey: deckKeyForServingMode(durableViewerId, servingMode, radiusFilter),
+      cursorMode: cursorState.servingMode ?? null,
+      repairedCursorMode,
+      reelPhaseMachineEnabled
+    }));
     const debugFixedIdsEnabled = process.env[FOR_YOU_SIMPLE_DEBUG_FIXED_IDS_FLAG] === "1";
     if (debugFixedIdsEnabled) {
       const debugCandidates = await this.repository.fetchCandidatesByPostIds([...FOR_YOU_SIMPLE_DEBUG_FIXED_ID_LIST]);
@@ -373,11 +449,8 @@ export class FeedForYouSimpleService {
       const nextCursor =
         debugItems.length === 0
           ? null
-          : encodeCursor({
-              v: 2,
-              mode,
-              reel: createPhaseState(mode),
-              fallback: createPhaseState(mode),
+          : encodeForYouSimpleCursor({
+              ...createFreshCursorV3(mode),
               seen: [...new Set([...cursorSeen, ...returnedIds])].slice(-MAX_SEEN_IDS)
             });
       const diag = emptyDiagnostics(limit);
@@ -415,114 +488,54 @@ export class FeedForYouSimpleService {
           ? this.repository.loadBlockedAuthorIdsForViewer(durableViewerId)
           : Promise.resolve({ blocked: new Set<string>(), readCount: 0 });
     const initialContextStartedAt = Date.now();
+    const shouldReadDurableServedRecent = Boolean(durableViewerId) && isPaginationRequest;
     const [{ blocked: blockedAuthors, readCount: blockedReads }, durableSeen, servedRecent] = await Promise.all([
       blockedAuthorsPromise,
       Promise.resolve({ postIds: new Set<string>(), readCount: 0 }),
       servedRecentCached
         ? Promise.resolve(servedRecentCached)
-        : durableViewerId
-        ? this.repository.readServedRecentForViewer({
-            viewerId: durableViewerId,
-            surface: FOR_YOU_SIMPLE_SURFACE,
-            limit: SERVED_RECENT_MAX_IDS,
-            ttlMs: SERVED_RECENT_TTL_MS
-          })
-        : Promise.resolve({ postIds: new Set<string>(), readCount: 0 })
+        : shouldReadDurableServedRecent
+          ? this.repository.readServedRecentForViewer({
+              viewerId: durableViewerId,
+              surface: FOR_YOU_SIMPLE_SURFACE,
+              limit: SERVED_RECENT_MAX_IDS,
+              ttlMs: SERVED_RECENT_TTL_MS
+            })
+          : Promise.resolve({ postIds: new Set<string>(), readCount: 0 })
     ]);
     accumulateSurfaceTiming("feed_simple_stage_initial_context_ms", Date.now() - initialContextStartedAt);
-    if (servedRecentCacheKey) {
-      seedServedRecentMemory(servedRecentCacheKey, servedRecent.postIds);
+    if (servedRecentCacheKey && shouldReadDurableServedRecent && servedRecent.postIds.size > 0) {
+      mergeServedRecentMemory(servedRecentCacheKey, [...servedRecent.postIds]);
     }
+    const servedRecentResolved = servedRecentCacheKey ? readServedRecentMemory(servedRecentCacheKey) : null;
+    const sessionServedRecentIds = servedRecentResolved?.postIds ?? new Set<string>();
+    const servedRecentIds = sessionServedRecentIds;
     if (durableViewerId && (!blockedAuthorsCached || blockedAuthorsCached.expiresAtMs <= Date.now())) {
       blockedAuthorsMemory.set(durableViewerId, {
         blocked: new Set(blockedAuthors),
         expiresAtMs: Date.now() + BLOCKED_AUTHORS_CACHE_TTL_MS
       });
     }
-    diag.durableSeenReadCount = durableSeen.readCount + blockedReads + servedRecent.readCount;
+    diag.durableSeenReadCount =
+      durableSeen.readCount + blockedReads + servedRecent.readCount + (servedRecentResolved?.readCount ?? 0);
     diag.cursorSeenCount = cursorSeen.size;
-    const effectiveDurableSeen = new Set<string>([...durableSeen.postIds, ...servedRecent.postIds]);
+    const effectiveDurableSeen = new Set<string>([...durableSeen.postIds, ...servedRecentIds]);
+    const pickCursorSeen =
+      servingMode === "radius_all_posts"
+        ? cursorSeen
+        : noCursorRequest && !recycleMode
+          ? new Set(normalizeCursorSeenIds([...cursorSeen, ...servedRecentIds]))
+          : cursorSeen;
 
-    const deckKey = deckKeyForFilter(durableViewerId, radiusFilter);
-    let deck = readyDeckMemory.get(deckKey) ?? null;
-    if (deck && deck.deckFormat !== 2) {
-      readyDeckMemory.delete(deckKey);
-      deck = null;
+    const deckKey = deckKeyForServingMode(durableViewerId, servingMode, radiusFilter);
+    if (reelPhaseMachineEnabled && noCursorRequest && effectiveDurableSeen.size > 0) {
+      prunePhaseDecksForExclusion(deckKey, effectiveDurableSeen);
     }
-    let deckSource: "memory" | "firestore" | "cold_refill" | "fallback" = deck ? "memory" : "fallback";
-    const allowPersistedReadyDeckRead = process.env.FEED_READY_DECK_PERSISTED_READ !== "0";
-    const shouldTryPersistedReadyDeck =
-      allowPersistedReadyDeckRead &&
-      durableViewerId &&
-      input.refresh !== true &&
-      (!deck || deck.items.length < Math.max(limit, READY_DECK_MIN_REFILL_THRESHOLD));
-    if (shouldTryPersistedReadyDeck) {
-      const persisted = await this.repository.readReadyDeck(durableViewerId, FOR_YOU_SIMPLE_SURFACE);
-      if (persisted && persisted.items.length > 0) {
-        if (!deck || deck.items.length === 0) {
-          deck = {
-            generation: persisted.generation,
-            updatedAtMs: persisted.updatedAtMs,
-            refillReason: persisted.refillReason,
-            items: persisted.items,
-            refillInFlight: null,
-            lastSummary: null,
-            deckFormat: 2
-          };
-        } else {
-          deck.items = mergeUniqueDeckItems(deck.items, persisted.items);
-          deck.updatedAtMs = Math.max(deck.updatedAtMs, persisted.updatedAtMs);
-          deck.generation = Math.max(deck.generation, persisted.generation);
-          deck.refillReason = deck.refillReason ?? persisted.refillReason;
-          deck.deckFormat = 2;
-        }
-        readyDeckMemory.set(deckKey, deck);
-        deckSource = persisted.expiresAtMs > Date.now() ? "firestore" : "fallback";
-        diag.staleDeckServed = persisted.expiresAtMs <= Date.now();
-      }
-    }
-    if (!deck) {
-      deck = {
-        generation: 1,
-        updatedAtMs: 0,
-        refillReason: "cold_start",
-        items: [],
-        refillInFlight: null,
-        lastSummary: null,
-        deckFormat: 2
-      };
-      readyDeckMemory.set(deckKey, deck);
-      deckSource = "cold_refill";
-      diag.coldRefillReason = "missing_memory_and_persisted";
-    }
-    const deckItemsBefore = deck.items.length;
-
-    if (deck.items.length < limit) {
-      const refillStartedAt = Date.now();
-      const refillSummary = await this.refillDeck({
-        deckKey,
-        deck,
-        viewerId,
-        durableViewerId,
-        mode,
-        blockedAuthors,
-        durableSeen: effectiveDurableSeen,
-        servedRecent: servedRecent.postIds,
-        reason: deck.items.length === 0 ? "cold_refill" : "low_deck",
-        firstPaintTight: noCursorRequest,
-        paginationMode: isPaginationRequest,
-        radiusFilter
-      });
-      accumulateSurfaceTiming("feed_simple_stage_refill_ms", Date.now() - refillStartedAt);
-      diag.reelCandidateReadCount += refillSummary.reelReadCount;
-      diag.fallbackCandidateReadCount += refillSummary.fallbackReadCount;
-      diag.rawReelCandidates += refillSummary.rawReelCandidates;
-      diag.rawFallbackCandidates += refillSummary.rawFallbackCandidates;
-      diag.boundedAttempts += refillSummary.boundedAttempts;
-      diag.candidateReadCount += refillSummary.reelReadCount + refillSummary.fallbackReadCount;
-      diag.reelPhaseExhausted = refillSummary.reelPhaseExhausted;
-    }
-
+    let deckSource: "memory" | "firestore" | "cold_refill" | "fallback" = "cold_refill";
+    const deckItemsBefore = FOR_YOU_SIMPLE_SERVE_PHASES.reduce((sum, phase) => {
+      const deck = readyDeckMemory.get(phaseDeckMemoryKey(deckKey, phase));
+      return sum + (deck?.items.length ?? 0);
+    }, 0);
     const pickStartedAt = Date.now();
     const items: SimpleFeedCandidate[] = [];
     const selectedIds = new Set<string>();
@@ -534,32 +547,87 @@ export class FeedForYouSimpleService {
       if (!ok) radiusFilteredOutCount += 1;
       return ok;
     };
-    pickFromDeckForPage({
-      deck,
-      limit,
-      items,
-      selectedIds,
-      servedRecent: servedRecent.postIds,
-      durableSeen: effectiveDurableSeen,
-      cursorSeen,
-      blockedAuthors,
-      viewerId,
-      pickMode: "strict_ring_and_durable",
-      diag,
-      localServedRecentFiltered,
-      radiusGate
-    });
-    accumulateSurfaceTiming("feed_simple_stage_pick_ms", Date.now() - pickStartedAt);
+    let workingCursor = repairForYouSimpleCursor(cursorState);
+    if (servingMode === "radius_all_posts") {
+      const radiusFill = await this.fillRadiusAllPostsPage({
+        limit,
+        radiusFilter,
+        cursor: cursorState,
+        viewerId,
+        blockedAuthors,
+        pickCursorSeen,
+        effectiveDurableSeen,
+        servedRecentIds,
+        radiusGate,
+        diag,
+        noCursorRequest
+      });
+      items.push(...radiusFill.items);
+      for (const id of radiusFill.selectedIds) selectedIds.add(id);
+      workingCursor = radiusFill.cursor;
+      deckSource = radiusFill.deckSource;
+      accumulateSurfaceTiming("feed_simple_stage_pick_ms", Date.now() - pickStartedAt);
+    } else {
+      const phaseServe = await this.fillPageFromPhases({
+        deckKey,
+        deckSourceRef: { value: deckSource },
+        cursor: cursorState,
+        limit,
+        mode,
+        viewerId,
+        durableViewerId,
+        blockedAuthors,
+        durableSeen: effectiveDurableSeen,
+        servedRecent: servedRecentIds,
+        cursorSeen: pickCursorSeen,
+        radiusFilter,
+        firstPaintTight: noCursorRequest,
+        paginationMode: isPaginationRequest,
+        radiusGate,
+        diag,
+        localServedRecentFiltered
+      });
+      items.push(...phaseServe.items);
+      for (const id of phaseServe.selectedIds) selectedIds.add(id);
+      deckSource = phaseServe.deckSource;
+      accumulateSurfaceTiming("feed_simple_stage_pick_ms", Date.now() - pickStartedAt);
 
-    deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
+      if (items.length < limit && noCursorRequest && !filterIsActive) {
+        const poolStartedAt = Date.now();
+        const poolPick = await pickForYouSimpleReelPoolPage({
+          repository: this.repository,
+          viewerKey: deckKey || durableViewerId || viewerId || "anonymous",
+          limit,
+          exclude: new Set([...pickCursorSeen, ...selectedIds]),
+          blockedAuthors,
+          viewerId,
+          radiusGate
+        });
+        for (const candidate of poolPick.items) {
+          if (items.length >= limit) break;
+          const postId = normalizeFeedPostIdFromCandidate(candidate) ?? candidate.postId;
+          if (selectedIds.has(postId)) continue;
+          selectedIds.add(postId);
+          items.push(candidate);
+          updateMediaDiagnostics(candidate, diag);
+        }
+        if (poolPick.poolUsed) {
+          deckSource = deckSource === "cold_refill" ? "memory" : deckSource;
+        }
+        accumulateSurfaceTiming("feed_simple_stage_reel_pool_ms", Date.now() - poolStartedAt);
+      }
 
+      workingCursor = repairForYouSimpleCursor(phaseServe.cursor);
+    }
     let emergencyFallbackUsed = false;
     let emergencySliceItems: SimpleFeedCandidate[] = [];
     const ctxBeforeEmergency = getRequestContext();
     const readsBeforeEmergency = ctxBeforeEmergency?.dbOps.reads ?? 0;
     const allowEmergencySlice =
-      !isPaginationRequest || items.length === 0 || readsBeforeEmergency < 12;
-    if (items.length < limit && allowEmergencySlice) {
+      reelPhaseMachineEnabled &&
+      fallbackAllowed(workingCursor) &&
+      (!isPaginationRequest || items.length === 0 || readsBeforeEmergency < 12);
+    if (reelPhaseMachineEnabled && items.length < limit && allowEmergencySlice) {
       const emergencyStartedAt = Date.now();
       const emerg = await this.repository.fetchEmergencyPlayableSlice({ limit: Math.min(10, limit + 4) });
       emergencySliceItems = emerg.items;
@@ -567,9 +635,11 @@ export class FeedForYouSimpleService {
       const countBeforeEmerg = items.length;
       for (const candidate of emerg.items) {
         if (items.length >= limit) break;
+        if (!fallbackAllowed(workingCursor)) break;
         if (selectedIds.has(candidate.postId)) continue;
+        if (!recycleMode && pickCursorSeen.has(candidate.postId)) continue;
         if (effectiveDurableSeen.has(candidate.postId)) continue;
-        if (servedRecent.postIds.has(candidate.postId)) continue;
+        if (servedRecentIds.has(candidate.postId)) continue;
         if (blockedAuthors.has(candidate.authorId)) continue;
         if (viewerId && candidate.authorId === viewerId) continue;
         if (!radiusGate(candidate)) continue;
@@ -582,136 +652,118 @@ export class FeedForYouSimpleService {
     }
 
     let softServedRecentPicks = 0;
-    if (items.length < limit && durableViewerId && !isPaginationRequest) {
+    if (reelPhaseMachineEnabled && items.length < limit) {
       const ctxReadsAtStarve = getRequestContext()?.dbOps.reads ?? 0;
-      // Skip starvation scans only when first-paint reads are already over budget *and* we have a
-      // partial page — never abandon an empty feed to save reads after cold refill + emergency slice.
       const skipStarvationForFirstPaintReads =
         noCursorRequest && ctxReadsAtStarve > 15 && items.length > 0;
-      if (!skipStarvationForFirstPaintReads) {
-      const starvationStartedAt = Date.now();
-      diag.deckStarvationRefillUsed = true;
-      deck.items = deck.items.filter((c) => !servedRecent.postIds.has(c.postId));
-      const refillSummary = await this.refillDeck({
-        deckKey,
-        deck,
-        viewerId,
-        durableViewerId,
-        mode,
-        blockedAuthors,
-        durableSeen: effectiveDurableSeen,
-        servedRecent: servedRecent.postIds,
-        reason: "starvation_refill",
-        omitServedRecentFromSessionSeen: true,
-        paginationMode: isPaginationRequest,
-        radiusFilter
-      });
-      diag.reelCandidateReadCount += refillSummary.reelReadCount;
-      diag.fallbackCandidateReadCount += refillSummary.fallbackReadCount;
-      diag.rawReelCandidates += refillSummary.rawReelCandidates;
-      diag.rawFallbackCandidates += refillSummary.rawFallbackCandidates;
-      diag.boundedAttempts += refillSummary.boundedAttempts;
-      diag.candidateReadCount += refillSummary.reelReadCount + refillSummary.fallbackReadCount;
-      diag.reelPhaseExhausted = diag.reelPhaseExhausted || refillSummary.reelPhaseExhausted;
-      pickFromDeckForPage({
-        deck,
-        limit,
-        items,
-        selectedIds,
-        servedRecent: servedRecent.postIds,
-        durableSeen: effectiveDurableSeen,
-        cursorSeen,
-        blockedAuthors,
-        viewerId,
-        pickMode: "strict_ring_and_durable",
-        diag,
-        localServedRecentFiltered,
-        radiusGate
-      });
-      deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
-      softServedRecentPicks += pickFromDeckForPage({
-        deck,
-        limit,
-        items,
-        selectedIds,
-        servedRecent: servedRecent.postIds,
-        durableSeen: effectiveDurableSeen,
-        cursorSeen,
-        blockedAuthors,
-        viewerId,
-        pickMode: "durable_gate_only",
-        diag,
-        localServedRecentFiltered: undefined,
-        radiusGate
-      });
-      deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
-      const beforeRelaxedEmerg = items.length;
-      for (const candidate of emergencySliceItems) {
-        if (items.length >= limit) break;
-        if (selectedIds.has(candidate.postId)) continue;
-        if (effectiveDurableSeen.has(candidate.postId)) continue;
-        if (cursorSeen.has(candidate.postId)) {
-          diag.cursorSeenFilteredCount += 1;
-          continue;
+      const skipRelaxedColdStarvation = noCursorRequest;
+      if (!skipStarvationForFirstPaintReads && !skipRelaxedColdStarvation) {
+        const starvationStartedAt = Date.now();
+        diag.deckStarvationRefillUsed = true;
+        const relaxed = await this.fillPageFromPhases({
+          deckKey,
+          deckSourceRef: { value: deckSource },
+          cursor: workingCursor,
+          limit,
+          mode,
+          viewerId,
+          durableViewerId,
+          blockedAuthors,
+          durableSeen: durableSeen.postIds,
+          servedRecent: servedRecentIds,
+          cursorSeen: pickCursorSeen,
+          radiusFilter,
+          firstPaintTight: false,
+          paginationMode: isPaginationRequest,
+          radiusGate,
+          diag,
+          localServedRecentFiltered,
+          pickMode: "durable_gate_only",
+          omitServedRecentFromSessionSeen: true
+        });
+        const beforeRelaxed = items.length;
+        for (const candidate of relaxed.items) {
+          if (items.length >= limit) break;
+          if (selectedIds.has(candidate.postId)) continue;
+          if (servedRecentIds.has(candidate.postId)) softServedRecentPicks += 1;
+          selectedIds.add(candidate.postId);
+          items.push(candidate);
         }
-        if (blockedAuthors.has(candidate.authorId)) continue;
-        if (viewerId && candidate.authorId === viewerId) continue;
-        if (!radiusGate(candidate)) continue;
-        if (servedRecent.postIds.has(candidate.postId)) softServedRecentPicks += 1;
-        selectedIds.add(candidate.postId);
-        items.push(candidate);
-        updateMediaDiagnostics(candidate, diag);
-      }
-      if (items.length > beforeRelaxedEmerg) emergencyFallbackUsed = true;
-      deck.items = deck.items.filter((candidate) => !selectedIds.has(candidate.postId));
-      accumulateSurfaceTiming("feed_simple_stage_starvation_refill_ms", Date.now() - starvationStartedAt);
+        workingCursor = relaxed.cursor;
+        deckSource = relaxed.deckSource;
+        const beforeRelaxedEmerg = items.length;
+        for (const candidate of emergencySliceItems) {
+          if (items.length >= limit) break;
+          if (!fallbackAllowed(workingCursor)) break;
+          if (selectedIds.has(candidate.postId)) continue;
+          if (effectiveDurableSeen.has(candidate.postId)) continue;
+          if (pickCursorSeen.has(candidate.postId)) {
+            diag.cursorSeenFilteredCount += 1;
+            continue;
+          }
+          if (blockedAuthors.has(candidate.authorId)) continue;
+          if (viewerId && candidate.authorId === viewerId) continue;
+          if (!radiusGate(candidate)) continue;
+          if (servedRecentIds.has(candidate.postId)) softServedRecentPicks += 1;
+          selectedIds.add(candidate.postId);
+          items.push(candidate);
+          updateMediaDiagnostics(candidate, diag);
+        }
+        if (items.length > beforeRelaxedEmerg) emergencyFallbackUsed = true;
+        if (items.length > beforeRelaxed) diag.relaxedSeenUsed = true;
+        accumulateSurfaceTiming("feed_simple_stage_starvation_refill_ms", Date.now() - starvationStartedAt);
       }
     }
     diag.softServedRecentPicks = softServedRecentPicks;
     if (!diag.deckStarvationRefillUsed) diag.deckStarvationRefillUsed = false;
 
-    if (items.length === 0 && filterIsActive && isActiveRadius(radiusFilter)) {
-      const probeStartedAt = Date.now();
-      const probe = await this.repository.probeRecentPlayablePostsWithinRadius({
-        centerLat: radiusFilter.centerLat as number,
-        centerLng: radiusFilter.centerLng as number,
-        radiusMiles: radiusFilter.radiusMiles as number,
-        maxDocs: 160
-      });
-      accumulateSurfaceTiming("feed_simple_stage_radius_probe_ms", Date.now() - probeStartedAt);
-      let admitted = 0;
-      for (const candidate of probe.items) {
-        if (items.length >= limit) break;
-        if (effectiveDurableSeen.has(candidate.postId)) continue;
-        if (servedRecent.postIds.has(candidate.postId)) continue;
-        if (blockedAuthors.has(candidate.authorId)) continue;
-        if (viewerId && candidate.authorId === viewerId) continue;
-        if (!candidateMatchesRadius(candidate, radiusFilter)) continue;
-        items.push(candidate);
-        updateMediaDiagnostics(candidate, diag);
-        admitted += 1;
-      }
-      debugLog("feed", "RADIUS_FEED_COORDINATE_SHAPE_COUNTS", () => ({
-        radiusMode: radiusFilter.mode,
-        radiusMiles: radiusFilter.radiusMiles,
-        ...probe.shapeCounts
-      }));
-      if (probe.readCount > 0 && admitted > 0) {
-        debugLog("feed", "RADIUS_FEED_FALSE_ZERO_PREVENTED", () => ({
-          radiusMode: radiusFilter.mode,
-          radiusMiles: radiusFilter.radiusMiles,
-          probeReads: probe.readCount,
-          admitted
-        }));
-      }
-    }
+    workingCursor = repairForYouSimpleCursor(workingCursor);
+    const fallbackPermitted = fallbackAllowed(workingCursor);
 
     const servedRecentFilteredCount = localServedRecentFiltered.size;
+    let blockedNonReelBeforeReelExhaustionCount = 0;
+    const reelGatedItems: SimpleFeedCandidate[] = [];
+    for (const candidate of items.map(canonicalizeFeedCandidate)) {
+      if (reelPhaseMachineEnabled && !fallbackPermitted && !isForYouSimpleReel(candidate)) {
+        blockedNonReelBeforeReelExhaustionCount += 1;
+        debugLog("feed", "FOR_YOU_SIMPLE_NON_REEL_BLOCKED_BEFORE_REEL_EXHAUSTION", () => ({
+          postId: candidate.postId,
+          activePhase: workingCursor.activePhase
+        }));
+        continue;
+      }
+      reelGatedItems.push(candidate);
+    }
+    const diversified = reelPhaseMachineEnabled
+      ? diversifyByAuthor(reelGatedItems, {
+          limit,
+          lastAuthorId: cursorState.lastAuthorId ?? null,
+          recentAuthorIds,
+          maxPerAuthorPerPage: 2,
+          avoidBackToBack: true
+        })
+      : {
+          items: reelGatedItems,
+          authorDiversityApplied: false,
+          sameAuthorAdjacentCount: 0,
+          maxAuthorPageCount: 0
+        };
+    const deduped = finalizeUniqueCandidates({
+      candidates: diversified.items,
+      cursorSeen: pickCursorSeen,
+      recycleMode
+    });
+    diag.authorDiversityApplied = diversified.authorDiversityApplied;
+    diag.sameAuthorAdjacentCount = diversified.sameAuthorAdjacentCount;
+    diag.maxAuthorPageCount = diversified.maxAuthorPageCount;
+    diag.duplicateBlockedCount = deduped.duplicateBlockedCount;
+    diag.seenSkippedCount = deduped.seenSkippedCount;
+    diag.servedRecentSkippedCount = servedRecentFilteredCount;
     const finalItems = debugFixedIdsEnabled
-      ? items.filter((candidate) => FOR_YOU_SIMPLE_DEBUG_FIXED_IDS.has(candidate.postId))
-      : items;
+      ? deduped.items.filter((candidate) => FOR_YOU_SIMPLE_DEBUG_FIXED_IDS.has(candidate.postId))
+      : deduped.items;
 
-    const returnedIds = finalItems.map((c) => c.postId);
+    const returnedIds = finalItems.map((c) => normalizeFeedPostIdFromCandidate(c) ?? c.postId);
     let seenWriteAttempted = false;
     let seenWriteSucceeded = false;
     let blockingResponseWrites = 0;
@@ -746,49 +798,75 @@ export class FeedForYouSimpleService {
       }, 0);
       seenWriteSucceeded = true;
     }
-    if (deck.items.length < READY_DECK_MIN_REFILL_THRESHOLD && !deck.refillInFlight) {
-      deck.refillInFlight = Promise.resolve();
-      diag.refillDeferred = true;
-      setTimeout(() => {
-        const refillPromise = this.refillDeck({
-          deckKey,
-          deck,
-          viewerId,
-          durableViewerId,
-          mode,
-          blockedAuthors,
-          durableSeen: effectiveDurableSeen,
-          servedRecent: servedRecent.postIds,
-          reason: "post_serve_low_watermark",
-          radiusFilter
-        })
-          .then(() => undefined)
-          .finally(() => {
-            if (deck) deck.refillInFlight = null;
-          });
-        deck.refillInFlight = refillPromise;
-      }, 0);
+    for (const phase of reelPhaseMachineEnabled ? FOR_YOU_SIMPLE_SERVE_PHASES : []) {
+      if (phase === "fallback_normal" && !fallbackPermitted) continue;
+      const phaseDeck = this.getOrCreatePhaseDeck(deckKey, phase);
+      if (phaseDeck.items.length < READY_DECK_MIN_REFILL_THRESHOLD && !phaseDeck.refillInFlight) {
+        phaseDeck.refillInFlight = Promise.resolve();
+        diag.refillDeferred = true;
+        setTimeout(() => {
+          const refillPromise = this.refillPhaseDeck({
+            deckKey,
+            phase,
+            deck: phaseDeck,
+            viewerId,
+            mode,
+            blockedAuthors,
+            durableSeen: effectiveDurableSeen,
+            servedRecent: servedRecentIds,
+            phaseState: workingCursor.phases[phase],
+            allPhaseStates: workingCursor.phases,
+            reason: "post_serve_low_watermark",
+            radiusFilter,
+            cursorSeen: pickCursorSeen,
+            selectedSet: selectedIds
+          })
+            .then(() => undefined)
+            .finally(() => {
+              phaseDeck.refillInFlight = null;
+            });
+          phaseDeck.refillInFlight = refillPromise;
+        }, 0);
+      }
     }
 
     const emptyReason: null | "no_playable_posts" = finalItems.length === 0 ? "no_playable_posts" : null;
-    const exhausted = finalItems.length === 0;
+    const fullyExhausted =
+      servingMode === "radius_all_posts"
+        ? workingCursor.radiusScan?.exhausted === true
+        : allReelPhasesExhausted(workingCursor.phases) && workingCursor.phases.fallback_normal.exhausted;
+    const exhausted = finalItems.length === 0 && fullyExhausted;
+    const nextRecycleMode =
+      servingMode === "radius_all_posts" ? false : fullyExhausted || workingCursor.recycleMode === true;
 
     const cursorCarriesFilter = filterIsActive;
+    workingCursor = repairForYouSimpleCursor(
+      appendCursorChainState(
+        {
+          ...workingCursor,
+          servingMode,
+          ...(cursorCarriesFilter ? { filter: radiusFilter } : {})
+        },
+        {
+          returnedIds,
+          authorIds: finalItems.map((item) => item.authorId).filter(Boolean),
+          recycleMode: nextRecycleMode
+        }
+      )
+    );
+    diag.cursorSeenBefore = cursorSeenBefore;
+    diag.cursorSeenAfter = workingCursor.seen.length;
+    diag.recentAuthorIds = workingCursor.recentAuthorIds ?? [];
+    diag.continuationSeq = workingCursor.continuationSeq;
+    diag.recycleMode = nextRecycleMode;
     const nextCursor =
-      finalItems.length === 0
+      exhausted && finalItems.length === 0
         ? null
-        : encodeCursor({
-            v: 2,
-            mode,
-            reel: createPhaseState(mode),
-            fallback: createPhaseState(mode),
-            seen: [...new Set([...cursorSeen, ...returnedIds])].slice(-MAX_SEEN_IDS),
-            ...(cursorCarriesFilter ? { filter: radiusFilter } : {})
-          });
+        : encodeForYouSimpleCursor(workingCursor);
 
     diag.returnedCount = finalItems.length;
     diag.nextCursorPresent = Boolean(nextCursor);
-    diag.randomSeedOrAnchor = `deck:${deck.generation}`;
+    diag.randomSeedOrAnchor = `phase:${workingCursor.activePhase}`;
     diag.seenWriteAttempted = seenWriteAttempted;
     diag.seenWriteSucceeded = seenWriteSucceeded;
     diag.blockingResponseWrites = blockingResponseWrites;
@@ -796,7 +874,7 @@ export class FeedForYouSimpleService {
     diag.deferredWriterFlushAttempts = 0;
     diag.deferredWriterSucceededFlushes = 0;
     diag.deferredWriterFailedFlushes = 0;
-    diag.exhaustedUnseenCandidates = finalItems.length < limit && !exhausted;
+    diag.exhaustedUnseenCandidates = finalItems.length < limit && !fullyExhausted;
     if (isPaginationRequest) {
       if (finalItems.length < limit && finalItems.length > 0) {
         diag.refillDeferred = true;
@@ -832,15 +910,41 @@ export class FeedForYouSimpleService {
     diag.durableSeenFilteredCount += servedRecentFilteredCount;
     diag.relaxedSeenUsed = softServedRecentPicks > 0;
     diag.wrapAroundUsed = false;
-    diag.fallbackAllPostsUsed = emergencyFallbackUsed || String(deck.refillReason ?? "").includes("fallback");
+    const returnedReelCount = finalItems.filter((item) => isForYouSimpleReel(item)).length;
+    const returnedNonReelCount = Math.max(0, finalItems.length - returnedReelCount);
+    const fallbackUsed =
+      fallbackPermitted &&
+      (emergencyFallbackUsed ||
+        workingCursor.activePhase === "fallback_normal" ||
+        returnedNonReelCount > 0);
+    diag.fallbackAllPostsUsed = fallbackUsed;
     diag.emergencyFallbackUsed = emergencyFallbackUsed;
+    diag.activePhase = workingCursor.activePhase;
+    diag.earliestAllowedPhase = getEarliestAllowedPhase(workingCursor);
+    diag.phaseExhaustedStates = {
+      reel_tier_5: workingCursor.phases.reel_tier_5.exhausted,
+      reel_tier_4: workingCursor.phases.reel_tier_4.exhausted,
+      reel_other: workingCursor.phases.reel_other.exhausted,
+      fallback_normal: workingCursor.phases.fallback_normal.exhausted
+    };
+    diag.returnedNonReelCount = returnedNonReelCount;
+    diag.blockedNonReelBeforeReelExhaustionCount = blockedNonReelBeforeReelExhaustionCount;
+    diag.servedRecentRelaxed = softServedRecentPicks > 0;
+    diag.servedRecentCount = servedRecentIds.size;
+    diag.deckPhase = workingCursor.activePhase;
+    diag.fallbackAllowed = fallbackPermitted;
+    diag.fallbackUsed = fallbackUsed;
     diag.deckHit = deckItemsBefore > 0;
     diag.deckSource = deckSource;
     diag.deckItemsBefore = deckItemsBefore;
     diag.deckItemsReturned = finalItems.length;
-    diag.deckItemsAfter = deck.items.length;
-    diag.deckRefillScheduled = Boolean(deck.refillInFlight);
-    diag.deckRefillReason = deck.refillReason;
+    diag.deckItemsAfter = FOR_YOU_SIMPLE_SERVE_PHASES.reduce((sum, phase) => {
+      return sum + (this.getOrCreatePhaseDeck(deckKey, phase).items.length ?? 0);
+    }, 0);
+    diag.deckRefillScheduled = FOR_YOU_SIMPLE_SERVE_PHASES.some(
+      (phase) => Boolean(this.getOrCreatePhaseDeck(deckKey, phase).refillInFlight)
+    );
+    diag.deckRefillReason = workingCursor.activePhase;
     diag.servedRecentFiltered = servedRecentFilteredCount;
     diag.duplicateSuppressed = diag.duplicateFilteredCount;
     diag.noCursorRequest = noCursorRequest;
@@ -849,9 +953,8 @@ export class FeedForYouSimpleService {
     diag.detailBatchRequiredForFirstPaint = false;
     applyFirstPaintPlaybackDiagnostics(finalItems, diag);
     diag.durableServedWriteStatus = seenWriteAttempted ? (deferredWritesQueued > 0 ? "deferred" : seenWriteSucceeded ? "ok" : "error") : "skipped";
-    const reelCount = finalItems.filter((item) => item.reel).length;
-    diag.reelReturnedCount = reelCount;
-    diag.fallbackReturnedCount = Math.max(0, finalItems.length - reelCount);
+    diag.reelReturnedCount = returnedReelCount;
+    diag.fallbackReturnedCount = returnedNonReelCount;
     diag.recycledSeenPosts = softServedRecentPicks > 0;
     diag.radiusFilter = {
       mode: radiusFilter.mode,
@@ -886,12 +989,35 @@ export class FeedForYouSimpleService {
       debugLog("feed", "RADIUS_FEED_FILTER_BREAKDOWN", () => ({
         radiusFilteredOutCount,
         returnedCount: finalItems.length,
-        deckItemsAfter: deck.items.length
+        deckItemsAfter: diag.deckItemsAfter
       }));
       debugLog("feed", "RADIUS_FEED_ELIGIBLE_READY", () => ({
         returnedCount: finalItems.length,
         exhausted,
         nextCursorPresent: Boolean(nextCursor)
+      }));
+    }
+
+    if (readOnlyAuditMode || process.env.NODE_ENV !== "production") {
+      debugLog("feed", "FOR_YOU_SIMPLE_PAGE_SELECTION", () => ({
+        viewerId: viewerId ? shortHash(viewerId) : null,
+        activePhase: workingCursor.activePhase,
+        returnedCount: finalItems.length,
+        cursorSeenBefore,
+        cursorSeenAfter: workingCursor.seen.length,
+        duplicateBlockedCount: diag.duplicateBlockedCount ?? 0,
+        seenSkippedCount: diag.seenSkippedCount ?? 0,
+        servedRecentSkippedCount: diag.servedRecentSkippedCount ?? 0,
+        servedRecentRelaxed: diag.servedRecentRelaxed === true,
+        authorDiversityApplied: diag.authorDiversityApplied === true,
+        sameAuthorAdjacentCount: diag.sameAuthorAdjacentCount ?? 0,
+        maxAuthorPageCount: diag.maxAuthorPageCount ?? 0,
+        phaseExhaustedStates: diag.phaseExhaustedStates,
+        nextCursorPresent: Boolean(nextCursor),
+        recycleMode: nextRecycleMode,
+        latencyMs: Date.now() - requestStartedAt,
+        dbReads: diag.dbReads,
+        queryCount: diag.queryCount
       }));
     }
 
@@ -910,47 +1036,242 @@ export class FeedForYouSimpleService {
     };
   }
 
-  private async refillDeck(input: {
+  private getOrCreatePhaseDeck(deckKey: string, phase: ForYouSimpleServePhase): ReadyDeckEntry {
+    const memoryKey = phaseDeckMemoryKey(deckKey, phase);
+    const existing = readyDeckMemory.get(memoryKey);
+    if (existing && existing.deckFormat === FOR_YOU_SIMPLE_DECK_FORMAT && existing.phase === phase) {
+      return existing;
+    }
+    const created: ReadyDeckEntry = {
+      generation: 1,
+      updatedAtMs: 0,
+      refillReason: "cold_start",
+      items: [],
+      refillInFlight: null,
+      lastSummary: null,
+      deckFormat: FOR_YOU_SIMPLE_DECK_FORMAT,
+      phase
+    };
+    readyDeckMemory.set(memoryKey, created);
+    return created;
+  }
+
+  private async fillRadiusAllPostsPage(input: {
+    limit: number;
+    radiusFilter: ForYouRadiusFilter;
+    cursor: ForYouSimpleCursorV3;
+    viewerId: string;
+    blockedAuthors: Set<string>;
+    pickCursorSeen: Set<string>;
+    effectiveDurableSeen: Set<string>;
+    servedRecentIds: Set<string>;
+    radiusGate: (candidate: SimpleFeedCandidate) => boolean;
+    diag: FeedForYouSimplePageDebug;
+    noCursorRequest: boolean;
+  }): Promise<{
+    items: SimpleFeedCandidate[];
+    selectedIds: string[];
+    cursor: ForYouSimpleCursorV3;
+    deckSource: "cold_refill" | "memory";
+  }> {
+    const items: SimpleFeedCandidate[] = [];
+    const selectedIds: string[] = [];
+    let radiusScan = repairRadiusScanState(input.cursor.radiusScan);
+    let inventoryProbeCount = 0;
+    let rawCandidates = 0;
+    let hardFiltered = 0;
+    let seenFiltered = 0;
+    let blockedAuthorFiltered = 0;
+    let scans = 0;
+    const centerLat = input.radiusFilter.centerLat as number;
+    const centerLng = input.radiusFilter.centerLng as number;
+    const radiusMiles = input.radiusFilter.radiusMiles as number;
+    const geoPrefixes = await geoPrefixesAroundCenter({ lat: centerLat, lng: centerLng, precision: 5 });
+    const maxScans = Math.max(
+      input.noCursorRequest ? 12 : 16,
+      geoPrefixes.length + (input.noCursorRequest ? 4 : 6)
+    );
+
+    const admitCandidate = (candidate: SimpleFeedCandidate): boolean => {
+      if (items.length >= input.limit) return false;
+      const postId = normalizeFeedPostIdFromCandidate(candidate) ?? candidate.postId;
+      if (input.pickCursorSeen.has(postId)) {
+        seenFiltered += 1;
+        return false;
+      }
+      if (input.blockedAuthors.has(candidate.authorId)) {
+        blockedAuthorFiltered += 1;
+        return false;
+      }
+      if (input.viewerId && candidate.authorId === input.viewerId) {
+        hardFiltered += 1;
+        return false;
+      }
+      if (!input.radiusGate(candidate)) {
+        hardFiltered += 1;
+        return false;
+      }
+      selectedIds.push(postId);
+      items.push(canonicalizeFeedCandidate({ ...candidate, postId }));
+      updateMediaDiagnostics(candidate, input.diag);
+      return true;
+    };
+
+    while (items.length < input.limit && !radiusScan.exhausted && scans < maxScans) {
+      if (!radiusScan.recentFinished && radiusScan.phase === "recent") {
+        const probe = await this.repository.probeRecentPlayablePostsWithinRadius({
+          centerLat,
+          centerLng,
+          radiusMiles,
+          maxDocs: input.noCursorRequest ? 160 : 200,
+          afterTimeMs: radiusScan.lastTimeMs,
+          afterPostId: radiusScan.lastPostId
+        });
+        scans += 1;
+        inventoryProbeCount += probe.readCount;
+        rawCandidates += probe.shapeCounts.totalDocs;
+        const recentFinished = probe.readCount === 0 || probe.segmentExhausted;
+        radiusScan = {
+          ...radiusScan,
+          phase: recentFinished ? "geo" : "recent",
+          lastTimeMs: probe.tailTimeMs,
+          lastPostId: probe.tailPostId,
+          recentFinished,
+          exhausted: recentFinished && radiusScan.geoFinished
+        };
+        let admittedThisRound = 0;
+        for (const candidate of probe.items) {
+          if (admitCandidate(candidate)) admittedThisRound += 1;
+          if (items.length >= input.limit) break;
+        }
+        if (probe.readCount === 0 && recentFinished && radiusScan.geoFinished) break;
+        if (items.length >= input.limit) break;
+        continue;
+      }
+
+      if (!radiusScan.geoFinished) {
+        const prefix = geoPrefixes[radiusScan.prefixIdx];
+        if (!prefix) {
+          radiusScan = {
+            ...radiusScan,
+            geoFinished: true,
+            geoCursor: null,
+            exhausted: radiusScan.recentFinished
+          };
+          continue;
+        }
+        const probe = await this.repository.probeGeohashPlayablePostsWithinRadius({
+          centerLat,
+          centerLng,
+          radiusMiles,
+          prefix,
+          limit: Math.max(24, input.limit * 6),
+          geoCursor: radiusScan.geoCursor
+        });
+        scans += 1;
+        inventoryProbeCount += probe.readCount;
+        rawCandidates += probe.readCount;
+        let admittedThisRound = 0;
+        for (const candidate of probe.items) {
+          if (admitCandidate(candidate)) admittedThisRound += 1;
+          if (items.length >= input.limit) break;
+        }
+        if (probe.prefixHasMore && probe.geoNextCursor) {
+          radiusScan = {
+            ...radiusScan,
+            phase: "geo",
+            geoCursor: probe.geoNextCursor,
+            exhausted: false
+          };
+          if (items.length >= input.limit) break;
+          continue;
+        }
+        const nextPrefixIdx = radiusScan.prefixIdx + 1;
+        const geoFinished = nextPrefixIdx >= geoPrefixes.length;
+        radiusScan = {
+          ...radiusScan,
+          phase: "geo",
+          prefixIdx: nextPrefixIdx,
+          geoCursor: null,
+          geoFinished,
+          exhausted: geoFinished && radiusScan.recentFinished
+        };
+        if (admittedThisRound === 0 && probe.readCount === 0) continue;
+        if (items.length >= input.limit) break;
+        continue;
+      }
+
+      break;
+    }
+
+    radiusScan = repairRadiusScanState(radiusScan);
+
+    if (items.length === 0) {
+      debugLog("feed", "RADIUS_FEED_EMPTY_DIAGNOSTIC", () => ({
+        centerLat: input.radiusFilter.centerLat,
+        centerLng: input.radiusFilter.centerLng,
+        radiusMiles: input.radiusFilter.radiusMiles,
+        rawCandidates,
+        hardFiltered,
+        playableFiltered: 0,
+        blockedAuthorFiltered,
+        seenFiltered,
+        returnedCount: 0,
+        inventoryProbeCount,
+        usedHomeDeck: false,
+        usedReelPhaseMachine: false
+      }));
+    }
+
+    return {
+      items,
+      selectedIds,
+      cursor: {
+        ...input.cursor,
+        servingMode: "radius_all_posts",
+        filter: input.radiusFilter,
+        radiusScan
+      },
+      deckSource: "cold_refill"
+    };
+  }
+
+  private async fillPageFromPhases(input: {
     deckKey: string;
-    deck: ReadyDeckEntry;
+    deckSourceRef: { value: "memory" | "firestore" | "cold_refill" | "fallback" };
+    cursor: ForYouSimpleCursorV3;
+    limit: number;
+    mode: SimpleFeedSortMode;
     viewerId: string;
     durableViewerId: string;
-    mode: SimpleFeedSortMode;
     blockedAuthors: Set<string>;
     durableSeen: Set<string>;
     servedRecent: Set<string>;
-    reason: string;
-    /**
-     * When true, Firestore scan may re-admit post IDs still in the short-term served-recent ring
-     * (they remain blocked at serve time until soft pass). Used to break "full deck of soft duplicates".
-     */
+    cursorSeen: Set<string>;
+    radiusFilter: ForYouRadiusFilter;
+    firstPaintTight: boolean;
+    paginationMode: boolean;
+    radiusGate: (candidate: SimpleFeedCandidate) => boolean;
+    diag: FeedForYouSimplePageDebug;
+    localServedRecentFiltered: Set<string>;
+    pickMode?: "strict_ring_and_durable" | "durable_gate_only";
     omitServedRecentFromSessionSeen?: boolean;
-    /** When true, cap Firestore reads for cold deck refill (first home paint). */
-    firstPaintTight?: boolean;
-    /** Scroll pagination: tight read/query budgets; shallow scans only. */
-    paginationMode?: boolean;
-    /** Radius filter; admission rejects candidates outside the radius when active. */
-    radiusFilter?: ForYouRadiusFilter;
-  }): Promise<RefillDeckSummary> {
+  }): Promise<{
+    items: SimpleFeedCandidate[];
+    selectedIds: string[];
+    cursor: ForYouSimpleCursorV3;
+    deckSource: "memory" | "firestore" | "cold_refill" | "fallback";
+  }> {
     const items: SimpleFeedCandidate[] = [];
-    const sessionSeen = new Set<string>([
-      ...input.deck.items.map((item) => item.postId),
-      ...input.durableSeen,
-      ...(input.omitServedRecentFromSessionSeen ? [] : input.servedRecent)
-    ]);
-    const reelPhaseState = createPhaseState(input.mode);
-    const fallbackPhaseState = createPhaseState(input.mode);
-    const filter = input.radiusFilter ?? { mode: "global" as const, centerLat: null, centerLng: null, radiusMiles: null };
-    const filterIsActive = isActiveRadius(filter);
-    const tryGate = (candidate: SimpleFeedCandidate): boolean => {
-      if (sessionSeen.has(candidate.postId)) return false;
-      if (input.blockedAuthors.has(candidate.authorId)) return false;
-      if (input.viewerId && candidate.authorId === input.viewerId) return false;
-      if (filterIsActive && !candidateMatchesRadius(candidate, filter)) return false;
-      sessionSeen.add(candidate.postId);
-      return true;
-    };
-    const paginationMode = input.paginationMode === true;
+    const selectedIds: string[] = [];
+    const selectedSet = new Set<string>();
+    const cursor = repairForYouSimpleCursor({
+      ...input.cursor,
+      phases: { ...input.cursor.phases }
+    });
+    let activePhase = getEarliestAllowedPhase(cursor);
+    cursor.activePhase = activePhase;
+    const paginationMode = input.paginationMode;
     const scanAttemptsCap = paginationMode ? PAGINATION_MAX_SCAN_ATTEMPTS : MAX_SCAN_ATTEMPTS;
     const reelReadCap = paginationMode
       ? PAGINATION_REEL_READ_CAP
@@ -962,189 +1283,263 @@ export class FeedForYouSimpleService {
       : input.firstPaintTight
         ? Math.max(4, 15 - reelReadCap)
         : Math.max(12, MAX_MAIN_READ_BUDGET - reelReadCap);
-    let reel: Awaited<ReturnType<typeof scanPhase>>;
-    let usedFallbackScan = false;
-    let fallbackSummary: Awaited<ReturnType<typeof scanPhase>> | null = null;
-    if (filterIsActive) {
-      const unifiedReadCap = reelReadCap + fallbackReadCap;
-      reel = await scanPhase({
-        repository: this.repository,
-        reelOnly: false,
-        limit: READY_DECK_TARGET_SIZE,
-        mode: input.mode,
-        phaseState: reelPhaseState,
-        pass: "strict",
-        tryGate: (candidate) => tryGate(candidate),
-        items,
-        sessionSeen,
-        onCandidate: () => undefined,
-        maxReads: unifiedReadCap,
-        maxAttempts: scanAttemptsCap
-      });
-      usedFallbackScan = true;
-    } else {
-      reel = await scanPhase({
-        repository: this.repository,
-        reelOnly: true,
-        limit: READY_DECK_TARGET_SIZE,
-        mode: input.mode,
-        phaseState: reelPhaseState,
-        pass: "strict",
-        tryGate: (candidate) => tryGate(candidate),
-        items,
-        sessionSeen,
-        onCandidate: () => undefined,
-        maxReads: reelReadCap,
-        maxAttempts: scanAttemptsCap
-      });
-      if (items.length < READY_DECK_TARGET_SIZE) {
-        usedFallbackScan = true;
-        fallbackSummary = await scanPhase({
-          repository: this.repository,
-          reelOnly: false,
-          limit: READY_DECK_TARGET_SIZE,
-          mode: input.mode,
-          phaseState: fallbackPhaseState,
-          pass: "strict",
-          tryGate: (candidate) => tryGate(candidate),
-          items,
-          sessionSeen,
-          onCandidate: () => undefined,
-          maxReads: fallbackReadCap,
-          maxAttempts: scanAttemptsCap
-        });
+
+    const admitCandidate = (
+      candidate: SimpleFeedCandidate,
+      pickMode: "strict_ring_and_durable" | "durable_gate_only"
+    ): boolean => {
+      const postId = normalizeFeedPostIdFromCandidate(candidate) ?? candidate.postId;
+      if (items.length >= input.limit) return false;
+      if (input.durableSeen.has(postId)) return false;
+      const inServedRecent = input.servedRecent.has(postId);
+      if (pickMode === "strict_ring_and_durable" && inServedRecent) {
+        input.localServedRecentFiltered.add(postId);
+        return false;
       }
+      if (input.cursorSeen.has(postId)) {
+        input.diag.cursorSeenFilteredCount += 1;
+        return false;
+      }
+      if (selectedSet.has(postId)) return false;
+      if (input.blockedAuthors.has(candidate.authorId)) return false;
+      if (input.viewerId && candidate.authorId === input.viewerId) return false;
+      if (!input.radiusGate(candidate)) return false;
+      selectedSet.add(postId);
+      selectedIds.push(postId);
+      items.push(canonicalizeFeedCandidate({ ...candidate, postId }));
+      updateMediaDiagnostics(candidate, input.diag);
+      return true;
+    };
+
+    const pickFromPhaseDeck = (phase: ForYouSimpleServePhase, pickMode: "strict_ring_and_durable" | "durable_gate_only") => {
+      const deck = this.getOrCreatePhaseDeck(input.deckKey, phase);
+      const remaining: SimpleFeedCandidate[] = [];
+      for (const candidate of deck.items) {
+        const postId = normalizeFeedPostIdFromCandidate(candidate) ?? candidate.postId;
+        if (items.length >= input.limit) {
+          remaining.push(candidate);
+          continue;
+        }
+        if (!candidateMatchesServePhase(candidate, phase)) {
+          continue;
+        }
+        if (input.cursorSeen.has(postId) || selectedSet.has(postId)) {
+          continue;
+        }
+        if (!admitCandidate(candidate, pickMode)) {
+          if (pickMode === "durable_gate_only" || !input.servedRecent.has(postId)) {
+            remaining.push(candidate);
+          }
+          continue;
+        }
+      }
+      deck.items = remaining;
+      return deck;
+    };
+
+    let phaseIndex = FOR_YOU_SIMPLE_SERVE_PHASES.indexOf(activePhase);
+    if (phaseIndex < 0) phaseIndex = 0;
+    for (; phaseIndex < FOR_YOU_SIMPLE_SERVE_PHASES.length && items.length < input.limit; ) {
+      const phase = FOR_YOU_SIMPLE_SERVE_PHASES[phaseIndex] as ForYouSimpleServePhase;
+      if (phase === "fallback_normal" && !fallbackAllowed(cursor)) {
+        break;
+      }
+      activePhase = phase;
+      let deck = this.getOrCreatePhaseDeck(input.deckKey, phase);
+      if (deck.items.length > 0) {
+        input.deckSourceRef.value = "memory";
+      }
+      const target = Math.min(FOR_YOU_SIMPLE_PHASE_DECK_TARGET, input.limit + 4);
+      if (deck.items.length < target && !cursor.phases[phase].exhausted) {
+        const refillStartedAt = Date.now();
+        const refillSummary = await this.refillPhaseDeck({
+          deckKey: input.deckKey,
+          phase,
+          deck,
+          viewerId: input.viewerId,
+          mode: input.mode,
+          blockedAuthors: input.blockedAuthors,
+          durableSeen: input.durableSeen,
+          servedRecent: input.servedRecent,
+          phaseState: cursor.phases[phase],
+          allPhaseStates: cursor.phases,
+          reason: deck.items.length === 0 ? "cold_refill" : "low_deck",
+          firstPaintTight: input.firstPaintTight,
+          paginationMode,
+          radiusFilter: input.radiusFilter,
+          omitServedRecentFromSessionSeen: input.omitServedRecentFromSessionSeen,
+          cursorSeen: input.cursorSeen,
+          selectedSet
+        });
+        accumulateSurfaceTiming("feed_simple_stage_refill_ms", Date.now() - refillStartedAt);
+        cursor.phases[phase] = refillSummary.phaseState;
+        input.diag.reelCandidateReadCount += refillSummary.reelReadCount;
+        input.diag.fallbackCandidateReadCount += refillSummary.fallbackReadCount;
+        input.diag.rawReelCandidates += refillSummary.rawReelCandidates;
+        input.diag.rawFallbackCandidates += refillSummary.rawFallbackCandidates;
+        input.diag.boundedAttempts += refillSummary.boundedAttempts;
+        input.diag.candidateReadCount += refillSummary.reelReadCount + refillSummary.fallbackReadCount;
+        input.diag.reelPhaseExhausted = input.diag.reelPhaseExhausted || refillSummary.reelPhaseExhausted;
+        deck = this.getOrCreatePhaseDeck(input.deckKey, phase);
+        if (deck.items.length > 0) input.deckSourceRef.value = "cold_refill";
+      }
+      pickFromPhaseDeck(phase, input.pickMode ?? "strict_ring_and_durable");
+      if (items.length >= input.limit) break;
+      if (!cursor.phases[phase].exhausted) break;
+      phaseIndex += 1;
     }
-    input.deck.items = [...input.deck.items, ...items].slice(0, 60);
-    input.deck.updatedAtMs = Date.now();
-    input.deck.generation += 1;
-    input.deck.refillReason = usedFallbackScan ? `${input.reason}:fallback` : input.reason;
-    input.deck.deckFormat = 2;
-    readyDeckMemory.set(input.deckKey, input.deck);
-    if (input.durableViewerId && !isReadOnlyLatencyAuditEnabled()) {
-      const persist: SimpleReadyDeckDoc = {
-        viewerId: input.durableViewerId,
-        surface: FOR_YOU_SIMPLE_SURFACE,
-        generation: input.deck.generation,
-        updatedAtMs: input.deck.updatedAtMs,
-        expiresAtMs: Date.now() + READY_DECK_TTL_MS,
-        refillReason: input.reason,
-        items: input.deck.items
-      };
-      setTimeout(() => {
-        void this.repository.writeReadyDeck(persist).catch(() => undefined);
-      }, 0);
-    }
+
+    cursor.activePhase = getEarliestAllowedPhase(cursor);
     return {
-      reelReadCount: reel.readCount,
-      fallbackReadCount: fallbackSummary?.readCount ?? 0,
-      rawReelCandidates: reel.rawTotal,
-      rawFallbackCandidates: fallbackSummary?.rawTotal ?? 0,
-      boundedAttempts: reel.attempts + (fallbackSummary?.attempts ?? 0),
-      reelPhaseExhausted: reel.exhausted,
+      items,
+      selectedIds,
+      cursor,
+      deckSource: input.deckSourceRef.value
     };
   }
-}
 
-async function scanPhase(input: {
-  repository: Pick<FeedForYouSimpleRepository, "fetchBatch">;
-  reelOnly: boolean;
-  limit: number;
-  mode: SimpleFeedSortMode;
-  phaseState: PhaseCursorState;
-  pass: SeenPass;
-  tryGate: (candidate: SimpleFeedCandidate, pass: SeenPass) => boolean;
-  items: SimpleFeedCandidate[];
-  sessionSeen: Set<string>;
-  onCandidate: (candidate: SimpleFeedCandidate) => void;
-  maxReads: number;
-  maxAttempts: number;
-}): Promise<{
-  phaseState: PhaseCursorState;
-  readCount: number;
-  rawTotal: number;
-  acceptedDelta: number;
-  exhausted: boolean;
-  attempts: number;
-  wrapUsed: boolean;
-  sliceStats: import("../../repositories/surfaces/feed-for-you-simple.repository.js").SimpleFeedBatchSliceStats[];
-}> {
-  let state = { ...input.phaseState };
-  let readCount = 0;
-  let rawTotal = 0;
-  let acceptedDelta = 0;
-  let exhausted = false;
-  let attempts = 0;
-  let wrapUsed = false;
-  const sliceStats: import("../../repositories/surfaces/feed-for-you-simple.repository.js").SimpleFeedBatchSliceStats[] = [];
-
-  while (input.items.length < input.limit && readCount < input.maxReads && attempts < input.maxAttempts) {
-    const beforeLen = input.items.length;
-    const batch = await input.repository.fetchBatch({
+  private async refillPhaseDeck(input: {
+    deckKey: string;
+    phase: ForYouSimpleServePhase;
+    deck: ReadyDeckEntry;
+    viewerId: string;
+    mode: SimpleFeedSortMode;
+    blockedAuthors: Set<string>;
+    durableSeen: Set<string>;
+    servedRecent: Set<string>;
+    phaseState: import("./feed-for-you-simple-cursor.js").ForYouSimplePhaseCursorState;
+    allPhaseStates: Record<ForYouSimpleServePhase, import("./feed-for-you-simple-cursor.js").ForYouSimplePhaseCursorState>;
+    reason: string;
+    firstPaintTight?: boolean;
+    paginationMode?: boolean;
+    radiusFilter?: ForYouRadiusFilter;
+    omitServedRecentFromSessionSeen?: boolean;
+    cursorSeen: Set<string>;
+    selectedSet: Set<string>;
+  }): Promise<RefillDeckSummary & { phaseState: import("./feed-for-you-simple-cursor.js").ForYouSimplePhaseCursorState }> {
+    const items: SimpleFeedCandidate[] = [];
+    const relaxServedRecentForReelScan =
+      input.firstPaintTight !== true &&
+      (input.phase !== "fallback_normal" || input.omitServedRecentFromSessionSeen === true);
+    const sessionSeen = new Set<string>([
+      ...input.deck.items.map((item) => item.postId),
+      ...input.durableSeen,
+      ...input.cursorSeen,
+      ...input.selectedSet,
+      ...(relaxServedRecentForReelScan ? [] : input.servedRecent)
+    ]);
+    const filter = input.radiusFilter ?? { mode: "global" as const, centerLat: null, centerLng: null, radiusMiles: null };
+    const filterIsActive = isActiveRadius(filter);
+    const tryGate = (candidate: SimpleFeedCandidate): boolean => {
+      if (sessionSeen.has(candidate.postId)) return false;
+      if (input.blockedAuthors.has(candidate.authorId)) return false;
+      if (input.viewerId && candidate.authorId === input.viewerId) return false;
+      if (filterIsActive && !candidateMatchesRadius(candidate, filter)) return false;
+      if (!candidateMatchesServePhase(candidate, input.phase)) return false;
+      sessionSeen.add(candidate.postId);
+      return true;
+    };
+    const paginationMode = input.paginationMode === true;
+    const scanAttemptsCap = paginationMode ? PAGINATION_MAX_SCAN_ATTEMPTS : MAX_SCAN_ATTEMPTS;
+    if (input.phase === "fallback_normal" && !fallbackAllowed({ phases: input.allPhaseStates })) {
+      return {
+        reelReadCount: 0,
+        fallbackReadCount: 0,
+        rawReelCandidates: 0,
+        rawFallbackCandidates: 0,
+        boundedAttempts: 0,
+        reelPhaseExhausted: false,
+        phaseState: input.phaseState
+      };
+    }
+    const readCap =
+      input.phase === "fallback_normal"
+        ? paginationMode
+          ? PAGINATION_FALLBACK_READ_CAP
+          : input.firstPaintTight
+            ? Math.max(4, 15 - 8)
+            : Math.max(12, MAX_MAIN_READ_BUDGET - 8)
+        : paginationMode
+          ? PAGINATION_REEL_READ_CAP
+          : input.firstPaintTight
+            ? 8
+            : MAX_MAIN_READ_BUDGET;
+    const scanned = await scanServePhase({
+      repository: this.repository,
+      phase: input.phase,
       mode: input.mode,
-      anchor: state.anchor,
-      wrapped: state.wrapped,
-      lastValue: state.lastValue,
-      lastPostId: state.lastPostId,
-      limit: BATCH_PAGE_SIZE,
-      reelOnly: input.reelOnly
+      phaseState: input.phaseState,
+      limit: FOR_YOU_SIMPLE_PHASE_DECK_TARGET,
+      tryGate,
+      items,
+      sessionSeen,
+      maxReads: readCap,
+      maxAttempts: scanAttemptsCap
     });
-    attempts += 1;
-    readCount += batch.readCount;
-    rawTotal += batch.stats.rawDocCount;
-    sliceStats.push(batch.stats);
-
-    for (const candidate of batch.items) {
-      if (input.items.length >= input.limit) break;
-      if (!input.tryGate(candidate, input.pass)) continue;
-      input.sessionSeen.add(candidate.postId);
-      input.items.push(candidate);
-      input.onCandidate(candidate);
-      acceptedDelta += 1;
-      state.lastValue = candidate.sortValue;
-      state.lastPostId = candidate.postId;
-    }
-
-    if (input.items.length >= input.limit) break;
-
-    const acceptedThisRound = input.items.length - beforeLen;
-    if (acceptedThisRound === 0 && batch.rawCount > 0 && batch.tailDocId) {
-      if (input.mode === "randomKey" && batch.tailRandomKey != null && Number.isFinite(batch.tailRandomKey)) {
-        state.lastValue = batch.tailRandomKey;
-        state.lastPostId = batch.tailDocId;
-      } else {
-        state.lastValue = batch.tailDocId;
-        state.lastPostId = batch.tailDocId;
-      }
-      continue;
-    }
-
-    if (batch.segmentExhausted || batch.rawCount === 0) {
-      if (!state.wrapped) {
-        state.wrapped = true;
-        state.lastValue = null;
-        state.lastPostId = null;
-        wrapUsed = true;
-        continue;
-      }
-      exhausted = true;
-      break;
-    }
+    input.deck.items = mergeUniqueDeckItems(input.deck.items, items).slice(0, 60);
+    input.deck.updatedAtMs = Date.now();
+    input.deck.generation += 1;
+    input.deck.refillReason = input.reason;
+    input.deck.deckFormat = FOR_YOU_SIMPLE_DECK_FORMAT;
+    input.deck.phase = input.phase;
+    readyDeckMemory.set(phaseDeckMemoryKey(input.deckKey, input.phase), input.deck);
+    return {
+      reelReadCount: input.phase === "fallback_normal" ? 0 : scanned.readCount,
+      fallbackReadCount: input.phase === "fallback_normal" ? scanned.readCount : 0,
+      rawReelCandidates: scanned.rawTotal,
+      rawFallbackCandidates: input.phase === "fallback_normal" ? scanned.rawTotal : 0,
+      boundedAttempts: scanned.attempts,
+      reelPhaseExhausted: scanned.exhausted,
+      phaseState: scanned.phaseState
+    };
   }
 
-  return { phaseState: state, readCount, rawTotal, acceptedDelta, exhausted, attempts, wrapUsed, sliceStats };
 }
 
 function mergeUniqueDeckItems(existing: SimpleFeedCandidate[], incoming: SimpleFeedCandidate[]): SimpleFeedCandidate[] {
   const out = [...existing];
-  const seen = new Set(existing.map((item) => item.postId));
+  const seen = new Set(existing.map((item) => normalizeFeedPostIdFromCandidate(item) ?? item.postId));
   for (const item of incoming) {
-    if (seen.has(item.postId)) continue;
-    seen.add(item.postId);
-    out.push(item);
+    const postId = normalizeFeedPostIdFromCandidate(item) ?? item.postId;
+    if (seen.has(postId)) continue;
+    seen.add(postId);
+    out.push(canonicalizeFeedCandidate({ ...item, postId }));
     if (out.length >= 60) break;
   }
   return out;
+}
+
+function finalizeUniqueCandidates(input: {
+  candidates: SimpleFeedCandidate[];
+  cursorSeen: Set<string>;
+  recycleMode: boolean;
+}): { items: SimpleFeedCandidate[]; duplicateBlockedCount: number; seenSkippedCount: number } {
+  const out: SimpleFeedCandidate[] = [];
+  const pageSeen = new Set<string>();
+  const recentWindow = [...input.cursorSeen].slice(-RECYCLE_SEEN_WINDOW);
+  const recentWindowSet = new Set(recentWindow);
+  let duplicateBlockedCount = 0;
+  let seenSkippedCount = 0;
+  for (const candidate of input.candidates) {
+    const postId = normalizeFeedPostIdFromCandidate(candidate) ?? candidate.postId;
+    if (pageSeen.has(postId)) {
+      duplicateBlockedCount += 1;
+      debugLog("feed", "FOR_YOU_SIMPLE_DUPLICATE_BLOCKED", () => ({ postId, reason: "within_page" }));
+      continue;
+    }
+    if (!input.recycleMode && input.cursorSeen.has(postId)) {
+      seenSkippedCount += 1;
+      debugLog("feed", "FOR_YOU_SIMPLE_DUPLICATE_BLOCKED", () => ({ postId, reason: "cursor_seen" }));
+      continue;
+    }
+    if (input.recycleMode && recentWindowSet.has(postId)) {
+      seenSkippedCount += 1;
+      continue;
+    }
+    pageSeen.add(postId);
+    out.push(canonicalizeFeedCandidate({ ...candidate, postId }));
+  }
+  return { items: out, duplicateBlockedCount, seenSkippedCount };
 }
 
 function readServedRecentMemory(cacheKey: string): { postIds: Set<string>; readCount: number } | null {
@@ -1164,17 +1559,25 @@ function readServedRecentMemory(cacheKey: string): { postIds: Set<string>; readC
   return { postIds: new Set(filtered.map(([postId]) => postId)), readCount: 0 };
 }
 
-function seedServedRecentMemory(cacheKey: string, postIds: Set<string>): void {
-  if (postIds.size === 0) return;
-  const now = Date.now();
-  const entries = new Map<string, number>();
-  for (const postId of postIds) {
-    entries.set(postId, now);
+function prunePhaseDecksForExclusion(deckKey: string, exclusion: Set<string>): void {
+  for (const phase of FOR_YOU_SIMPLE_SERVE_PHASES) {
+    const memoryKey = phaseDeckMemoryKey(deckKey, phase);
+    const deck = readyDeckMemory.get(memoryKey);
+    if (!deck?.items.length) continue;
+    const remaining = deck.items.filter((candidate) => {
+      const postId = normalizeFeedPostIdFromCandidate(candidate) ?? candidate.postId;
+      return !exclusion.has(postId);
+    });
+    if (remaining.length === deck.items.length) continue;
+    deck.items = remaining;
+    deck.updatedAtMs = Date.now();
+    deck.generation += 1;
+    if (remaining.length === 0) {
+      readyDeckMemory.delete(memoryKey);
+    } else {
+      readyDeckMemory.set(memoryKey, deck);
+    }
   }
-  servedRecentMemory.set(cacheKey, {
-    expiresAtMs: now + SERVED_RECENT_CACHE_TTL_MS,
-    entries,
-  });
 }
 
 function mergeServedRecentMemory(cacheKey: string, postIds: string[]): void {
@@ -1652,120 +2055,6 @@ function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: str
   return leanCard as FeedCardDTO;
 }
 
-function encodeCursor(cursor: FeedForYouSimpleCursor): string {
-  return `${CURSOR_PREFIX}${Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url")}`;
-}
-
-function decodeCursor(cursor: string | null): FeedForYouSimpleCursor | null {
-  if (!cursor) return null;
-  const rawPayload = cursor.startsWith(CURSOR_PREFIX)
-    ? cursor.slice(CURSOR_PREFIX.length)
-    : cursor.startsWith(LEGACY_CURSOR_PREFIX)
-      ? cursor.slice(LEGACY_CURSOR_PREFIX.length)
-      : null;
-  if (rawPayload === null) throw new Error("invalid_simple_feed_cursor");
-  try {
-    const raw = JSON.parse(Buffer.from(rawPayload, "base64url").toString("utf8")) as Record<string, unknown>;
-    if (raw.v === 2) {
-      const mode = raw.mode;
-      if (mode !== "randomKey" && mode !== "docId") throw new Error("mode");
-      const seen = Array.isArray(raw.seen) ? raw.seen.map((value) => String(value)).filter(Boolean).slice(-MAX_SEEN_IDS) : [];
-      const reelRaw = (raw.reel as Record<string, unknown> | undefined) ?? null;
-      const fallbackRaw = (raw.fallback as Record<string, unknown> | undefined) ?? null;
-      if (!reelRaw || !fallbackRaw) throw new Error("phase");
-      const filterRaw = raw.filter as Record<string, unknown> | undefined;
-      const filter: ForYouRadiusFilter | undefined = (() => {
-        if (!filterRaw || typeof filterRaw !== "object") return undefined;
-        const m = filterRaw.mode;
-        if (m !== "global" && m !== "nearMe" && m !== "custom") return undefined;
-        if (m === "global") return { mode: "global", centerLat: null, centerLng: null, radiusMiles: null };
-        const lat = typeof filterRaw.centerLat === "number" && Number.isFinite(filterRaw.centerLat) ? filterRaw.centerLat : null;
-        const lng = typeof filterRaw.centerLng === "number" && Number.isFinite(filterRaw.centerLng) ? filterRaw.centerLng : null;
-        const miles =
-          typeof filterRaw.radiusMiles === "number" && Number.isFinite(filterRaw.radiusMiles) ? filterRaw.radiusMiles : null;
-        return { mode: m, centerLat: lat, centerLng: lng, radiusMiles: miles };
-      })();
-      return {
-        v: 2,
-        mode,
-        reel: normalizePhaseState(mode, reelRaw),
-        fallback: normalizePhaseState(mode, fallbackRaw),
-        seen,
-        ...(filter ? { filter } : {})
-      };
-    }
-    if (raw.v === 1) {
-      const mode = raw.mode;
-      if (mode !== "randomKey" && mode !== "docId") throw new Error("mode");
-      const seen = Array.isArray(raw.seen) ? raw.seen.map((value) => String(value)).filter(Boolean).slice(-MAX_SEEN_IDS) : [];
-      const reelRaw = (raw.reel as Record<string, unknown> | undefined) ?? null;
-      const fallbackRaw = (raw.fallback as Record<string, unknown> | undefined) ?? null;
-      if (reelRaw && fallbackRaw) {
-        return {
-          v: 2,
-          mode,
-          reel: normalizePhaseState(mode, reelRaw),
-          fallback: normalizePhaseState(mode, fallbackRaw),
-          seen
-        };
-      }
-      const legacyState = normalizeLegacyPhaseState(mode, raw);
-      return {
-        v: 2,
-        mode,
-        reel: createPhaseState(mode),
-        fallback: legacyState,
-        seen
-      };
-    }
-    throw new Error("version");
-  } catch {
-    throw new Error("invalid_simple_feed_cursor");
-  }
-}
-
-function createDocIdAnchor(): string {
-  return randomBytes(10).toString("hex");
-}
-
-function createPhaseState(mode: SimpleFeedSortMode): PhaseCursorState {
-  return {
-    anchor: mode === "randomKey" ? Math.random() : createDocIdAnchor(),
-    wrapped: false,
-    lastValue: null,
-    lastPostId: null
-  };
-}
-
-function normalizePhaseState(mode: SimpleFeedSortMode, raw: Record<string, unknown>): PhaseCursorState {
-  const normalized = normalizeLegacyPhaseState(mode, raw);
-  const lastPostId = typeof raw.lastPostId === "string" && raw.lastPostId.trim() ? raw.lastPostId.trim() : null;
-  return { ...normalized, lastPostId };
-}
-
-function normalizeLegacyPhaseState(mode: SimpleFeedSortMode, raw: Record<string, unknown>): PhaseCursorState {
-  if (mode === "randomKey") {
-    const anchor = typeof raw.anchor === "number" ? raw.anchor : Number(raw.anchor);
-    if (!Number.isFinite(anchor)) throw new Error("anchor");
-    const lastValue = raw.lastValue == null ? null : Number(raw.lastValue);
-    if (lastValue != null && !Number.isFinite(lastValue)) throw new Error("lastValue");
-    return {
-      anchor,
-      wrapped: raw.wrapped === true,
-      lastValue,
-      lastPostId: null
-    };
-  }
-  const anchor = typeof raw.anchor === "string" ? raw.anchor.trim() : "";
-  if (!anchor) throw new Error("anchor");
-  return {
-    anchor,
-    wrapped: raw.wrapped === true,
-    lastValue: typeof raw.lastValue === "string" && raw.lastValue.trim() ? raw.lastValue.trim() : null,
-    lastPostId: null
-  };
-}
-
 function isDurableViewerId(viewerId: string): boolean {
   const normalized = viewerId.trim().toLowerCase();
   if (!normalized) return false;
@@ -1783,16 +2072,16 @@ export function getForYouReadyDeckDebug(viewerId: string): {
 } | null {
   const id = viewerId.trim();
   if (!id) return null;
-  const key = `${id}_${FOR_YOU_SIMPLE_SURFACE}`;
-  const deck = readyDeckMemory.get(key);
-  if (!deck) return null;
+  const baseKey = `${id}_${FOR_YOU_SIMPLE_SURFACE}`;
+  const phaseDeck = readyDeckMemory.get(phaseDeckMemoryKey(baseKey, "reel_tier_5"));
+  if (!phaseDeck) return null;
   return {
-    key,
-    generation: deck.generation,
-    size: deck.items.length,
-    nextItemIds: deck.items.slice(0, 10).map((item) => item.postId),
-    updatedAtMs: deck.updatedAtMs,
-    refillReason: deck.refillReason,
-    hasRefillInFlight: Boolean(deck.refillInFlight)
+    key: phaseDeckMemoryKey(baseKey, phaseDeck.phase),
+    generation: phaseDeck.generation,
+    size: phaseDeck.items.length,
+    nextItemIds: phaseDeck.items.slice(0, 10).map((item) => item.postId),
+    updatedAtMs: phaseDeck.updatedAtMs,
+    refillReason: phaseDeck.refillReason,
+    hasRefillInFlight: Boolean(phaseDeck.refillInFlight)
   };
 }

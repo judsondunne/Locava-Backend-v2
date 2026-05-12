@@ -1,7 +1,9 @@
-import { FieldPath, FieldValue } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { FEED_READ_NORMALIZED_ASSET_MAX } from "../../constants/feed-read-assets.js";
-import { getPostCoordinates, getPostGeohash } from "../../lib/posts/postFieldSelectors.js";
+import { getPostCoordinates, getPostGeohash, getPostModerationTier, type PostRecord } from "../../lib/posts/postFieldSelectors.js";
+import { isForYouSimpleReelFromRaw } from "../../services/surfaces/feed-for-you-simple-tier.js";
 import { accumulateSurfaceTiming, incrementDbOps } from "../../observability/request-context.js";
+import { NearbyMixRepository } from "../nearbyMix.repository.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
 
@@ -17,6 +19,7 @@ export type SimpleFeedCandidate = {
   postId: string;
   sortValue: number | string;
   reel: boolean;
+  moderatorTier: number | null;
   authorId: string;
   createdAtMs: number;
   updatedAtMs: number;
@@ -111,6 +114,8 @@ const SIMPLE_FEED_SELECT_FIELDS = [
   "randomKey",
   "userId",
   "reel",
+  "moderatorTier",
+  "classification",
   "time",
   "createdAtMs",
   "updatedAtMs",
@@ -282,6 +287,196 @@ export class FeedForYouSimpleRepository {
     };
   }
 
+  async fetchServePhaseBatch(input: {
+    phase: "reel_tier_5" | "reel_tier_4" | "reel_other" | "fallback_normal";
+    mode: SimpleFeedSortMode;
+    anchor: number | string;
+    wrapped: boolean;
+    lastValue: number | string | null;
+    lastPostId?: string | null;
+    limit: number;
+  }): Promise<SimpleFeedBatchResult & { usedIndexedTierQuery: boolean; indexFallbackUsed: boolean }> {
+    const boundedLimit = Math.max(1, Math.min(input.limit, 40));
+    if (input.phase === "fallback_normal") {
+      const batch = await this.fetchBatch({
+        mode: input.mode,
+        anchor: input.anchor,
+        wrapped: input.wrapped,
+        lastValue: input.lastValue,
+        lastPostId: input.lastPostId,
+        limit: boundedLimit,
+        reelOnly: false
+      });
+      return { ...batch, usedIndexedTierQuery: false, indexFallbackUsed: false };
+    }
+
+    const tier = input.phase === "reel_tier_5" ? 5 : input.phase === "reel_tier_4" ? 4 : null;
+    if (tier != null) {
+      const indexed = await this.tryFetchReelTierIndexedBatch({
+        tier,
+        limit: boundedLimit,
+        lastTimeMs: typeof input.lastValue === "number" ? input.lastValue : null,
+        lastPostId: input.lastPostId ?? null
+      });
+      if (indexed) {
+        return { ...indexed, usedIndexedTierQuery: true, indexFallbackUsed: false };
+      }
+    }
+
+    const reelBatch = await this.fetchBatch({
+      mode: input.mode,
+      anchor: input.anchor,
+      wrapped: input.wrapped,
+      lastValue: input.lastValue,
+      lastPostId: input.lastPostId,
+      limit: boundedLimit,
+      reelOnly: true
+    });
+    const filteredItems =
+      input.phase === "reel_other"
+        ? reelBatch.items.filter((candidate) => {
+            const resolved = getPostModerationTier((candidate.rawFirestore ?? {}) as PostRecord);
+            return resolved !== 5 && resolved !== 4;
+          })
+        : reelBatch.items.filter((candidate) => getPostModerationTier((candidate.rawFirestore ?? {}) as PostRecord) === tier);
+    return {
+      ...reelBatch,
+      items: filteredItems,
+      usedIndexedTierQuery: false,
+      indexFallbackUsed: tier != null
+    };
+  }
+
+  private async tryFetchReelTierIndexedBatch(input: {
+    tier: number;
+    limit: number;
+    lastTimeMs: number | null;
+    lastPostId: string | null;
+  }): Promise<SimpleFeedBatchResult | null> {
+    if (!this.db) throw new Error("feed_for_you_simple_source_unavailable");
+    const startedAt = Date.now();
+    const boundedLimit = Math.max(1, Math.min(input.limit, 40));
+    let query = this.db
+      .collection("posts")
+      .select(...SIMPLE_FEED_SELECT_FIELDS)
+      .where("reel", "==", true)
+      .where("moderatorTier", "==", input.tier)
+      .orderBy("time", "desc")
+      .orderBy(FieldPath.documentId(), "desc");
+    if (input.lastTimeMs != null && Number.isFinite(input.lastTimeMs)) {
+      const lastPostId = input.lastPostId?.trim() ?? "";
+      query = lastPostId ? query.startAfter(input.lastTimeMs, lastPostId) : query.startAfter(input.lastTimeMs);
+    }
+    try {
+      incrementDbOps("queries", 1);
+      const snap = await query.limit(boundedLimit).get();
+      incrementDbOps("reads", snap.docs.length);
+      accumulateSurfaceTiming("feed_simple_query_reel_tier_index_ms", Date.now() - startedAt);
+      return this.mapSimpleFeedBatchDocs("docId", snap.docs, boundedLimit);
+    } catch (error) {
+      const code = (error as { code?: unknown } | null)?.code;
+      if (code === 9 || code === "failed-precondition") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private mapSimpleFeedBatchDocs(
+    mode: SimpleFeedSortMode,
+    docs: QueryDocumentSnapshot[],
+    boundedLimit: number
+  ): SimpleFeedBatchResult {
+    const stats: SimpleFeedBatchSliceStats = {
+      rawDocCount: docs.length,
+      filteredInvisible: 0,
+      filteredMissingAuthor: 0,
+      filteredMissingMedia: 0,
+      filteredInvalidContract: 0,
+      filteredInvalidSort: 0,
+      playableMapped: 0
+    };
+    const items: SimpleFeedCandidate[] = [];
+    let tailRandomKey: number | null = null;
+    let tailDocId: string | null = null;
+    for (const doc of docs) {
+      const raw = doc.data() as Record<string, unknown>;
+      tailDocId = doc.id;
+      tailRandomKey = num(raw.randomKey);
+      const mapped = tryMapSimpleFeedCandidate(mode, doc.id, raw);
+      if ("reject" in mapped) {
+        switch (mapped.reject) {
+          case "invisible":
+            stats.filteredInvisible += 1;
+            break;
+          case "no_author":
+            stats.filteredMissingAuthor += 1;
+            break;
+          case "no_media":
+            stats.filteredMissingMedia += 1;
+            break;
+          case "invalid_contract":
+            stats.filteredInvalidContract += 1;
+            break;
+          case "bad_sort":
+            stats.filteredInvalidSort += 1;
+            break;
+          default:
+            stats.filteredInvalidContract += 1;
+        }
+        continue;
+      }
+      stats.playableMapped += 1;
+      items.push(mapped.candidate);
+    }
+    return {
+      items,
+      rawCount: docs.length,
+      segmentExhausted: docs.length < boundedLimit,
+      readCount: docs.length,
+      stats,
+      tailRandomKey,
+      tailDocId
+    };
+  }
+
+  async fetchReelPoolBootstrap(limit: number): Promise<SimpleFeedCandidate[]> {
+    if (!this.db) return [];
+    const startedAt = Date.now();
+    const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 300));
+    incrementDbOps("queries", 1);
+    let snap;
+    try {
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .where("reel", "==", true)
+        .orderBy("time", "desc")
+        .limit(boundedLimit)
+        .get();
+    } catch {
+      incrementDbOps("queries", 1);
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .orderBy("time", "desc")
+        .limit(Math.min(boundedLimit * 3, 600))
+        .get();
+    }
+    incrementDbOps("reads", snap.docs.length);
+    accumulateSurfaceTiming("feed_simple_query_reel_pool_bootstrap_ms", Date.now() - startedAt);
+    const items: SimpleFeedCandidate[] = [];
+    for (const doc of snap.docs) {
+      const raw = doc.data() as Record<string, unknown>;
+      const mapped = tryMapSimpleFeedCandidate("docId", doc.id, raw);
+      if (!("candidate" in mapped)) continue;
+      if (!isForYouSimpleReelFromRaw(raw) && !mapped.candidate.reel) continue;
+      items.push(mapped.candidate);
+      if (items.length >= boundedLimit) break;
+    }
+    return items;
+  }
+
   /**
    * Last-resort bounded scan: recent public posts with playable media only (same visibility rules as map).
    */
@@ -366,14 +561,80 @@ export class FeedForYouSimpleRepository {
    * Read-only bounded scan: recent public posts (same mapping as feed), distance-filtered in memory.
    * Used when randomKey/reel deck refill yields zero in radius mode but coordinates exist on newer docs.
    */
+  async probeGeohashPlayablePostsWithinRadius(input: {
+    centerLat: number;
+    centerLng: number;
+    radiusMiles: number;
+    prefix: string;
+    limit: number;
+    geoCursor: { lastGeohash: string; lastTimeMs: number; lastPostId: string } | null;
+  }): Promise<{
+    items: SimpleFeedCandidate[];
+    readCount: number;
+    geoNextCursor: { lastGeohash: string; lastTimeMs: number; lastPostId: string } | null;
+    prefixHasMore: boolean;
+  }> {
+    const nearbyMixRepo = new NearbyMixRepository();
+    const limitKm = input.radiusMiles * 1.609344;
+    const batch = await nearbyMixRepo.pageByGeohashPrefix({
+      prefix: input.prefix,
+      limit: Math.max(24, Math.min(120, Math.floor(input.limit))),
+      cursor: input.geoCursor
+        ? {
+            lastGeohash: input.geoCursor.lastGeohash,
+            lastTime: input.geoCursor.lastTimeMs,
+            lastId: input.geoCursor.lastPostId
+          }
+        : null
+    });
+    const items: SimpleFeedCandidate[] = [];
+    const ranked: Array<{ candidate: SimpleFeedCandidate; distanceKm: number }> = [];
+    for (const row of batch.items) {
+      const postId = String((row as { id?: string }).id ?? (row as { postId?: string }).postId ?? "").trim();
+      if (!postId) continue;
+      const mapped = tryMapSimpleFeedCandidate("docId", postId, row as Record<string, unknown>);
+      if (!("candidate" in mapped)) continue;
+      const lat = typeof mapped.candidate.geo?.lat === "number" && Number.isFinite(mapped.candidate.geo.lat) ? mapped.candidate.geo.lat : null;
+      const lng = typeof mapped.candidate.geo?.long === "number" && Number.isFinite(mapped.candidate.geo.long) ? mapped.candidate.geo.long : null;
+      if (lat == null || lng == null) continue;
+      const distanceKm = haversineKm(input.centerLat, input.centerLng, lat, lng);
+      if (distanceKm > limitKm) continue;
+      ranked.push({ candidate: mapped.candidate, distanceKm });
+    }
+    ranked.sort((a, b) => {
+      if (a.distanceKm !== b.distanceKm) return a.distanceKm - b.distanceKm;
+      return a.candidate.postId.localeCompare(b.candidate.postId);
+    });
+    for (const row of ranked) {
+      items.push(row.candidate);
+    }
+    return {
+      items,
+      readCount: batch.items.length,
+      geoNextCursor: batch.nextCursor
+        ? {
+            lastGeohash: batch.nextCursor.lastGeohash,
+            lastTimeMs: batch.nextCursor.lastTime,
+            lastPostId: batch.nextCursor.lastId
+          }
+        : null,
+      prefixHasMore: batch.hasMore
+    };
+  }
+
   async probeRecentPlayablePostsWithinRadius(input: {
     centerLat: number;
     centerLng: number;
     radiusMiles: number;
     maxDocs: number;
+    afterTimeMs?: number | null;
+    afterPostId?: string | null;
   }): Promise<{
     items: SimpleFeedCandidate[];
     readCount: number;
+    tailTimeMs: number | null;
+    tailPostId: string | null;
+    segmentExhausted: boolean;
     shapeCounts: {
       totalDocs: number;
       topLevelLatLong: number;
@@ -387,6 +648,9 @@ export class FeedForYouSimpleRepository {
       return {
         items: [],
         readCount: 0,
+        tailTimeMs: null,
+        tailPostId: null,
+        segmentExhausted: true,
         shapeCounts: {
           totalDocs: 0,
           topLevelLatLong: 0,
@@ -402,17 +666,24 @@ export class FeedForYouSimpleRepository {
     incrementDbOps("queries", 1);
     let snap;
     try {
-      snap = await this.db
+      let query = this.db
         .collection("posts")
         .select(...SIMPLE_FEED_SELECT_FIELDS)
         .orderBy("time", "desc")
-        .limit(bounded)
-        .get();
+        .orderBy(FieldPath.documentId(), "desc");
+      if (typeof input.afterTimeMs === "number" && Number.isFinite(input.afterTimeMs)) {
+        const afterPostId = typeof input.afterPostId === "string" ? input.afterPostId.trim() : "";
+        query = afterPostId ? query.startAfter(input.afterTimeMs, afterPostId) : query.startAfter(input.afterTimeMs);
+      }
+      snap = await query.limit(bounded).get();
     } catch {
       incrementDbOps("reads", 0);
       return {
         items: [],
         readCount: 0,
+        tailTimeMs: null,
+        tailPostId: null,
+        segmentExhausted: true,
         shapeCounts: {
           totalDocs: 0,
           topLevelLatLong: 0,
@@ -424,23 +695,18 @@ export class FeedForYouSimpleRepository {
       };
     }
     incrementDbOps("reads", snap.docs.length);
-    const haversineKm = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371;
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLon = ((lon2 - lon1) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-      return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    };
     const items: SimpleFeedCandidate[] = [];
     let topLevelLatLong = 0;
     let nestedLocationCoordinates = 0;
     let invalidCoords = 0;
     let outsideRadius = 0;
     let playableMapped = 0;
+    let tailTimeMs: number | null = null;
+    let tailPostId: string | null = null;
     for (const doc of snap.docs) {
       const raw = doc.data() as Record<string, unknown>;
+      tailPostId = doc.id;
+      tailTimeMs = readMaybeMillis(raw.time) ?? readMaybeMillis(raw.createdAtMs) ?? readMaybeMillis(raw.updatedAtMs);
       const loc = raw.location as Record<string, unknown> | undefined;
       const coords = loc && typeof loc === "object" ? (loc.coordinates as Record<string, unknown> | undefined) : undefined;
       const hasNested =
@@ -471,6 +737,9 @@ export class FeedForYouSimpleRepository {
     return {
       items,
       readCount: snap.docs.length,
+      tailTimeMs,
+      tailPostId,
+      segmentExhausted: snap.docs.length < bounded,
       shapeCounts: {
         totalDocs: snap.docs.length,
         topLevelLatLong,
@@ -780,6 +1049,16 @@ export class FeedForYouSimpleRepository {
   }
 }
 
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 type SimpleFeedRejectReason = "invisible" | "no_author" | "no_media" | "invalid_contract" | "bad_sort";
 
 function tryMapSimpleFeedCandidate(
@@ -825,7 +1104,8 @@ function tryMapSimpleFeedCandidate(
     const candidate: SimpleFeedCandidate = {
       postId,
       sortValue,
-      reel: data.reel === true,
+      reel: isForYouSimpleReelFromRaw(data),
+      moderatorTier: getPostModerationTier(data as PostRecord),
       authorId,
       createdAtMs: readMaybeMillis(data.createdAtMs) ?? readMaybeMillis(data.createdAt) ?? readMaybeMillis(data.time) ?? Date.now(),
       updatedAtMs:

@@ -41,6 +41,11 @@ import type {
   PostEngagementSourceAuditV2
 } from "../../../contracts/master-post-v2.types.js";
 import { normalizeMasterPostV2 } from "../master-post-v2/normalizeMasterPostV2.js";
+import {
+  buildSafeDisplayTextBlock,
+  sanitizeHydratedPostDisplayText,
+  type PostDocLike,
+} from "../displayText.js";
 import { debugLog } from "../../logging/debug-log.js";
 import { LOG_VIDEO_DEBUG } from "../../logging/log-config.js";
 import { isPendingPlaceholderUrl } from "../../../services/posting/photo-url-guards.js";
@@ -361,8 +366,15 @@ function mapClassification(c: MasterPostClassificationV2): AppPostClassification
   return { ...c };
 }
 
-function mapText(text: MasterPostV2["text"]): AppPostTextV2 {
-  return { ...text };
+function mapText(text: MasterPostV2["text"], source: PostDocLike): AppPostTextV2 {
+  const safe = buildSafeDisplayTextBlock({ ...source, text });
+  return {
+    title: safe.title || text.title,
+    caption: safe.caption,
+    description: safe.description,
+    content: safe.content,
+    searchableText: "",
+  };
 }
 
 function mapEngagement(
@@ -521,7 +533,7 @@ export function toAppPostV2(master: MasterPostV2, options: ToAppPostV2CoreOption
     schema: buildAppSchema(master, normalizedFromLegacy),
     lifecycle: mapLifecycle(master.lifecycle),
     author: { ...master.author },
-    text: mapText(master.text),
+    text: mapText(master.text, master as unknown as PostDocLike),
     location: mapLocation(master.location),
     classification: mapClassification(master.classification),
     media: mapMedia(master.media),
@@ -546,6 +558,10 @@ export function toAppPostV2(master: MasterPostV2, options: ToAppPostV2CoreOption
     appPost.assets = appPost.media.assets;
   }
   assertPlayableVideoAssetOnWire(master, appPost);
+  sanitizeHydratedPostDisplayText(appPost as unknown as PostDocLike, {
+    route: "toAppPostV2",
+    postId: appPost.id,
+  });
   return appPost;
 }
 

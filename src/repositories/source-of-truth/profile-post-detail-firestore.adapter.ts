@@ -6,6 +6,7 @@ import {
   readPostThumbUrl
 } from "./post-firestore-projection.js";
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
+import { buildSafeDisplayTextBlock } from "../../lib/posts/displayText.js";
 
 export type FirestoreProfilePostDetail = {
   postId: string;
@@ -194,16 +195,12 @@ function mapProfilePostDetail(input: {
     profilePicture?: string;
     photo?: string;
   };
+  const safe = buildSafeDisplayTextBlock(raw);
   const caption =
-    typeof postData.caption === "string"
-      ? postData.caption
-      : typeof postData.content === "string"
-        ? postData.content
-        : typeof postData.title === "string"
-          ? postData.title
-          : undefined;
-  const title = normalizeNullable(postData.title);
-  const description = normalizeNullable(postData.content) ?? normalizeNullable(postData.caption);
+    safe.caption || safe.description || safe.content || normalizeNullable(postData.title) || undefined;
+  const title = normalizeNullable(safe.title) ?? normalizeNullable(postData.title);
+  const description =
+    normalizeNullable(safe.description) ?? normalizeNullable(safe.caption) ?? normalizeNullable(safe.content);
   const mediaType = inferPostMediaType(raw);
   const likeCount = normalizeCounter(postData.likeCount ?? postData.likesCount);
   const likesArr = Array.isArray(postData.likes) ? postData.likes : [];

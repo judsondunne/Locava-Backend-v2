@@ -2,6 +2,11 @@ import type { NormalizedPostAssetsResult } from "../../contracts/post-assets.con
 import { normalizePostAssets, normalizedAssetsToEnvelopeRows } from "../../contracts/post-assets.contract.js";
 import { isBackendAppPostV2ResponsesEnabled } from "./app-post-v2/flags.js";
 import { toAppPostV2FromAny } from "./app-post-v2/toAppPostV2.js";
+import {
+  buildSafeDisplayTextBlock,
+  sanitizeHydratedPostDisplayText,
+  type PostDocLike,
+} from "./displayText.js";
 
 type PostRecord = Record<string, unknown>;
 
@@ -279,7 +284,12 @@ function resolveEnvelopeAssets(
 }
 
 function resolveCaption(source: PostRecord): string | null {
-  return normalizeNullableString(source.caption ?? source.content ?? source.description ?? source.text ?? source.body ?? source.message);
+  const safe = buildSafeDisplayTextBlock(source as PostDocLike);
+  return (
+    normalizeNullableString(safe.caption) ??
+    normalizeNullableString(safe.description) ??
+    normalizeNullableString(safe.content)
+  );
 }
 
 /** Drop bulky Firestore-shaped fields from assets for card/marker responses (payload budget / map bootstrap). */
@@ -616,6 +626,11 @@ export function buildPostEnvelope<TSeed extends PostRecord = PostRecord>(
       envelope.appPostBuildError = error instanceof Error ? error.message : String(error);
     }
   }
+
+  sanitizeHydratedPostDisplayText(envelope as PostDocLike, {
+    route: input.sourceRoute ?? "buildPostEnvelope",
+    postId: resolvedPostId,
+  });
 
   return envelope as TSeed & PostRecord;
 }

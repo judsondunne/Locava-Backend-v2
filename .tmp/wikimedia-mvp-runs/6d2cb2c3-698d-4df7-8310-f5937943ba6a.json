@@ -1,0 +1,101 @@
+{
+  "runId": "6d2cb2c3-698d-4df7-8310-f5937943ba6a",
+  "status": "running",
+  "createdAtMs": 1778539915013,
+  "updatedAtMs": 1778539915014,
+  "places": [
+    "Huntington Gorge"
+  ],
+  "normalizedPlaces": [
+    "huntington gorge"
+  ],
+  "nextPlaceIndex": 0,
+  "limitPerPlace": 75,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 150,
+    "maxSearchPagesPerPlace": 5,
+    "maxHydrateTitlesPerPlace": 75,
+    "fetchAllMaxCandidatesPerPlace": 150,
+    "fetchAllMaxSearchPages": 5,
+    "placeTimeoutMs": 25000,
+    "maxAnalyzedCandidatesForGrouping": 20
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T22:51:55.013Z",
+      "level": "info",
+      "runId": "6d2cb2c3-698d-4df7-8310-f5937943ba6a",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 75,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T22:51:55.013Z",
+      "level": "info",
+      "runId": "6d2cb2c3-698d-4df7-8310-f5937943ba6a",
+      "placeName": "Huntington Gorge",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T22:51:55.014Z",
+      "level": "info",
+      "runId": "6d2cb2c3-698d-4df7-8310-f5937943ba6a",
+      "placeName": "Huntington Gorge",
+      "message": "wikimedia fetch started"
+    }
+  ],
+  "nextEventCursor": 3,
+  "placeResults": [],
+  "seeds": [
+    {
+      "placeName": "Huntington Gorge",
+      "searchQuery": "Huntington Gorge, Vermont, VT",
+      "stateName": "Vermont",
+      "stateCode": "VT",
+      "placeCategoryKeywords": [
+        "waterfall",
+        "cave"
+      ],
+      "wikidataQid": "Q124334062",
+      "latitude": 44.3673,
+      "longitude": -72.96893,
+      "rationale": "priorityQueue=P0",
+      "themes": [
+        "waterfall",
+        "waterfall",
+        "cave"
+      ]
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 0,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 0,
+    "elapsedMs": 0
+  },
+  "error": null,
+  "collectEarlyStop": {
+    "enabled": true,
+    "minDiscoveredTitles": 8,
+    "maxPlanRankWhileEarly": 2
+  },
+  "silencePerCandidateWikimediaEvents": true
+}

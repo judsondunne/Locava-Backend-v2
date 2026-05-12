@@ -1,0 +1,215 @@
+{
+  "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+  "status": "complete",
+  "createdAtMs": 1778532562172,
+  "updatedAtMs": 1778532563201,
+  "places": [
+    "Huntington Gorge, Vermont, VT, 44.3673,-72.96893"
+  ],
+  "normalizedPlaces": [
+    "huntington gorge, vermont, vt, 44.3673,-72.96893"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 3,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 60000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] grouping started",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T20:49:22.172Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 3,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T20:49:22.173Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "placeName": "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T20:49:22.174Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "placeName": "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T20:49:23.197Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "placeName": "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 0,
+        "queryTerms": [
+          "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+          "Huntington Gorge, Vermont, VT, 44.3673,-72.96893 landscape",
+          "Huntington Gorge, Vermont, VT, 44.3673,-72.96893 hiking trail"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T20:49:23.199Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "placeName": "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 0
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T20:49:23.199Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "placeName": "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T20:49:23.201Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "placeName": "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 0,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 3,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 3,
+          "elapsedMs": 1027
+        }
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T20:49:23.201Z",
+      "level": "info",
+      "runId": "0d7edeca-f45e-4b07-8021-1ebcbfa7ab24",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 8,
+  "placeResults": [
+    {
+      "placeName": "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+      "normalizedPlaceName": "huntington gorge, vermont, vt, 44.3673,-72.96893",
+      "wikimediaQueryTerms": [
+        "Huntington Gorge, Vermont, VT, 44.3673,-72.96893",
+        "Huntington Gorge, Vermont, VT, 44.3673,-72.96893 landscape",
+        "Huntington Gorge, Vermont, VT, 44.3673,-72.96893 hiking trail"
+      ],
+      "candidateCount": 0,
+      "keptCount": 0,
+      "rejectedCount": 0,
+      "reviewCount": 0,
+      "totalRuntimeMs": 1027,
+      "budget": {
+        "wikimediaRequests": 3,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 3,
+        "elapsedMs": 1027
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [],
+      "generatedPosts": [],
+      "assetGroups": [],
+      "summary": {
+        "candidateCount": 0,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 3,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 3,
+          "elapsedMs": 1027
+        }
+      },
+      "candidates": []
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 3,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 3,
+    "elapsedMs": 1027
+  },
+  "error": null
+}

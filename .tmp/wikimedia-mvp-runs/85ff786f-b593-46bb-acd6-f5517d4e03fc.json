@@ -1,0 +1,1369 @@
+{
+  "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+  "status": "complete",
+  "createdAtMs": 1778535296682,
+  "updatedAtMs": 1778535297748,
+  "places": [
+    "Granville Notch, Vermont, VT"
+  ],
+  "normalizedPlaces": [
+    "granville notch, vermont, vt"
+  ],
+  "nextPlaceIndex": 1,
+  "limitPerPlace": 200,
+  "fetchAll": false,
+  "caps": {
+    "maxPlacesPerRun": 10,
+    "maxCandidatesPerPlace": 200,
+    "maxSearchPagesPerPlace": 25,
+    "maxHydrateTitlesPerPlace": 500,
+    "fetchAllMaxCandidatesPerPlace": 500,
+    "fetchAllMaxSearchPages": 100,
+    "placeTimeoutMs": 60000
+  },
+  "dryRun": true,
+  "allowWrites": false,
+  "logs": [
+    "[info] run started",
+    "[info] place started",
+    "[info] wikimedia fetch started",
+    "[info] candidates fetched",
+    "[info] candidates hydrated",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] candidate analyzed",
+    "[info] grouping started",
+    "[info] place completed",
+    "[info] run completed"
+  ],
+  "events": [
+    {
+      "cursor": 0,
+      "timestamp": "2026-05-11T21:34:56.682Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "message": "run started",
+      "data": {
+        "places": 1,
+        "limitPerPlace": 200,
+        "fetchAll": false
+      }
+    },
+    {
+      "cursor": 1,
+      "timestamp": "2026-05-11T21:34:56.682Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "place started"
+    },
+    {
+      "cursor": 2,
+      "timestamp": "2026-05-11T21:34:56.682Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "wikimedia fetch started"
+    },
+    {
+      "cursor": 3,
+      "timestamp": "2026-05-11T21:34:57.589Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidates fetched",
+      "data": {
+        "titleCount": 12,
+        "queryTerms": [
+          "Granville Notch, Vermont, VT",
+          "Granville Notch, Vermont, VT landscape",
+          "Granville Notch, Vermont, VT hiking trail"
+        ]
+      }
+    },
+    {
+      "cursor": 4,
+      "timestamp": "2026-05-11T21:34:57.745Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidates hydrated",
+      "data": {
+        "candidateCount": 12
+      }
+    },
+    {
+      "cursor": 5,
+      "timestamp": "2026-05-11T21:34:57.745Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "99670cc2699812b2",
+        "status": "REJECT",
+        "generatedTitle": "Catalogue of greenhouse and bedding plants"
+      }
+    },
+    {
+      "cursor": 6,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "c76b4c998f08a84b",
+        "status": "REJECT",
+        "generatedTitle": "Colton's traveler and tourist's route-book through the United States of America and the Canadas"
+      }
+    },
+    {
+      "cursor": 7,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "87237124ca900699",
+        "status": "REJECT",
+        "generatedTitle": "Books from the Library of Congress IA listofpatentsgra wash .pdf"
+      }
+    },
+    {
+      "cursor": 8,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "f48f8844af9d325d",
+        "status": "REJECT",
+        "generatedTitle": "Federal register IA .pdf"
+      }
+    },
+    {
+      "cursor": 9,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "6fbda9c8d265f800",
+        "status": "REJECT",
+        "generatedTitle": "Vermont, the land of Green Mountains.. IA vermontlandofgre verm .pdf"
+      }
+    },
+    {
+      "cursor": 10,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "d01d640e573b7f25",
+        "status": "REJECT",
+        "generatedTitle": "The geology of New Hampshire. A report comprising the results of explorations ordered IA agm . . .umich.edu .pdf"
+      }
+    },
+    {
+      "cursor": 11,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "5a01f1a7162fc208",
+        "status": "REJECT",
+        "generatedTitle": "Annual report of the American Dairymen's Association IA annualreportofam amer .pdf"
+      }
+    },
+    {
+      "cursor": 12,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "12fa228e446f9a59",
+        "status": "REJECT",
+        "generatedTitle": "Report of progress"
+      }
+    },
+    {
+      "cursor": 13,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "61621d454e8260f6",
+        "status": "REJECT",
+        "generatedTitle": "Federal Register"
+      }
+    },
+    {
+      "cursor": 14,
+      "timestamp": "2026-05-11T21:34:57.746Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "51e4ca551d819cb5",
+        "status": "REJECT",
+        "generatedTitle": "Annual exhibition electronic resource IA frick"
+      }
+    },
+    {
+      "cursor": 15,
+      "timestamp": "2026-05-11T21:34:57.747Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "ecd00fd175c12b9d",
+        "status": "REJECT",
+        "generatedTitle": "The Paper Trade Journal"
+      }
+    },
+    {
+      "cursor": 16,
+      "timestamp": "2026-05-11T21:34:57.747Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "candidate analyzed",
+      "data": {
+        "candidateId": "1909fd0d2ee074a7",
+        "status": "REJECT",
+        "generatedTitle": "Census Urbanized Area Reference Map for Springfield, Massachusetts--Connecticut"
+      }
+    },
+    {
+      "cursor": 17,
+      "timestamp": "2026-05-11T21:34:57.747Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "grouping started"
+    },
+    {
+      "cursor": 18,
+      "timestamp": "2026-05-11T21:34:57.747Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "placeName": "Granville Notch, Vermont, VT",
+      "message": "place completed",
+      "data": {
+        "candidateCount": 12,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 4,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 9,
+          "elapsedMs": 1065
+        }
+      }
+    },
+    {
+      "cursor": 19,
+      "timestamp": "2026-05-11T21:34:57.748Z",
+      "level": "info",
+      "runId": "85ff786f-b593-46bb-acd6-f5517d4e03fc",
+      "message": "run completed",
+      "data": {
+        "places": 1
+      }
+    }
+  ],
+  "nextEventCursor": 20,
+  "placeResults": [
+    {
+      "placeName": "Granville Notch, Vermont, VT",
+      "normalizedPlaceName": "granville notch, vermont, vt",
+      "wikimediaQueryTerms": [
+        "Granville Notch, Vermont, VT",
+        "Granville Notch, Vermont, VT landscape",
+        "Granville Notch, Vermont, VT hiking trail"
+      ],
+      "candidateCount": 12,
+      "keptCount": 0,
+      "rejectedCount": 12,
+      "reviewCount": 0,
+      "totalRuntimeMs": 1065,
+      "budget": {
+        "wikimediaRequests": 4,
+        "firestoreReadsEstimated": 0,
+        "firestoreWritesAttempted": 0,
+        "firestoreWritesSkippedDryRun": 0,
+        "cacheHits": 0,
+        "cacheMisses": 9,
+        "elapsedMs": 1065
+      },
+      "errors": [],
+      "warnings": [],
+      "candidateAnalysis": [
+        {
+          "sourceTitle": "File:Catalogue (of) greenhouse and bedding plants - flower and vegetable seeds (IA CAT31286212).pdf",
+          "generatedTitle": "Catalogue of greenhouse and bedding plants",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ACatalogue_(of)_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_(IA_CAT31286212).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Catalogue_%28of%29_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_%28IA_CAT31286212%29.pdf/page1-330px-Catalogue_%28of%29_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_%28IA_CAT31286212%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/21/Catalogue_%28of%29_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_%28IA_CAT31286212%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "George H. Mass (Firm) Mass, George H Henry G. Gilbert Nursery and Seed Trade Catalog Collection",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/CAT31286212 https://archive.org/download/CAT31286212/CAT31286212.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "99670cc2699812b2",
+          "dayKey": "2020-06-18",
+          "capturedAtMs": 1592490473000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 931,
+          "height": 1322
+        },
+        {
+          "sourceTitle": "File:Colton's traveler and tourist's route-book through the United States of America and the Canadas- (IA coltonstravelert00col).pdf",
+          "generatedTitle": "Colton's traveler and tourist's route-book through the United States of America and the Canadas",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AColton's_traveler_and_tourist's_route-book_through_the_United_States_of_America_and_the_Canadas-_(IA_coltonstravelert00col).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Colton%27s_traveler_and_tourist%27s_route-book_through_the_United_States_of_America_and_the_Canadas-_%28IA_coltonstravelert00col%29.pdf/page1-330px-Colton%27s_traveler_and_tourist%27s_route-book_through_the_United_States_of_America_and_the_Canadas-_%28IA_coltonstravelert00col%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/a/ac/Colton%27s_traveler_and_tourist%27s_route-book_through_the_United_States_of_America_and_the_Canadas-_%28IA_coltonstravelert00col%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Colton, [Joseph Hutchins], 1800-1893. [from old catalog]",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/coltonstravelert00col https://archive.org/download/coltonstravelert00col/coltonstravelert00col.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "c76b4c998f08a84b",
+          "dayKey": "2020-06-23",
+          "capturedAtMs": 1592884766000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 535,
+          "height": 900
+        },
+        {
+          "sourceTitle": "File:Books from the Library of Congress (IA listofpatentsgra00wash).pdf",
+          "generatedTitle": "Books from the Library of Congress IA listofpatentsgra wash .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ABooks_from_the_Library_of_Congress_(IA_listofpatentsgra00wash).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Books_from_the_Library_of_Congress_%28IA_listofpatentsgra00wash%29.pdf/page1-330px-Books_from_the_Library_of_Congress_%28IA_listofpatentsgra00wash%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/7/79/Books_from_the_Library_of_Congress_%28IA_listofpatentsgra00wash%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "https://archive.org/details/listofpatentsgra00wash https://archive.org/download/listofpatentsgra00wash/listofpatentsgra00wash.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "87237124ca900699",
+          "dayKey": "2020-06-25",
+          "capturedAtMs": 1593062173000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 885,
+          "height": 1479
+        },
+        {
+          "sourceTitle": "File:Federal register (IA 02 02819370211 00337).pdf",
+          "generatedTitle": "Federal register IA .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_register_(IA_02_02819370211_00337).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/Federal_register_%28IA_02_02819370211_00337%29.pdf/page1-330px-Federal_register_%28IA_02_02819370211_00337%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/27/Federal_register_%28IA_02_02819370211_00337%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Office of the Federal Register",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : 02_02819370211_00337 https://archive.org/download/02_02819370211_00337/02_02819370211_00337.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "f48f8844af9d325d",
+          "dayKey": "2020-08-09",
+          "capturedAtMs": 1596966827000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1491,
+          "height": 1933
+        },
+        {
+          "sourceTitle": "File:Vermont, the land of Green Mountains.. (IA vermontlandofgre00verm).pdf",
+          "generatedTitle": "Vermont, the land of Green Mountains.. IA vermontlandofgre verm .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVermont%2C_the_land_of_Green_Mountains.._(IA_vermontlandofgre00verm).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/Vermont%2C_the_land_of_Green_Mountains.._%28IA_vermontlandofgre00verm%29.pdf/page1-330px-Vermont%2C_the_land_of_Green_Mountains.._%28IA_vermontlandofgre00verm%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f6/Vermont%2C_the_land_of_Green_Mountains.._%28IA_vermontlandofgre00verm%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Vermont. Office of Secretary of State",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : vermontlandofgre00verm https://archive.org/download/vermontlandofgre00verm/vermontlandofgre00verm.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.3333333333333333,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "6fbda9c8d265f800",
+          "dayKey": "2020-08-30",
+          "capturedAtMs": 1598763110000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 768,
+          "height": 1245
+        },
+        {
+          "sourceTitle": "File:The geology of New Hampshire. A report comprising the results of explorations ordered (IA agm5711.0002.001.umich.edu).pdf",
+          "generatedTitle": "The geology of New Hampshire. A report comprising the results of explorations ordered IA agm . . .umich.edu .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_(IA_agm5711.0002.001.umich.edu).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/The_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_%28IA_agm5711.0002.001.umich.edu%29.pdf/page1-330px-The_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_%28IA_agm5711.0002.001.umich.edu%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/25/The_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_%28IA_agm5711.0002.001.umich.edu%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "New Hampshire. Geological survey, 1868-1878",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : agm5711.0002.001.umich.edu https://archive.org/download/agm5711.0002.001.umich.edu/agm5711.0002.001.umich.edu.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "d01d640e573b7f25",
+          "dayKey": "2020-10-05",
+          "capturedAtMs": 1601923203000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1345,
+          "height": 1572
+        },
+        {
+          "sourceTitle": "File:Annual report of the American Dairymen's Association (IA annualreportofam71871amer).pdf",
+          "generatedTitle": "Annual report of the American Dairymen's Association IA annualreportofam amer .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAnnual_report_of_the_American_Dairymen's_Association_(IA_annualreportofam71871amer).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam71871amer%29.pdf/page1-330px-Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam71871amer%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/eb/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam71871amer%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "American Dairymen's Association",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : annualreportofam71871amer https://archive.org/download/annualreportofam71871amer/annualreportofam71871amer.pdf IA contributor: UMass Amherst Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5a01f1a7162fc208",
+          "dayKey": "2020-12-25",
+          "capturedAtMs": 1608905237000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 802,
+          "height": 1337
+        },
+        {
+          "sourceTitle": "File:Report of progress 1874-1889, A-Z .. (IA cu31924056504800).pdf",
+          "generatedTitle": "Report of progress",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AReport_of_progress_1874-1889%2C_A-Z_.._(IA_cu31924056504800).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Report_of_progress_1874-1889%2C_A-Z_.._%28IA_cu31924056504800%29.pdf/page1-330px-Report_of_progress_1874-1889%2C_A-Z_.._%28IA_cu31924056504800%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/9f/Report_of_progress_1874-1889%2C_A-Z_.._%28IA_cu31924056504800%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Pennsylvania. Geological Survey (2d, 1874-1890)",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cu31924056504800 https://archive.org/download/cu31924056504800/cu31924056504800.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "12fa228e446f9a59",
+          "dayKey": "2020-12-27",
+          "capturedAtMs": 1609055183000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 685,
+          "height": 1112
+        },
+        {
+          "sourceTitle": "File:Federal Register 1946-07-12- Vol 11 Iss 135 (IA sim federal-register-find 1946-07-12 11 135).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1946-07-12-_Vol_11_Iss_135_(IA_sim_federal-register-find_1946-07-12_11_135).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Federal_Register_1946-07-12-_Vol_11_Iss_135_%28IA_sim_federal-register-find_1946-07-12_11_135%29.pdf/page1-330px-Federal_Register_1946-07-12-_Vol_11_Iss_135_%28IA_sim_federal-register-find_1946-07-12_11_135%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/0b/Federal_Register_1946-07-12-_Vol_11_Iss_135_%28IA_sim_federal-register-find_1946-07-12_11_135%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1946-07-12_11_135 https://archive.org/download/sim_federal-register-find_1946-07-12_11_135/sim_federal-register-find_1946-07-12_11_135.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "61621d454e8260f6",
+          "dayKey": "2020-12-31",
+          "capturedAtMs": 1609399737000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1337,
+          "height": 1820
+        },
+        {
+          "sourceTitle": "File:Annual exhibition (electronic resource) (IA frick-31072002253476).pdf",
+          "generatedTitle": "Annual exhibition electronic resource IA frick",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAnnual_exhibition_(electronic_resource)_(IA_frick-31072002253476).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Annual_exhibition_%28electronic_resource%29_%28IA_frick-31072002253476%29.pdf/page1-330px-Annual_exhibition_%28electronic_resource%29_%28IA_frick-31072002253476%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/ef/Annual_exhibition_%28electronic_resource%29_%28IA_frick-31072002253476%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "American Watercolor Society New York Etching Club. Exhibition New York Water Color Club National Academy of Design (U.S.). Catalogue of the winter exhibition American Watercolor Society. Catalogue of the annual exhibition American Watercolor Society. Illustrated catalogue of the annual exhibition American Watercolor Society. Annual combined exhibition",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : frick-31072002253476 https://archive.org/download/frick-31072002253476/31072002253476.pdf IA contributor: Frick Art Reference Library",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "51e4ca551d819cb5",
+          "dayKey": "2021-01-02",
+          "capturedAtMs": 1609580790000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 997,
+          "height": 1506
+        },
+        {
+          "sourceTitle": "File:The Paper Trade Journal 1878-04-13- Vol 7 Iss 15 (IA sim paper-trade-journal 1878-04-13 7 15).pdf",
+          "generatedTitle": "The Paper Trade Journal",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_(IA_sim_paper-trade-journal_1878-04-13_7_15).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/The_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_%28IA_sim_paper-trade-journal_1878-04-13_7_15%29.pdf/page1-330px-The_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_%28IA_sim_paper-trade-journal_1878-04-13_7_15%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/87/The_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_%28IA_sim_paper-trade-journal_1878-04-13_7_15%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_paper-trade-journal_1878-04-13_7_15 https://archive.org/download/sim_paper-trade-journal_1878-04-13_7_15/sim_paper-trade-journal_1878-04-13_7_15.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ecd00fd175c12b9d",
+          "dayKey": "2021-01-09",
+          "capturedAtMs": 1610192612000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1793,
+          "height": 2539
+        },
+        {
+          "sourceTitle": "File:2010 Census Urbanized Area Reference Map for Springfield, Massachusetts--Connecticut - DPLA - 32d93f8de175baff32928700e3139c3c.pdf",
+          "generatedTitle": "Census Urbanized Area Reference Map for Springfield, Massachusetts--Connecticut",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3A2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf/page1-330px-2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2c/2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Department of Commerce. Bureau of the Census. Office of the Associate Director for Decennial Census. Geography Division. (1/1987 - 7/15/2011)",
+          "license": "Public domain",
+          "credit": "This file was contributed to Wikimedia Commons by National Archives and Records Administration as part of a cooperation project. The donation was facilitated by the Digital Public Library of America , via its partner Digital Public Library of America . Record in source catalog DPLA identifier: 32d93f8de175baff32928700e3139c3c National Archives Identifier: 178119947",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1909fd0d2ee074a7",
+          "dayKey": "2023-07-08",
+          "capturedAtMs": 1688838788000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 5404,
+          "height": 4800
+        }
+      ],
+      "generatedPosts": [],
+      "assetGroups": [],
+      "summary": {
+        "candidateCount": 12,
+        "assetGroupsCount": 0,
+        "generatedPostsCount": 0,
+        "keptGeneratedPostsCount": 0,
+        "reviewGeneratedPostsCount": 0,
+        "rejectedGeneratedPostsCount": 0,
+        "rejectedNoLocationGroupCount": 0,
+        "multiAssetPostCount": 0,
+        "singleAssetPostCount": 0,
+        "originalAssetCount": 0,
+        "rejectedDuplicateCount": 0,
+        "rejectedHygieneCount": 0,
+        "possibleDuplicateReviewCount": 0,
+        "rejectedPanoramaCount": 0,
+        "rejectedLowQualityCount": 0,
+        "rejectedBlackAndWhiteOrFilterCount": 0,
+        "budget": {
+          "wikimediaRequests": 4,
+          "firestoreReadsEstimated": 0,
+          "firestoreWritesAttempted": 0,
+          "firestoreWritesSkippedDryRun": 0,
+          "cacheHits": 0,
+          "cacheMisses": 9,
+          "elapsedMs": 1065
+        }
+      },
+      "candidates": [
+        {
+          "sourceTitle": "File:Catalogue (of) greenhouse and bedding plants - flower and vegetable seeds (IA CAT31286212).pdf",
+          "generatedTitle": "Catalogue of greenhouse and bedding plants",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ACatalogue_(of)_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_(IA_CAT31286212).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/21/Catalogue_%28of%29_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_%28IA_CAT31286212%29.pdf/page1-330px-Catalogue_%28of%29_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_%28IA_CAT31286212%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/21/Catalogue_%28of%29_greenhouse_and_bedding_plants_-_flower_and_vegetable_seeds_%28IA_CAT31286212%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "George H. Mass (Firm) Mass, George H Henry G. Gilbert Nursery and Seed Trade Catalog Collection",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/CAT31286212 https://archive.org/download/CAT31286212/CAT31286212.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "99670cc2699812b2",
+          "dayKey": "2020-06-18",
+          "capturedAtMs": 1592490473000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 931,
+          "height": 1322
+        },
+        {
+          "sourceTitle": "File:Colton's traveler and tourist's route-book through the United States of America and the Canadas- (IA coltonstravelert00col).pdf",
+          "generatedTitle": "Colton's traveler and tourist's route-book through the United States of America and the Canadas",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AColton's_traveler_and_tourist's_route-book_through_the_United_States_of_America_and_the_Canadas-_(IA_coltonstravelert00col).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ac/Colton%27s_traveler_and_tourist%27s_route-book_through_the_United_States_of_America_and_the_Canadas-_%28IA_coltonstravelert00col%29.pdf/page1-330px-Colton%27s_traveler_and_tourist%27s_route-book_through_the_United_States_of_America_and_the_Canadas-_%28IA_coltonstravelert00col%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/a/ac/Colton%27s_traveler_and_tourist%27s_route-book_through_the_United_States_of_America_and_the_Canadas-_%28IA_coltonstravelert00col%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Colton, [Joseph Hutchins], 1800-1893. [from old catalog]",
+          "license": "Public domain",
+          "credit": "https://archive.org/details/coltonstravelert00col https://archive.org/download/coltonstravelert00col/coltonstravelert00col.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "c76b4c998f08a84b",
+          "dayKey": "2020-06-23",
+          "capturedAtMs": 1592884766000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 535,
+          "height": 900
+        },
+        {
+          "sourceTitle": "File:Books from the Library of Congress (IA listofpatentsgra00wash).pdf",
+          "generatedTitle": "Books from the Library of Congress IA listofpatentsgra wash .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3ABooks_from_the_Library_of_Congress_(IA_listofpatentsgra00wash).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/7/79/Books_from_the_Library_of_Congress_%28IA_listofpatentsgra00wash%29.pdf/page1-330px-Books_from_the_Library_of_Congress_%28IA_listofpatentsgra00wash%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/7/79/Books_from_the_Library_of_Congress_%28IA_listofpatentsgra00wash%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "https://archive.org/details/listofpatentsgra00wash https://archive.org/download/listofpatentsgra00wash/listofpatentsgra00wash.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "87237124ca900699",
+          "dayKey": "2020-06-25",
+          "capturedAtMs": 1593062173000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 885,
+          "height": 1479
+        },
+        {
+          "sourceTitle": "File:Federal register (IA 02 02819370211 00337).pdf",
+          "generatedTitle": "Federal register IA .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_register_(IA_02_02819370211_00337).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/27/Federal_register_%28IA_02_02819370211_00337%29.pdf/page1-330px-Federal_register_%28IA_02_02819370211_00337%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/27/Federal_register_%28IA_02_02819370211_00337%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Office of the Federal Register",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : 02_02819370211_00337 https://archive.org/download/02_02819370211_00337/02_02819370211_00337.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "f48f8844af9d325d",
+          "dayKey": "2020-08-09",
+          "capturedAtMs": 1596966827000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1491,
+          "height": 1933
+        },
+        {
+          "sourceTitle": "File:Vermont, the land of Green Mountains.. (IA vermontlandofgre00verm).pdf",
+          "generatedTitle": "Vermont, the land of Green Mountains.. IA vermontlandofgre verm .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AVermont%2C_the_land_of_Green_Mountains.._(IA_vermontlandofgre00verm).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/Vermont%2C_the_land_of_Green_Mountains.._%28IA_vermontlandofgre00verm%29.pdf/page1-330px-Vermont%2C_the_land_of_Green_Mountains.._%28IA_vermontlandofgre00verm%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/f/f6/Vermont%2C_the_land_of_Green_Mountains.._%28IA_vermontlandofgre00verm%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Vermont. Office of Secretary of State",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : vermontlandofgre00verm https://archive.org/download/vermontlandofgre00verm/vermontlandofgre00verm.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0.3333333333333333,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "6fbda9c8d265f800",
+          "dayKey": "2020-08-30",
+          "capturedAtMs": 1598763110000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 768,
+          "height": 1245
+        },
+        {
+          "sourceTitle": "File:The geology of New Hampshire. A report comprising the results of explorations ordered (IA agm5711.0002.001.umich.edu).pdf",
+          "generatedTitle": "The geology of New Hampshire. A report comprising the results of explorations ordered IA agm . . .umich.edu .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_(IA_agm5711.0002.001.umich.edu).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/25/The_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_%28IA_agm5711.0002.001.umich.edu%29.pdf/page1-330px-The_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_%28IA_agm5711.0002.001.umich.edu%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/25/The_geology_of_New_Hampshire._A_report_comprising_the_results_of_explorations_ordered_%28IA_agm5711.0002.001.umich.edu%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "New Hampshire. Geological survey, 1868-1878",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : agm5711.0002.001.umich.edu https://archive.org/download/agm5711.0002.001.umich.edu/agm5711.0002.001.umich.edu.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "d01d640e573b7f25",
+          "dayKey": "2020-10-05",
+          "capturedAtMs": 1601923203000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1345,
+          "height": 1572
+        },
+        {
+          "sourceTitle": "File:Annual report of the American Dairymen's Association (IA annualreportofam71871amer).pdf",
+          "generatedTitle": "Annual report of the American Dairymen's Association IA annualreportofam amer .pdf",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAnnual_report_of_the_American_Dairymen's_Association_(IA_annualreportofam71871amer).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/eb/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam71871amer%29.pdf/page1-330px-Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam71871amer%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/eb/Annual_report_of_the_American_Dairymen%27s_Association_%28IA_annualreportofam71871amer%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "American Dairymen's Association",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : annualreportofam71871amer https://archive.org/download/annualreportofam71871amer/annualreportofam71871amer.pdf IA contributor: UMass Amherst Libraries",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "5a01f1a7162fc208",
+          "dayKey": "2020-12-25",
+          "capturedAtMs": 1608905237000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 802,
+          "height": 1337
+        },
+        {
+          "sourceTitle": "File:Report of progress 1874-1889, A-Z .. (IA cu31924056504800).pdf",
+          "generatedTitle": "Report of progress",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AReport_of_progress_1874-1889%2C_A-Z_.._(IA_cu31924056504800).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Report_of_progress_1874-1889%2C_A-Z_.._%28IA_cu31924056504800%29.pdf/page1-330px-Report_of_progress_1874-1889%2C_A-Z_.._%28IA_cu31924056504800%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/9/9f/Report_of_progress_1874-1889%2C_A-Z_.._%28IA_cu31924056504800%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Pennsylvania. Geological Survey (2d, 1874-1890)",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : cu31924056504800 https://archive.org/download/cu31924056504800/cu31924056504800.pdf",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "12fa228e446f9a59",
+          "dayKey": "2020-12-27",
+          "capturedAtMs": 1609055183000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 685,
+          "height": 1112
+        },
+        {
+          "sourceTitle": "File:Federal Register 1946-07-12- Vol 11 Iss 135 (IA sim federal-register-find 1946-07-12 11 135).pdf",
+          "generatedTitle": "Federal Register",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AFederal_Register_1946-07-12-_Vol_11_Iss_135_(IA_sim_federal-register-find_1946-07-12_11_135).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0b/Federal_Register_1946-07-12-_Vol_11_Iss_135_%28IA_sim_federal-register-find_1946-07-12_11_135%29.pdf/page1-330px-Federal_Register_1946-07-12-_Vol_11_Iss_135_%28IA_sim_federal-register-find_1946-07-12_11_135%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/0/0b/Federal_Register_1946-07-12-_Vol_11_Iss_135_%28IA_sim_federal-register-find_1946-07-12_11_135%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_federal-register-find_1946-07-12_11_135 https://archive.org/download/sim_federal-register-find_1946-07-12_11_135/sim_federal-register-find_1946-07-12_11_135.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "61621d454e8260f6",
+          "dayKey": "2020-12-31",
+          "capturedAtMs": 1609399737000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1337,
+          "height": 1820
+        },
+        {
+          "sourceTitle": "File:Annual exhibition (electronic resource) (IA frick-31072002253476).pdf",
+          "generatedTitle": "Annual exhibition electronic resource IA frick",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AAnnual_exhibition_(electronic_resource)_(IA_frick-31072002253476).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ef/Annual_exhibition_%28electronic_resource%29_%28IA_frick-31072002253476%29.pdf/page1-330px-Annual_exhibition_%28electronic_resource%29_%28IA_frick-31072002253476%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/e/ef/Annual_exhibition_%28electronic_resource%29_%28IA_frick-31072002253476%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "American Watercolor Society New York Etching Club. Exhibition New York Water Color Club National Academy of Design (U.S.). Catalogue of the winter exhibition American Watercolor Society. Catalogue of the annual exhibition American Watercolor Society. Illustrated catalogue of the annual exhibition American Watercolor Society. Annual combined exhibition",
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : frick-31072002253476 https://archive.org/download/frick-31072002253476/31072002253476.pdf IA contributor: Frick Art Reference Library",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "51e4ca551d819cb5",
+          "dayKey": "2021-01-02",
+          "capturedAtMs": 1609580790000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 997,
+          "height": 1506
+        },
+        {
+          "sourceTitle": "File:The Paper Trade Journal 1878-04-13- Vol 7 Iss 15 (IA sim paper-trade-journal 1878-04-13 7 15).pdf",
+          "generatedTitle": "The Paper Trade Journal",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3AThe_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_(IA_sim_paper-trade-journal_1878-04-13_7_15).pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/8/87/The_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_%28IA_sim_paper-trade-journal_1878-04-13_7_15%29.pdf/page1-330px-The_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_%28IA_sim_paper-trade-journal_1878-04-13_7_15%29.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/8/87/The_Paper_Trade_Journal_1878-04-13-_Vol_7_Iss_15_%28IA_sim_paper-trade-journal_1878-04-13_7_15%29.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": null,
+          "license": "Public domain",
+          "credit": "Internet Archive identifier : sim_paper-trade-journal_1878-04-13_7_15 https://archive.org/download/sim_paper-trade-journal_1878-04-13_7_15/sim_paper-trade-journal_1878-04-13_7_15.pdf IA contributor: Internet Archive IA digitizing sponsor: Kahle/Austin Foundation",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "ecd00fd175c12b9d",
+          "dayKey": "2021-01-09",
+          "capturedAtMs": 1610192612000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 1793,
+          "height": 2539
+        },
+        {
+          "sourceTitle": "File:2010 Census Urbanized Area Reference Map for Springfield, Massachusetts--Connecticut - DPLA - 32d93f8de175baff32928700e3139c3c.pdf",
+          "generatedTitle": "Census Urbanized Area Reference Map for Springfield, Massachusetts--Connecticut",
+          "sourceUrl": "https://commons.wikimedia.org/wiki/File%3A2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf",
+          "thumbnailUrl": "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2c/2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf/page1-330px-2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf.jpg?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=thumbnail",
+          "fullImageUrl": "https://upload.wikimedia.org/wikipedia/commons/2/2c/2010_Census_Urbanized_Area_Reference_Map_for_Springfield%2C_Massachusetts--Connecticut_-_DPLA_-_32d93f8de175baff32928700e3139c3c.pdf?utm_source=commons.wikimedia.org&utm_campaign=imageinfo&utm_content=original",
+          "author": "Department of Commerce. Bureau of the Census. Office of the Associate Director for Decennial Census. Geography Division. (1/1987 - 7/15/2011)",
+          "license": "Public domain",
+          "credit": "This file was contributed to Wikimedia Commons by National Archives and Records Administration as part of a cooperation project. The donation was facilitated by the Digital Public Library of America , via its partner Digital Public Library of America . Record in source catalog DPLA identifier: 32d93f8de175baff32928700e3139c3c National Archives Identifier: 178119947",
+          "activities": [
+            "walking",
+            "view"
+          ],
+          "activityReasoning": [
+            "default outdoor fallback"
+          ],
+          "activityUncertainty": "No strong activity keyword match; used walking/view fallback",
+          "titleConfidence": "medium",
+          "placeMatchConfidence": 0,
+          "qualityScore": 0,
+          "relevanceScore": 0,
+          "coolnessScore": 0,
+          "duplicateScore": null,
+          "duplicateReason": null,
+          "status": "REJECT",
+          "reasoning": [
+            "Filename-like Commons title cleaned for display",
+            "default outdoor fallback",
+            "unsupported format"
+          ],
+          "scores": {},
+          "postPreview": null,
+          "candidateId": "1909fd0d2ee074a7",
+          "dayKey": "2023-07-08",
+          "capturedAtMs": 1688838788000,
+          "assetLatitude": null,
+          "assetLongitude": null,
+          "hasRealAssetLocation": false,
+          "width": 5404,
+          "height": 4800
+        }
+      ]
+    }
+  ],
+  "budget": {
+    "wikimediaRequests": 4,
+    "firestoreReadsEstimated": 0,
+    "firestoreWritesAttempted": 0,
+    "firestoreWritesSkippedDryRun": 0,
+    "cacheHits": 0,
+    "cacheMisses": 9,
+    "elapsedMs": 1065
+  },
+  "error": null
+}

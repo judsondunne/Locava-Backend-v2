@@ -2,6 +2,7 @@ import { getFirestoreSourceClient } from "./firestore-client.js";
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { readMaybeMillis } from "./post-firestore-projection.js";
 import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
+import { buildSafeDisplayTextBlock } from "../../lib/posts/displayText.js";
 
 export type FirestoreFeedDetailBundle = {
   post: {
@@ -412,12 +413,16 @@ function buildFeedDetailBundleFromParts(input: {
   const normalizedLocation = normalizeLocation(input.postData);
   const normalizedGeoData = normalizeGeoData(input.postData);
   const embeddedComments = normalizeEmbeddedComments(input.postData.comments, input.responsePostId);
+  const safeText = buildSafeDisplayTextBlock(input.postData as Record<string, unknown>);
   const postSeed = {
       postId: input.responsePostId,
       userId,
       caption: normalizeCaption(input.postData),
-      title: normalizeNullable(input.postData.title),
-      description: normalizeNullable(input.postData.description),
+      title: normalizeNullable(safeText.title) ?? normalizeNullable(input.postData.title),
+      description:
+        normalizeNullable(safeText.description) ??
+        normalizeNullable(safeText.caption) ??
+        normalizeNullable(safeText.content),
       activities: normalizeStringArray(input.postData.activities),
       address: normalizeNullable(input.postData.address) ?? normalizedLocation.address ?? null,
       lat: normalizedLocation.lat,
@@ -695,13 +700,14 @@ function normalizeStringArray(value: unknown): string[] {
 }
 
 function normalizeCaption(data: PostDataShape): string | null {
-  const caption = normalizeNullable(data.caption);
-  if (caption) return caption;
-  const content = normalizeNullable(data.content);
-  if (content) return content;
-  const title = normalizeNullable(data.title);
-  if (title) return title;
-  return normalizeNullable(data.description);
+  const safe = buildSafeDisplayTextBlock(data as Record<string, unknown>);
+  return (
+    normalizeNullable(safe.caption) ??
+    normalizeNullable(safe.description) ??
+    normalizeNullable(safe.content) ??
+    normalizeNullable(safe.title) ??
+    normalizeNullable(data.title)
+  );
 }
 
 function normalizeThumbUrl(data: PostDataShape, fallback: string): string {
