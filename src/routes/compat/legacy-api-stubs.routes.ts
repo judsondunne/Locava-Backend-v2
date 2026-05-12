@@ -76,24 +76,20 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     return ids;
   }
 
+  // =====================================================================
+  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
+  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
+  // Disabled: 2026-05-12 (read containment emergency)
+  //
+  // Original behaviour: scanned `posts orderBy("time","desc").limit(600).get()`
+  // every time `/api/v1/product/connections/user/:viewerId/story-users` was
+  // hit (and the 60s cache missed). Query Insights linked the recent-posts
+  // LIMIT 600 fingerprint to ~421,200 reads / 702 executions in a single day.
+  // Returning an empty array short-circuits the story rail safely while
+  // /v2/* routes continue to power the rest of the app.
+  // =====================================================================
   async function loadRecentPostsForStoryUsers(): Promise<Array<{ userId: string; postId: string; thumbUrl: string }>> {
-    if (!db) return [];
-    const cacheKey = "global";
-    const cached = storyRecentPostsCache.get(cacheKey);
-    if (cached && cached.expiresAtMs > Date.now()) return cached.rows;
-    const snap = await db.collection("posts").orderBy("time", "desc").limit(600).get();
-    const rows: Array<{ userId: string; postId: string; thumbUrl: string }> = [];
-    for (const doc of snap.docs) {
-      const data = doc.data() as Record<string, unknown>;
-      const userId = String(data.userId ?? "").trim();
-      if (!userId) continue;
-      const postId = String(data.postId ?? doc.id).trim();
-      if (!postId) continue;
-      const thumbUrl = String(data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? "").trim();
-      rows.push({ userId, postId, thumbUrl });
-    }
-    storyRecentPostsCache.set(cacheKey, { expiresAtMs: Date.now() + STORY_USERS_CACHE_TTL_MS, rows });
-    return rows;
+    return [];
   }
   type MixSpec = {
     kind: "mix_spec_v1";
@@ -191,44 +187,32 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     return { users, total: ids.length };
   }
 
-  async function loadRecentPosts(limit: number): Promise<Array<Record<string, unknown>>> {
-    if (!db) return [];
-    const snap = await db
-      .collection("posts")
-      .orderBy("time", "desc")
-      .limit(Math.max(1, Math.min(80, limit)))
-      .get();
-    return snap.docs.map((doc) => {
-      const data = doc.data() as Record<string, unknown>;
-      return {
-        id: doc.id,
-        postId: doc.id,
-        userId: String(data.userId ?? ""),
-        title: String(data.title ?? ""),
-        activities: Array.isArray(data.activities) ? data.activities : [],
-        thumbUrl: String(data.thumbUrl ?? data.displayPhotoLink ?? data.photoLink ?? ""),
-        displayPhotoLink: String(data.displayPhotoLink ?? data.thumbUrl ?? data.photoLink ?? "")
-      };
-    });
+  // =====================================================================
+  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
+  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
+  // Disabled: 2026-05-12 (read containment emergency)
+  //
+  // Original behaviour: each call ran
+  // `posts orderBy("time","desc").limit(80..160).get()` on legacy compat
+  // bootstrap routes (system mixes etc.). These are part of the "recent posts
+  // orderBy time desc" fingerprints (see Query Insights shapes #3 and #8).
+  // =====================================================================
+  async function loadRecentPosts(_limit: number): Promise<Array<Record<string, unknown>>> {
+    return [];
   }
 
-  async function loadTopActivities(limit = 8): Promise<string[]> {
-    if (!db) return [];
-    const snap = await db.collection("posts").orderBy("time", "desc").limit(400).get();
-    const counts = new Map<string, number>();
-    for (const doc of snap.docs) {
-      const row = doc.data() as Record<string, unknown>;
-      const activities = Array.isArray(row.activities) ? row.activities : [];
-      for (const raw of activities) {
-        const activity = String(raw ?? "").trim().toLowerCase();
-        if (!activity) continue;
-        counts.set(activity, (counts.get(activity) ?? 0) + 1);
-      }
-    }
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
-      .slice(0, limit)
-      .map(([activity]) => activity);
+  // =====================================================================
+  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
+  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
+  // Disabled: 2026-05-12 (read containment emergency)
+  //
+  // Original behaviour: every call ran `posts orderBy("time","desc").limit(400).get()`
+  // to compute trending activities (also matches the "orderBy time desc" Query
+  // Insights fingerprints). Activities autocomplete falls back to an empty
+  // list which the native fallback handles gracefully.
+  // =====================================================================
+  async function loadTopActivities(_limit = 8): Promise<string[]> {
+    return [];
   }
 
   app.get<{ Params: { postId: string } }>("/api/posts/:postId", async (request, reply) => {

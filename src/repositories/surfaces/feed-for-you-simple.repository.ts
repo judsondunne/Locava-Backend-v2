@@ -440,41 +440,27 @@ export class FeedForYouSimpleRepository {
     };
   }
 
-  async fetchReelPoolBootstrap(limit: number): Promise<SimpleFeedCandidate[]> {
-    if (!this.db) return [];
-    const startedAt = Date.now();
-    const boundedLimit = Math.max(1, Math.min(Math.floor(limit), 300));
-    incrementDbOps("queries", 1);
-    let snap;
-    try {
-      snap = await this.db
-        .collection("posts")
-        .select(...SIMPLE_FEED_SELECT_FIELDS)
-        .where("reel", "==", true)
-        .orderBy("time", "desc")
-        .limit(boundedLimit)
-        .get();
-    } catch {
-      incrementDbOps("queries", 1);
-      snap = await this.db
-        .collection("posts")
-        .select(...SIMPLE_FEED_SELECT_FIELDS)
-        .orderBy("time", "desc")
-        .limit(Math.min(boundedLimit * 3, 600))
-        .get();
+  // =====================================================================
+  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
+  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
+  // Disabled: 2026-05-12 (read containment emergency)
+  //
+  // Original behaviour: scanned
+  //   posts.select(SIMPLE_FEED_SELECT_FIELDS)
+  //     .where("reel","==",true)
+  //     .orderBy("time","desc")
+  //     .limit(<=300).get()
+  // (with a fallback that could scan up to 600 docs without the reel
+  // predicate). This matches the Query Insights fingerprint
+  // "WHERE reel = ? ORDER_BY time DESC LIMIT 180" — ~135,408 reads /
+  // 868 executions / day. Re-enable only when the warm pool layer has
+  // bounded refresh + rate limiting (see feed-for-you-simple-reel-pool.ts).
+  // =====================================================================
+  async fetchReelPoolBootstrap(_limit: number): Promise<SimpleFeedCandidate[]> {
+    if (process.env.ENABLE_FOR_YOU_REEL_POOL_WARMUP !== "true") {
+      return [];
     }
-    incrementDbOps("reads", snap.docs.length);
-    accumulateSurfaceTiming("feed_simple_query_reel_pool_bootstrap_ms", Date.now() - startedAt);
-    const items: SimpleFeedCandidate[] = [];
-    for (const doc of snap.docs) {
-      const raw = doc.data() as Record<string, unknown>;
-      const mapped = tryMapSimpleFeedCandidate("docId", doc.id, raw);
-      if (!("candidate" in mapped)) continue;
-      if (!isForYouSimpleReelFromRaw(raw) && !mapped.candidate.reel) continue;
-      items.push(mapped.candidate);
-      if (items.length >= boundedLimit) break;
-    }
-    return items;
+    return [];
   }
 
   /**

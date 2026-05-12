@@ -451,8 +451,43 @@ function nearMeExhaustiveBudgetMs(): number {
   return 1500;
 }
 
+// =====================================================================
+// TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
+// Do not re-enable without bounded reads, rate limiting, and explicit approval.
+// Disabled: 2026-05-12 (read containment emergency)
+//
+// Original behaviour: rebuildPostPoolQuick / rebuildPostPool ran
+//   posts.orderBy("time","desc").limit(cap).get()      // "quick" mode
+//   posts.orderBy("time","desc").limit(batchLimit).get() (paginated, up to maxDocs)
+// from backend startup, every refresh tick, and on cold requests. These
+// match the recent-posts ORDER_BY time DESC fingerprints in Query Insights
+// (LIMIT 600/180/657/896) and contribute to the unbounded /posts
+// COLLECTION SCAN counts. Set
+// ENABLE_NEAR_ME_POOL_WARMER_RUNTIME=true to re-enable after pagination
+// caps and lease-based scheduling are in place.
+// =====================================================================
+const NEAR_ME_POOL_WARMER_RUNTIME_ENABLED =
+  process.env.ENABLE_NEAR_ME_POOL_WARMER_RUNTIME === "true";
+
+let warnedNearMeWarmerDisabled = false;
+function warnNearMeWarmerDisabledOnce(app: FastifyInstance): void {
+  if (warnedNearMeWarmerDisabled) return;
+  warnedNearMeWarmerDisabled = true;
+  app.log.warn(
+    {
+      event: "near_me_pool_warmer_disabled",
+      reason: "TEMP_DISABLED_FIRESTORE_READ_CONTAINMENT",
+    },
+    "near-me pool warmer disabled (TEMP_DISABLED_FIRESTORE_READ_CONTAINMENT)",
+  );
+}
+
 /** First-page fill so near-me never waits on a 10k-doc scan on cold request paths. */
 async function rebuildPostPoolQuick(app: FastifyInstance, trigger: "startup" | "request" = "request"): Promise<void> {
+  if (!NEAR_ME_POOL_WARMER_RUNTIME_ENABLED) {
+    warnNearMeWarmerDisabledOnce(app);
+    return;
+  }
   if (pool.posts.length > 0) return;
   if (pool.loading && pool.inFlight) {
     await Promise.race([pool.inFlight, new Promise<void>((resolve) => setTimeout(resolve, nearMeColdWaitMs()))]);
@@ -545,6 +580,10 @@ async function rebuildPostPoolQuick(app: FastifyInstance, trigger: "startup" | "
 }
 
 async function rebuildPostPool(app: FastifyInstance): Promise<void> {
+  if (!NEAR_ME_POOL_WARMER_RUNTIME_ENABLED) {
+    warnNearMeWarmerDisabledOnce(app);
+    return;
+  }
   if (pool.loading && pool.inFlight) return pool.inFlight;
   const db = getFirestoreSourceClient();
   if (!db) return;
