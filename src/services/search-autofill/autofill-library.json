@@ -449,6 +449,8 @@
     "top": "best_top_activities",
     "top cof": "food_drink",
     "best cof": "food_drink",
+    "best food": "food_drink",
+    "food": "food_drink",
     "cof": "food_drink",
     "cafe": "food_drink",
     "coffee": "food_drink",

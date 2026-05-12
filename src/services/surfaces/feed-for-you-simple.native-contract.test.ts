@@ -44,4 +44,16 @@ describe("for-you simple native contract (Test G)", () => {
       })
     ).toBe(false);
   });
+
+  it("does not recommend all-out copy when backend reports hasMore", () => {
+    expect(
+      shouldShowAllOutCopy({
+        items: [{ postId: "x" }],
+        exhausted: true,
+        emptyReason: null,
+        requestedLimit: 5,
+        hasMore: true
+      })
+    ).toBe(false);
+  });
 });

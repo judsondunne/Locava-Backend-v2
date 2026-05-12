@@ -4,14 +4,20 @@ import { NotificationSummarySchema } from "../entities/notification-entities.con
 
 export const NotificationsListQuerySchema = z.object({
   cursor: z.string().min(8).max(200).optional(),
-  limit: z.coerce.number().int().min(10).max(20).default(15)
+  /** Coerced to 1..30 inclusive (large client limits are clamped, not rejected). */
+  limit: z.preprocess((raw) => {
+    if (raw === undefined || raw === null || raw === "") return 20;
+    const n = typeof raw === "number" ? raw : Number(raw);
+    if (!Number.isFinite(n)) return 20;
+    return Math.max(1, Math.min(30, Math.floor(n)));
+  }, z.number().int()),
 });
 
 export const NotificationsListResponseSchema = z.object({
   routeName: z.literal("notifications.list.get"),
   page: z.object({
     cursorIn: z.string().nullable(),
-    limit: z.number().int().min(10).max(20),
+    limit: z.number().int().min(1).max(30),
     count: z.number().int().nonnegative(),
     hasMore: z.boolean(),
     nextCursor: z.string().nullable(),

@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SimpleFeedCandidate } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { decodeForYouSimpleCursor } from "./feed-for-you-simple-cursor.js";
 import { resetForYouSimpleReelPoolForTests } from "./feed-for-you-simple-reel-pool.js";
-import { FeedForYouSimpleService } from "./feed-for-you-simple.service.js";
+import { FeedForYouSimpleService, resetForYouSimplePhaseDecksForTests } from "./feed-for-you-simple.service.js";
 
 function candidate(input: {
   postId: string;
@@ -66,6 +66,7 @@ function buildRepository(fetchServePhaseBatch: ReturnType<typeof vi.fn>) {
     resolveSortMode: async () => "randomKey" as const,
     fetchServePhaseBatch,
     listRecentSeenPostIdsForViewer: async () => ({ postIds: new Set<string>(), readCount: 0 }),
+    listOldestSeenPostIdsForViewer: async () => ({ postIds: [], readCount: 0 }),
     markPostsServedForViewer: async () => undefined,
     readServedRecentForViewer: async () => ({ postIds: new Set<string>(), readCount: 0 }),
     markPostsServedRecentForViewer: async () => ({ ok: true, writes: 0 }),
@@ -103,8 +104,15 @@ function buildRepository(fetchServePhaseBatch: ReturnType<typeof vi.fn>) {
   };
 }
 
+const restoreEnableForYouV5ReadyDeck = process.env.ENABLE_FOR_YOU_V5_READY_DECK;
 beforeEach(() => {
+  process.env.ENABLE_FOR_YOU_V5_READY_DECK = "false";
   resetForYouSimpleReelPoolForTests();
+  resetForYouSimplePhaseDecksForTests();
+});
+afterAll(() => {
+  if (restoreEnableForYouV5ReadyDeck === undefined) delete process.env.ENABLE_FOR_YOU_V5_READY_DECK;
+  else process.env.ENABLE_FOR_YOU_V5_READY_DECK = restoreEnableForYouV5ReadyDeck;
 });
 
 describe("FeedForYouSimpleService phase serving", () => {

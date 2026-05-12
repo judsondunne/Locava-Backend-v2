@@ -1,69 +1,50 @@
+import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
+import { REEL_POOL_COLD_MAX_DOCS } from "../../constants/firestore-read-budgets.js";
 import type {
   FeedForYouSimpleRepository,
-  SimpleFeedCandidate
+  SimpleFeedCandidate,
 } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 
-// =====================================================================
-// TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
-// Do not re-enable without bounded reads, rate limiting, and explicit approval.
-// Disabled: 2026-05-12 (read containment emergency)
-//
-// Original behaviour: on backend startup (and again every 15 minutes), this
-// module warmed an in-memory "reel pool" by running
-//   posts.select(SIMPLE_FEED_SELECT_FIELDS)
-//     .where("reel", "==", true)
-//     .orderBy("time", "desc")
-//     .limit(180).get()
-// (with a fallback that could scan up to 600 posts). Query Insights linked
-// the WHERE reel=? / LIMIT 180 fingerprint to ~135,408 reads / 868
-// executions per day, and on cold starts these fire from every Cloud Run
-// instance.
-//
-// The For You feed route is preserved (the per-request page query is hard
-// capped at LIMIT 40 in feed-for-you-simple.repository.ts#fetchBatch) but
-// the bulk warmup + pool-pick path is short-circuited until an opt-in env
-// flag is set.
-//
-// Set ENABLE_FOR_YOU_REEL_POOL_WARMUP=true to re-enable; default is OFF.
-// =====================================================================
+/**
+ * `ENABLE_FOR_YOU_REEL_POOL_WARMUP` / startup reel pool scans caused extreme Firestore reads.
+ * `pickForYouSimpleReelPoolPage` + `ensureForYouSimpleReelPoolWarm` remain bounded on-demand helpers only;
+ * do not wire them back into first-paint paths without bounded-read integration tests.
+ */
 
-const REEL_POOL_RUNTIME_ENABLED =
-  process.env.ENABLE_FOR_YOU_REEL_POOL_WARMUP === "true";
+const POOL_TTL_MS = 120_000;
 
-let warnedReelPoolDisabled = false;
-function warnReelPoolDisabledOnce(): void {
-  if (warnedReelPoolDisabled) return;
-  warnedReelPoolDisabled = true;
-  // eslint-disable-next-line no-console
-  console.warn(
-    "[feed-for-you-simple-reel-pool] reel pool warmup disabled " +
-      "(TEMP_DISABLED_FIRESTORE_READ_CONTAINMENT). Set " +
-      "ENABLE_FOR_YOU_REEL_POOL_WARMUP=true to re-enable.",
-  );
-}
+let reelCandidateCache: { candidates: SimpleFeedCandidate[]; loadedAtMs: number; source: string } | null = null;
 
 export function startForYouSimpleReelPoolWarmup(
-  _repository: Pick<FeedForYouSimpleRepository, "fetchReelPoolBootstrap">
+  _repository: Pick<FeedForYouSimpleRepository, "fetchReelPoolBootstrap">,
 ): void {
-  if (!REEL_POOL_RUNTIME_ENABLED) {
-    warnReelPoolDisabledOnce();
-    return;
-  }
-  // Disabled-by-default kill switch; original implementation removed.
-  // No-op even when "enabled" until a bounded replacement ships.
+  /** Intentionally no startup Firestore query — pool fills on first ensure/pick. */
+}
+
+async function loadPoolCandidates(
+  repository: Pick<FeedForYouSimpleRepository, "fetchReelPoolBootstrap">,
+): Promise<SimpleFeedCandidate[]> {
+  return dedupeInFlight("for_you_simple:reel_pool_bootstrap:v2", async () => {
+    const rows = await repository.fetchReelPoolBootstrap(REEL_POOL_COLD_MAX_DOCS);
+    reelCandidateCache = {
+      candidates: rows,
+      loadedAtMs: Date.now(),
+      source: "bounded_reel_pool_v2",
+    };
+    return rows;
+  });
 }
 
 export async function ensureForYouSimpleReelPoolWarm(
-  _repository: Pick<FeedForYouSimpleRepository, "fetchReelPoolBootstrap">
+  repository: Pick<FeedForYouSimpleRepository, "fetchReelPoolBootstrap">,
 ): Promise<void> {
-  if (!REEL_POOL_RUNTIME_ENABLED) {
-    warnReelPoolDisabledOnce();
+  if (reelCandidateCache && Date.now() - reelCandidateCache.loadedAtMs < POOL_TTL_MS) {
     return;
   }
-  // Disabled-by-default kill switch; original implementation removed.
+  await loadPoolCandidates(repository);
 }
 
-export async function pickForYouSimpleReelPoolPage(_input: {
+export async function pickForYouSimpleReelPoolPage(input: {
   repository: Pick<FeedForYouSimpleRepository, "fetchReelPoolBootstrap">;
   viewerKey: string;
   limit: number;
@@ -72,13 +53,22 @@ export async function pickForYouSimpleReelPoolPage(_input: {
   viewerId: string;
   radiusGate: (candidate: SimpleFeedCandidate) => boolean;
 }): Promise<{ items: SimpleFeedCandidate[]; poolUsed: boolean }> {
-  if (!REEL_POOL_RUNTIME_ENABLED) {
-    warnReelPoolDisabledOnce();
-    return { items: [], poolUsed: false };
+  await ensureForYouSimpleReelPoolWarm(input.repository);
+  const pool = reelCandidateCache?.candidates ?? [];
+  const items: SimpleFeedCandidate[] = [];
+  const usedAuthors = new Set<string>();
+  for (const c of pool) {
+    if (input.exclude.has(c.postId)) continue;
+    if (input.blockedAuthors.has(c.authorId)) continue;
+    if (!input.radiusGate(c)) continue;
+    if (usedAuthors.has(c.authorId)) continue;
+    usedAuthors.add(c.authorId);
+    items.push(c);
+    if (items.length >= input.limit) break;
   }
-  return { items: [], poolUsed: false };
+  return { items, poolUsed: items.length > 0 };
 }
 
 export function resetForYouSimpleReelPoolForTests(): void {
-  // No-op; pool state is no longer maintained.
+  reelCandidateCache = null;
 }

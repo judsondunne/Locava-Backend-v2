@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import type { SimpleFeedCandidate } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { resetForYouSimpleReelPoolForTests } from "./feed-for-you-simple-reel-pool.js";
 import { decodeForYouSimpleCursor } from "./feed-for-you-simple-cursor.js";
@@ -6,7 +6,7 @@ import {
   deckKeyForServingMode,
   resolveForYouSimpleServingMode
 } from "./feed-for-you-simple-serving-mode.js";
-import { FeedForYouSimpleService } from "./feed-for-you-simple.service.js";
+import { FeedForYouSimpleService, resetForYouSimplePhaseDecksForTests } from "./feed-for-you-simple.service.js";
 
 function candidate(input: {
   postId: string;
@@ -83,8 +83,15 @@ describe("for-you simple serving mode", () => {
 });
 
 describe("FeedForYouSimpleService radius mode", () => {
+  const restoreEnableForYouV5ReadyDeck = process.env.ENABLE_FOR_YOU_V5_READY_DECK;
   beforeEach(() => {
+    process.env.ENABLE_FOR_YOU_V5_READY_DECK = "false";
     resetForYouSimpleReelPoolForTests();
+    resetForYouSimplePhaseDecksForTests();
+  });
+  afterAll(() => {
+    if (restoreEnableForYouV5ReadyDeck === undefined) delete process.env.ENABLE_FOR_YOU_V5_READY_DECK;
+    else process.env.ENABLE_FOR_YOU_V5_READY_DECK = restoreEnableForYouV5ReadyDeck;
   });
 
   it("returns mixed image and video posts within radius without reel phase reads", async () => {
@@ -121,6 +128,7 @@ describe("FeedForYouSimpleService radius mode", () => {
       resolveSortMode: async () => "randomKey" as const,
       fetchServePhaseBatch,
       listRecentSeenPostIdsForViewer: async () => ({ postIds: new Set<string>(), readCount: 0 }),
+      listOldestSeenPostIdsForViewer: async () => ({ postIds: [], readCount: 0 }),
       markPostsServedForViewer: async () => undefined,
       readServedRecentForViewer: async () => ({ postIds: new Set<string>(), readCount: 0 }),
       markPostsServedRecentForViewer: async () => ({ ok: true, writes: 0 }),
@@ -247,6 +255,7 @@ describe("FeedForYouSimpleService radius mode", () => {
         throw new Error("reel_phase_should_not_run");
       },
       listRecentSeenPostIdsForViewer: async () => ({ postIds: new Set<string>(), readCount: 0 }),
+      listOldestSeenPostIdsForViewer: async () => ({ postIds: [], readCount: 0 }),
       markPostsServedForViewer: async () => undefined,
       readServedRecentForViewer: async () => ({ postIds: new Set<string>(), readCount: 0 }),
       markPostsServedRecentForViewer: async () => ({ ok: true, writes: 0 }),

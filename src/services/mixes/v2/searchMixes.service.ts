@@ -5,6 +5,7 @@ import { NearbyMixRepository } from "../../../repositories/nearbyMix.repository.
 import { SearchRepository } from "../../../repositories/surfaces/search.repository.js";
 import { getBestPostCover } from "../mixCover.service.js";
 import { decodeMixCursorV2, encodeMixCursorV2, hashIdsDeterministic, type MixCursorV2 } from "./mixCursor.js";
+import { approvedFirestoreTagsForRecall } from "../mixActivityRecall.js";
 
 type MixType = "general" | "daily" | "nearby" | "friends";
 type ViewerMixHints = {
@@ -118,19 +119,7 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 function activityAliases(activity: string): string[] {
-  const a = String(activity ?? "").trim().toLowerCase();
-  const map: Record<string, string[]> = {
-    hiking: ["hiking", "hike", "trail"],
-    biking: ["biking", "bike", "cycling"],
-    cafes: ["cafes", "cafe", "coffee"],
-    beach: ["beach", "ocean"],
-    park: ["park", "parks"],
-    swimming: ["swimming", "swim"],
-    sunset: ["sunset", "sunrise", "view"],
-    food: ["food", "restaurant", "restaurants"],
-  };
-  const aliases = map[a] ?? [a];
-  return [...new Set(aliases.map((x) => String(x ?? "").trim().toLowerCase()).filter(Boolean))];
+  return approvedFirestoreTagsForRecall(activity);
 }
 
 export class SearchMixesServiceV2 {

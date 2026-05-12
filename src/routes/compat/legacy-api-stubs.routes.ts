@@ -6,6 +6,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { FieldPath, FieldValue } from "firebase-admin/firestore";
 import type { AppEnv } from "../../config/env.js";
+import {
+  RECENT_POSTS_PAGE_MAX_DOCS,
+  STORY_USERS_COLD_MAX_DOCS,
+  TOP_ACTIVITIES_COLD_FALLBACK_MAX_DOCS,
+} from "../../constants/firestore-read-budgets.js";
 import type { ProductCompatViewer } from "./compat-viewer-payload.js";
 import { buildProductCompatViewer } from "./compat-viewer-payload.js";
 import { resolveCompatViewerId } from "./resolve-compat-viewer-id.js";
@@ -65,6 +70,18 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
       rows: Array<{ userId: string; postId: string; thumbUrl: string }>;
     }
   >();
+  const STORY_USERS_GLOBAL_CACHE_TTL_MS = 90_000;
+  const storyUsersBoundedGlobalCache = new Map<
+    string,
+    { expiresAtMs: number; rows: Array<{ userId: string; postId: string; thumbUrl: string }> }
+  >();
+  const recentPostsBoundedCache = new Map<
+    string,
+    { expiresAtMs: number; rows: Array<Record<string, unknown>> }
+  >();
+  const RECENT_POSTS_CACHE_TTL_MS = 45_000;
+  const topActivitiesBoundedCache = new Map<string, { expiresAtMs: number; activities: string[] }>();
+  const TOP_ACTIVITIES_CACHE_TTL_MS = 30 * 60_000;
 
   /** `POST /api/upload/profile-picture` is registered globally in `profile-picture-upload.routes.ts` (always on). */
 
@@ -76,20 +93,42 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     return ids;
   }
 
-  // =====================================================================
-  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
-  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
-  // Disabled: 2026-05-12 (read containment emergency)
-  //
-  // Original behaviour: scanned `posts orderBy("time","desc").limit(600).get()`
-  // every time `/api/v1/product/connections/user/:viewerId/story-users` was
-  // hit (and the 60s cache missed). Query Insights linked the recent-posts
-  // LIMIT 600 fingerprint to ~421,200 reads / 702 executions in a single day.
-  // Returning an empty array short-circuits the story rail safely while
-  // /v2/* routes continue to power the rest of the app.
-  // =====================================================================
+  // REIMPLEMENTED AFTER FIRESTORE READ CONTAINMENT: bounded story-user bootstrap (<= STORY_USERS_COLD_MAX_DOCS reads cold).
   async function loadRecentPostsForStoryUsers(): Promise<Array<{ userId: string; postId: string; thumbUrl: string }>> {
-    return [];
+    const cacheKey = "story_users_bounded_v2";
+    const hit = storyUsersBoundedGlobalCache.get(cacheKey);
+    if (hit && hit.expiresAtMs > Date.now()) return hit.rows;
+    if (!db) return [];
+    incrementDbOps("queries", 1);
+    const snap = await db
+      .collection("posts")
+      .orderBy("time", "desc")
+      .select("userId", "thumbUrl", "displayPhotoLink", "photoLink", "time")
+      .limit(STORY_USERS_COLD_MAX_DOCS)
+      .get();
+    incrementDbOps("reads", snap.docs.length);
+    const byAuthorFirst = new Map<string, { userId: string; postId: string; thumbUrl: string }>();
+    for (const doc of snap.docs) {
+      const data = doc.data() as Record<string, unknown>;
+      const userId = String(data.userId ?? "").trim();
+      if (!userId || byAuthorFirst.has(userId)) continue;
+      const thumbUrl =
+        typeof data.thumbUrl === "string" && data.thumbUrl.trim()
+          ? data.thumbUrl.trim()
+          : typeof data.displayPhotoLink === "string" && data.displayPhotoLink.trim()
+            ? data.displayPhotoLink.trim()
+            : typeof data.photoLink === "string" && data.photoLink.trim()
+              ? data.photoLink.trim()
+              : "";
+      byAuthorFirst.set(userId, { userId, postId: doc.id, thumbUrl });
+      if (byAuthorFirst.size >= 16) break;
+    }
+    const rows = [...byAuthorFirst.values()].slice(0, 16);
+    storyUsersBoundedGlobalCache.set(cacheKey, {
+      expiresAtMs: Date.now() + STORY_USERS_GLOBAL_CACHE_TTL_MS,
+      rows,
+    });
+    return rows;
   }
   type MixSpec = {
     kind: "mix_spec_v1";
@@ -187,32 +226,96 @@ export async function registerLegacyApiStubRoutes(app: FastifyInstance, _env: Ap
     return { users, total: ids.length };
   }
 
-  // =====================================================================
-  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
-  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
-  // Disabled: 2026-05-12 (read containment emergency)
-  //
-  // Original behaviour: each call ran
-  // `posts orderBy("time","desc").limit(80..160).get()` on legacy compat
-  // bootstrap routes (system mixes etc.). These are part of the "recent posts
-  // orderBy time desc" fingerprints (see Query Insights shapes #3 and #8).
-  // =====================================================================
-  async function loadRecentPosts(_limit: number): Promise<Array<Record<string, unknown>>> {
-    return [];
+  // REIMPLEMENTED AFTER FIRESTORE READ CONTAINMENT: capped recent posts (<= RECENT_POSTS_PAGE_MAX_DOCS per refresh).
+  async function loadRecentPosts(limit: number): Promise<Array<Record<string, unknown>>> {
+    const safeLimit = Math.max(1, Math.min(RECENT_POSTS_PAGE_MAX_DOCS, Math.floor(limit)));
+    const cacheKey = `recent_posts_v2:${safeLimit}`;
+    const hit = recentPostsBoundedCache.get(cacheKey);
+    if (hit && hit.expiresAtMs > Date.now()) return hit.rows;
+    if (!db) return [];
+    incrementDbOps("queries", 1);
+    const snap = await db
+      .collection("posts")
+      .orderBy("time", "desc")
+      .select(
+        "userId",
+        "thumbUrl",
+        "displayPhotoLink",
+        "title",
+        "caption",
+        "activities",
+        "time",
+        "lat",
+        "long",
+        "privacy",
+        "visibility",
+      )
+      .limit(safeLimit)
+      .get();
+    incrementDbOps("reads", snap.docs.length);
+    const rows = snap.docs.map((doc) => normalizeCompatPostRow({ id: doc.id, ...(doc.data() as Record<string, unknown>) }));
+    recentPostsBoundedCache.set(cacheKey, {
+      expiresAtMs: Date.now() + RECENT_POSTS_CACHE_TTL_MS,
+      rows,
+    });
+    return rows;
   }
 
-  // =====================================================================
-  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
-  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
-  // Disabled: 2026-05-12 (read containment emergency)
-  //
-  // Original behaviour: every call ran `posts orderBy("time","desc").limit(400).get()`
-  // to compute trending activities (also matches the "orderBy time desc" Query
-  // Insights fingerprints). Activities autocomplete falls back to an empty
-  // list which the native fallback handles gracefully.
-  // =====================================================================
-  async function loadTopActivities(_limit = 8): Promise<string[]> {
-    return [];
+  // REIMPLEMENTED AFTER FIRESTORE READ CONTAINMENT: prefer cached analytics doc; cold fallback <= TOP_ACTIVITIES_COLD_FALLBACK_MAX_DOCS posts.
+  async function loadTopActivities(limit = 8): Promise<string[]> {
+    const safeLimit = Math.max(1, Math.min(24, Math.floor(limit)));
+    const cacheKey = `top_act_v2:${safeLimit}`;
+    const hit = topActivitiesBoundedCache.get(cacheKey);
+    if (hit && hit.expiresAtMs > Date.now()) return hit.activities.slice(0, safeLimit);
+    if (!db) return [];
+    try {
+      const doc = await db.collection("analytics").doc("bootstrap").get();
+      incrementDbOps("reads", 1);
+      const raw = doc.data() as Record<string, unknown> | undefined;
+      const list =
+        raw && Array.isArray(raw.topActivities)
+          ? raw.topActivities
+          : raw && Array.isArray(raw.popularActivities)
+            ? raw.popularActivities
+            : null;
+      if (list && list.length > 0) {
+        const activities = list.map((x) => String(x ?? "").trim().toLowerCase()).filter(Boolean).slice(0, safeLimit);
+        topActivitiesBoundedCache.set(cacheKey, {
+          expiresAtMs: Date.now() + TOP_ACTIVITIES_CACHE_TTL_MS,
+          activities,
+        });
+        return activities;
+      }
+    } catch {
+      /* fall through */
+    }
+    incrementDbOps("queries", 1);
+    const snap = await db
+      .collection("posts")
+      .orderBy("time", "desc")
+      .select("activities", "classification")
+      .limit(TOP_ACTIVITIES_COLD_FALLBACK_MAX_DOCS)
+      .get();
+    incrementDbOps("reads", snap.docs.length);
+    const counts = new Map<string, number>();
+    for (const doc of snap.docs) {
+      const row = doc.data() as Record<string, unknown>;
+      const acts = Array.isArray(row.activities) ? row.activities : [];
+      for (const rawAct of acts) {
+        const a = String(rawAct ?? "").trim().toLowerCase();
+        if (!a) continue;
+        counts.set(a, (counts.get(a) ?? 0) + 1);
+      }
+    }
+    const activities = [...counts.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, safeLimit)
+      .map(([k]) => k);
+    topActivitiesBoundedCache.set(cacheKey, {
+      expiresAtMs: Date.now() + TOP_ACTIVITIES_CACHE_TTL_MS,
+      activities,
+    });
+    return activities;
   }
 
   app.get<{ Params: { postId: string } }>("/api/posts/:postId", async (request, reply) => {

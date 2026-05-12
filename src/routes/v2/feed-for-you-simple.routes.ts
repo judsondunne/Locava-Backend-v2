@@ -4,7 +4,6 @@ import { feedForYouSimpleContract, FeedForYouSimpleQuerySchema } from "../../con
 import { failure, success } from "../../lib/response.js";
 import { getRequestContext, setOrchestrationMetadata, setRouteName } from "../../observability/request-context.js";
 import { FeedForYouSimpleRepository } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
-import { startForYouSimpleReelPoolWarmup } from "../../services/surfaces/feed-for-you-simple-reel-pool.js";
 import { FeedForYouSimpleService } from "../../services/surfaces/feed-for-you-simple.service.js";
 import {
   buildFeedItemsMediaTracePayload,
@@ -13,9 +12,23 @@ import {
   rollupFeedVideoMediaSummary
 } from "../../observability/feed-items-media-trace.js";
 
+function extractForYouSimplePostId(item: unknown): string | null {
+  if (!item || typeof item !== "object") return null;
+  const r = item as Record<string, unknown>;
+  if (typeof r.postId === "string" && r.postId.trim()) return r.postId.trim();
+  return null;
+}
+
+function legacyForYouSimpleCursorType(cursor: string | undefined): "none" | "fys_v3_legacy_bypass" | "fys_v5" | "other" {
+  const c = cursor?.trim() ?? "";
+  if (!c) return "none";
+  if (c.startsWith("fys:v3:") || c.startsWith("fys:v2:") || c.startsWith("fys:v1:")) return "fys_v3_legacy_bypass";
+  if (c.startsWith("fys:v5:")) return "fys_v5";
+  return "other";
+}
+
 export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Promise<void> {
   const repository = new FeedForYouSimpleRepository();
-  startForYouSimpleReelPoolWarmup(repository);
   const service = new FeedForYouSimpleService(repository);
 
   app.get(feedForYouSimpleContract.path, async (request, reply) => {
@@ -76,12 +89,66 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         limit: query.limit,
         cursor: query.cursor ?? null,
         refresh: query.refresh === true,
+        dryRunSeen: query.dryRunSeen === true,
+        verifyReadOnly: request.headers["x-locava-readonly"]?.toString().trim() === "1",
+        deviceIdHeader: request.headers["x-device-id"]?.toString() ?? null,
         radiusFilter
       });
       const ctx = getRequestContext();
       const dbReads = ctx?.dbOps.reads ?? 0;
       const dbWrites = ctx?.dbOps.writes ?? 0;
       const elapsedMs = Date.now() - startedAt;
+      const isV5Route = payload.debug.forYouRouteVariant === "v5";
+      const returnedPostIdsForLog =
+        Array.isArray(payload.debug.returnedPostIds) && payload.debug.returnedPostIds.length > 0
+          ? payload.debug.returnedPostIds
+          : payload.items.map(extractForYouSimplePostId).filter((x): x is string => Boolean(x));
+      if (isV5Route) {
+        request.log.info(
+          {
+            event: "FOR_YOU_V5_RESPONSE",
+            msg: "FOR_YOU_V5_RESPONSE",
+            url: request.url,
+            routeEnteredV5: true,
+            cursorType: payload.debug.cursorType,
+            dryRunSeen: payload.debug.dryRunSeen,
+            seenWritesEnabled: payload.debug.seenWritesEnabled,
+            returnedPostIds: returnedPostIdsForLog,
+            duplicateReturnedPostIds: payload.debug.duplicateReturnedPostIds ?? [],
+            elapsedMs,
+            dbReadEstimate: payload.debug.dbReadEstimate ?? dbReads,
+            dbReads,
+            cacheStatus: payload.debug.cacheStatus,
+            deckSource: payload.debug.deckSource,
+            activePhase: payload.debug.activePhase,
+            regularFallbackUsed: payload.debug.regularFallbackUsed,
+            reelsRemainingEstimate: payload.debug.reelsRemainingEstimate,
+            nextCursorPresent: Boolean(payload.nextCursor),
+            durableSeenRead: payload.debug.durableSeenRead,
+            seenWriteAttempted: payload.debug.seenWriteAttempted,
+            seenWriteSkippedReason: payload.debug.seenWriteSkippedReason ?? null,
+            repeatRisk: payload.debug.repeatRisk ?? null,
+            returnedCount: payload.items.length,
+          },
+          "FOR_YOU_V5_RESPONSE"
+        );
+      } else {
+        request.log.info(
+          {
+            event: "FOR_YOU_LEGACY_RESPONSE",
+            msg: "FOR_YOU_LEGACY_RESPONSE",
+            url: request.url,
+            legacyReason: payload.debug.legacyReason ?? "unknown",
+            cursorType: legacyForYouSimpleCursorType(query.cursor),
+            elapsedMs,
+            dbReads,
+            deckSource: payload.debug.deckSource ?? "fallback",
+            returnedPostIds: returnedPostIdsForLog,
+            returnedCount: payload.items.length,
+          },
+          "FOR_YOU_LEGACY_RESPONSE"
+        );
+      }
       if (dbWrites > 0) {
         request.log.info(
           {
@@ -269,30 +336,32 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
       }
 
       const verboseFeedSummary = process.env.LOG_FEED_DEBUG_VERBOSE === "1";
-      request.log.info(
-        verboseFeedSummary
-          ? summaryPayload
-          : {
-              event: summaryPayload.event,
-              viewerId: summaryPayload.viewerId,
-              requestedLimit: summaryPayload.requestedLimit,
-              returnedCount: summaryPayload.returnedCount,
-              elapsedMs: summaryPayload.elapsedMs,
-              dbReads: summaryPayload.dbReads,
-              queryCount: summaryPayload.queryCount,
-              deckSource: summaryPayload.deckSource,
-              deckHit: summaryPayload.deckHit,
-              emergencyFallbackUsed: summaryPayload.emergencyFallbackUsed,
-              detailBatchRequiredForFirstPaint: summaryPayload.detailBatchRequiredForFirstPaint,
-              canonicalVideoPlayableCount: videoSummary.canonicalVideoPlayableCount ?? 0,
-              canonicalStartupUrlCount: videoSummary.canonicalStartupUrlCount ?? 0,
-              canonicalPosterCount: videoSummary.canonicalPosterCount ?? 0,
-              canonicalGradientCount: videoSummary.canonicalGradientCount ?? 0,
-              canonicalSelectedVariantCounts: videoSummary.canonicalSelectedVariantCounts ?? {},
-              videoMissingPlayableCount: videoSummary.videoMissingPlayableCount ?? 0,
-            },
-        "feed for-you simple summary"
-      );
+      if (!isV5Route || verboseFeedSummary) {
+        request.log.info(
+          verboseFeedSummary
+            ? summaryPayload
+            : {
+                event: summaryPayload.event,
+                viewerId: summaryPayload.viewerId,
+                requestedLimit: summaryPayload.requestedLimit,
+                returnedCount: summaryPayload.returnedCount,
+                elapsedMs: summaryPayload.elapsedMs,
+                dbReads: summaryPayload.dbReads,
+                queryCount: summaryPayload.queryCount,
+                deckSource: summaryPayload.deckSource,
+                deckHit: summaryPayload.deckHit,
+                emergencyFallbackUsed: summaryPayload.emergencyFallbackUsed,
+                detailBatchRequiredForFirstPaint: summaryPayload.detailBatchRequiredForFirstPaint,
+                canonicalVideoPlayableCount: videoSummary.canonicalVideoPlayableCount ?? 0,
+                canonicalStartupUrlCount: videoSummary.canonicalStartupUrlCount ?? 0,
+                canonicalPosterCount: videoSummary.canonicalPosterCount ?? 0,
+                canonicalGradientCount: videoSummary.canonicalGradientCount ?? 0,
+                canonicalSelectedVariantCounts: videoSummary.canonicalSelectedVariantCounts ?? {},
+                videoMissingPlayableCount: videoSummary.videoMissingPlayableCount ?? 0,
+              },
+          "feed for-you simple summary"
+        );
+      }
 
       if (isFeedItemsMediaTraceEnabled()) {
         request.log.info(

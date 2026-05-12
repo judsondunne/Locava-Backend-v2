@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { NEAR_ME_COLD_MAX_DOCS } from "../../constants/firestore-read-budgets.js";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { geoPrefixesAroundCenter } from "../../lib/geo-prefixes-around-center.js";
 import { getPostCoordinates } from "../../lib/posts/postFieldSelectors.js";
@@ -14,6 +15,11 @@ import {
   evaluateQuickWarmerGate,
   noteBackgroundWorkDeferred,
 } from "../../runtime/warmer-traffic-gate.js";
+import {
+  loadBoundedNearMeCandidates,
+  nearMeCacheKey,
+  type BoundedNearMeDebug,
+} from "./bounded-near-me-candidates.js";
 
 const REELS_PREFIX = "/api/v1/product/reels";
 const FEED_ID = "reels:near-me";
@@ -36,6 +42,13 @@ const pool: CachedPool = {
   loading: false,
   inFlight: null
 };
+
+/** TTL bucket cache for bounded near-me (replaces global post pool warmup). */
+const BOUNDED_NEAR_ME_TTL_MS = 120_000;
+const boundedNearMePoolCache = new Map<
+  string,
+  { posts: NearMePost[]; loadedAtMs: number; debugMeta: Omit<BoundedNearMeDebug, "cacheHit"> }
+>();
 
 let nearMeRefreshSerial: Promise<void> = Promise.resolve();
 
@@ -690,9 +703,9 @@ function distanceMiles(lat1: number, lng1: number, lat2: number, lng2: number): 
   return computeDistanceKm(lat1, lng1, lat2, lng2) / MILES_TO_KM;
 }
 
-function getFilteredCandidates(lat: number, lng: number, radiusMiles: number): NearMePost[] {
+function getFilteredCandidates(poolPosts: NearMePost[], lat: number, lng: number, radiusMiles: number): NearMePost[] {
   const radiusKm = radiusMiles * MILES_TO_KM;
-  return pool.posts
+  return poolPosts
     .filter((post) => {
       if (!filterReelEligible(post)) return false;
       const coords = getPostLatLng(post);
@@ -1015,26 +1028,13 @@ async function collectExhaustiveNearMePosts(input: {
 }
 
 export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Promise<void> {
-  let refreshTimer: NodeJS.Timeout | null = null;
+  // REIMPLEMENTED AFTER FIRESTORE READ CONTAINMENT: no startup near-me pool scans / intervals.
 
   app.addHook("onReady", async () => {
-    const fullDelayMs = toIntEnv("NEAR_ME_FULL_REFRESH_DELAY_MS", 2_000, 2_000, 120_000);
-    nearMeRefreshSerial = nearMeRefreshSerial
-      .then(() => rebuildPostPoolQuick(app, "startup"))
-      .then(() => {
-        setTimeout(() => {
-          nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
-        }, fullDelayMs);
-      })
-      .catch(() => undefined);
-    refreshTimer = setInterval(() => {
-      nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
-    }, CACHE_REFRESH_MS);
-  });
-
-  app.addHook("onClose", async () => {
-    if (refreshTimer) clearInterval(refreshTimer);
-    refreshTimer = null;
+    app.log.info(
+      { event: "near_me_bounded_mode", source: "bounded_near_me_v2" },
+      "near-me uses request-scoped bounded candidate loading (no startup warmer)",
+    );
   });
 
   app.get(`${REELS_PREFIX}/near-me`, async (request, reply) => {
@@ -1052,61 +1052,85 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
 
     if (lat == null || lng == null) return reply.status(400).send({ error: "Invalid lat or lng" });
     if (radiusMiles < 1 || radiusMiles > 500) return reply.status(400).send({ error: "radiusMiles must be 1-500" });
-    if (!getFirestoreSourceClient()) return reply.status(503).send({ error: "Near me feed unavailable" });
+    const db = getFirestoreSourceClient();
+    if (!db) return reply.status(503).send({ error: "Near me feed unavailable" });
 
-    // Cold path: bounded quick scan only — never await the multi-thousand-doc full rebuild on the request thread.
-    if (pool.posts.length === 0) {
-      await Promise.race([
-        rebuildPostPoolQuick(app),
-        new Promise<void>((resolve) => setTimeout(resolve, nearMeColdWaitMs()))
-      ]);
-      if (pool.posts.length === 0) {
-        const diagnostics = {
-          prefix: "RADIUS_FEED_PAGE",
-          requestedRadiusMiles: radiusMiles,
-          effectiveRadiusMiles: radiusMiles,
-          pageSizeRequested: limit,
-          postsReturned: 0,
-          candidatesScanned: 0,
-          candidatesWithinRadius: 0,
-          duplicatesSuppressed: 0,
-          cursorReceived: typeof query.cursor === "string" ? query.cursor : null,
-          cursorMode: parsedCursor.kind,
-          nearMeMode: "pool",
-          cursorResetReason: "pool_warming",
-          cursorRecoveredByLastPost: false,
-          nextCursorEmitted: null,
-          nextCursorPresent: false,
-          hasMore: false,
-          exhaustedReason: "pool_warming",
-          poolLoadedAtMs: pool.loadedAtMs,
-          poolCount: pool.posts.length,
-          scanMode: "pool",
-          poolOffset: 0,
-          poolExhausted: true,
-          firestoreFallbackUsed: false,
-          firestorePagesScanned: 0,
-          candidateSources: [] as string[],
-          withinRadiusTotalKnownOrScanned: 0,
-          invalidCursorRecovered: false,
-          lastPostId: null as string | null
-        };
-        reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=60");
-        request.log.info({ event: "radius_feed_page", ...diagnostics }, "[RADIUS_FEED_PAGE]");
-        return reply.send({
-          feedId: FEED_ID,
-          items: [],
-          nextCursor: null,
-          hasMore: false,
-          debug: diagnostics,
-          ...(debugFlag ? { radiusFeedDebug: diagnostics } : {})
-        });
-      }
-    } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
-      nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
+    const activityFilter =
+      typeof query.activity === "string"
+        ? query.activity.trim()
+        : typeof query.activityId === "string"
+          ? query.activityId.trim()
+          : null;
+    const bucketKey = nearMeCacheKey({ lat, lng, radiusMiles, activity: activityFilter });
+    let bucket = boundedNearMePoolCache.get(bucketKey);
+    let cacheHit = Boolean(bucket && Date.now() - bucket.loadedAtMs < BOUNDED_NEAR_ME_TTL_MS);
+    if (!bucket || !cacheHit) {
+      const { posts, debug } = await loadBoundedNearMeCandidates({
+        db,
+        lat,
+        lng,
+        radiusMiles,
+      });
+      bucket = {
+        posts: posts as NearMePost[],
+        loadedAtMs: Date.now(),
+        debugMeta: debug,
+      };
+      boundedNearMePoolCache.set(bucketKey, bucket);
+      cacheHit = false;
+    }
+    const boundedLoadedAtMs = bucket.loadedAtMs;
+    const candidatePoolPosts = bucket.posts;
+
+    if (candidatePoolPosts.length === 0) {
+      const diagnostics = {
+        prefix: "RADIUS_FEED_PAGE",
+        requestedRadiusMiles: radiusMiles,
+        effectiveRadiusMiles: radiusMiles,
+        pageSizeRequested: limit,
+        postsReturned: 0,
+        candidatesScanned: 0,
+        candidatesWithinRadius: 0,
+        duplicatesSuppressed: 0,
+        cursorReceived: typeof query.cursor === "string" ? query.cursor : null,
+        cursorMode: parsedCursor.kind,
+        nearMeMode: "pool",
+        cursorResetReason: "bounded_empty_candidates",
+        cursorRecoveredByLastPost: false,
+        nextCursorEmitted: null,
+        nextCursorPresent: false,
+        hasMore: false,
+        exhaustedReason: "bounded_empty_candidates",
+        poolLoadedAtMs: boundedLoadedAtMs,
+        poolCount: 0,
+        scanMode: "pool",
+        poolOffset: 0,
+        poolExhausted: true,
+        firestoreFallbackUsed: false,
+        firestorePagesScanned: 0,
+        candidateSources: [] as string[],
+        withinRadiusTotalKnownOrScanned: 0,
+        invalidCursorRecovered: false,
+        lastPostId: null as string | null,
+        readBudgetMax: NEAR_ME_COLD_MAX_DOCS,
+        readBudgetUsed: bucket.debugMeta.readBudgetUsed,
+        cacheHit,
+        querySource: bucket.debugMeta.querySource,
+        radiusPhases: bucket.debugMeta.radiusPhases,
+      };
+      reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=60");
+      request.log.info({ event: "radius_feed_page", ...diagnostics }, "[RADIUS_FEED_PAGE]");
+      return reply.send({
+        feedId: FEED_ID,
+        items: [],
+        nextCursor: null,
+        hasMore: false,
+        debug: diagnostics,
+        ...(debugFlag ? { radiusFeedDebug: diagnostics } : {}),
+      });
     }
 
-    const candidates = getFilteredCandidates(lat, lng, radiusMiles);
+    const candidates = getFilteredCandidates(candidatePoolPosts, lat, lng, radiusMiles);
     const latE5 = roundCoordE5(lat);
     const lngE5 = roundCoordE5(lng);
 
@@ -1145,7 +1169,7 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
         radiusMiles,
         latE5,
         lngE5,
-        currentPoolLoadedAtMs: pool.loadedAtMs,
+        currentPoolLoadedAtMs: boundedLoadedAtMs,
         candidateIds: candidates.map((post) => post.id),
         limit
       });
@@ -1193,7 +1217,7 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
         latE5,
         lngE5,
         lastPostId: lastPostIdWire,
-        poolLoadedAtMs: pool.loadedAtMs,
+        poolLoadedAtMs: boundedLoadedAtMs,
         seen: seenOutbound
       });
     } else if (exhaustHasMoreFlag && exhaustive) {
@@ -1204,7 +1228,7 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
         latE5,
         lngE5,
         lastPostId: lastPostIdWire,
-        poolLoadedAtMs: pool.loadedAtMs,
+        poolLoadedAtMs: boundedLoadedAtMs,
         seen: seenOutbound,
         exhaust: exhaustToWire(exhaustive.exhaust)
       });
@@ -1234,8 +1258,13 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
       nextCursorPresent: Boolean(nextCursor),
       hasMore,
       exhaustedReason,
-      poolLoadedAtMs: pool.loadedAtMs,
-      poolCount: pool.posts.length,
+      poolLoadedAtMs: boundedLoadedAtMs,
+      poolCount: candidatePoolPosts.length,
+      readBudgetMax: NEAR_ME_COLD_MAX_DOCS,
+      readBudgetUsed: cacheHit ? 0 : bucket.debugMeta.readBudgetUsed,
+      cacheHit,
+      querySource: bucket.debugMeta.querySource,
+      radiusPhases: bucket.debugMeta.radiusPhases,
       scanMode,
       poolOffset,
       poolExhausted: nextPoolOffset >= candidates.length,
@@ -1268,20 +1297,35 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
 
     if (lat == null || lng == null) return reply.status(400).send({ error: "Invalid lat or lng" });
     if (radiusMiles < 1 || radiusMiles > 500) return reply.status(400).send({ error: "radiusMiles must be 1-500" });
-    if (!getFirestoreSourceClient()) return reply.status(503).send({ error: "Near me count unavailable" });
+    const db = getFirestoreSourceClient();
+    if (!db) return reply.status(503).send({ error: "Near me count unavailable" });
 
-    // Must await the full quick pool load: racing with nearMeColdWaitMs() can resolve
-    // before Firestore returns (quick scan often >1.2s), producing a false count of 0.
-    if (pool.posts.length === 0) {
-      await rebuildPostPoolQuick(app);
-    } else if (Date.now() - pool.loadedAtMs > CACHE_REFRESH_MS && !pool.loading) {
-      nearMeRefreshSerial = nearMeRefreshSerial.then(() => rebuildPostPool(app)).catch(() => undefined);
+    const activityFilter =
+      typeof query.activity === "string"
+        ? query.activity.trim()
+        : typeof query.activityId === "string"
+          ? query.activityId.trim()
+          : null;
+    const bucketKey = nearMeCacheKey({ lat, lng, radiusMiles, activity: activityFilter });
+    let bucket = boundedNearMePoolCache.get(bucketKey);
+    let cacheHit = Boolean(bucket && Date.now() - bucket.loadedAtMs < BOUNDED_NEAR_ME_TTL_MS);
+    if (!bucket || !cacheHit) {
+      const { posts, debug } = await loadBoundedNearMeCandidates({
+        db,
+        lat,
+        lng,
+        radiusMiles,
+      });
+      bucket = {
+        posts: posts as NearMePost[],
+        loadedAtMs: Date.now(),
+        debugMeta: debug,
+      };
+      boundedNearMePoolCache.set(bucketKey, bucket);
+      cacheHit = false;
     }
 
-    const candidates = getFilteredCandidates(lat, lng, radiusMiles);
-    // Count endpoint should not contribute Firestore reads once warm.
-    incrementDbOps("queries", 0);
-    incrementDbOps("reads", 0);
+    const candidates = getFilteredCandidates(bucket.posts, lat, lng, radiusMiles);
     reply.header("Cache-Control", "public, max-age=10, stale-while-revalidate=60");
     request.log.info(
       {
@@ -1290,7 +1334,9 @@ export async function registerLegacyReelsNearMeRoutes(app: FastifyInstance): Pro
         lng,
         radiusMiles,
         count: candidates.length,
-        poolDocCount: pool.posts.length
+        poolDocCount: bucket.posts.length,
+        cacheHit,
+        readBudgetUsed: cacheHit ? 0 : bucket.debugMeta.readBudgetUsed,
       },
       "RADIUS_COUNT_READY"
     );

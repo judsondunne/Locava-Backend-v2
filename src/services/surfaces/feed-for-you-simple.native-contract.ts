@@ -16,6 +16,8 @@ export type ForYouSimplePageLike = {
   emptyReason: string | null;
   /** Requested page size (limit query param) */
   requestedLimit: number;
+  /** When false, more pages may exist (backend contract); never show terminal copy. */
+  hasMore?: boolean;
 };
 
 export function reduceForYouSimplePage(prev: ForYouSimpleClientFeedState, page: ForYouSimplePageLike): ForYouSimpleClientFeedState {
@@ -40,5 +42,6 @@ export function reduceForYouSimplePage(prev: ForYouSimpleClientFeedState, page: 
 /** "All out" / end-of-inventory messaging should not trigger on short pages. */
 export function shouldShowAllOutCopy(page: ForYouSimplePageLike): boolean {
   if (page.items.length === 0) return false;
+  if (page.hasMore === true) return false;
   return page.exhausted === true && page.items.length >= page.requestedLimit;
 }

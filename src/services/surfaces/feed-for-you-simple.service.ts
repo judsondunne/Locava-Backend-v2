@@ -1,6 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { toFeedCardDTO, type FeedCardDTO } from "../../dto/compact-surface-dto.js";
-import { selectBestVideoPlaybackAsset } from "../../lib/posts/video-playback-selection.js";
+import { type FeedCardDTO } from "../../dto/compact-surface-dto.js";
 import { accumulateSurfaceTiming, getRequestContext } from "../../observability/request-context.js";
 import type {
   FeedForYouSimpleRepository,
@@ -13,7 +12,6 @@ import {
   FOR_YOU_SIMPLE_SURFACE
 } from "../../repositories/surfaces/feed-for-you-simple.repository.js";
 import { debugLog } from "../../lib/logging/debug-log.js";
-import { LOG_FEED_DEBUG, LOG_VIDEO_DEBUG } from "../../lib/logging/log-config.js";
 import { geoPrefixesAroundCenter } from "../../lib/geo-prefixes-around-center.js";
 import { getPostCoordinates, type PostRecord } from "../../lib/posts/postFieldSelectors.js";
 import { isReadOnlyLatencyAuditEnabled } from "../../safety/read-only-latency-audit-guard.js";
@@ -44,13 +42,19 @@ import {
   scanServePhase,
   type PhaseReadyDeckEntry
 } from "./feed-for-you-simple-phase-runtime.js";
-import { pickForYouSimpleReelPoolPage } from "./feed-for-you-simple-reel-pool.js";
 import {
   deckKeyForServingMode,
   resolveForYouSimpleServingMode,
   type ForYouSimpleServingMode
 } from "./feed-for-you-simple-serving-mode.js";
 import { candidateMatchesServePhase, isForYouSimpleReel } from "./feed-for-you-simple-tier.js";
+import { getForYouV5Page } from "./for-you-v5-get-page.js";
+import { resolveForYouSimpleFeedRouteVariant } from "./for-you-simple-route-variant.js";
+import {
+  applyFirstPaintPlaybackDiagnostics,
+  buildFeedCardFromSimpleCandidate,
+  updateMediaDiagnostics
+} from "./feed-for-you-simple-post-card.js";
 
 const MAX_SEEN_IDS = FOR_YOU_SIMPLE_MAX_SEEN_IDS;
 const SERVED_RECENT_MAX_IDS = 240;
@@ -64,17 +68,15 @@ const BLOCKED_AUTHORS_CACHE_TTL_MS = 60_000;
 /** Hard caps for scroll pagination — prefer partial pages + background refill over deep Firestore scans. */
 const PAGINATION_MAX_DB_READS = 25;
 const PAGINATION_MAX_QUERIES = 5;
-const PAGINATION_REEL_READ_CAP = 12;
-const PAGINATION_FALLBACK_READ_CAP = 10;
-const PAGINATION_MAX_SCAN_ATTEMPTS = 4;
+/** Pagination deck refills: too-tight caps yield empty pages after seen/durable filters while Firestore still has candidates. */
+const PAGINATION_REEL_READ_CAP = 24;
+const PAGINATION_FALLBACK_READ_CAP = 18;
+const PAGINATION_MAX_SCAN_ATTEMPTS = 6;
 const RECYCLE_SEEN_WINDOW = 20;
 
 const LIMIT_DEFAULT = 5;
 const LIMIT_MIN = 1;
 const LIMIT_MAX = 12;
-/** Serialized carousel cap for cold For You slim wire payloads (canonical assetCount still preserved separately). */
-const FEED_SIMPLE_FIRST_PAINT_WIRE_ASSET_CAP = 8;
-
 /** Firestore reads budget for main reel+fallback scans (excludes seen ledger + blocked user read). */
 const MAX_MAIN_READ_BUDGET = 16;
 const BATCH_PAGE_SIZE = 8;
@@ -205,6 +207,18 @@ const readyDeckMemory = new Map<string, ReadyDeckEntry>();
 const blockedAuthorsMemory = new Map<string, { expiresAtMs: number; blocked: Set<string> }>();
 const servedRecentMemory = new Map<string, { expiresAtMs: number; entries: Map<string, number> }>();
 
+function clearPhaseDecksForDeckKey(deckKey: string): void {
+  const prefix = `${deckKey}::`;
+  for (const key of [...readyDeckMemory.keys()]) {
+    if (key.startsWith(prefix)) readyDeckMemory.delete(key);
+  }
+}
+
+/** Clears in-memory per-phase decks (Vitest isolation). */
+export function resetForYouSimplePhaseDecksForTests(): void {
+  readyDeckMemory.clear();
+}
+
 export type FeedForYouSimplePageDebug = {
   source: "firestore_random_simple";
   requestedLimit: number;
@@ -320,6 +334,21 @@ export type FeedForYouSimplePageDebug = {
     cursorCarriesFilter: boolean;
     deckKeyHash: string | null;
   };
+  forYouRouteVariant?: "v5" | "legacy";
+  legacyReason?: string;
+  returnedPostIds?: string[];
+  routeEnteredV5?: boolean;
+  cursorType?: string;
+  dryRunSeen?: boolean;
+  seenWritesEnabled?: boolean;
+  duplicateReturnedPostIds?: string[];
+  repeatRisk?: string | null;
+  cacheStatus?: string;
+  dbReadEstimate?: number;
+  durableSeenRead?: boolean;
+  seenWriteSkippedReason?: string | null;
+  regularFallbackUsed?: boolean;
+  reelsRemainingEstimate?: number;
 };
 
 export class FeedForYouSimpleService {
@@ -342,6 +371,7 @@ export class FeedForYouSimpleService {
       | "loadBlockedAuthorIdsForViewer"
       | "fetchCandidatesByPostIds"
       | "fetchReelPoolBootstrap"
+      | "listOldestSeenPostIdsForViewer"
     >
   ) {}
 
@@ -350,6 +380,9 @@ export class FeedForYouSimpleService {
     limit: number;
     cursor: string | null;
     refresh?: boolean;
+    dryRunSeen?: boolean;
+    verifyReadOnly?: boolean;
+    deviceIdHeader?: string | null;
     /** Radius filter; default "global" preserves legacy behavior. */
     radiusFilter?: ForYouRadiusFilter;
   }): Promise<{
@@ -363,6 +396,10 @@ export class FeedForYouSimpleService {
     wrapAroundUsed: boolean;
     fallbackAllPostsUsed: boolean;
     emergencyFallbackUsed: boolean;
+    lane: "reels" | "normal" | "recycled";
+    exhaustedReels: boolean;
+    exhaustedNormal: boolean;
+    hasMore: boolean;
     debug: FeedForYouSimplePageDebug;
   }> {
     const requestStartedAt = Date.now();
@@ -371,11 +408,37 @@ export class FeedForYouSimpleService {
     }
 
     const limit = clampLimit(input.limit);
+    const radiusFilterEarly: ForYouRadiusFilter = (() => {
+      if (input.radiusFilter) return input.radiusFilter;
+      return { mode: "global", centerLat: null, centerLng: null, radiusMiles: null };
+    })();
+    /**
+     * Native sends plain `GET /v2/feed/for-you/simple?limit=5`. Do not require `home_reel_first` here.
+     * Requiring `home_reel_first` caused native first paint to stay on the legacy `cold_refill` path
+     * with huge reads and repeated posts.
+     */
+    const routeVariant = resolveForYouSimpleFeedRouteVariant({ cursor: input.cursor ?? null });
+    if (routeVariant.kind === "v5") {
+      return getForYouV5Page({
+        repository: this.repository as never,
+        viewerId: input.viewerId,
+        limit,
+        cursor: input.cursor ?? null,
+        refresh: input.refresh === true,
+        radiusFilter: radiusFilterEarly,
+        dryRunSeen: input.dryRunSeen === true,
+        verifyReadOnly: input.verifyReadOnly === true,
+        deviceIdHeader: input.deviceIdHeader ?? null,
+      });
+    }
+    const legacyRouteReason = routeVariant.reason;
     const viewerId = input.viewerId?.trim() ?? "";
     const durableViewerId = isDurableViewerId(viewerId) ? viewerId : "";
     const isPaginationRequest = Boolean(input.cursor) && input.refresh !== true;
 
     const diag = emptyDiagnostics(limit);
+    diag.forYouRouteVariant = "legacy";
+    diag.legacyReason = legacyRouteReason;
     diag.cursorUsed = Boolean(input.cursor) && !input.refresh;
     const noCursorRequest = !input.cursor || input.refresh === true;
 
@@ -454,6 +517,8 @@ export class FeedForYouSimpleService {
               seen: [...new Set([...cursorSeen, ...returnedIds])].slice(-MAX_SEEN_IDS)
             });
       const diag = emptyDiagnostics(limit);
+      diag.forYouRouteVariant = "legacy";
+      diag.legacyReason = "debug_fixed_ids_env";
       diag.returnedCount = debugItems.length;
       diag.nextCursorPresent = Boolean(nextCursor);
       diag.cursorUsed = Boolean(input.cursor) && !input.refresh;
@@ -461,13 +526,18 @@ export class FeedForYouSimpleService {
       diag.randomSeedOrAnchor = "debug_fixed_ids";
       diag.firstPaintCardReadyCount = debugItems.length;
       applyFirstPaintPlaybackDiagnostics(debugItems, diag);
-      const cards = debugItems.map((candidate, index) => toPostCard(candidate, index, viewerId));
+      const cards = debugItems.map((candidate, index) => buildFeedCardFromSimpleCandidate(candidate, index, viewerId));
       const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
+      diag.returnedPostIds = returnedIds;
       return {
         routeName: "feed.for_you_simple.get",
         items: cardRecords as FeedCardDTO[],
         nextCursor,
         exhausted: debugItems.length === 0,
+        lane: debugItems.length === 0 ? "normal" : "reels",
+        exhaustedReels: false,
+        exhaustedNormal: false,
+        hasMore: Boolean(nextCursor),
         emptyReason: debugItems.length === 0 ? "no_playable_posts" : null,
         degradedFallbackUsed: false,
         relaxedSeenUsed: false,
@@ -489,9 +559,22 @@ export class FeedForYouSimpleService {
           : Promise.resolve({ blocked: new Set<string>(), readCount: 0 });
     const initialContextStartedAt = Date.now();
     const shouldReadDurableServedRecent = Boolean(durableViewerId) && isPaginationRequest;
+    /** First paint: smaller durable window keeps reads under first-paint budget; pagination uses full cap. */
+    const durableSeenReadLimit =
+      noCursorRequest && !recycleMode
+        ? Math.min(48, FOR_YOU_SIMPLE_SEEN_READ_CAP)
+        : FOR_YOU_SIMPLE_SEEN_READ_CAP;
+    const durableSeenPromise =
+      durableViewerId.length > 0
+        ? this.repository.listRecentSeenPostIdsForViewer({
+            viewerId: durableViewerId,
+            surface: FOR_YOU_SIMPLE_SURFACE,
+            limit: durableSeenReadLimit
+          })
+        : Promise.resolve({ postIds: new Set<string>(), readCount: 0 });
     const [{ blocked: blockedAuthors, readCount: blockedReads }, durableSeen, servedRecent] = await Promise.all([
       blockedAuthorsPromise,
-      Promise.resolve({ postIds: new Set<string>(), readCount: 0 }),
+      durableSeenPromise,
       servedRecentCached
         ? Promise.resolve(servedRecentCached)
         : shouldReadDurableServedRecent
@@ -520,6 +603,14 @@ export class FeedForYouSimpleService {
       durableSeen.readCount + blockedReads + servedRecent.readCount + (servedRecentResolved?.readCount ?? 0);
     diag.cursorSeenCount = cursorSeen.size;
     const effectiveDurableSeen = new Set<string>([...durableSeen.postIds, ...servedRecentIds]);
+    debugLog("feed", "FOR_YOU_PAGE_REQUEST", () => ({
+      viewerKeyHash: viewerId ? shortHash(viewerId) : null,
+      limit,
+      cursorPresent: Boolean(input.cursor),
+      refresh: input.refresh === true,
+      durableSeenRead: durableSeen.readCount,
+      servingMode
+    }));
     const pickCursorSeen =
       servingMode === "radius_all_posts"
         ? cursorSeen
@@ -528,6 +619,9 @@ export class FeedForYouSimpleService {
           : cursorSeen;
 
     const deckKey = deckKeyForServingMode(durableViewerId, servingMode, radiusFilter);
+    if (input.refresh === true) {
+      clearPhaseDecksForDeckKey(deckKey);
+    }
     if (reelPhaseMachineEnabled && noCursorRequest && effectiveDurableSeen.size > 0) {
       prunePhaseDecksForExclusion(deckKey, effectiveDurableSeen);
     }
@@ -591,31 +685,6 @@ export class FeedForYouSimpleService {
       for (const id of phaseServe.selectedIds) selectedIds.add(id);
       deckSource = phaseServe.deckSource;
       accumulateSurfaceTiming("feed_simple_stage_pick_ms", Date.now() - pickStartedAt);
-
-      if (items.length < limit && noCursorRequest && !filterIsActive) {
-        const poolStartedAt = Date.now();
-        const poolPick = await pickForYouSimpleReelPoolPage({
-          repository: this.repository,
-          viewerKey: deckKey || durableViewerId || viewerId || "anonymous",
-          limit,
-          exclude: new Set([...pickCursorSeen, ...selectedIds]),
-          blockedAuthors,
-          viewerId,
-          radiusGate
-        });
-        for (const candidate of poolPick.items) {
-          if (items.length >= limit) break;
-          const postId = normalizeFeedPostIdFromCandidate(candidate) ?? candidate.postId;
-          if (selectedIds.has(postId)) continue;
-          selectedIds.add(postId);
-          items.push(candidate);
-          updateMediaDiagnostics(candidate, diag);
-        }
-        if (poolPick.poolUsed) {
-          deckSource = deckSource === "cold_refill" ? "memory" : deckSource;
-        }
-        accumulateSurfaceTiming("feed_simple_stage_reel_pool_ms", Date.now() - poolStartedAt);
-      }
 
       workingCursor = repairForYouSimpleCursor(phaseServe.cursor);
     }
@@ -717,6 +786,39 @@ export class FeedForYouSimpleService {
     diag.softServedRecentPicks = softServedRecentPicks;
     if (!diag.deckStarvationRefillUsed) diag.deckStarvationRefillUsed = false;
 
+    let recycleOldestLaneUsed = false;
+    if (
+      reelPhaseMachineEnabled &&
+      servingMode === "home_reel_first" &&
+      items.length === 0 &&
+      durableViewerId &&
+      !filterIsActive &&
+      fallbackAllowed(repairForYouSimpleCursor(workingCursor))
+    ) {
+      const recycleStartedAt = Date.now();
+      const injected = await this.tryFillRecycleFromOldestSeen({
+        limit,
+        viewerId,
+        durableViewerId,
+        blockedAuthors,
+        radiusGate,
+        selectedIds,
+        diag
+      });
+      if (injected.length > 0) {
+        items.push(...injected);
+        recycleOldestLaneUsed = true;
+        diag.recycledSeenPosts = true;
+        debugLog("feed", "FOR_YOU_RECYCLE_STARTED", () => ({
+          viewerKeyHash: viewerId ? shortHash(viewerId) : null,
+          returnedCount: injected.length,
+          reason: "all_eligible_posts_seen_recycling_oldest",
+          cursorVersion: workingCursor.v
+        }));
+      }
+      accumulateSurfaceTiming("feed_simple_recycle_oldest_seen_ms", Date.now() - recycleStartedAt);
+    }
+
     workingCursor = repairForYouSimpleCursor(workingCursor);
     const fallbackPermitted = fallbackAllowed(workingCursor);
 
@@ -748,10 +850,11 @@ export class FeedForYouSimpleService {
           sameAuthorAdjacentCount: 0,
           maxAuthorPageCount: 0
         };
+    const effectiveRecycleMode = recycleMode || recycleOldestLaneUsed;
     const deduped = finalizeUniqueCandidates({
       candidates: diversified.items,
       cursorSeen: pickCursorSeen,
-      recycleMode
+      recycleMode: effectiveRecycleMode
     });
     diag.authorDiversityApplied = diversified.authorDiversityApplied;
     diag.sameAuthorAdjacentCount = diversified.sameAuthorAdjacentCount;
@@ -797,6 +900,21 @@ export class FeedForYouSimpleService {
         })();
       }, 0);
       seenWriteSucceeded = true;
+      setTimeout(() => {
+        void this.repository
+          .markPostsServedForViewer({
+            viewerId: durableViewerId,
+            surface: FOR_YOU_SIMPLE_SURFACE,
+            postIds: returnedIds
+          })
+          .catch((err: unknown) => {
+            debugLog("feed", "FOR_YOU_SEEN_WRITE_FAILED", () => ({
+              viewerKeyHash: shortHash(durableViewerId),
+              count: returnedIds.length,
+              message: err instanceof Error ? err.message : String(err)
+            }));
+          });
+      }, 0);
     }
     for (const phase of reelPhaseMachineEnabled ? FOR_YOU_SIMPLE_SERVE_PHASES : []) {
       if (phase === "fallback_normal" && !fallbackPermitted) continue;
@@ -837,7 +955,9 @@ export class FeedForYouSimpleService {
         : allReelPhasesExhausted(workingCursor.phases) && workingCursor.phases.fallback_normal.exhausted;
     const exhausted = finalItems.length === 0 && fullyExhausted;
     const nextRecycleMode =
-      servingMode === "radius_all_posts" ? false : fullyExhausted || workingCursor.recycleMode === true;
+      servingMode === "radius_all_posts"
+        ? false
+        : fullyExhausted || workingCursor.recycleMode === true || recycleOldestLaneUsed;
 
     const cursorCarriesFilter = filterIsActive;
     workingCursor = repairForYouSimpleCursor(
@@ -952,10 +1072,11 @@ export class FeedForYouSimpleService {
     diag.firstPaintCardReadyCount = finalItems.length;
     diag.detailBatchRequiredForFirstPaint = false;
     applyFirstPaintPlaybackDiagnostics(finalItems, diag);
+    diag.returnedPostIds = finalItems.map((c) => c.postId);
     diag.durableServedWriteStatus = seenWriteAttempted ? (deferredWritesQueued > 0 ? "deferred" : seenWriteSucceeded ? "ok" : "error") : "skipped";
     diag.reelReturnedCount = returnedReelCount;
     diag.fallbackReturnedCount = returnedNonReelCount;
-    diag.recycledSeenPosts = softServedRecentPicks > 0;
+    diag.recycledSeenPosts = softServedRecentPicks > 0 || recycleOldestLaneUsed;
     diag.radiusFilter = {
       mode: radiusFilter.mode,
       radiusMiles: filterIsActive ? (radiusFilter.radiusMiles as number) : null,
@@ -965,7 +1086,7 @@ export class FeedForYouSimpleService {
       cursorCarriesFilter,
       deckKeyHash: filterIsActive ? shortHash(deckKey) : null
     };
-    const cards = finalItems.map((candidate, index) => toPostCard(candidate, index, viewerId));
+    const cards = finalItems.map((candidate, index) => buildFeedCardFromSimpleCandidate(candidate, index, viewerId));
     const cardRecords = cards.map((row) => ({ ...row }) as Record<string, unknown>);
     accumulateSurfaceTiming("feed_simple_stage_total_ms", Date.now() - requestStartedAt);
 
@@ -998,6 +1119,29 @@ export class FeedForYouSimpleService {
       }));
     }
 
+    const exhaustedReelsLane = allReelPhasesExhausted(workingCursor.phases);
+    const exhaustedNormalLane = workingCursor.phases.fallback_normal.exhausted === true;
+    const responseLane: "reels" | "normal" | "recycled" = recycleOldestLaneUsed
+      ? "recycled"
+      : servingMode !== "home_reel_first"
+        ? "normal"
+        : !exhaustedReelsLane
+          ? "reels"
+          : "normal";
+    /** Pagination continuation: trust encoded cursor only (avoid marking hasMore on terminal partial pages). */
+    const hasMore = Boolean(nextCursor);
+    debugLog("feed", "FOR_YOU_PAGE_RESPONSE", () => ({
+      viewerKeyHash: viewerId ? shortHash(viewerId) : null,
+      returnedCount: finalItems.length,
+      lane: responseLane,
+      exhaustedReels: exhaustedReelsLane,
+      exhaustedNormal: exhaustedNormalLane,
+      hasMore,
+      nextCursorPresent: Boolean(nextCursor),
+      cursorVersion: workingCursor.v,
+      recycleOldestLaneUsed
+    }));
+
     if (readOnlyAuditMode || process.env.NODE_ENV !== "production") {
       debugLog("feed", "FOR_YOU_SIMPLE_PAGE_SELECTION", () => ({
         viewerId: viewerId ? shortHash(viewerId) : null,
@@ -1026,6 +1170,10 @@ export class FeedForYouSimpleService {
       items: cardRecords as FeedCardDTO[],
       nextCursor,
       exhausted,
+      lane: responseLane,
+      exhaustedReels: exhaustedReelsLane,
+      exhaustedNormal: exhaustedNormalLane,
+      hasMore,
       emptyReason,
       degradedFallbackUsed: diag.degradedFallbackUsed,
       relaxedSeenUsed: diag.relaxedSeenUsed,
@@ -1034,6 +1182,40 @@ export class FeedForYouSimpleService {
       emergencyFallbackUsed,
       debug: diag
     };
+  }
+
+  private async tryFillRecycleFromOldestSeen(input: {
+    limit: number;
+    viewerId: string;
+    durableViewerId: string;
+    blockedAuthors: Set<string>;
+    radiusGate: (candidate: SimpleFeedCandidate) => boolean;
+    selectedIds: Set<string>;
+    diag: FeedForYouSimplePageDebug;
+  }): Promise<SimpleFeedCandidate[]> {
+    const ordered = await this.repository.listOldestSeenPostIdsForViewer({
+      viewerId: input.durableViewerId,
+      surface: FOR_YOU_SIMPLE_SURFACE,
+      limit: Math.min(FOR_YOU_SIMPLE_SEEN_READ_CAP, input.limit * 6)
+    });
+    input.diag.candidateReadCount += ordered.readCount;
+    if (ordered.postIds.length === 0) return [];
+    const fetched = await this.repository.fetchCandidatesByPostIds(ordered.postIds);
+    const byId = new Map(fetched.map((c) => [c.postId, c]));
+    const out: SimpleFeedCandidate[] = [];
+    for (const postId of ordered.postIds) {
+      if (out.length >= input.limit) break;
+      const candidate = byId.get(postId);
+      if (!candidate) continue;
+      if (input.selectedIds.has(postId)) continue;
+      if (input.blockedAuthors.has(candidate.authorId)) continue;
+      if (input.viewerId && candidate.authorId === input.viewerId) continue;
+      if (!input.radiusGate(candidate)) continue;
+      input.selectedIds.add(postId);
+      out.push(canonicalizeFeedCandidate({ ...candidate, postId }));
+      updateMediaDiagnostics(candidate, input.diag);
+    }
+    return out;
   }
 
   private getOrCreatePhaseDeck(deckKey: string, phase: ForYouSimpleServePhase): ReadyDeckEntry {
@@ -1385,8 +1567,16 @@ export class FeedForYouSimpleService {
       }
       pickFromPhaseDeck(phase, input.pickMode ?? "strict_ring_and_durable");
       if (items.length >= input.limit) break;
-      if (!cursor.phases[phase].exhausted) break;
-      phaseIndex += 1;
+      if (cursor.phases[phase].exhausted) {
+        phaseIndex += 1;
+        continue;
+      }
+      const deckAfterPick = this.getOrCreatePhaseDeck(input.deckKey, phase);
+      if (items.length < input.limit && deckAfterPick.items.length === 0) {
+        phaseIndex += 1;
+        continue;
+      }
+      break;
     }
 
     cursor.activePhase = getEarliestAllowedPhase(cursor);
@@ -1661,192 +1851,6 @@ function accumulateSliceStats(
   diag.filteredInvisible += s.filteredInvisible;
 }
 
-function isRasterImageUrl(value: string | null | undefined): boolean {
-  if (!value || typeof value !== "string") return false;
-  return /\.(webp|jpg|jpeg|png)(\?|#|$)/i.test(value.trim());
-}
-
-/**
- * "Degraded" = video still depends on raw MP4 for grid/playback surfaces (no real image poster/preview, no HLS).
- * Note: `normalizeAssets` may set `previewUrl` to the same URL as `original`/`mp4`; that is still degraded.
- */
-function inferLabeledMp4FromUrl(url: string | null | undefined): Record<string, string> {
-  if (!url || typeof url !== "string") return {};
-  const u = url.trim();
-  if (!/^https?:\/\//i.test(u)) return {};
-  if (/1080.*avc|_1080_avc|1080_avc/i.test(u)) return { main1080Avc: u };
-  if (/\/[^/]*1080[^/]*hevc|_1080_hevc|main1080_hevc/i.test(u)) return { main1080: u };
-  if (/720.*avc|_720_avc|720_avc/i.test(u)) return { main720Avc: u };
-  if (/\/[^/]*720[^/]*hevc|_720_hevc/i.test(u)) return { main720: u };
-  return { main720Avc: u };
-}
-
-function hasMainishVariant(variants: Record<string, string>): boolean {
-  return Boolean(
-    variants.main1080Avc ||
-      variants.main1080 ||
-      variants.main720Avc ||
-      variants.main720 ||
-      variants.hls ||
-      variants.startup1080FaststartAvc ||
-      variants.startup720FaststartAvc
-  );
-}
-
-function simpleCandidateVideoVariants(a0: SimpleFeedCandidate["assets"][number]): Record<string, string> {
-  const v: Record<string, string> = { ...(a0.playbackVariantUrls ?? {}) };
-  if (a0.streamUrl?.trim()) v.hls = a0.streamUrl.trim();
-  const inferred = inferLabeledMp4FromUrl(a0.mp4Url);
-  if (!hasMainishVariant(v)) {
-    Object.assign(v, inferred);
-  } else {
-    for (const [k, val] of Object.entries(inferred)) {
-      if (v[k] == null) v[k] = val;
-    }
-  }
-  return v;
-}
-
-function carouselCompactAssetCap(assetCount: number): number {
-  const n = Math.max(1, Math.floor(assetCount || 1));
-  return Math.min(12, n);
-}
-
-function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
-  playbackUrl?: string;
-  playbackUrlPresent?: boolean;
-  fallbackVideoUrl?: string;
-  mediaStatus?: "processing" | "ready" | "failed";
-  assetsReady?: boolean;
-  playbackReady?: boolean;
-  posterReady?: boolean;
-  hasVideo?: boolean;
-} {
-  if (candidate.mediaType !== "video") return {};
-  const a0 = candidate.assets[0];
-  if (!a0) return { hasVideo: true };
-  const variants = simpleCandidateVideoVariants(a0);
-  const postLike: Record<string, unknown> = {
-    mediaType: "video",
-    assetsReady: candidate.assetsReady === true,
-    instantPlaybackReady: candidate.instantPlaybackReady === true,
-    ...(candidate.videoProcessingStatus ? { videoProcessingStatus: candidate.videoProcessingStatus } : {}),
-    assets: [
-      {
-        type: "video",
-        id: a0.id,
-        original: a0.originalUrl,
-        ...(Object.keys(variants).length > 0 ? { variants } : {}),
-      },
-    ],
-  };
-  const sel = selectBestVideoPlaybackAsset(postLike, { hydrationMode: "playback", allowPreviewOnly: true });
-  const posterOk = Boolean(candidate.posterUrl?.trim() || a0.posterUrl?.trim());
-  const mediaStatus: "processing" | "ready" | "failed" =
-    sel.mediaStatusHint === "failed" ? "failed" : sel.mediaStatusHint === "ready" ? "ready" : "processing";
-  return {
-    ...(sel.playbackUrl ? { playbackUrl: sel.playbackUrl } : {}),
-    playbackUrlPresent: Boolean(sel.playbackUrl),
-    ...(sel.fallbackVideoUrl ? { fallbackVideoUrl: sel.fallbackVideoUrl } : {}),
-    mediaStatus,
-    ...(candidate.assetsReady === true ? { assetsReady: true } : {}),
-    playbackReady: Boolean(sel.playbackUrl) || candidate.instantPlaybackReady === true,
-    posterReady: posterOk,
-    hasVideo: true,
-  };
-}
-
-function firstVisiblePlaybackSignals(candidate: SimpleFeedCandidate | undefined): {
-  ready: boolean;
-  playbackUrlPresent: boolean;
-  posterPresent: boolean;
-  variant: string | null;
-  needsDetailBeforePlay: boolean;
-} | null {
-  if (!candidate) return null;
-  const posterOk = Boolean(candidate.posterUrl?.trim() || candidate.assets[0]?.posterUrl?.trim());
-  if (candidate.mediaType !== "video") {
-    return {
-      ready: true,
-      playbackUrlPresent: false,
-      posterPresent: posterOk,
-      variant: null,
-      needsDetailBeforePlay: false,
-    };
-  }
-  const aug = augmentSimpleFeedVideoPlayback(candidate);
-  const a0 = candidate.assets[0];
-  if (!a0) {
-    return {
-      ready: Boolean(aug.playbackReady),
-      playbackUrlPresent: Boolean(aug.playbackUrlPresent),
-      posterPresent: posterOk,
-      variant: null,
-      needsDetailBeforePlay: aug.playbackReady !== true && !aug.playbackUrlPresent,
-    };
-  }
-  const variants = simpleCandidateVideoVariants(a0);
-  const postLike: Record<string, unknown> = {
-    mediaType: "video",
-    assetsReady: candidate.assetsReady === true,
-    instantPlaybackReady: candidate.instantPlaybackReady === true,
-    ...(candidate.videoProcessingStatus ? { videoProcessingStatus: candidate.videoProcessingStatus } : {}),
-    assets: [
-      {
-        type: "video",
-        id: a0.id,
-        original: a0.originalUrl,
-        ...(Object.keys(variants).length > 0 ? { variants } : {}),
-      },
-    ],
-  };
-  const sel = selectBestVideoPlaybackAsset(postLike, { hydrationMode: "playback", allowPreviewOnly: true });
-  return {
-    ready: Boolean(aug.playbackReady ?? sel.playbackUrl),
-    playbackUrlPresent: Boolean(aug.playbackUrlPresent ?? sel.playbackUrl),
-    posterPresent: posterOk,
-    variant: sel.selectedVideoVariant ?? null,
-    needsDetailBeforePlay:
-      Boolean(candidate.instantPlaybackReady !== true && sel.isPreviewOnly && !candidate.assetsReady),
-  };
-}
-
-function applyFirstPaintPlaybackDiagnostics(candidates: SimpleFeedCandidate[], diag: FeedForYouSimplePageDebug): void {
-  const slice = candidates.slice(0, 2);
-  let readyCount = 0;
-  for (const row of slice) {
-    const sig = firstVisiblePlaybackSignals(row);
-    if (sig?.ready) readyCount += 1;
-  }
-  diag.firstPaintPlaybackReadyCount = readyCount;
-  const head = firstVisiblePlaybackSignals(candidates[0]);
-  if (head) {
-    diag.firstVisiblePlaybackUrlPresent = head.playbackUrlPresent;
-    diag.firstVisiblePosterPresent = head.posterPresent;
-    diag.firstVisibleVariant = head.variant;
-    diag.firstVisibleNeedsDetailBeforePlay = head.needsDetailBeforePlay;
-  }
-}
-
-function updateMediaDiagnostics(candidate: SimpleFeedCandidate, diag: FeedForYouSimplePageDebug): void {
-  const a = candidate.assets[0];
-  if (candidate.mediaType !== "video" || !a) {
-    diag.mediaReadyCount += 1;
-    return;
-  }
-  const orig = (a.originalUrl ?? "").trim();
-  const mp4 = (a.mp4Url ?? "").trim();
-  const prev = (a.previewUrl ?? "").trim();
-  const poster = (a.posterUrl ?? "").trim();
-  const stream = (a.streamUrl ?? "").trim();
-  const hasRasterPreview = isRasterImageUrl(prev) || isRasterImageUrl(poster);
-  const degraded =
-    Boolean(orig || mp4) &&
-    !stream &&
-    !hasRasterPreview;
-  if (degraded) diag.degradedMediaCount += 1;
-  else diag.mediaReadyCount += 1;
-}
 
 type DeckPickMode = "strict_ring_and_durable" | "durable_gate_only";
 
@@ -1900,165 +1904,11 @@ function clampLimit(raw: number): number {
   return Math.max(LIMIT_MIN, Math.min(LIMIT_MAX, n || LIMIT_DEFAULT));
 }
 
-function toPostCard(candidate: SimpleFeedCandidate, index: number, viewerId: string): FeedCardDTO {
-  const firstCanonicalVideoPlayback = (() => {
-    const raw = candidate.rawFirestore;
-    if (!raw || typeof raw !== "object") return null;
-    const media = (raw.media as { assets?: unknown[] } | undefined)?.assets;
-    if (!Array.isArray(media)) return null;
-    const videoAsset = media.find((asset) => {
-      if (!asset || typeof asset !== "object") return false;
-      return (asset as { type?: unknown }).type === "video";
-    }) as { id?: unknown; video?: { playback?: Record<string, unknown> } } | undefined;
-    if (!videoAsset?.video?.playback) return null;
-    const playback = videoAsset.video.playback;
-    return {
-      assetId: typeof videoAsset.id === "string" ? videoAsset.id : null,
-      startupUrl: typeof playback.startupUrl === "string" ? playback.startupUrl : null,
-      defaultUrl: typeof playback.defaultUrl === "string" ? playback.defaultUrl : null,
-      primaryUrl: typeof playback.primaryUrl === "string" ? playback.primaryUrl : null,
-      selectedReason: typeof playback.selectedReason === "string" ? playback.selectedReason : null
-    };
-  })();
-  const sourceLen = candidate.sourceFirestoreAssetArrayLen ?? candidate.assets.length;
-  const candidateRecord = candidate as unknown as Record<string, unknown>;
-  const shouldPreserveCanonicalAssets =
-    sourceLen > 1 ||
-    candidateRecord.hasMultipleAssets === true ||
-    candidateRecord.mediaCompleteness === "full" ||
-    candidateRecord.mediaCompleteness === "complete";
-  const visibleAssets = shouldPreserveCanonicalAssets ? candidate.assets : candidate.assets.slice(0, 1);
-  const compactCap = Math.min(carouselCompactAssetCap(visibleAssets.length), FEED_SIMPLE_FIRST_PAINT_WIRE_ASSET_CAP);
-  const fullCard = toFeedCardDTO({
-    postId: candidate.postId,
-    sourceRawPost: candidate.rawFirestore ?? null,
-    rankToken: `fys:${viewerId.slice(0, 8) || "anon"}:${index + 1}`,
-    author: {
-      userId: candidate.authorId,
-      handle: candidate.authorHandle,
-      name: candidate.authorName,
-      pic: candidate.authorPic
-    },
-    activities: candidate.activities,
-    address: candidate.address,
-    carouselFitWidth: candidate.carouselFitWidth,
-    layoutLetterbox: candidate.layoutLetterbox,
-    letterboxGradientTop: candidate.letterboxGradientTop,
-    letterboxGradientBottom: candidate.letterboxGradientBottom,
-    letterboxGradients: candidate.letterboxGradients,
-    geo: candidate.geo,
-    assets: visibleAssets,
-    compactAssetLimit: compactCap,
-    compactSurfaceWireMode: "feed_first_paint",
-    title: candidate.title,
-    captionPreview: candidate.captionPreview,
-    firstAssetUrl: candidate.firstAssetUrl,
-    canonicalAliasMode: "app_post_v2_only",
-    media: {
-      type: candidate.mediaType,
-      posterUrl: candidate.posterUrl,
-      aspectRatio: candidate.assets[0]?.aspectRatio ?? 9 / 16,
-      startupHint: candidate.mediaType === "video" ? "poster_then_preview" : "poster_only"
-    },
-    social: {
-      likeCount: candidate.likeCount,
-      commentCount: candidate.commentCount
-    },
-    viewer: {
-      liked: false,
-      saved: false
-    },
-    createdAtMs: candidate.createdAtMs,
-    updatedAtMs: candidate.updatedAtMs,
-    rawFirestoreAssetCount: sourceLen,
-    assetCount: sourceLen,
-    hasMultipleAssets: sourceLen > 1,
-    ...augmentSimpleFeedVideoPlayback(candidate)
-  });
-  const {
-    postContractVersion: _postContractVersion,
-    normalizedCard: _normalizedCard,
-    normalizedMedia: _normalizedMedia,
-    normalizedAuthor: _normalizedAuthor,
-    normalizedLocation: _normalizedLocation,
-    normalizedCounts: _normalizedCounts,
-    mediaResolutionSource: _mediaResolutionSource,
-    hasPlayableVideo: _hasPlayableVideo,
-    hasAssetsArray: _hasAssetsArray,
-    hasRawPost: _hasRawPost,
-    hasEmbeddedComments: _hasEmbeddedComments,
-    rawPost: _rawPost,
-    sourcePost: _sourcePost,
-    debugPostEnvelope: _debugPostEnvelope,
-    appPostAttached: _appPostAttached,
-    appPostWireAssetCount: _appPostWireAssetCount,
-    wireDeclaredMediaAssetCount: _wireDeclaredMediaAssetCount,
-    ...leanCard
-  } = fullCard as FeedCardDTO & Record<string, unknown>;
-  const outgoingAppPost = (fullCard.appPost ?? null) as
-    | { media?: { assets?: Array<{ id?: unknown; type?: unknown; video?: { playback?: Record<string, unknown> } }> } }
-    | null;
-  const outgoingPlayback = (() => {
-    const assets = Array.isArray(outgoingAppPost?.media?.assets) ? outgoingAppPost?.media?.assets : [];
-    const videoAsset = assets.find((asset) => asset?.type === "video");
-    const playback = videoAsset?.video?.playback;
-    return {
-      assetId: typeof videoAsset?.id === "string" ? videoAsset.id : null,
-      startupUrl: typeof playback?.startupUrl === "string" ? playback.startupUrl : null,
-      defaultUrl: typeof playback?.defaultUrl === "string" ? playback.defaultUrl : null,
-      primaryUrl: typeof playback?.primaryUrl === "string" ? playback.primaryUrl : null,
-      selectedReason: typeof playback?.selectedReason === "string" ? playback.selectedReason : null
-    };
-  })();
-  const canonicalFaststartPresent = Boolean(
-    firstCanonicalVideoPlayback?.startupUrl &&
-      /startup(?:540|720|1080)_faststart_avc\.mp4/i.test(firstCanonicalVideoPlayback.startupUrl)
-  );
-  const outgoingDroppedFaststart = Boolean(
-    canonicalFaststartPresent &&
-      (!outgoingPlayback.startupUrl ||
-        !/startup(?:540|720|1080)_faststart_avc\.mp4/i.test(outgoingPlayback.startupUrl))
-  );
-  if (LOG_FEED_DEBUG || LOG_VIDEO_DEBUG) {
-    const cacheWasStale = Boolean(canonicalFaststartPresent && outgoingDroppedFaststart);
-    const refreshedFromCanonical = Boolean(canonicalFaststartPresent && !outgoingDroppedFaststart);
-    try {
-      debugLog("video", "FEED_WIRE_APPPOST_PLAYBACK_DEBUG", () => ({
-          postId: candidate.postId,
-          source: candidate.rawFirestore ? "fresh_post_doc" : "post_card_cache",
-          canonicalDocStartupUrl: firstCanonicalVideoPlayback?.startupUrl ?? null,
-          canonicalDocDefaultUrl: firstCanonicalVideoPlayback?.defaultUrl ?? null,
-          canonicalDocPrimaryUrl: firstCanonicalVideoPlayback?.primaryUrl ?? null,
-          canonicalDocSelectedReason: firstCanonicalVideoPlayback?.selectedReason ?? null,
-          outgoingAppPostStartupUrl: outgoingPlayback.startupUrl,
-          outgoingAppPostDefaultUrl: outgoingPlayback.defaultUrl,
-          outgoingAppPostPrimaryUrl: outgoingPlayback.primaryUrl,
-          outgoingAppPostSelectedReason: outgoingPlayback.selectedReason,
-          cacheWasStale,
-          refreshedFromCanonical
-        }));
-      if (outgoingDroppedFaststart) {
-        debugLog("video", "FEED_CANONICAL_PLAYBACK_DROPPED_ERROR", () => ({
-            postId: candidate.postId,
-            canonicalDocStartupUrl: firstCanonicalVideoPlayback?.startupUrl ?? null,
-            outgoingAppPostStartupUrl: outgoingPlayback.startupUrl ?? null
-          }));
-      }
-    } catch {
-      // no-op
-    }
-  }
-  if (fullCard.appPostV2 && typeof fullCard.appPostV2 === "object") {
-    (leanCard as Record<string, unknown>).appPostV2 = fullCard.appPostV2;
-    (leanCard as Record<string, unknown>).postContractVersion = 3 as const;
-  }
-  return leanCard as FeedCardDTO;
-}
-
 function isDurableViewerId(viewerId: string): boolean {
   const normalized = viewerId.trim().toLowerCase();
   if (!normalized) return false;
-  return normalized !== "anonymous" && normalized !== "anon" && normalized !== "guest";
+  const reserved = new Set(["anonymous", "anon", "guest"]);
+  return !reserved.has(normalized);
 }
 
 export function getForYouReadyDeckDebug(viewerId: string): {

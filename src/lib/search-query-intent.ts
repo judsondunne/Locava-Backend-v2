@@ -38,6 +38,12 @@ export type SearchQueryIntent = {
   residualTokens: string[];
   activity: SearchActivityIntent | null;
   location: SearchLocationIntent | null;
+  /** True when the query ends with an explicit place phrase such as "in boston" or "near san francisco". */
+  hasExplicitLocation: boolean;
+  /** Lowercase normalized explicit place token(s), e.g. "new york"; null when absent. */
+  explicitLocationText: string | null;
+  /** When present, explicit location metadata came from the query text (not geocoding). */
+  locationModifierSource: "query" | null;
 };
 
 type ActivityDefinition = {
@@ -367,6 +373,62 @@ export function resolveActivitySuggestions(query: string, limit = 6): SearchActi
     }));
 }
 
+/** Tail anchor: explicit place after in/near/around/by (no geocoding required). */
+const EXPLICIT_LOCATION_TAIL_RE =
+  /\b(in|near|around|by)\s+([a-zA-Z][a-zA-Z\s.'-]{1,60})$/i;
+
+const EXPLICIT_LOCATION_STOP_PHRASES = new Set([
+  "here",
+  "there",
+  "my area",
+  "this area",
+  "the area",
+]);
+
+/**
+ * Detects a trailing explicit location phrase ("in boston", "near san francisco", "by easton").
+ * Returns normalized lowercase location tokens; excludes "near me" and generic non-place tails.
+ */
+export function parseExplicitLocationPhrase(rawQuery: string): {
+  preposition: "in" | "near" | "around" | "by";
+  explicitLocationText: string;
+  rawLocationPhrase: string;
+} | null {
+  const s = String(rawQuery ?? "").trim();
+  const m = s.match(EXPLICIT_LOCATION_TAIL_RE);
+  if (!m) return null;
+  const prepRaw = String(m[1] ?? "").toLowerCase();
+  if (prepRaw !== "in" && prepRaw !== "near" && prepRaw !== "around" && prepRaw !== "by") return null;
+
+  let rawLoc = String(m[2] ?? "")
+    .trim()
+    .replace(/[.,;:!?]+$/g, "")
+    .trim();
+  if (rawLoc.length < 2) return null;
+
+  const normalizedLoc = normalizeSearchText(rawLoc);
+  if (normalizedLoc.length < 2) return null;
+
+  if (prepRaw === "near") {
+    if (normalizedLoc === "me" || normalizedLoc.startsWith("me ")) return null;
+  }
+
+  if (EXPLICIT_LOCATION_STOP_PHRASES.has(normalizedLoc)) return null;
+  if (/^my\s+area$/i.test(normalizedLoc)) return null;
+
+  return {
+    preposition: prepRaw as "in" | "near" | "around" | "by",
+    explicitLocationText: normalizedLoc,
+    rawLocationPhrase: rawLoc,
+  };
+}
+
+/** Display title for explicit tail locations resolved without an indexed place row. */
+export function formatExplicitLocationDisplay(normalizedLocation: string): string {
+  const parts = normalizeSearchText(normalizedLocation).split(/\s+/).filter(Boolean);
+  return parts.map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
 function resolveAliasPlace(query: string): SearchIndexedPlaceLike | null {
   const normalized = normalizeSearchText(query);
   const alias = LOCATION_ALIASES.find((row) => row.alias === normalized);
@@ -407,11 +469,27 @@ export function resolveLocationIntent(
     };
   }
 
-  const relationMatch = normalized.match(/\b(in|near)\s+(.+)$/);
-  const relation = (relationMatch?.[1] as "in" | "near" | undefined) ?? "implicit";
-  const rawLocation = relationMatch?.[2] ?? normalized;
-  const normalizedLocation = normalizeSearchText(rawLocation);
-  if (!normalizedLocation) return null;
+  const explicitPhrase = parseExplicitLocationPhrase(rawQuery);
+
+  let normalizedLocation: string;
+  let rawLocationForIntent: string;
+  let fromStrictTail: boolean;
+  let relationWord: "in" | "near" | "around" | "by";
+
+  if (explicitPhrase) {
+    fromStrictTail = true;
+    normalizedLocation = explicitPhrase.explicitLocationText;
+    rawLocationForIntent = explicitPhrase.rawLocationPhrase;
+    relationWord = explicitPhrase.preposition;
+  } else {
+    const relationMatch = normalized.match(/\b(in|near|around|by)\s+(.+)$/);
+    if (!relationMatch) return null;
+    fromStrictTail = false;
+    relationWord = String(relationMatch[1] ?? "in").toLowerCase() as "in" | "near" | "around" | "by";
+    rawLocationForIntent = relationMatch[2] ?? "";
+    normalizedLocation = normalizeSearchText(rawLocationForIntent);
+    if (!normalizedLocation) return null;
+  }
 
   const aliasPlace = resolveAliasPlace(normalizedLocation);
   const stateName = resolveStateNameFromAny(normalizedLocation);
@@ -430,23 +508,41 @@ export function resolveLocationIntent(
     }
   }
 
-  if (!directPlace && !stateName) return null;
+  const relation: SearchLocationIntent["relation"] = relationWord === "near" ? "near" : "in";
 
-  return {
-    raw: rawLocation,
-    normalized: normalizedLocation,
-    relation,
-    place: directPlace,
-    stateName: directPlace?.stateName ?? stateName,
-    stateRegionId:
-      directPlace?.stateRegionId ??
-      (stateName ? buildStateRegionId("US", stateName) : null),
-    cityRegionId: directPlace?.cityRegionId ?? null,
-    displayText:
-      directPlace != null
-        ? `${directPlace.text}, ${directPlace.stateName}`
-        : stateName,
-  };
+  if (directPlace || stateName) {
+    return {
+      raw: rawLocationForIntent,
+      normalized: normalizedLocation,
+      relation,
+      place: directPlace,
+      stateName: directPlace?.stateName ?? stateName,
+      stateRegionId:
+        directPlace?.stateRegionId ??
+        (stateName ? buildStateRegionId("US", stateName) : null),
+      cityRegionId: directPlace?.cityRegionId ?? null,
+      displayText:
+        directPlace != null
+          ? `${directPlace.text}, ${directPlace.stateName}`
+          : stateName,
+    };
+  }
+
+  // Typed location phrase without an index/state resolution — still explicit (ex: "in boston").
+  if (fromStrictTail) {
+    return {
+      raw: rawLocationForIntent,
+      normalized: normalizedLocation,
+      relation,
+      place: null,
+      stateName: null,
+      stateRegionId: null,
+      cityRegionId: null,
+      displayText: formatExplicitLocationDisplay(normalizedLocation),
+    };
+  }
+
+  return null;
 }
 
 export function parseSearchQueryIntent(
@@ -456,12 +552,13 @@ export function parseSearchQueryIntent(
   const rawQuery = String(query ?? "").trim();
   const normalizedQuery = normalizeSearchText(rawQuery);
   const nearMe = /\bnear me\b|\bnearby\b|\bnear you\b/.test(normalizedQuery);
+  const explicitPhrase = parseExplicitLocationPhrase(rawQuery);
   const activity = resolveActivityIntent(rawQuery);
   const location = resolveLocationIntent(rawQuery, resolvePlace);
   const residualTokens = extractResidualTokens(
     normalizedQuery
       .replace(/\bnear me\b|\bnearby\b|\bnear you\b/g, " ")
-      .replace(/\b(in|near)\s+[a-z0-9\s]+$/g, " "),
+      .replace(/\b(in|near|around|by)\s+[a-z0-9\s.'-]+$/g, " "),
   ).filter((token) => !activity?.matchedTerms.some((term) => normalizeSearchText(term) === token));
   const genericDiscovery = !activity && !location && residualTokens.length === 0;
   return {
@@ -476,5 +573,8 @@ export function parseSearchQueryIntent(
       location && location.normalized === "near me"
         ? null
         : location,
+    hasExplicitLocation: Boolean(explicitPhrase),
+    explicitLocationText: explicitPhrase?.explicitLocationText ?? null,
+    locationModifierSource: explicitPhrase ? "query" : null,
   };
 }

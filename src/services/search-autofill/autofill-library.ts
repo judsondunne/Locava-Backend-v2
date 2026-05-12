@@ -1,4 +1,5 @@
 import autofillLibrary from "./autofill-library.json" with { type: "json" };
+import { formatExplicitLocationDisplay } from "../../lib/search-query-intent.js";
 import type { PrefixFrame } from "./autofill-intent.js";
 import { getPrefixFrame } from "./autofill-intent.js";
 
@@ -117,6 +118,8 @@ export async function getStartersFromLibrary(placeContext?: ViewerPlaceContext |
 export async function getSuggestionsFromLibrary(input: {
   query: string;
   placeContext?: ViewerPlaceContext | null;
+  /** Normalized lowercase explicit place from the query (see parseExplicitLocationPhrase). */
+  explicitLocationText?: string | null;
 }): Promise<LibrarySuggestion[]> {
   const query = String(input.query ?? "");
   const frame = getPrefixFrame(query);
@@ -130,16 +133,25 @@ export async function getSuggestionsFromLibrary(input: {
   if (!templates || templates.length === 0) return [];
 
   const place = input.placeContext ?? null;
+  const explicitNorm = normalizeForMatch(String(input.explicitLocationText ?? "").trim());
+  const hasExplicitLocation = explicitNorm.length >= 2;
+  const explicitCityTitle = hasExplicitLocation ? formatExplicitLocationDisplay(explicitNorm) : null;
+
   const opts = {
-    cityName: place?.cityName ?? undefined,
-    stateName: place?.stateName ?? undefined,
-    cityRegionId: place?.cityRegionId ?? undefined,
-    stateRegionId: place?.stateRegionId ?? undefined,
+    cityName: hasExplicitLocation ? explicitCityTitle ?? undefined : place?.cityName ?? undefined,
+    stateName: hasExplicitLocation ? undefined : place?.stateName ?? undefined,
+    cityRegionId: hasExplicitLocation ? undefined : place?.cityRegionId ?? undefined,
+    stateRegionId: hasExplicitLocation ? undefined : place?.stateRegionId ?? undefined,
     quality: frame.quality || undefined,
   };
 
   const nearMeTemplates = templates.filter((t) => /near me|within |nearby/i.test(t));
-  const cityStateTemplates = templates.filter((t) => t.includes("[City]") || t.includes("[State]") || /in \[city\]|in \[state\]/i.test(t));
+  let cityStateTemplates = templates.filter(
+    (t) => t.includes("[City]") || t.includes("[State]") || /in \[city\]|in \[state\]/i.test(t),
+  );
+  if (hasExplicitLocation) {
+    cityStateTemplates = cityStateTemplates.filter((t) => !/\[State\]|in \[state\]|in \[State\]/i.test(t));
+  }
   const otherTemplates = templates.filter((t) => !nearMeTemplates.includes(t) && !cityStateTemplates.includes(t));
 
   const out: LibrarySuggestion[] = [];
@@ -158,34 +170,42 @@ export async function getSuggestionsFromLibrary(input: {
     });
   };
 
-  for (const t of nearMeTemplates.slice(0, 7)) {
-    if (out.length >= 12) break;
-    const { text } = expandTemplate(t, opts);
-    add(text, undefined, 0.95);
-  }
+  if (!hasExplicitLocation) {
+    for (const t of nearMeTemplates.slice(0, 7)) {
+      if (out.length >= 12) break;
+      const { text } = expandTemplate(t, opts);
+      add(text, undefined, 0.95);
+    }
 
-  if (out.length < 6) {
-    for (const t of templates) {
-      if (out.length >= 8) break;
-      if (t.toLowerCase().includes("near me")) {
-        const { text } = expandTemplate(t, opts);
-        add(text, undefined, 0.9);
+    if (out.length < 6) {
+      for (const t of templates) {
+        if (out.length >= 8) break;
+        if (t.toLowerCase().includes("near me")) {
+          const { text } = expandTemplate(t, opts);
+          add(text, undefined, 0.9);
+        }
       }
     }
-  }
 
-  if (place?.cityName && place?.stateName) {
+    if (place?.cityName && place?.stateName) {
+      for (const t of cityStateTemplates) {
+        if (out.length >= 12) break;
+        const { text, data } = expandTemplate(t, opts);
+        add(text, data, 0.88);
+      }
+      for (const t of nearMeTemplates.slice(0, 3)) {
+        if (out.length >= 12) break;
+        const withCity = t.replace(/ near me/g, ` in ${place.cityName}`);
+        if (!withCity || withCity === t) continue;
+        const { text } = expandTemplate(withCity, opts);
+        add(text, { cityRegionId: place.cityRegionId ?? undefined, stateRegionId: place.stateRegionId ?? undefined }, 0.85);
+      }
+    }
+  } else if (explicitCityTitle) {
     for (const t of cityStateTemplates) {
       if (out.length >= 12) break;
       const { text, data } = expandTemplate(t, opts);
       add(text, data, 0.88);
-    }
-    for (const t of nearMeTemplates.slice(0, 3)) {
-      if (out.length >= 12) break;
-      const withCity = t.replace(/ near me/g, ` in ${place.cityName}`);
-      if (!withCity || withCity === t) continue;
-      const { text } = expandTemplate(withCity, opts);
-      add(text, { cityRegionId: place.cityRegionId ?? undefined, stateRegionId: place.stateRegionId ?? undefined }, 0.85);
     }
   }
 

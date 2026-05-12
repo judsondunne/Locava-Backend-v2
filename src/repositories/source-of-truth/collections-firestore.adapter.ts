@@ -1,4 +1,4 @@
-import { FieldValue, type QueryDocumentSnapshot } from "firebase-admin/firestore";
+import { FieldPath, FieldValue, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { incrementDbOps, recordSurfaceTimings } from "../../observability/request-context.js";
 import { globalCache } from "../../cache/global-cache.js";
@@ -369,7 +369,7 @@ function isCollectionMarkedDeleted(viewerId: string, collectionId: string): bool
 }
 
 /** Server-owned mixes only — viewer prompt mixes use `generatedBy` and must remain readable/updatable. */
-function isSystemOrGeneratedCollection(data: Record<string, unknown>): boolean {
+export function isSystemOrGeneratedCollection(data: Record<string, unknown>): boolean {
   if (data.systemManaged === true) return true;
   if (typeof data.kind === "string" && data.kind === "system_mix") return true;
   if (data.systemMix && typeof data.systemMix === "object") return true;
@@ -1420,6 +1420,52 @@ export class CollectionsFirestoreAdapter {
     void globalCache.del(this.collectionCacheKey(input.viewerId, input.collectionId)).catch(() => undefined);
     void this.removeCollectionFromViewerIndexes(this.viewerIdsForCollection(existing), input.collectionId).catch(() => undefined);
     return { changed: true };
+  }
+
+  /**
+   * Emergency: hard-delete `collections/{collectionId}` even when system-managed / generated,
+   * including the `posts` membership subcollection. Strips from owner + collaborator indexes.
+   * Does not delete root `posts`.
+   */
+  async emergencyHardDeleteCollection(input: { collectionId: string }): Promise<{ deleted: boolean; viewerIdsStripped: string[] }> {
+    if (this.useSeededCollections()) {
+      return { deleted: false, viewerIdsStripped: [] };
+    }
+    const db = this.requireDb();
+    const ref = db.collection("collections").doc(input.collectionId);
+    const snap = await ref.get();
+    incrementDbOps("reads", snap.exists ? 1 : 0);
+    if (!snap.exists) {
+      return { deleted: false, viewerIdsStripped: [] };
+    }
+    const data = (snap.data() ?? {}) as Record<string, unknown>;
+    const ownerId = String(data.ownerId ?? data.userId ?? "").trim() || "unknown";
+    const mapped = mapCollectionData(input.collectionId, data, ownerId);
+    const viewerIds = this.viewerIdsForCollection(mapped);
+
+    const POSTS_PAGE = 450;
+    for (;;) {
+      const pSnap = await ref.collection("posts").orderBy(FieldPath.documentId()).limit(POSTS_PAGE).get();
+      incrementDbOps("queries", 1);
+      incrementDbOps("reads", pSnap.docs.length);
+      if (pSnap.empty) break;
+      const batch = db.batch();
+      for (const d of pSnap.docs) {
+        batch.delete(d.ref);
+      }
+      await batch.commit();
+      incrementDbOps("writes", pSnap.docs.length);
+      if (pSnap.docs.length < POSTS_PAGE) break;
+    }
+
+    incrementDbOps("writes", 1);
+    await ref.delete();
+    markCollectionDeleted(viewerIds, input.collectionId);
+    for (const vid of viewerIds) {
+      void globalCache.del(this.collectionCacheKey(vid, input.collectionId)).catch(() => undefined);
+    }
+    await this.removeCollectionFromViewerIndexes(viewerIds, input.collectionId);
+    return { deleted: true, viewerIdsStripped: viewerIds };
   }
 
   async listCollectionPostIds(input: {

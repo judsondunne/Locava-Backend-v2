@@ -9,11 +9,21 @@ import {
 import { MixPostsRepository } from "../../repositories/mixPosts.repository.js";
 import type { MixesRepository, MixSourcePost } from "../../repositories/mixes/mixes.repository.js";
 import { mixesRepository, parsePostTimeMs } from "../../repositories/mixes/mixes.repository.js";
+import {
+  approvedActivityMatchSet,
+  approvedFirestoreTagsForRecall,
+  geoRadiusRecallLadderKm,
+  MIX_RECALL_FS_POOL_CAP,
+  MIX_RECALL_MAX_MERGED_CANDIDATES,
+} from "./mixActivityRecall.js";
 
 const MAX_MIX_RADIUS_KM = 500;
 const ACTIVITY_FALLBACK_FETCH_LIMIT = 6;
 const ACTIVITY_FALLBACK_POOL_CAP = 10;
 const MIX_PREVIEW_WARM_WAIT_MS = 450;
+/** mc:v4 offset cursor — bounded merged candidate pagination (see progressive recall). */
+type MixPageCursorV4 = { v: 4; off: number; stamp: string };
+
 
 type CursorPayload = { v: 1; t: number; id: string };
 type GeoCursorPayload = { v: 2; lat: number; lng: number; d: number; t: number; id: string };
@@ -148,6 +158,28 @@ function geoCursorMatchesFilter(cursor: GeoCursorPayload, filter: MixFilter): bo
   return Math.abs(cursor.lat - filter.lat) < eps && Math.abs(cursor.lng - filter.lng) < eps;
 }
 
+function mixPageCursorV4Encode(payload: MixPageCursorV4): string {
+  return `mc:v4:${Buffer.from(JSON.stringify(payload), "utf8").toString("base64url")}`;
+}
+
+function mixPageCursorV4Decode(cursor: string | null): MixPageCursorV4 | null {
+  if (!cursor) return null;
+  const m = /^mc:v4:(.+)$/.exec(cursor);
+  if (!m?.[1]) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(m[1], "base64url").toString("utf8")) as MixPageCursorV4;
+    if (parsed.v !== 4 || !Number.isFinite(parsed.off) || parsed.off < 0 || typeof parsed.stamp !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function mixPostsStructuredLog(event: string, payload: Record<string, unknown>): void {
+  if (process.env.NODE_ENV === "production" && process.env.LOG_MIX_POSTS !== "1") return;
+  console.info(JSON.stringify({ event, ts: Date.now(), ...payload }));
+}
+
 function rowIsAfterGeoCursor(
   row: MixSourcePost,
   cursor: GeoCursorPayload,
@@ -202,6 +234,8 @@ function hasUsableCoverMedia(row: MixSourcePost): boolean {
     normalizeText((row as any).displayPhotoUrl) ??
     normalizeText((row as any).photoLink) ??
     normalizeText((row as any).thumbnailUrl) ??
+    normalizeText(variants.posterHigh) ??
+    normalizeText(variants.posterHighUrl) ??
     normalizeText(first.poster) ??
     normalizeText(first.thumbnail) ??
     normalizeText(first.posterUrl);
@@ -274,6 +308,8 @@ function mapPostCard(row: MixSourcePost, index: number, mixKey: string): MixPost
     normalizeText((appMedia as any)?.posterUrl);
   const poster =
     posterFromApp ??
+    normalizeText(variants.posterHigh) ??
+    normalizeText(variants.posterHighUrl) ??
     normalizeText((row as any).thumbUrl) ??
     normalizeText((row as any).displayPhotoLink) ??
     normalizeText((row as any).displayPhotoUrl) ??
@@ -394,18 +430,27 @@ function hashFilter(filter: MixFilter, viewerId: string | null): string {
   return createHash("sha1").update(payload).digest("hex");
 }
 
+function mixPageFilterStamp(filter: MixFilter): string {
+  return createHash("sha1").update(JSON.stringify(normalizeFilter(filter))).digest("hex").slice(0, 16);
+}
+
+function postMatchesActivityAllowlist(row: MixSourcePost, allow: Set<string>): boolean {
+  const tokens = postActivityTokens(row);
+  return tokens.some((t) => allow.has(t));
+}
+
 export class MixesService {
-  private readonly postsRepoInjected?: Pick<MixPostsRepository, "pageByActivity">;
+  private readonly postsRepoInjected?: Pick<MixPostsRepository, "pageByActivity" | "pageByActivityAliases">;
   private postsRepoMemo?: MixPostsRepository;
 
   constructor(
     private readonly repo: Pick<MixesRepository, "listFromPool" | "listFromPoolWithWarmWait"> = mixesRepository,
-    postsRepo?: Pick<MixPostsRepository, "pageByActivity">,
+    postsRepo?: Pick<MixPostsRepository, "pageByActivity" | "pageByActivityAliases">,
   ) {
     this.postsRepoInjected = postsRepo;
   }
 
-  private get postsRepo(): Pick<MixPostsRepository, "pageByActivity"> {
+  private get postsRepo(): Pick<MixPostsRepository, "pageByActivity" | "pageByActivityAliases"> {
     if (this.postsRepoInjected) return this.postsRepoInjected;
     if (!this.postsRepoMemo) this.postsRepoMemo = new MixPostsRepository();
     return this.postsRepoMemo;
@@ -446,10 +491,12 @@ export class MixesService {
     let filteredStats = this.filterRowsWithStats(pool, filter);
     let filtered = filteredStats.rows;
     const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
-    if (filtered.length === 0 && normalizedActivity) {
+    const previewNeedsRecall = Boolean(normalizedActivity && filtered.length < limit);
+    if (previewNeedsRecall) {
       try {
-        const fb = await this.postsRepo.pageByActivity({
-          activity: normalizedActivity,
+        const tags = approvedFirestoreTagsForRecall(String(filter.activity ?? ""));
+        const fb = await this.postsRepo.pageByActivityAliases({
+          aliases: tags,
           limit: Math.max(ACTIVITY_FALLBACK_FETCH_LIMIT, limit * 2),
           cursor: null,
           poolCapOverride: ACTIVITY_FALLBACK_POOL_CAP,
@@ -459,7 +506,8 @@ export class MixesService {
           const asMix = fb.items as unknown as MixSourcePost[];
           const seen = new Set(pool.map((r) => String(r.postId)));
           workingPool = [...pool, ...asMix.filter((r) => !seen.has(String(r.postId)))];
-          filteredStats = this.filterRowsWithStats(workingPool, filter);
+          const allow = approvedActivityMatchSet(String(filter.activity ?? ""));
+          filteredStats = this.filterRowsWithStats(workingPool, filter, { activityAllowSet: allow });
           filtered = filteredStats.rows;
         }
       } catch {
@@ -536,6 +584,7 @@ export class MixesService {
         ? input.filter.radiusKm
         : undefined;
     const filter = normalizeFilter(input.filter);
+    const stamp = mixPageFilterStamp(filter);
     const radiusClamped =
       requestedRadiusKm != null && filter.radiusKm != null && requestedRadiusKm > filter.radiusKm + 1e-9;
     const limit = Math.max(1, Math.min(24, Math.floor(input.limit || 12)));
@@ -547,6 +596,9 @@ export class MixesService {
     const parsedGeoCursorRaw = geoSort ? stableGeoCursorDecode(input.cursor) : null;
     const parsedGeoCursor =
       parsedGeoCursorRaw && geoCursorMatchesFilter(parsedGeoCursorRaw, filter) ? parsedGeoCursorRaw : null;
+    const v4In = mixPageCursorV4Decode(input.cursor);
+    const offsetFromV4 = v4In && v4In.stamp === stamp ? v4In.off : 0;
+
     const cacheKey = `mixPage:${hashFilter(filter, input.viewerId)}:limit:${limit}:cursor:${input.cursor ?? "_"}`;
     const cached = mixCache.get<any>(cacheKey);
     if (cached) {
@@ -555,6 +607,17 @@ export class MixesService {
         diagnostics: { ...cached.diagnostics, cacheHit: true, latencyMs: Date.now() - started },
       };
     }
+
+    mixPostsStructuredLog("MIX_POSTS_REQUEST", {
+      mixKey: input.mixKey,
+      mixId: input.mixKey,
+      requestedActivity: input.filter.activity ?? null,
+      normalizedActivity: filter.activity ? normalizeActivityToken(filter.activity) : null,
+      requestedLimit: limit,
+      cursorKind: v4In ? "mc:v4" : input.cursor?.startsWith("mc:v2:") ? "mc:v2" : input.cursor?.startsWith("mc:v1:") ? "mc:v1" : "none",
+      hasCursor: Boolean(input.cursor),
+    });
+
     const {
       posts: pool,
       readCount,
@@ -567,61 +630,223 @@ export class MixesService {
       servedStale,
       servedEmptyWarming,
     } = await this.repo.listFromPoolWithWarmWait({ timeoutMs: MIX_PREVIEW_WARM_WAIT_MS });
-    let activityFallbackUsed = false;
-    let workingPool = pool;
-    let filteredStats = this.filterRowsWithStats(pool, filter);
-    let filtered = filteredStats.rows;
+
     const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
-    if (filtered.length === 0 && normalizedActivity) {
-      try {
-        const fb = await this.postsRepo.pageByActivity({
-          activity: normalizedActivity,
-          limit: ACTIVITY_FALLBACK_POOL_CAP,
-          cursor: null,
-        });
-        if (fb.items.length > 0) {
-          activityFallbackUsed = true;
-          const asMix = fb.items as unknown as MixSourcePost[];
-          const seen = new Set(pool.map((r) => String(r.postId)));
-          workingPool = [...pool, ...asMix.filter((r) => !seen.has(String(r.postId)))];
-          filteredStats = this.filterRowsWithStats(workingPool, filter);
-          filtered = filteredStats.rows;
+    const mergeCacheKey = `mixMerged:${stamp}`;
+    let merged: MixSourcePost[] | null = offsetFromV4 > 0 ? mixCache.get<MixSourcePost[]>(mergeCacheKey) : null;
+
+    const lanesUsed: string[] = [];
+    const radiusStepsTried: number[] = [];
+    let aliasesTried: string[] = [];
+    let fallbackFirestoreUsed = false;
+    let lane1Count = 0;
+    let initialCandidateCount = 0;
+
+    if (!merged || merged.length === 0) {
+      const lane1Stats = this.filterRowsWithStats(pool, filter);
+      lane1Count = lane1Stats.rows.length;
+      initialCandidateCount = lane1Stats.rows.length;
+
+      /** Only run fallback lanes when the strict warm pool cannot serve this page window. */
+      const needsRecall = lane1Stats.rows.length < offsetFromV4 + limit;
+
+      if (!needsRecall) {
+        lanesUsed.push("lane1_pool_strict");
+        merged = this.sortMergedPosts(lane1Stats.rows, geoSort).slice(0, MIX_RECALL_MAX_MERGED_CANDIDATES);
+        mixCache.set(mergeCacheKey, merged, 45_000);
+      } else {
+      lanesUsed.push("lane1_pool_strict");
+      const byId = new Map<string, MixSourcePost>();
+      const addRows = (rows: MixSourcePost[]) => {
+        for (const row of rows) {
+          const id = String(row.postId ?? "");
+          if (!id || byId.has(id)) continue;
+          byId.set(id, row);
         }
-      } catch {
-        // best-effort
+      };
+
+      addRows(lane1Stats.rows);
+
+      const targetMin = Math.min(MIX_RECALL_MAX_MERGED_CANDIDATES, offsetFromV4 + limit + 1);
+
+      mixPostsStructuredLog("MIX_POSTS_FALLBACK_STARTED", {
+        mixKey: input.mixKey,
+        mixId: input.mixKey,
+        lane1Count,
+        targetMin,
+        requestedLimit: limit,
+      });
+
+      if (geoSort && filter.radiusKm != null && byId.size < targetMin) {
+        lanesUsed.push("lane2_pool_radius_expand");
+        for (const R of geoRadiusRecallLadderKm(filter.radiusKm, MAX_MIX_RADIUS_KM)) {
+          if (R <= filter.radiusKm + 1e-9) continue;
+          const chunk = this.filterRowsWithStats(pool, { ...filter, radiusKm: R }).rows;
+          addRows(chunk);
+          radiusStepsTried.push(R);
+          mixPostsStructuredLog("MIX_POSTS_RADIUS_EXPANDED", {
+            mixKey: input.mixKey,
+            radiusKm: R,
+            candidateTotal: byId.size,
+          });
+          if (byId.size >= targetMin) break;
+        }
+      }
+
+      const activityRaw = filter.activity ? String(filter.activity).trim() : "";
+      const allowSet = activityRaw ? approvedActivityMatchSet(activityRaw) : null;
+      if (activityRaw && allowSet && byId.size < targetMin) {
+        lanesUsed.push("lane3_pool_activity_aliases");
+        const radii =
+          geoSort && filter.radiusKm != null
+            ? geoRadiusRecallLadderKm(filter.radiusKm, MAX_MIX_RADIUS_KM)
+            : [filter.radiusKm ?? undefined];
+        for (const R of radii) {
+          const rf =
+            R != null && geoSort
+              ? ({ ...filter, radiusKm: R } as MixFilter)
+              : geoSort
+                ? filter
+                : filter;
+          const chunk = this.filterRowsWithStats(pool, rf, { activityAllowSet: allowSet }).rows;
+          addRows(chunk);
+          if (byId.size >= targetMin) break;
+        }
+        aliasesTried = approvedFirestoreTagsForRecall(activityRaw);
+        mixPostsStructuredLog("MIX_POSTS_ACTIVITY_ALIAS_TRIED", {
+          mixKey: input.mixKey,
+          aliasesTried,
+          candidateTotal: byId.size,
+        });
+      }
+
+      if (activityRaw && byId.size < targetMin) {
+        try {
+          aliasesTried = approvedFirestoreTagsForRecall(activityRaw);
+          const fs = await this.postsRepo.pageByActivityAliases({
+            aliases: aliasesTried,
+            limit: 36,
+            cursor: null,
+            poolCapOverride: MIX_RECALL_FS_POOL_CAP,
+          });
+          fallbackFirestoreUsed = fs.items.length > 0;
+          if (fallbackFirestoreUsed) {
+            lanesUsed.push("lane4_firestore_activity_aliases");
+          }
+          const maxR =
+            geoSort && filter.radiusKm != null
+              ? Math.max(...geoRadiusRecallLadderKm(filter.radiusKm, MAX_MIX_RADIUS_KM))
+              : null;
+          const locFilter =
+            maxR != null && geoSort ? ({ ...filter, radiusKm: maxR } as MixFilter) : filter;
+          const allow = approvedActivityMatchSet(activityRaw);
+          for (const row of fs.items as MixSourcePost[]) {
+            const id = String(row.postId ?? "");
+            if (!id || byId.has(id)) continue;
+            if (!postMatchesActivityAllowlist(row, allow)) continue;
+            if (!matchesLocation(row, locFilter)) continue;
+            byId.set(id, row);
+          }
+        } catch {
+          // bounded fallback best-effort
+        }
+      }
+
+      merged = this.sortMergedPosts([...byId.values()], geoSort).slice(0, MIX_RECALL_MAX_MERGED_CANDIDATES);
+      mixCache.set(mergeCacheKey, merged, 45_000);
       }
     }
-    let afterCursor = filtered;
-    if (geoSort && parsedGeoCursor) {
-      afterCursor = filtered.filter((row) => rowIsAfterGeoCursor(row, parsedGeoCursor, geoSort));
-    } else if (parsedTimeCursor) {
-      afterCursor = filtered.filter((row) => {
-        const t = parsePostTimeMs(row);
-        const id = String(row.postId);
-        if (t < parsedTimeCursor.t) return true;
-        if (t > parsedTimeCursor.t) return false;
-        return id.localeCompare(parsedTimeCursor.id) < 0;
+
+    let sliceStart = offsetFromV4;
+    let working = merged!;
+
+    if (!(v4In && v4In.stamp === stamp)) {
+      if (geoSort && parsedGeoCursor) {
+        working = merged!.filter((row) => rowIsAfterGeoCursor(row, parsedGeoCursor, geoSort));
+        sliceStart = 0;
+      } else if (parsedTimeCursor) {
+        working = merged!.filter((row) => {
+          const t = parsePostTimeMs(row);
+          const id = String(row.postId);
+          if (t < parsedTimeCursor.t) return true;
+          if (t > parsedTimeCursor.t) return false;
+          return id.localeCompare(parsedTimeCursor.id) < 0;
+        });
+        sliceStart = 0;
+      }
+    }
+
+    const pageRows = working.slice(sliceStart, sliceStart + limit);
+    let globalNextOff = 0;
+    if (pageRows.length > 0) {
+      const lastPid = String(pageRows[pageRows.length - 1]!.postId);
+      const idx = merged!.findIndex((r) => String(r.postId) === lastPid);
+      globalNextOff = idx >= 0 ? idx + 1 : sliceStart + pageRows.length;
+    } else {
+      globalNextOff = sliceStart;
+    }
+
+    const hasMore = globalNextOff < merged!.length;
+    let nextCursor: string | null =
+      hasMore && merged!.length > 0
+        ? mixPageCursorV4Encode({ v: 4, off: globalNextOff, stamp })
+        : null;
+
+    const exhaustedReason =
+      pageRows.length === 0 && merged!.length === 0
+        ? servedEmptyWarming
+          ? "pool_warming_or_empty"
+          : normalizedActivity
+            ? "no_posts_matched_filters"
+            : "no_candidates"
+        : undefined;
+
+    if (!hasMore && merged!.length > 0) {
+      mixPostsStructuredLog("MIX_POSTS_EXHAUSTED", {
+        mixKey: input.mixKey,
+        returnedCount: pageRows.length,
+        requestedLimit: limit,
+        finalCandidateCount: merged!.length,
       });
     }
-    const pageRows = afterCursor.slice(0, limit);
-    const hasMore = afterCursor.length > limit;
-    const last = pageRows[pageRows.length - 1];
-    let nextCursor: string | null = null;
-    if (hasMore && last && geoSort) {
-      const coords = postLatLng(last);
-      const d = coords ? computeDistanceKm(geoSort, coords) : 0;
-      nextCursor = stableGeoCursorEncode({
-        v: 2,
-        lat: geoSort.lat,
-        lng: geoSort.lng,
-        d,
-        t: parsePostTimeMs(last),
-        id: String(last.postId),
-      });
-    } else if (hasMore && last) {
-      nextCursor = stableCursorEncode({ v: 1, t: parsePostTimeMs(last), id: String(last.postId) });
-    }
+
+    mixPostsStructuredLog("MIX_POSTS_PAGE_RESPONSE", {
+      mixKey: input.mixKey,
+      returnedCount: pageRows.length,
+      requestedLimit: limit,
+      lanesUsed,
+      radiusStepsTried,
+      aliasesTried,
+      hasMore,
+      nextCursorExists: Boolean(nextCursor),
+      fallbackFirestoreUsed,
+      elapsedMs: Date.now() - started,
+    });
+
+    mixPostsStructuredLog("MIX_POSTS_FAST_LANE_RESULT", {
+      mixKey: input.mixKey,
+      lane1Count,
+      initialCandidateCount,
+      finalCandidateCount: merged!.length,
+    });
+
     const cards = pageRows.map((row, idx) => mapPostCard(row, idx, input.mixKey));
+
+    const recallDebug = mixDebugEnabled()
+      ? {
+          lanesUsed,
+          radiusStepsTried,
+          aliasesTried,
+          lane1StrictCount: lane1Count,
+          initialCandidateCount,
+          finalCandidateCount: merged!.length,
+          fallbackFirestoreUsed,
+          progressiveRecall: true,
+          mergeCursor: "mc:v4",
+          exhaustedReason,
+        }
+      : {};
+
     const baseDebug = mixDebugEnabled()
       ? {
           requestedActivity: input.filter.activity,
@@ -629,29 +854,21 @@ export class MixesService {
           locationIntent: locationIntentFor(filter),
           requestedRadiusKm: requestedRadiusKm ?? filter.radiusKm,
           effectiveRadiusKm: filter.radiusKm,
-          candidateCountByStage: filteredStats.candidateCountByStage,
-          filteredOutByActivityCount: filteredStats.filteredOutByActivityCount,
-          filteredOutByMissingGeoCount: filteredStats.filteredOutByMissingGeoCount,
           radiusClamped: radiusClamped || undefined,
           droppedForMissingMediaCount: 0,
           nextCursorPresent: Boolean(nextCursor),
           sourcePoolState: poolState,
-          activityFallbackUsed,
-          emptyReason:
-            cards.length === 0
-              ? servedEmptyWarming
-                ? "pool_warming_or_empty"
-                : normalizedActivity
-                  ? "no_posts_matched_filters"
-                  : "no_candidates"
-              : undefined,
+          activityFallbackUsed: fallbackFirestoreUsed,
+          emptyReason: exhaustedReason,
+          ...recallDebug,
         }
       : {
           droppedForMissingMediaCount: 0,
           nextCursorPresent: Boolean(nextCursor),
           sourcePoolState: poolState,
-          activityFallbackUsed,
+          activityFallbackUsed: fallbackFirestoreUsed,
         };
+
     const payload = {
       ok: true as const,
       mixKey: input.mixKey,
@@ -664,9 +881,9 @@ export class MixesService {
         routeName: "mixes.page.get",
         mixKey: input.mixKey,
         filters: filter,
-        candidateCount: filtered.length,
+        candidateCount: merged!.length,
         returnedCount: cards.length,
-        source: activityFallbackUsed ? `${source}+activity_fallback` : source,
+        source: fallbackFirestoreUsed ? `${source}+progressive_recall` : source,
         poolState,
         servedStale,
         servedEmptyWarming,
@@ -684,13 +901,36 @@ export class MixesService {
     return payload;
   }
 
+  private sortMergedPosts(rows: MixSourcePost[], geoSort: { lat: number; lng: number } | null): MixSourcePost[] {
+    if (geoSort) {
+      return [...rows].sort((a, b) => {
+        const ca = postLatLng(a);
+        const cb = postLatLng(b);
+        const da = ca ? computeDistanceKm(geoSort, ca) : Number.POSITIVE_INFINITY;
+        const db = cb ? computeDistanceKm(geoSort, cb) : Number.POSITIVE_INFINITY;
+        if (Math.abs(da - db) > 1e-6) return da - db;
+        const ta = parsePostTimeMs(a);
+        const tb = parsePostTimeMs(b);
+        if (ta !== tb) return tb - ta;
+        return String(b.postId).localeCompare(String(a.postId));
+      });
+    }
+    return [...rows].sort((a, b) => {
+      const ta = parsePostTimeMs(a);
+      const tb = parsePostTimeMs(b);
+      if (ta !== tb) return tb - ta;
+      return String(b.postId).localeCompare(String(a.postId));
+    });
+  }
+
   private filterRows(rows: MixSourcePost[], filter: MixFilter): MixSourcePost[] {
     return this.filterRowsWithStats(rows, filter).rows;
   }
 
   private filterRowsWithStats(
     rows: MixSourcePost[],
-    filter: MixFilter
+    filter: MixFilter,
+    opts?: { activityAllowSet?: Set<string> | null },
   ): {
     rows: MixSourcePost[];
     candidateCountByStage: { input: number; afterActivity: number; afterLocation: number };
@@ -698,6 +938,7 @@ export class MixesService {
     filteredOutByMissingGeoCount: number;
   } {
     const normalizedActivity = filter.activity ? normalizeActivityToken(filter.activity) : null;
+    const allowSet = opts?.activityAllowSet && opts.activityAllowSet.size > 0 ? opts.activityAllowSet : null;
     const geoSort =
       filter.lat != null && filter.lng != null && filter.radiusKm != null
         ? { lat: filter.lat, lng: filter.lng }
@@ -705,9 +946,13 @@ export class MixesService {
     let filteredOutByActivityCount = 0;
     let filteredOutByMissingGeoCount = 0;
     const afterActivity = rows.filter((row) => {
-      if (!normalizedActivity) return true;
+      if (!normalizedActivity && !allowSet) return true;
       const tokens = postActivityTokens(row);
-      const matched = tokens.includes(normalizedActivity);
+      const matched = allowSet
+        ? tokens.some((t) => allowSet.has(t))
+        : normalizedActivity
+          ? tokens.includes(normalizedActivity)
+          : false;
       if (!matched) filteredOutByActivityCount += 1;
       return matched;
     });

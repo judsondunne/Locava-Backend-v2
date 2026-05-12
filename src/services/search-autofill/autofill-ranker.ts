@@ -73,7 +73,7 @@ function scoreOne(s: RankableSuggestion, ctx: RankerContext): number {
     score += 4;
   }
 
-  const hasExplicitRelation = /\b(in|near)\s+[a-z0-9\s]+$/i.test(ctx.query);
+  const hasExplicitRelation = /\b(in|near|around|by)\s+[a-z0-9\s]+$/i.test(ctx.query);
   if (hasExplicitRelation && s.type === "sentence" && text.toLowerCase().trim().startsWith(q)) {
     // Promote parsed sentence completions when user typed "... in <partial>".
     score += 9;

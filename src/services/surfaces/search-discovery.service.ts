@@ -242,7 +242,7 @@ export class SearchDiscoveryService {
     let snap;
     try {
       snap = await withTimeout(
-        db.collection("posts").orderBy("time", "desc").select("activities", "classification", "schema").limit(160).get(),
+        db.collection("posts").orderBy("time", "desc").select("activities", "classification", "schema").limit(50).get(),
         SearchDiscoveryService.FIRESTORE_TIMEOUT_MS,
         "search-discovery-top-activities"
       );

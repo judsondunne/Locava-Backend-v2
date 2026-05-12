@@ -121,6 +121,16 @@
       ]
     },
     {
+      "collectionGroup": "feedSeen",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "viewerId", "order": "ASCENDING" },
+        { "fieldPath": "surface", "order": "ASCENDING" },
+        { "fieldPath": "firstServedAt", "order": "ASCENDING" },
+        { "fieldPath": "__name__", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "posts",
       "queryScope": "COLLECTION",
       "fields": [

@@ -6,6 +6,8 @@ import {
   resolveActivitySuggestions,
   type SearchQueryIntent,
 } from "../../lib/search-query-intent.js";
+import { debugLog } from "../../lib/logging/debug-log.js";
+import { LOG_SEARCH_DEBUG } from "../../lib/logging/log-config.js";
 import { getPrefixFrame } from "./autofill-intent.js";
 import { getSuggestionsFromLibrary, type ViewerPlaceContext } from "./autofill-library.js";
 import { rankAutofillSuggestions } from "./autofill-ranker.js";
@@ -190,35 +192,37 @@ function maybeAddFallbackTemplates(input: {
   detectedActivity: string | null;
   placeContext: ViewerPlaceContext | null;
   rows: SuggestRow[];
+  hasExplicitLocation?: boolean;
 }): void {
   const query = normalizeForKey(input.query);
   if (input.rows.length >= 4) return;
 
   const city = input.placeContext?.cityName ?? null;
   const suffixes: string[] = [];
+  const skipViewerLocMods = Boolean(input.hasExplicitLocation);
 
-  if (/^best\b/.test(query) || query === "b" || query === "be" || query === "bes") {
+  if (!skipViewerLocMods && (/^best\b/.test(query) || query === "b" || query === "be" || query === "bes")) {
     suffixes.push("Best hikes near me", "Best hiking trails near me");
     if (city) suffixes.push(`Best hikes in ${city}`, `Best hiking trails in ${city}`);
-  } else if (/^easy\b/.test(query)) {
+  } else if (!skipViewerLocMods && /^easy\b/.test(query)) {
     suffixes.push("Easy hikes near me", "Easy walking trails near me", "Easy hikes for beginners near me");
     if (city) suffixes.push(`Easy hikes in ${city}`);
-  } else if (/^family\b/.test(query) || /^fami\b/.test(query) || /^famil\b/.test(query)) {
+  } else if (!skipViewerLocMods && (/^family\b/.test(query) || /^fami\b/.test(query) || /^famil\b/.test(query))) {
     suffixes.push("Family hikes near me", "Family friendly hikes near me", "Kid friendly hikes near me");
     if (city) suffixes.push(`Family hikes in ${city}`);
-  } else if (/^short\b/.test(query) || /^shor\b/.test(query)) {
+  } else if (!skipViewerLocMods && (/^short\b/.test(query) || /^shor\b/.test(query))) {
     suffixes.push("Short hikes near me", "Short hiking trails near me", "Quick hike near me");
     if (city) suffixes.push(`Short hikes in ${city}`);
-  } else if (/^good\b/.test(query) || /^goo\b/.test(query) || query === "g" || query === "go") {
+  } else if (!skipViewerLocMods && (/^good\b/.test(query) || /^goo\b/.test(query) || query === "g" || query === "go")) {
     suffixes.push("Good hikes near me", "Good hiking trails near me");
     if (city) suffixes.push(`Good hikes in ${city}`);
-  } else if (/^fun\b/.test(query) || /^fu\b/.test(query)) {
+  } else if (!skipViewerLocMods && (/^fun\b/.test(query) || /^fu\b/.test(query))) {
     suffixes.push("Fun hikes near me", "Fun hiking trails near me");
     if (city) suffixes.push(`Fun hikes in ${city}`);
-  } else if (query.startsWith("wat") || query.startsWith("water")) {
+  } else if (!skipViewerLocMods && (query.startsWith("wat") || query.startsWith("water"))) {
     suffixes.push("Waterfall hike near me", "Waterfall hikes near me", "Best waterfall hikes near me");
     if (city) suffixes.push(`Waterfalls in ${city}`);
-  } else if (input.detectedActivity === "hiking" || query.startsWith("h")) {
+  } else if (!skipViewerLocMods && (input.detectedActivity === "hiking" || query.startsWith("h"))) {
     suffixes.push("Hikes near me", "Hiking trails near me", "Best hikes near me");
     if (city) suffixes.push(`Hikes in ${city}`);
   }
@@ -236,7 +240,7 @@ function maybeAddFallbackTemplates(input: {
 
   // Generic safety net for ultra-short queries (ex: "e", "f", "fa") where intent/library
   // may only yield 1-3 suggestions but the lab requires min 4.
-  if (input.rows.length < 4) {
+  if (!skipViewerLocMods && input.rows.length < 4) {
     const echo = titleCaseQualityPrefix(query);
     const generic: string[] = [];
     if (echo) generic.push(`${echo} near me`);
@@ -271,10 +275,10 @@ function addSentenceSuggestions(input: {
   if (!location) return;
 
   const rawQuery = String(input.query ?? "").trim();
-  const relationMatch = rawQuery.toLowerCase().match(/\b(in|near)\s+([a-z0-9\s]+)$/);
-  const relation = (relationMatch?.[1] as "in" | "near" | undefined) ?? null;
+  const relationMatch = rawQuery.toLowerCase().match(/\b(in|near|around|by)\s+([a-z0-9\s]+)$/);
+  const relation = (relationMatch?.[1] as "in" | "near" | "around" | "by" | undefined) ?? null;
   const queryPrefixWithoutLocation = relation
-    ? rawQuery.replace(/\b(in|near)\s+[a-z0-9\s]+$/i, "").trim()
+    ? rawQuery.replace(/\b(in|near|around|by)\s+[a-z0-9\s]+$/i, "").trim()
     : "";
 
   const detected = input.detectedActivity;
@@ -328,7 +332,7 @@ function resolveLocationCompletionFromQuery(
 ): string | null {
   const raw = String(query ?? "").trim();
   if (!raw) return null;
-  const relationMatch = raw.toLowerCase().match(/\b(?:in|near)\s+([a-z0-9\s]+)$/);
+  const relationMatch = raw.toLowerCase().match(/\b(?:in|near|around|by)\s+([a-z0-9\s]+)$/);
   const partial = String(relationMatch?.[1] ?? "").trim().toLowerCase();
   if (partial.length >= 2) {
     const matchedState = US_STATES.find((state) => state.toLowerCase().startsWith(partial));
@@ -342,7 +346,7 @@ function resolveLocationCompletionFromQuery(
 
 function promoteParsedSentenceToFront(query: string, rows: SuggestRow[]): SuggestRow[] {
   const normalizedQuery = normalizeForKey(query);
-  if (!/\b(in|near)\s+[a-z0-9\s]+$/i.test(query)) return rows;
+  if (!/\b(in|near|around|by)\s+[a-z0-9\s]+$/i.test(query)) return rows;
   const idx = rows.findIndex((row) => {
     if (row.type !== "sentence") return false;
     const text = normalizeForKey(row.text);
@@ -492,7 +496,7 @@ export class SearchAutofillService {
     suggestDiagnostics?: Record<string, unknown>;
   }> {
     const query = String(input.query ?? "").trim().toLowerCase();
-    const intent = this.discovery.parseIntent(query);
+    const intent = this.discovery.parseIntent(query) as SearchQueryIntent;
     const prefixFrame = getPrefixFrame(query);
     const placeContext = buildViewerPlaceContext({ lat: input.lat ?? null, lng: input.lng ?? null });
 
@@ -505,6 +509,22 @@ export class SearchAutofillService {
 
     const inferredDetectedRaw = inferDetectedActivity(query, intent.activity?.canonical ?? null);
     const inferredDetected = preferDetectedActivityForSuggest(query, inferredDetectedRaw);
+
+    if (LOG_SEARCH_DEBUG) {
+      debugLog("search", "SEARCH_AUTOFILL_LOCATION_INTENT_PARSED", {
+        rawQuery: input.query,
+        hasExplicitLocation: intent.hasExplicitLocation,
+        explicitLocationText: intent.explicitLocationText,
+        nearMe: intent.nearMe,
+        selectedActivity: intent.activity?.canonical ?? inferredDetected,
+      });
+      if (intent.hasExplicitLocation) {
+        debugLog("search", "SEARCH_AUTOFILL_DEFAULT_LOCATION_SUFFIX_SKIPPED", {
+          rawQuery: input.query,
+          reason: "explicit_location_in_query",
+        });
+      }
+    }
     const inferredRelated = inferRelatedActivities(
       query,
       inferredDetected,
@@ -525,7 +545,11 @@ export class SearchAutofillService {
         : query;
 
     const [librarySuggestions, userSuggestions, locationRows] = await Promise.all([
-      getSuggestionsFromLibrary({ query, placeContext }),
+      getSuggestionsFromLibrary({
+        query,
+        placeContext,
+        explicitLocationText: intent.explicitLocationText,
+      }),
       shouldLoadUsers ? this.discovery.searchUsersForQuery(query, 4) : Promise.resolve([]),
       this.discovery.loadLocationSuggestions(locationQuery, 6, {
         viewerLat: input.lat ?? null,
@@ -599,7 +623,13 @@ export class SearchAutofillService {
       });
     }
 
-    maybeAddFallbackTemplates({ query, detectedActivity: inferredDetected, placeContext, rows });
+    maybeAddFallbackTemplates({
+      query,
+      detectedActivity: inferredDetected,
+      placeContext,
+      rows,
+      hasExplicitLocation: intent.hasExplicitLocation,
+    });
 
     const prefersNamedPlaces = looksLikeNamedPlaceTyping(query);
     const ranked = rankAutofillSuggestions(rows, {

@@ -165,8 +165,8 @@ describe("mixes service", () => {
         return this.listFromPool();
       },
     };
-    const pageByActivity = async (input: {
-      activity: string;
+    const pageByActivityAliases = async (input: {
+      aliases: string[];
       limit: number;
       cursor: { lastTime: number | null; lastId: string | null } | null;
       poolCapOverride?: number;
@@ -201,9 +201,10 @@ describe("mixes service", () => {
       hasMore: false,
       debugInput: input,
     });
-    const pageByActivitySpy = vi.fn(pageByActivity);
+    const pageByActivityAliasesSpy = vi.fn(pageByActivityAliases);
     const fallbackService = new MixesService(emptyPoolRepo as any, {
-      pageByActivity: pageByActivitySpy as any,
+      pageByActivity: vi.fn(),
+      pageByActivityAliases: pageByActivityAliasesSpy as any,
     });
 
     const out = await fallbackService.preview({
@@ -214,12 +215,47 @@ describe("mixes service", () => {
     });
 
     expect(out.posts.map((p: any) => p.postId)).toEqual(["fallback-1", "fallback-2", "fallback-3"]);
-    expect(pageByActivitySpy).toHaveBeenCalledWith({
-      activity: "beach",
+    expect(pageByActivityAliasesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        aliases: expect.arrayContaining(["beach", "ocean"]),
+        limit: 6,
+        cursor: null,
+        poolCapOverride: 10,
+      }),
+    );
+  });
+
+  it("progressive recall matches cafe intent against coffee-tagged pool rows (alias lane, no extra reads)", async () => {
+    const cafeRows = [
+      {
+        postId: "coffee-only",
+        time: 9000,
+        userId: "u1",
+        userHandle: "u1",
+        activity: "coffee",
+        thumbUrl: "https://cdn/coffee-only.jpg",
+        lat: 44.476,
+        lng: -73.212,
+      },
+    ];
+    const cafeRepo = {
+      async listFromPool() {
+        return { posts: cafeRows as any[], ...poolMeta({ readCount: 1 }) };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
+      },
+    };
+    const cafeService = new MixesService(cafeRepo as any);
+    const out = await cafeService.page({
+      mixKey: "cafe",
+      filter: { activity: "cafe", lat: 44.476, lng: -73.212, radiusKm: 80 },
       limit: 6,
       cursor: null,
-      poolCapOverride: 10,
+      viewerId: null,
     });
+    expect(out.posts.map((p: any) => p.postId)).toEqual(["coffee-only"]);
+    expect(out.diagnostics.lanesUsed).toContain("lane3_pool_activity_aliases");
   });
 
   it("paginates stably with cursor and no duplicates", async () => {
@@ -600,5 +636,56 @@ describe("mixes service", () => {
     expect(processing.playbackReady).toBe(false);
     expect(processing.playbackUrl ?? null).toBeNull();
     expect(typeof processing.fallbackVideoUrl).toBe("string");
+  });
+
+  it("mix card poster uses variants.posterHigh when top-level thumb fields are absent", async () => {
+    const posterRepo = {
+      async listFromPool() {
+        return {
+          posts: [
+            {
+              postId: "ph-video",
+              time: 8000,
+              userId: "u1",
+              userHandle: "vid",
+              mediaType: "video",
+              activities: ["posterhigh_probe"],
+              lat: 44.47,
+              lng: -73.21,
+              assets: [
+                {
+                  type: "video",
+                  variants: {
+                    posterHigh: "https://cdn/poster_high_only.jpg",
+                    preview360Avc: "https://cdn/preview.mp4",
+                  },
+                },
+              ],
+            },
+          ] as any[],
+          readCount: 1,
+          source: "test_pool",
+          poolState: "warm",
+          servedStale: false,
+          servedEmptyWarming: false,
+          poolLimit: 1000,
+          poolBuiltAt: "2026-01-01T00:00:00.000Z",
+          poolBuildLatencyMs: 0,
+          poolBuildReadCount: 1,
+        };
+      },
+      async listFromPoolWithWarmWait() {
+        return this.listFromPool();
+      },
+    };
+    const svc = new MixesService(posterRepo as any);
+    const out = await svc.preview({
+      mixKey: "posterhigh-probe",
+      filter: { activity: "posterhigh_probe" },
+      limit: 3,
+      viewerId: null,
+    });
+    const card = out.posts.find((p: any) => p.postId === "ph-video");
+    expect(card?.media?.posterUrl).toBe("https://cdn/poster_high_only.jpg");
   });
 });

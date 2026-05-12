@@ -25,6 +25,10 @@ export const FeedForYouSimpleQuerySchema = z.object({
   cursor: z.string().optional(),
   /** When true, ignore cursor and start a fresh window (client retry / recovery). */
   refresh: z.coerce.boolean().optional(),
+  /** Read-only verification: do not write compact feedState seen merges. */
+  dryRunSeen: z.coerce.boolean().optional(),
+  /** When true, response debug may include extra V5 diagnostics (bounded). */
+  debug: z.coerce.boolean().optional(),
   /** Radius filter mode; only "nearMe" / "custom" alter behavior. Defaults to "global". */
   radiusMode: z.enum(["global", "nearMe", "custom"]).optional(),
   centerLat: z.coerce.number().min(-90).max(90).optional(),
@@ -117,13 +121,43 @@ export const FeedForYouSimpleDebugSchema = z.object({
       deckKeyHash: z.string().nullable()
     })
     .optional()
-});
+})
+  .merge(
+    z
+      .object({
+        forYouRouteVariant: z.enum(["v5", "legacy"]).optional(),
+        legacyReason: z.string().optional(),
+        routeEnteredV5: z.boolean().optional(),
+        cursorType: z.string().optional(),
+        dryRunSeen: z.boolean().optional(),
+        seenWritesEnabled: z.boolean().optional(),
+        returnedPostIds: z.array(z.string()).optional(),
+        duplicateReturnedPostIds: z.array(z.string()).optional(),
+        repeatRisk: z.string().nullable().optional(),
+        cacheStatus: z.string().optional(),
+        dbReadEstimate: z.number().nonnegative().optional(),
+        durableSeenRead: z.boolean().optional(),
+        seenWriteSkippedReason: z.string().nullable().optional(),
+        regularFallbackUsed: z.boolean().optional(),
+        reelsRemainingEstimate: z.number().int().nonnegative().optional()
+      })
+      .partial()
+  );
 
 export const FeedForYouSimpleResponseSchema = z.object({
   routeName: z.literal("feed.for_you_simple.get"),
   items: z.array(PostCardSummarySchema),
   nextCursor: z.string().nullable(),
+  /** True when no next page exists for this viewer under normal lanes (legacy; prefer hasMore + lane). */
   exhausted: z.boolean(),
+  /** High-level lane for this page (two-lane contract + recycle). */
+  lane: z.enum(["reels", "normal", "recycled"]),
+  /** True when every reel-tier phase has no further unseen candidates (cursor state). */
+  exhaustedReels: z.boolean(),
+  /** True when the normal/fallback phase has no further unseen candidates. */
+  exhaustedNormal: z.boolean(),
+  /** More pages available for this viewer (nextCursor or recycle continues). */
+  hasMore: z.boolean(),
   emptyReason: z.union([z.literal("no_playable_posts"), z.null()]),
   degradedFallbackUsed: z.boolean(),
   relaxedSeenUsed: z.boolean(),

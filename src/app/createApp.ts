@@ -29,6 +29,7 @@ import { cacheMetricsCollector } from "../observability/cache-metrics.collector.
 import { registerAdminRoutes } from "../routes/admin.routes.js";
 import { registerInternalHealthDashboardRoutes } from "../routes/internal/health-dashboard.routes.js";
 import { registerInternalOpsRoutes } from "../routes/internal/internal-ops.routes.js";
+import { registerUserChatsCollectionsPurgeRoutes } from "../routes/internal/user-chats-collections-purge.routes.js";
 import { registerReelsMvpPublisherRoutes } from "../admin/reelsMvpPublisher/reelsMvpPublisher.routes.js";
 import { registerPostSingleVideoRepairRoutes } from "../admin/postSingleVideoRepair/postSingleVideoRepair.routes.js";
 import { registerSeedLikesRoutes } from "../admin/seedLikes/seedLikes.routes.js";
@@ -805,6 +806,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerLegacyReelsNearMeRoutes);
   app.register(registerVideoProcessorRoutes);
   app.register(registerInternalOpsRoutes);
+  app.register(registerUserChatsCollectionsPurgeRoutes);
   app.register(registerReelsMvpPublisherRoutes);
   app.register(registerWikimediaMvpDevRoutes);
   app.register(registerWikimediaCommonsByDateDevRoutes);

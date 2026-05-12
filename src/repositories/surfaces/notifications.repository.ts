@@ -1,4 +1,5 @@
 import { FieldPath, FieldValue, Timestamp, type DocumentData } from "firebase-admin/firestore";
+import { NOTIFICATIONS_LIST_MAX_DOCS } from "../../constants/firestore-read-budgets.js";
 import type { NotificationSummary } from "../../contracts/entities/notification-entities.contract.js";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
@@ -651,40 +652,55 @@ export class NotificationsRepository {
   private async writeUnreadCountFirestore(viewerId: string, unreadCount: number): Promise<void> {
     const safeUnread = Math.max(0, Math.floor(unreadCount));
     const db = this.ensureDb();
-    await db.collection("users").doc(viewerId).set(
-      {
-        unreadCount: safeUnread,
-        unreadNotificationCount: safeUnread,
-        notificationUnreadCount: safeUnread,
-        notifUnread: safeUnread
-      },
-      { merge: true }
-    );
-    incrementDbOps("writes", 1);
+    const userRef = db.collection("users").doc(viewerId);
+    const metaRef = userRef.collection("notificationMeta").doc("summary");
+    const nowMs = Date.now();
+    await Promise.all([
+      userRef.set(
+        {
+          unreadCount: safeUnread,
+          unreadNotificationCount: safeUnread,
+          notificationUnreadCount: safeUnread,
+          notifUnread: safeUnread,
+        },
+        { merge: true },
+      ),
+      metaRef.set(
+        {
+          unreadCount: safeUnread,
+          updatedAtMs: nowMs,
+        },
+        { merge: true },
+      ),
+    ]);
+    incrementDbOps("writes", 2);
   }
 
   private async adjustUnreadCountFirestore(viewerId: string, delta: number): Promise<number> {
     const db = this.ensureDb();
     const userRef = db.collection("users").doc(viewerId);
+    const metaRef = userRef.collection("notificationMeta").doc("summary");
     const nextUnread = await db.runTransaction(async (tx) => {
       const snap = await tx.get(userRef);
       incrementDbOps("reads", 1);
       const base = pickUnreadCountFromUserDoc((snap.data() ?? null) as Record<string, unknown> | null) ?? 0;
       const next = Math.max(0, base + delta);
+      const nowMs = Date.now();
       tx.set(
         userRef,
         {
           unreadCount: next,
           unreadNotificationCount: next,
           notificationUnreadCount: next,
-          notifUnread: next
+          notifUnread: next,
         },
-        { merge: true }
+        { merge: true },
       );
+      tx.set(metaRef, { unreadCount: next, updatedAtMs: nowMs }, { merge: true });
       return next;
     });
     incrementDbOps("queries", 1);
-    incrementDbOps("writes", 1);
+    incrementDbOps("writes", 2);
     await this.writeUnreadCountCaches(viewerId, nextUnread);
     return nextUnread;
   }
@@ -1114,6 +1130,13 @@ export class NotificationsRepository {
     viewerId: string;
     cursor: string | null;
     limit: number;
+    /** Bounded HTTP list route — caps reads + skips expensive hydrations. */
+    boundedList?: {
+      maxNotificationDocs?: number;
+      skipActorHydration?: boolean;
+      syncUnreadFromViewerDoc?: boolean;
+      strictPageHasMore?: boolean;
+    };
   }): Promise<{
     cursorIn: string | null;
     items: NotificationRecord[];
@@ -1127,7 +1150,14 @@ export class NotificationsRepository {
       return this.listNotificationsSeeded(input);
     }
     const db = this.ensureDb();
-    const safeLimit = Math.max(1, Math.min(50, input.limit));
+    const bl = input.boundedList;
+    const cap = bl?.maxNotificationDocs ?? NOTIFICATIONS_LIST_MAX_DOCS;
+    const safeLimit =
+      bl != null
+        ? Math.max(1, Math.min(cap, NOTIFICATIONS_LIST_MAX_DOCS, input.limit))
+        : Math.max(1, Math.min(50, input.limit));
+    const strictHasMore = bl?.strictPageHasMore === true;
+    const overfetch = strictHasMore ? 0 : 1;
     let parsedCursor: { id: string; createdAtMs: number } | null = null;
     if (input.cursor) {
       try {
@@ -1135,6 +1165,32 @@ export class NotificationsRepository {
       } catch {
         throw new NotificationsRepositoryError("invalid_cursor", "Notifications cursor is invalid.");
       }
+    }
+
+    let cachedUnreadCount = await this.readCachedUnreadCount(input.viewerId);
+    let cachedReadAll = await this.readCachedReadAllAtMs(input.viewerId);
+
+    if (bl?.syncUnreadFromViewerDoc === true && (cachedUnreadCount == null || !cachedReadAll.known)) {
+      incrementDbOps("queries", 1);
+      const userSnap = await db.collection("users").doc(input.viewerId).get();
+      incrementDbOps("reads", 1);
+      const ud = (userSnap.data() ?? {}) as Record<string, unknown>;
+      const u = pickUnreadCountFromUserDoc(ud);
+      if (u != null) {
+        cachedUnreadCount = u;
+        await globalCache.set(entityCacheKeys.notificationsUnreadCount(input.viewerId), u, 25_000);
+      }
+      const ra = pickReadAllAtMsFromUserDoc(ud);
+      if (ra != null) {
+        cachedReadAll = { value: ra, known: true };
+        await globalCache.set(entityCacheKeys.notificationsReadAllAt(input.viewerId), ra, 25_000);
+      }
+      const prevCached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId));
+      await globalCache.set(
+        entityCacheKeys.userFirestoreDoc(input.viewerId),
+        { ...(typeof prevCached === "object" && prevCached ? prevCached : {}), ...ud },
+        25_000,
+      );
     }
 
     const coll = db.collection("users").doc(input.viewerId).collection("notifications");
@@ -1160,16 +1216,12 @@ export class NotificationsRepository {
         "senderUsername",
         "seen",
         "priority",
-        "metadata"
+        "metadata",
       )
-      .limit(safeLimit + 1);
+      .limit(safeLimit + overfetch);
     if (parsedCursor) {
       pageQuery = pageQuery.startAfter(parsedCursor.createdAtMs, parsedCursor.id);
     }
-    const [cachedUnreadCount, cachedReadAll] = await Promise.all([
-      this.readCachedUnreadCount(input.viewerId),
-      this.readCachedReadAllAtMs(input.viewerId)
-    ]);
 
     incrementDbOps("queries", 1);
     const tParallel0 = performance.now();
@@ -1177,11 +1229,11 @@ export class NotificationsRepository {
     const tParallel1 = performance.now();
     incrementDbOps("reads", snapshot.docs.length);
     const fallbacks: string[] = [];
-    if (cachedUnreadCount == null || !cachedReadAll.known) {
+    if (!(bl?.syncUnreadFromViewerDoc === true) && (cachedUnreadCount == null || !cachedReadAll.known)) {
       this.queueViewerStateWarm(input.viewerId);
     }
     if (cachedUnreadCount == null) {
-      fallbacks.push("notifications_unread_count_staged");
+      fallbacks.push(bl?.syncUnreadFromViewerDoc ? "notifications_unread_count_unknown" : "notifications_unread_count_staged");
     }
     if (!cachedReadAll.known) {
       fallbacks.push("notifications_read_all_staged");
@@ -1190,23 +1242,26 @@ export class NotificationsRepository {
     const readAllAtMs = cachedReadAll.value;
 
     const pageDocs = snapshot.docs.slice(0, safeLimit);
-    const hasMore = snapshot.docs.length > safeLimit;
+    const hasMore = strictHasMore ? snapshot.docs.length === safeLimit && safeLimit > 0 : snapshot.docs.length > safeLimit;
     const allRaw = pageDocs.map((doc) => ({ id: doc.id, ...(doc.data() as RawNotificationDoc) }));
     const tUserHydr0 = performance.now();
-    const actorIdsNeedingHydration = [
-      ...new Set(
-        allRaw
-          .map((row) => (typeof row.senderUserId === "string" ? row.senderUserId.trim() : ""))
-          .filter((actorId) => {
-            if (!actorId || actorId === "system") return false;
-            return allRaw.some(
-              (row) =>
-                row.senderUserId === actorId &&
-                isLikelyPlaceholderIdentity(row.senderName, actorId)
-            );
-          })
-      )
-    ];
+    const actorIdsNeedingHydration =
+      bl?.skipActorHydration === true
+        ? []
+        : [
+            ...new Set(
+              allRaw
+                .map((row) => (typeof row.senderUserId === "string" ? row.senderUserId.trim() : ""))
+                .filter((actorId) => {
+                  if (!actorId || actorId === "system") return false;
+                  return allRaw.some(
+                    (row) =>
+                      row.senderUserId === actorId &&
+                      isLikelyPlaceholderIdentity(row.senderName, actorId),
+                  );
+                }),
+            ),
+          ];
     const hydratedUsersById =
       actorIdsNeedingHydration.length > 0 ? await this.loadUsersById(actorIdsNeedingHydration) : new Map<string, DocumentData>();
     const tUserHydr1 = performance.now();

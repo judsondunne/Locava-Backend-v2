@@ -1,4 +1,5 @@
 import type { ViewerContext } from "../../auth/viewer-context.js";
+import { NOTIFICATIONS_LIST_MAX_DOCS } from "../../constants/firestore-read-budgets.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { buildCacheKey } from "../../cache/types.js";
 import { recordCacheHit, recordCacheMiss, recordFallback, recordTimeout } from "../../observability/request-context.js";
@@ -290,7 +291,13 @@ export class AuthSessionOrchestrator {
       await this.notificationsListOrchestrator.run({
         viewerId: viewer.viewerId,
         cursor: null,
-        limit: 10
+        limit: 10,
+        boundedList: {
+          maxNotificationDocs: NOTIFICATIONS_LIST_MAX_DOCS,
+          skipActorHydration: true,
+          syncUnreadFromViewerDoc: true,
+          strictPageHasMore: true,
+        },
       });
     });
     this.scheduleDetached("collections-and-saved", 6_000, async () => {

@@ -1,7 +1,14 @@
 import { FieldPath, FieldValue, type QueryDocumentSnapshot } from "firebase-admin/firestore";
+import {
+  REEL_POOL_COLD_MAX_DOCS,
+  FOR_YOU_FALLBACK_MAX_DOCS,
+  FOR_YOU_V5_REEL_DECK_MAX_DOCS,
+  FOR_YOU_V5_REGULAR_RESERVOIR_MAX_DOCS,
+  FOR_YOU_V5_REGULAR_RESERVOIR_BATCH
+} from "../../constants/firestore-read-budgets.js";
 import { FEED_READ_NORMALIZED_ASSET_MAX } from "../../constants/feed-read-assets.js";
 import { getPostCoordinates, getPostGeohash, getPostModerationTier, type PostRecord } from "../../lib/posts/postFieldSelectors.js";
-import { isForYouSimpleReelFromRaw } from "../../services/surfaces/feed-for-you-simple-tier.js";
+import { isForYouSimpleReelFromRaw, isForYouSimpleReel } from "../../services/surfaces/feed-for-you-simple-tier.js";
 import { accumulateSurfaceTiming, incrementDbOps } from "../../observability/request-context.js";
 import { NearbyMixRepository } from "../nearbyMix.repository.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
@@ -440,27 +447,45 @@ export class FeedForYouSimpleRepository {
     };
   }
 
-  // =====================================================================
-  // TEMP DISABLED: caused extreme Firebase read usage in Query Insights.
-  // Do not re-enable without bounded reads, rate limiting, and explicit approval.
-  // Disabled: 2026-05-12 (read containment emergency)
-  //
-  // Original behaviour: scanned
-  //   posts.select(SIMPLE_FEED_SELECT_FIELDS)
-  //     .where("reel","==",true)
-  //     .orderBy("time","desc")
-  //     .limit(<=300).get()
-  // (with a fallback that could scan up to 600 docs without the reel
-  // predicate). This matches the Query Insights fingerprint
-  // "WHERE reel = ? ORDER_BY time DESC LIMIT 180" — ~135,408 reads /
-  // 868 executions / day. Re-enable only when the warm pool layer has
-  // bounded refresh + rate limiting (see feed-for-you-simple-reel-pool.ts).
-  // =====================================================================
-  async fetchReelPoolBootstrap(_limit: number): Promise<SimpleFeedCandidate[]> {
-    if (process.env.ENABLE_FOR_YOU_REEL_POOL_WARMUP !== "true") {
-      return [];
+  // REIMPLEMENTED AFTER FIRESTORE READ CONTAINMENT: bounded reel bootstrap (<= REEL_POOL_COLD_MAX_DOCS reads).
+  async fetchReelPoolBootstrap(limit: number): Promise<SimpleFeedCandidate[]> {
+    if (!this.db) return [];
+    const cap = Math.max(1, Math.min(REEL_POOL_COLD_MAX_DOCS, Math.floor(limit)));
+    const startedAt = Date.now();
+    incrementDbOps("queries", 1);
+    let snap;
+    try {
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .where("reel", "==", true)
+        .orderBy("time", "desc")
+        .orderBy(FieldPath.documentId(), "desc")
+        .limit(cap)
+        .get();
+    } catch {
+      incrementDbOps("queries", 1);
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .where("reel", "==", true)
+        .orderBy(FieldPath.documentId(), "desc")
+        .limit(Math.min(cap, 30))
+        .get();
     }
-    return [];
+    incrementDbOps("reads", snap.docs.length);
+    accumulateSurfaceTiming("feed_simple_query_reel_bootstrap_ms", Date.now() - startedAt);
+    const mapped = this.mapSimpleFeedBatchDocs("docId", snap.docs, cap);
+    if (mapped.items.length > 0) return mapped.items;
+    incrementDbOps("queries", 1);
+    const fallback = await this.db
+      .collection("posts")
+      .select(...SIMPLE_FEED_SELECT_FIELDS)
+      .orderBy("time", "desc")
+      .limit(Math.min(FOR_YOU_FALLBACK_MAX_DOCS, cap))
+      .get();
+    incrementDbOps("reads", fallback.docs.length);
+    return this.mapSimpleFeedBatchDocs("docId", fallback.docs, FOR_YOU_FALLBACK_MAX_DOCS).items;
   }
 
   /**
@@ -813,25 +838,63 @@ export class FeedForYouSimpleRepository {
     const viewerId = input.viewerId.trim();
     const surface = input.surface.trim();
     if (!viewerId || !surface) return;
-    const uniquePostIds = [...new Set(input.postIds.map((value) => value.trim()).filter(Boolean))].slice(0, 5);
+    const uniquePostIds = [...new Set(input.postIds.map((value) => value.trim()).filter(Boolean))];
     if (uniquePostIds.length === 0) return;
-    const batch = this.db.batch();
-    for (const postId of uniquePostIds) {
-      batch.set(
-        this.db.collection("feedSeen").doc(`${viewerId}_${postId}`),
-        {
-          viewerId,
-          postId,
-          surface,
-          firstServedAt: FieldValue.serverTimestamp(),
-          lastServedAt: FieldValue.serverTimestamp(),
-          servedCount: FieldValue.increment(1)
-        },
-        { merge: true }
-      );
+    const CHUNK = 450;
+    for (let offset = 0; offset < uniquePostIds.length; offset += CHUNK) {
+      const chunk = uniquePostIds.slice(offset, offset + CHUNK);
+      const batch = this.db.batch();
+      for (const postId of chunk) {
+        batch.set(
+          this.db.collection("feedSeen").doc(`${viewerId}_${postId}`),
+          {
+            viewerId,
+            postId,
+            surface,
+            firstServedAt: FieldValue.serverTimestamp(),
+            lastServedAt: FieldValue.serverTimestamp(),
+            servedCount: FieldValue.increment(1)
+          },
+          { merge: true }
+        );
+      }
+      await batch.commit();
+      incrementDbOps("writes", chunk.length);
     }
-    await batch.commit();
-    incrementDbOps("writes", uniquePostIds.length);
+  }
+
+  /**
+   * Oldest posts first by first-seen time — used only when every lane is exhausted and the feed
+   * would otherwise return zero items (bounded page size).
+   */
+  async listOldestSeenPostIdsForViewer(input: {
+    viewerId: string;
+    surface: string;
+    limit: number;
+  }): Promise<{ postIds: string[]; readCount: number }> {
+    if (!this.db) return { postIds: [], readCount: 0 };
+    const viewerId = input.viewerId.trim();
+    const surface = input.surface.trim();
+    if (!viewerId || !surface) return { postIds: [], readCount: 0 };
+    const boundedLimit = Math.max(1, Math.min(Math.floor(input.limit), FOR_YOU_SIMPLE_SEEN_READ_CAP));
+    const startedAt = Date.now();
+    incrementDbOps("queries", 1);
+    const snap = await this.db
+      .collection("feedSeen")
+      .where("viewerId", "==", viewerId)
+      .where("surface", "==", surface)
+      .orderBy("firstServedAt", "asc")
+      .limit(boundedLimit)
+      .get();
+    incrementDbOps("reads", snap.docs.length);
+    accumulateSurfaceTiming("feed_simple_query_durable_seen_oldest_ms", Date.now() - startedAt);
+    const postIds: string[] = [];
+    for (const doc of snap.docs) {
+      const data = doc.data() as Record<string, unknown>;
+      const postId = pickString(data.postId);
+      if (postId) postIds.push(postId);
+    }
+    return { postIds, readCount: snap.docs.length };
   }
 
   async readServedRecentForViewer(input: {
@@ -1006,6 +1069,139 @@ export class FeedForYouSimpleRepository {
           expiresAtMs: input.expiresAtMs,
           refillReason: input.refillReason,
           items
+        },
+        { merge: true }
+      );
+    incrementDbOps("writes", 1);
+  }
+
+  /**
+   * For You V5: single bounded reel query for the process-local ready deck.
+   * This is NOT `ENABLE_FOR_YOU_REEL_POOL_WARMUP` / startup scans — bounded, singleflight at the deck layer only.
+   */
+  async fetchReelCandidatesForYouV5Deck(limit: number): Promise<SimpleFeedCandidate[]> {
+    if (!this.db) return [];
+    const cap = Math.max(1, Math.min(FOR_YOU_V5_REEL_DECK_MAX_DOCS, Math.floor(limit)));
+    const startedAt = Date.now();
+    incrementDbOps("queries", 1);
+    let snap;
+    try {
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .where("reel", "==", true)
+        .orderBy("time", "desc")
+        .orderBy(FieldPath.documentId(), "desc")
+        .limit(cap)
+        .get();
+    } catch {
+      incrementDbOps("queries", 1);
+      snap = await this.db
+        .collection("posts")
+        .select(...SIMPLE_FEED_SELECT_FIELDS)
+        .where("reel", "==", true)
+        .orderBy(FieldPath.documentId(), "desc")
+        .limit(Math.min(cap, 80))
+        .get();
+    }
+    incrementDbOps("reads", snap.docs.length);
+    accumulateSurfaceTiming("feed_simple_query_reel_v5_deck_ms", Date.now() - startedAt);
+    return this.mapSimpleFeedBatchDocs("docId", snap.docs, cap).items;
+  }
+
+  /**
+   * For You V5: bounded randomKey/docId walk to fill non-reel reservoir (cold deck refresh only).
+   */
+  async fetchRegularReservoirForYouV5Deck(input: {
+    mode: SimpleFeedSortMode;
+    anchor: number | string;
+  }): Promise<{ items: SimpleFeedCandidate[]; readCount: number }> {
+    const out: SimpleFeedCandidate[] = [];
+    let totalReads = 0;
+    let wrapped = false;
+    let lastValue: number | string | null = null;
+    let lastPostId: string | null = null;
+    while (out.length < FOR_YOU_V5_REGULAR_RESERVOIR_MAX_DOCS && totalReads < FOR_YOU_V5_REGULAR_RESERVOIR_MAX_DOCS + 80) {
+      const batch = await this.fetchBatch({
+        mode: input.mode,
+        anchor: input.anchor,
+        wrapped,
+        lastValue,
+        lastPostId,
+        limit: FOR_YOU_V5_REGULAR_RESERVOIR_BATCH,
+        reelOnly: false,
+      });
+      totalReads += batch.readCount;
+      for (const c of batch.items) {
+        if (!isForYouSimpleReel(c)) out.push(c);
+        if (out.length >= FOR_YOU_V5_REGULAR_RESERVOIR_MAX_DOCS) break;
+      }
+      if (out.length >= FOR_YOU_V5_REGULAR_RESERVOIR_MAX_DOCS) break;
+      if (input.mode === "randomKey") {
+        lastValue = batch.tailRandomKey;
+        lastPostId = batch.tailDocId;
+      } else {
+        lastValue = batch.tailDocId;
+        lastPostId = batch.tailDocId;
+      }
+      if (batch.segmentExhausted) {
+        if (!wrapped && input.mode === "randomKey") {
+          wrapped = true;
+          lastValue = null;
+          lastPostId = null;
+        } else {
+          break;
+        }
+      }
+    }
+    return { items: out, readCount: totalReads };
+  }
+
+  async readForYouV5CompactFeedState(viewerId: string): Promise<{
+    reelSeenPostIds: Set<string>;
+    regularSeenPostIds: Set<string>;
+    readCount: number;
+  }> {
+    if (!this.db) return { reelSeenPostIds: new Set(), regularSeenPostIds: new Set(), readCount: 0 };
+    const id = viewerId.trim();
+    if (!id) return { reelSeenPostIds: new Set(), regularSeenPostIds: new Set(), readCount: 0 };
+    incrementDbOps("queries", 1);
+    const snap = await this.db.collection("users").doc(id).collection("feedState").doc("forYouV5").get();
+    incrementDbOps("reads", snap.exists ? 1 : 0);
+    const raw = (snap.data() ?? {}) as Record<string, unknown>;
+    const reelArr = Array.isArray(raw.reelSeenPostIds) ? raw.reelSeenPostIds : [];
+    const regArr = Array.isArray(raw.regularSeenPostIds) ? raw.regularSeenPostIds : [];
+    const reelSeen = new Set<string>(
+      reelArr.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
+    );
+    const regularSeen = new Set<string>(
+      regArr.filter((x): x is string => typeof x === "string" && x.trim().length > 0).map((x) => x.trim())
+    );
+    return { reelSeenPostIds: reelSeen, regularSeenPostIds: regularSeen, readCount: 1 };
+  }
+
+  async writeForYouV5CompactFeedState(input: {
+    viewerId: string;
+    reelSeenPostIds: string[];
+    regularSeenPostIds: string[];
+  }): Promise<void> {
+    if (!this.db) return;
+    const viewerId = input.viewerId.trim();
+    if (!viewerId) return;
+    const reel = [...new Set(input.reelSeenPostIds.map((x) => x.trim()).filter(Boolean))].slice(-2500);
+    const reg = [...new Set(input.regularSeenPostIds.map((x) => x.trim()).filter(Boolean))].slice(-2500);
+    await this.db
+      .collection("users")
+      .doc(viewerId)
+      .collection("feedState")
+      .doc("forYouV5")
+      .set(
+        {
+          reelSeenPostIds: reel,
+          regularSeenPostIds: reg,
+          updatedAt: FieldValue.serverTimestamp(),
+          lastServedAt: FieldValue.serverTimestamp(),
+          version: 5,
         },
         { merge: true }
       );

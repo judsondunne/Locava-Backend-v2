@@ -10,9 +10,29 @@ export class NotificationsListOrchestrator {
 
   constructor(private readonly service: NotificationsService) {}
 
-  async run(input: { viewerId: string; cursor: string | null; limit: number }): Promise<NotificationsListResponse> {
+  async run(input: {
+    viewerId: string;
+    cursor: string | null;
+    limit: number;
+    boundedList?: {
+      maxNotificationDocs?: number;
+      skipActorHydration?: boolean;
+      syncUnreadFromViewerDoc?: boolean;
+      strictPageHasMore?: boolean;
+    };
+  }): Promise<NotificationsListResponse> {
     const cursorPart = input.cursor ?? "start";
-    const cacheKey = buildCacheKey("list", ["notifications-v1", input.viewerId, cursorPart, String(input.limit)]);
+    const b = input.boundedList;
+    const boundedKey = b
+      ? `${b.maxNotificationDocs ?? ""}:${b.skipActorHydration ? "1" : "0"}:${b.syncUnreadFromViewerDoc ? "1" : "0"}:${b.strictPageHasMore ? "1" : "0"}`
+      : "default";
+    const cacheKey = buildCacheKey("list", [
+      "notifications-v1",
+      input.viewerId,
+      cursorPart,
+      String(input.limit),
+      boundedKey,
+    ]);
     const cached = await globalCache.get<NotificationsListResponse>(cacheKey);
     if (cached) {
       recordCacheHit();
@@ -28,9 +48,9 @@ export class NotificationsListOrchestrator {
         count: page.items.length,
         hasMore: page.hasMore,
         nextCursor: page.nextCursor,
-        sort: "created_desc"
+        sort: "created_desc",
       },
-      items: page.items,
+      items: page.items.map(({ viewerId: _v, ...rest }) => rest),
       unread: {
         count: page.unreadCount
       },

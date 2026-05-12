@@ -31,13 +31,28 @@ async function dispatchLegacyExpoPushAfterNotificationCreate(result: {
 export class NotificationsService {
   constructor(private readonly repository: NotificationsRepository) {}
 
-  async loadNotificationsPage(input: { viewerId: string; cursor: string | null; limit: number }) {
+  async loadNotificationsPage(input: {
+    viewerId: string;
+    cursor: string | null;
+    limit: number;
+    boundedList?: {
+      maxNotificationDocs?: number;
+      skipActorHydration?: boolean;
+      syncUnreadFromViewerDoc?: boolean;
+      strictPageHasMore?: boolean;
+    };
+  }) {
     const cursorPart = input.cursor ?? "start";
-    return dedupeInFlight(`notifications:list:${input.viewerId}:${cursorPart}:${input.limit}`, () =>
-      withConcurrencyLimit("notifications-list-repo", 10, async () => {
-        // Repository serves denormalized actor/target fields from the notification row itself.
-        return this.repository.listNotifications(input);
-      })
+    const b = input.boundedList;
+    const boundedKey = b
+      ? `${b.maxNotificationDocs ?? ""}:${b.skipActorHydration ? "1" : "0"}:${b.syncUnreadFromViewerDoc ? "1" : "0"}:${b.strictPageHasMore ? "1" : "0"}`
+      : "default";
+    return dedupeInFlight(
+      `notifications:list:${input.viewerId}:${cursorPart}:${input.limit}:${boundedKey}`,
+      () =>
+        withConcurrencyLimit("notifications-list-repo", 10, async () => {
+          return this.repository.listNotifications(input);
+        }),
     );
   }
 
