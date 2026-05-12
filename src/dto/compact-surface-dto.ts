@@ -269,6 +269,7 @@ export type MapMarkerCompactDTO = {
   followedUserPic?: string | null;
   hasPhoto?: boolean;
   hasVideo?: boolean;
+  openPayload?: Record<string, unknown> | null;
 };
 
 export type ProfileHeaderDTO = {
@@ -1229,6 +1230,7 @@ export function toMapMarkerCompactDTO(seed: {
   followedUserPic?: string | null;
   hasPhoto?: boolean;
   hasVideo?: boolean;
+  openPayload?: Record<string, unknown> | null;
 }): MapMarkerCompactDTO {
   return {
     id: seed.id,
@@ -1237,9 +1239,19 @@ export function toMapMarkerCompactDTO(seed: {
     lng: seed.lng,
     activity: cleanString(seed.activity),
     activities: cleanStringArray(seed.activities, 1),
+    createdAt: cleanNumber(seed.createdAt),
+    updatedAt: cleanNumber(seed.updatedAt),
+    visibility: cleanString(seed.visibility),
+    ownerId: cleanString(seed.ownerId),
     thumbnailUrl: cleanString(seed.thumbnailUrl),
+    thumbKey: cleanString(seed.thumbKey),
+    followedUserPic: cleanString(seed.followedUserPic),
     hasPhoto: cleanBool(seed.hasPhoto),
     hasVideo: cleanBool(seed.hasVideo),
+    openPayload:
+      seed.openPayload && typeof seed.openPayload === "object"
+        ? (seed.openPayload as Record<string, unknown>)
+        : null,
   };
 }
 

@@ -1,6 +1,7 @@
 import type { MapMarkerSummary } from "../../contracts/entities/map-entities.contract.js";
 import { loadEnv } from "../../config/env.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { resolveMapMarkerViewportCandidateLimit } from "../../lib/map/map-marker-budgets.js";
 import { MapMarkersFirestoreAdapter } from "../source-of-truth/map-markers-firestore.adapter.js";
 
 const env = loadEnv();
@@ -38,10 +39,15 @@ export class MapRepository {
     hasMore: boolean;
     nextCursor: string | null;
   }> {
+    const candidateLimit = resolveMapMarkerViewportCandidateLimit({
+      pageLimit: input.limit,
+      configuredMaxDocs: env.MAP_MARKERS_MAX_DOCS
+    });
     const page = await this.adapter.fetchWindow({
       bounds: input.bounds,
       limit: input.limit,
-      maxDocs: env.MAP_MARKERS_MAX_DOCS
+      maxDocs: candidateLimit,
+      includeOpenPayload: true
     });
     return {
       markers: page.markers.map((marker) => ({

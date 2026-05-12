@@ -49,7 +49,7 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     INTERNAL_OPS_TOKEN: undefined,
     INTERNAL_DASHBOARD_TOKEN: "super-secret-dashboard-token",
     MAP_MARKERS_CACHE_TTL_MS: 60000,
-    MAP_MARKERS_MAX_DOCS: 5000,
+    MAP_MARKERS_MAX_DOCS: 180,
     LEGACY_MONOLITH_PROXY_BASE_URL: undefined,
     ALLOW_PUBLIC_POSTING_TEST: false,
     CONTACT_SYNC_VERBOSE_DIAGNOSTICS: false,

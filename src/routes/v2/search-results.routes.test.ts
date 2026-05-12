@@ -30,6 +30,10 @@ describe("v2 search results route", () => {
     expect(body.data.page.cursorIn).toBe(null);
     expect(body.data.page.limit).toBe(8);
     expect(body.data.page.sort).toBe("search_ranked_v1");
+    expect(Array.isArray(body.data.sections.posts.items)).toBe(true);
+    expect(Array.isArray(body.data.sections.users.items)).toBe(true);
+    expect(Array.isArray(body.data.sections.collections.items)).toBe(true);
+    expect(Array.isArray(body.data.sections.mixes.items)).toBe(true);
     expect(body.data.items.length).toBeLessThanOrEqual(8);
     if (body.data.items.length === 0) return;
     expect(body.data.items[0].author.userId).toBeTruthy();
@@ -38,6 +42,14 @@ describe("v2 search results route", () => {
     expect(body.data.items[0].hydrationLevel).toBe("card");
     expect(body.data.items[0].hasAssetsArray).toBe(true);
     expect(body.data.items[0].hasRawPost).toBe(false);
+    if (body.data.sections.users.items.length > 0) {
+      expect(body.data.sections.users.items[0].userId).toBeTruthy();
+      expect(typeof body.data.sections.users.items[0].handle).toBe("string");
+    }
+    if (body.data.sections.mixes.items.length > 0) {
+      expect(body.data.sections.mixes.items[0].mixKey).toBeTruthy();
+      expect(["activity", "nearby"]).toContain(body.data.sections.mixes.items[0].type);
+    }
   });
 
   it("supports cursor pagination and echoes cursorIn", async () => {

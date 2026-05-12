@@ -3,7 +3,9 @@ import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
 import type { SearchRepository } from "../../repositories/surfaces/search.repository.js";
+import { SearchUsersRepository } from "../../repositories/surfaces/search-users.repository.js";
 import { SearchDiscoveryService } from "./search-discovery.service.js";
+import { SearchUsersService } from "./search-users.service.js";
 
 function canonicalizeQuery(raw: string): string {
   const q = raw.trim().toLowerCase();
@@ -26,6 +28,7 @@ function isUrl(value: string): boolean {
 
 export class SearchService {
   private readonly discoveryService = new SearchDiscoveryService();
+  private readonly usersService = new SearchUsersService(new SearchUsersRepository());
 
   constructor(private readonly repository: SearchRepository) {}
 
@@ -121,6 +124,33 @@ export class SearchService {
     });
   }
 
+  private pickMixCoverUri(input: {
+    activity: string;
+    postsSource: Array<{
+      activities?: string[];
+      thumbUrl?: string;
+      displayPhotoLink?: string;
+    }>;
+  }): string | null {
+    const normalizedActivity = String(input.activity ?? "").trim().toLowerCase();
+    if (!normalizedActivity) return null;
+    for (const row of input.postsSource) {
+      const activityMatch = Array.isArray(row.activities)
+        ? row.activities.some(
+            (value) => String(value ?? "").trim().toLowerCase() === normalizedActivity,
+          )
+        : false;
+      if (!activityMatch) continue;
+      const coverUri = String(row.thumbUrl ?? row.displayPhotoLink ?? "").trim();
+      if (isUrl(coverUri)) return coverUri;
+    }
+    for (const row of input.postsSource) {
+      const coverUri = String(row.thumbUrl ?? row.displayPhotoLink ?? "").trim();
+      if (isUrl(coverUri)) return coverUri;
+    }
+    return null;
+  }
+
   async loadResultsBundle(input: {
     viewerId: string;
     query: string;
@@ -214,10 +244,18 @@ export class SearchService {
         const mixLocationText = parsedIntent.nearMe
           ? "near me"
           : parsedIntent.location?.displayText ?? null;
-        const [suggestedUsers, collectionsSection] = await Promise.all([
+        const [usersPage, collectionsSection] = await Promise.all([
           wantedTypes.has("users")
-            ? this.discoveryService.searchUsersForQuery(normalized, Math.min(8, limit))
-            : Promise.resolve([]),
+            ? this.usersService
+                .loadUsersPage({
+                  viewerId,
+                  query: normalized,
+                  cursor: null,
+                  limit: Math.min(8, limit),
+                  excludeUserIds: [],
+                })
+                .catch(() => null)
+            : Promise.resolve(null),
           wantedTypes.has("collections")
             ? this.discoveryService.searchCollections({
                 viewerId,
@@ -227,22 +265,52 @@ export class SearchService {
             : Promise.resolve([]),
         ]);
 
-        const filteredCollections = Array.isArray(collectionsSection) ? collectionsSection.slice(0, limit) : [];
+        const filteredCollections = Array.isArray(collectionsSection)
+          ? collectionsSection.slice(0, limit).map((collection) => ({
+              id: String(collection.id ?? collection.collectionId ?? "").trim(),
+              collectionId: String(collection.collectionId ?? collection.id ?? "").trim(),
+              title: String(collection.title ?? "").trim(),
+              description: String(collection.description ?? "").trim() || undefined,
+              coverUri: isUrl(String(collection.coverUri ?? "")) ? String(collection.coverUri) : null,
+              postCount:
+                typeof collection.postCount === "number" && Number.isFinite(collection.postCount)
+                  ? Math.max(0, Math.floor(collection.postCount))
+                  : undefined,
+            }))
+              .filter((collection) => collection.id && collection.collectionId && collection.title)
+          : [];
         const filteredMixes = wantedTypes.has("mixes")
           ? this.discoveryService
               .buildMixSpecsFromActivities(mixActivities.slice(0, Math.min(limit, 4)), mixLocationText)
               .map((mix) => ({
                 id: mix.id,
+                mixKey: mix.id,
+                type: parsedIntent.nearMe ? ("nearby" as const) : ("activity" as const),
                 title: mix.title,
                 subtitle: mix.subtitle,
-                heroQuery: mix.heroQuery ?? ""
+                heroQuery: mix.heroQuery ?? "",
+                coverUri: this.pickMixCoverUri({
+                  activity: mix.seeds.primaryActivityId,
+                  postsSource,
+                }),
+                activity: mix.seeds.primaryActivityId,
+                state: parsedIntent.location?.stateName ?? null,
+                place: parsedIntent.location?.place?.text ?? null,
+                lat: parsedIntent.nearMe
+                  ? lat
+                  : parsedIntent.location?.place?.lat ?? lat,
+                lng: parsedIntent.nearMe
+                  ? lng
+                  : parsedIntent.location?.place?.lng ?? lng,
+                radiusKm: parsedIntent.nearMe ? 15 : null,
               }))
               .slice(0, limit)
           : [];
 
-        const filteredUsers = Array.isArray(suggestedUsers)
-          ? suggestedUsers.slice(0, Math.min(8, limit))
+        const filteredUsers = Array.isArray(usersPage?.items)
+          ? usersPage.items.slice(0, Math.min(8, limit))
           : [];
+        const followingIds = new Set(usersPage?.followingUserIds ?? []);
 
         return {
           page: {
@@ -293,13 +361,14 @@ export class SearchService {
             },
             users: {
               items: filteredUsers.map((user) => ({
-                userId: String(user.userId ?? user.id ?? ""),
+                userId: String(user.userId ?? ""),
                 handle: String(user.handle ?? ""),
                 displayName: String(user.name ?? "") || null,
-                profilePic: String(user.profilePic ?? "") || null
+                profilePic: String(user.pic ?? "") || null,
+                isFollowing: followingIds.has(String(user.userId ?? "")),
               })),
-              hasMore: false,
-              cursor: null
+              hasMore: usersPage?.hasMore === true,
+              cursor: usersPage?.nextCursor ?? null
             },
             mixes: {
               items: filteredMixes,

@@ -27,6 +27,10 @@ describe("MapRepository", () => {
       etag: "\"etag\"",
       queryCount: 1,
       readCount: 1,
+      docsScanned: 1,
+      candidateLimit: 180,
+      sourceQueryMode: "viewport_bounds",
+      degradedReason: null,
       invalidCoordinateDrops: 0,
       hasMore: false,
       nextCursor: null
@@ -41,7 +45,8 @@ describe("MapRepository", () => {
     expect(fetchWindow).toHaveBeenCalledWith({
       bounds: { minLng: -75, minLat: 40, maxLng: -73, maxLat: 41 },
       limit: 120,
-      maxDocs: 5000
+      maxDocs: 180,
+      includeOpenPayload: true
     });
     expect(result.markers).toHaveLength(1);
     const marker = result.markers[0]!;
@@ -65,7 +70,7 @@ describe("MapRepository", () => {
       hasRawPost: false,
       debugPostEnvelope: expect.objectContaining({
         hydrationLevel: "marker",
-        debugSource: "MapRepository.listMarkers"
+        debugSource: "MapRepository.listMarkers_fallback"
       })
     });
     expect(envelope!.id).toBe("p1");

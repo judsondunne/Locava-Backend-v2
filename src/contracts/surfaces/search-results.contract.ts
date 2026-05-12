@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { PostCardSummarySchema } from "../entities/post-entities.contract.js";
+import { UserDiscoveryRowSchema } from "../entities/user-discovery-entities.contract.js";
 
 export const SearchResultsQuerySchema = z.object({
   q: z.string().trim().min(2).max(80),
@@ -13,6 +14,31 @@ export const SearchResultsQuerySchema = z.object({
     .union([z.literal("1"), z.literal("0")])
     .optional()
     .transform((v) => v === "1"),
+});
+
+const SearchResultsCollectionSummarySchema = z.object({
+  id: z.string(),
+  collectionId: z.string(),
+  title: z.string(),
+  description: z.string().optional(),
+  coverUri: z.string().url().nullable().optional(),
+  postCount: z.number().int().nonnegative().optional()
+});
+
+const SearchResultsMixSummarySchema = z.object({
+  id: z.string(),
+  mixKey: z.string(),
+  type: z.enum(["activity", "nearby"]),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  heroQuery: z.string().optional(),
+  coverUri: z.string().url().nullable().optional(),
+  activity: z.string().optional(),
+  state: z.string().nullable().optional(),
+  place: z.string().nullable().optional(),
+  lat: z.number().nullable().optional(),
+  lng: z.number().nullable().optional(),
+  radiusKm: z.number().nullable().optional()
 });
 
 export const SearchResultsResponseSchema = z.object({
@@ -36,17 +62,17 @@ export const SearchResultsResponseSchema = z.object({
       cursor: z.string().nullable()
     }),
     collections: z.object({
-      items: z.array(z.record(z.string(), z.unknown())),
+      items: z.array(SearchResultsCollectionSummarySchema),
       hasMore: z.boolean(),
       cursor: z.string().nullable()
     }),
     users: z.object({
-      items: z.array(z.record(z.string(), z.unknown())),
+      items: z.array(UserDiscoveryRowSchema),
       hasMore: z.boolean(),
       cursor: z.string().nullable()
     }),
     mixes: z.object({
-      items: z.array(z.record(z.string(), z.unknown())),
+      items: z.array(SearchResultsMixSummarySchema),
       hasMore: z.boolean(),
       cursor: z.string().nullable()
     })

@@ -4,6 +4,10 @@ import { loadEnv } from "../../config/env.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { incrementDbOps } from "../../observability/request-context.js";
+import {
+  clampConfiguredMapMarkersMaxDocs,
+  resolveMapMarkerViewportCandidateLimit
+} from "../../lib/map/map-marker-budgets.js";
 
 const env = loadEnv();
 
@@ -34,6 +38,10 @@ export type MapMarkersDataset = {
   etag: string;
   queryCount: number;
   readCount: number;
+  docsScanned: number;
+  candidateLimit: number;
+  sourceQueryMode: string;
+  degradedReason: string | null;
   invalidCoordinateDrops: number;
 };
 
@@ -63,6 +71,37 @@ type SharedDatasetCache = {
 let sharedDatasetCache: SharedDatasetCache | null = null;
 let sharedDatasetPromise: { maxDocs: number; includeOpenPayload: boolean; promise: Promise<MapMarkersDataset> } | null = null;
 
+const MAP_MARKER_SELECT_FIELDS = [
+  "time",
+  "createdAt",
+  "createdAtMs",
+  "updatedAt",
+  "updatedAtMs",
+  "lastUpdated",
+  "lat",
+  "lng",
+  "latitude",
+  "longitude",
+  "long",
+  "activity",
+  "activities",
+  "privacy",
+  "visibility",
+  "userId",
+  "ownerId",
+  "thumbUrl",
+  "displayPhotoLink",
+  "photoLink",
+  "photoLinks2",
+  "photoLinks3",
+  "assets",
+  "mediaType",
+  "deleted",
+  "isDeleted",
+  "archived",
+  "hidden"
+] as const;
+
 export class MapMarkersFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
 
@@ -75,35 +114,36 @@ export class MapMarkersFirestoreAdapter {
     if (!this.db) {
       throw new Error("map_markers_firestore_unavailable");
     }
+    const safeMaxDocs = clampConfiguredMapMarkersMaxDocs(input.maxDocs);
     const includeOpenPayload = input.includeOpenPayload ?? true;
     const now = Date.now();
     const cached = sharedDatasetCache;
     if (
       cached &&
       cached.expiresAt > now &&
-      cached.maxDocs >= input.maxDocs &&
+      cached.maxDocs >= safeMaxDocs &&
       cached.includeOpenPayload === includeOpenPayload
     ) {
-      return sliceDataset(cached.dataset, input.maxDocs);
+      return sliceDataset(cached.dataset, safeMaxDocs);
     }
     const inFlight = sharedDatasetPromise;
     if (
       inFlight &&
-      inFlight.maxDocs >= input.maxDocs &&
+      inFlight.maxDocs >= safeMaxDocs &&
       inFlight.includeOpenPayload === includeOpenPayload
     ) {
       const dataset = await inFlight.promise;
-      return sliceDataset(dataset, input.maxDocs);
+      return sliceDataset(dataset, safeMaxDocs);
     }
 
-    const promise = this.fetchAllFromFirestore(input.maxDocs, { includeNonPublic: false, includeOpenPayload });
-    sharedDatasetPromise = { maxDocs: input.maxDocs, includeOpenPayload, promise };
+    const promise = this.fetchAllFromFirestore(safeMaxDocs, { includeNonPublic: false, includeOpenPayload });
+    sharedDatasetPromise = { maxDocs: safeMaxDocs, includeOpenPayload, promise };
     try {
       const dataset = await promise;
       sharedDatasetCache = {
         dataset,
         expiresAt: Date.now() + env.MAP_MARKERS_CACHE_TTL_MS,
-        maxDocs: input.maxDocs,
+        maxDocs: safeMaxDocs,
         includeOpenPayload
       };
       return dataset;
@@ -114,9 +154,47 @@ export class MapMarkersFirestoreAdapter {
     }
   }
 
-  async fetchWindow(input: { maxDocs: number; bounds: MapMarkerBounds; limit: number }): Promise<MapMarkersDataset & { hasMore: boolean; nextCursor: string | null }> {
-    const base = await this.fetchAll({ maxDocs: input.maxDocs });
-    const filtered = base.markers.filter(
+  async fetchWindow(input: {
+    maxDocs: number;
+    bounds: MapMarkerBounds;
+    limit: number;
+    includeOpenPayload?: boolean;
+  }): Promise<MapMarkersDataset & { hasMore: boolean; nextCursor: string | null }> {
+    if (!this.db) {
+      throw new Error("map_markers_firestore_unavailable");
+    }
+    const includeOpenPayload = input.includeOpenPayload ?? true;
+    const safeCandidateLimit = resolveMapMarkerViewportCandidateLimit({
+      pageLimit: input.limit,
+      configuredMaxDocs: input.maxDocs
+    });
+    const attempt = await this.fetchWindowFromFirestore({
+      bounds: input.bounds,
+      candidateLimit: safeCandidateLimit,
+      includeOpenPayload
+    });
+    if (attempt != null) {
+      const filtered = attempt.markers.filter(
+        (marker) =>
+          marker.lng >= input.bounds.minLng &&
+          marker.lng <= input.bounds.maxLng &&
+          marker.lat >= input.bounds.minLat &&
+          marker.lat <= input.bounds.maxLat
+      );
+      const page = filtered.slice(0, input.limit);
+      return {
+        ...attempt,
+        markers: page,
+        count: page.length,
+        hasMore: filtered.length > page.length,
+        nextCursor:
+          filtered.length > page.length
+            ? String(page[page.length - 1]?.updatedAt ?? page[page.length - 1]?.createdAt ?? null)
+            : null
+      };
+    }
+    const fallback = await this.fetchAll({ maxDocs: safeCandidateLimit, includeOpenPayload });
+    const filtered = fallback.markers.filter(
       (marker) =>
         marker.lng >= input.bounds.minLng &&
         marker.lng <= input.bounds.maxLng &&
@@ -125,9 +203,12 @@ export class MapMarkersFirestoreAdapter {
     );
     const page = filtered.slice(0, input.limit);
     return {
-      ...base,
+      ...fallback,
       markers: page,
       count: page.length,
+      candidateLimit: safeCandidateLimit,
+      degradedReason: "bounds_query_failed_global_slice",
+      sourceQueryMode: "global_latest_fallback",
       hasMore: filtered.length > page.length,
       nextCursor:
         filtered.length > page.length
@@ -150,6 +231,10 @@ export class MapMarkersFirestoreAdapter {
         etag: "\"empty\"",
         queryCount: 0,
         readCount: 0,
+        docsScanned: 0,
+        candidateLimit: 0,
+        sourceQueryMode: "owner_lookup",
+        degradedReason: null,
         invalidCoordinateDrops: 0
       };
     }
@@ -173,36 +258,7 @@ export class MapMarkersFirestoreAdapter {
     const query = db
       .collection("posts")
       .orderBy("time", "desc")
-      .select(
-        "time",
-        "createdAt",
-        "createdAtMs",
-        "updatedAt",
-        "updatedAtMs",
-        "lastUpdated",
-        "lat",
-        "lng",
-        "latitude",
-        "longitude",
-        "long",
-        "activity",
-        "activities",
-        "privacy",
-        "visibility",
-        "userId",
-        "ownerId",
-        "thumbUrl",
-        "displayPhotoLink",
-        "photoLink",
-        "photoLinks2",
-        "photoLinks3",
-        "assets",
-        "mediaType",
-        "deleted",
-        "isDeleted",
-        "archived",
-        "hidden"
-      )
+      .select(...MAP_MARKER_SELECT_FIELDS)
       .limit(maxDocs);
     incrementDbOps("queries", 1);
     const snapshot = await query.get();
@@ -218,6 +274,10 @@ export class MapMarkersFirestoreAdapter {
       etag,
       queryCount: 1,
       readCount: snapshot.docs.length,
+      docsScanned: snapshot.docs.length,
+      candidateLimit: maxDocs,
+      sourceQueryMode: "global_latest",
+      degradedReason: null,
       invalidCoordinateDrops: projected.invalidCoordinateDrops
     };
   }
@@ -232,42 +292,11 @@ export class MapMarkersFirestoreAdapter {
     if (!db) {
       throw new Error("map_markers_firestore_unavailable");
     }
-    const selectFields = [
-      "time",
-      "createdAt",
-      "createdAtMs",
-      "updatedAt",
-      "updatedAtMs",
-      "lastUpdated",
-      "lat",
-      "lng",
-      "latitude",
-      "longitude",
-      "long",
-      "activity",
-      "activities",
-      "privacy",
-      "visibility",
-      "userId",
-      "ownerId",
-      "thumbUrl",
-      "displayPhotoLink",
-      "photoLink",
-      "photoLinks2",
-      "photoLinks3",
-      "assets",
-      "mediaType",
-      "deleted",
-      "isDeleted",
-      "archived",
-      "hidden"
-    ] as const;
-
     const queryByField = async (field: "userId" | "ownerId"): Promise<QueryDocumentSnapshot[]> => {
       const base = db.collection("posts").where(field, "==", input.ownerId);
       incrementDbOps("queries", 1);
       try {
-        const snapshot = await base.orderBy("time", "desc").select(...selectFields).limit(input.maxDocs).get();
+        const snapshot = await base.orderBy("time", "desc").select(...MAP_MARKER_SELECT_FIELDS).limit(input.maxDocs).get();
         incrementDbOps("reads", snapshot.docs.length);
         return snapshot.docs;
       } catch (error) {
@@ -277,7 +306,7 @@ export class MapMarkersFirestoreAdapter {
         if (!message.toLowerCase().includes("index")) {
           throw error;
         }
-        const snapshot = await base.select(...selectFields).limit(input.maxDocs).get();
+        const snapshot = await base.select(...MAP_MARKER_SELECT_FIELDS).limit(input.maxDocs).get();
         incrementDbOps("reads", snapshot.docs.length);
         return snapshot.docs;
       }
@@ -301,6 +330,68 @@ export class MapMarkersFirestoreAdapter {
       etag,
       queryCount: 2,
       readCount: userIdDocs.length + ownerIdDocs.length,
+      docsScanned: userIdDocs.length + ownerIdDocs.length,
+      candidateLimit: input.maxDocs,
+      sourceQueryMode: "owner_lookup",
+      degradedReason: null,
+      invalidCoordinateDrops: projected.invalidCoordinateDrops
+    };
+  }
+
+  private async fetchWindowFromFirestore(input: {
+    bounds: MapMarkerBounds;
+    candidateLimit: number;
+    includeOpenPayload: boolean;
+  }): Promise<MapMarkersDataset | null> {
+    const db = this.db;
+    if (!db) {
+      throw new Error("map_markers_firestore_unavailable");
+    }
+    const docs = new Map<string, QueryDocumentSnapshot>();
+    let queryCount = 0;
+    let readCount = 0;
+    let failedQueries = 0;
+    for (const latField of ["lat", "latitude"] as const) {
+      try {
+        incrementDbOps("queries", 1);
+        queryCount += 1;
+        const snapshot = await db
+          .collection("posts")
+          .where(latField, ">=", input.bounds.minLat)
+          .where(latField, "<=", input.bounds.maxLat)
+          .select(...MAP_MARKER_SELECT_FIELDS)
+          .limit(input.candidateLimit)
+          .get();
+        incrementDbOps("reads", snapshot.docs.length);
+        readCount += snapshot.docs.length;
+        for (const doc of snapshot.docs) {
+          docs.set(doc.id, doc);
+        }
+      } catch {
+        failedQueries += 1;
+      }
+    }
+    if (docs.size === 0 && failedQueries > 0) {
+      return null;
+    }
+    const projected = project([...docs.values()], {
+      includeNonPublic: false,
+      includeOpenPayload: input.includeOpenPayload
+    });
+    const generatedAt = Date.now();
+    const etag = buildEtag(projected.markers);
+    return {
+      markers: projected.markers,
+      count: projected.markers.length,
+      generatedAt,
+      version: "map-markers-v2-bounds",
+      etag,
+      queryCount,
+      readCount,
+      docsScanned: readCount,
+      candidateLimit: input.candidateLimit,
+      sourceQueryMode: "viewport_bounds",
+      degradedReason: failedQueries > 0 ? "bounds_partial_query_failure" : null,
       invalidCoordinateDrops: projected.invalidCoordinateDrops
     };
   }
@@ -311,7 +402,11 @@ function sliceDataset(dataset: MapMarkersDataset, maxDocs: number): MapMarkersDa
     return {
       ...dataset,
       queryCount: 0,
-      readCount: 0
+      readCount: 0,
+      docsScanned: 0,
+      candidateLimit: Math.min(dataset.candidateLimit, maxDocs),
+      sourceQueryMode: "cache_slice",
+      degradedReason: dataset.degradedReason
     };
   }
   const markers = dataset.markers.slice(0, maxDocs);
@@ -323,6 +418,10 @@ function sliceDataset(dataset: MapMarkersDataset, maxDocs: number): MapMarkersDa
     etag: buildEtag(markers),
     queryCount: 0,
     readCount: 0,
+    docsScanned: 0,
+    candidateLimit: Math.min(dataset.candidateLimit, maxDocs),
+    sourceQueryMode: "cache_slice",
+    degradedReason: dataset.degradedReason,
     invalidCoordinateDrops: dataset.invalidCoordinateDrops
   };
 }
@@ -367,29 +466,18 @@ function project(
       hasPhoto: media.hasPhoto,
       hasVideo: media.hasVideo,
       openPayload: options.includeOpenPayload
-        ? buildPostEnvelope({
+        ? buildMarkerOpenPayload({
             postId: doc.id,
-            seed: {
-              postId: doc.id,
-              id: doc.id,
-              thumbUrl: thumbnailUrl,
-              displayPhotoLink: thumbnailUrl,
-              mediaType: media.hasVideo ? "video" : "image",
-              activities,
-              activity: readActivity(data.activity),
-              lat: coords.lat,
-              long: coords.lng,
-              userId: ownerId,
-              authorId: ownerId,
-              visibility,
-              updatedAtMs: updatedAt ?? createdAt ?? Date.now(),
-              createdAtMs: createdAt ?? updatedAt ?? Date.now(),
-            },
-            rawPost: data as Record<string, unknown>,
-            sourcePost: data as Record<string, unknown>,
-            hydrationLevel: "marker",
-            sourceRoute: "map.markers",
-            debugSource: "MapMarkersFirestoreAdapter.project",
+            ownerId,
+            thumbnailUrl,
+            lat: coords.lat,
+            lng: coords.lng,
+            activities,
+            activity: readActivity(data.activity),
+            visibility,
+            createdAt,
+            updatedAt,
+            hasVideo: media.hasVideo
           })
         : undefined,
     });
@@ -472,6 +560,86 @@ function inferMedia(data: Record<string, unknown>): { hasPhoto: boolean; hasVide
   const hasVideo = mediaType === "video";
   const hasPhoto = Boolean(normalizeText(data.displayPhotoLink) ?? normalizeText(data.photoLink) ?? normalizeText(data.thumbUrl));
   return { hasPhoto, hasVideo };
+}
+
+function buildMarkerOpenPayload(input: {
+  postId: string;
+  ownerId: string | null;
+  thumbnailUrl: string | null;
+  lat: number;
+  lng: number;
+  activities: string[];
+  activity: string | null;
+  visibility: string | null;
+  createdAt: number | null;
+  updatedAt: number | null;
+  hasVideo: boolean;
+}): Record<string, unknown> {
+  return buildPostEnvelope({
+    postId: input.postId,
+    seed: {
+      postId: input.postId,
+      id: input.postId,
+      thumbUrl: input.thumbnailUrl,
+      displayPhotoLink: input.thumbnailUrl,
+      photoLink: input.thumbnailUrl,
+      mediaType: input.hasVideo ? "video" : "image",
+      activity: input.activity,
+      activities: input.activities,
+      lat: input.lat,
+      lng: input.lng,
+      long: input.lng,
+      userId: input.ownerId,
+      authorId: input.ownerId,
+      visibility: input.visibility,
+      likeCount: 0,
+      likesCount: 0,
+      commentCount: 0,
+      commentsCount: 0,
+      viewerHasLiked: false,
+      viewerHasSaved: false,
+      user: input.ownerId
+        ? {
+            userId: input.ownerId,
+            handle: null,
+            name: null,
+            pic: null
+          }
+        : undefined,
+      author: input.ownerId
+        ? {
+            userId: input.ownerId,
+            handle: null,
+            name: null,
+            pic: null
+          }
+        : undefined,
+      assets: input.thumbnailUrl
+        ? [
+            input.hasVideo
+              ? {
+                  id: `${input.postId}:marker-video`,
+                  type: "video",
+                  poster: input.thumbnailUrl,
+                  thumbnail: input.thumbnailUrl,
+                  variants: {}
+                }
+              : {
+                  id: `${input.postId}:marker-image`,
+                  type: "image",
+                  original: input.thumbnailUrl,
+                  thumbnail: input.thumbnailUrl,
+                  poster: input.thumbnailUrl
+                }
+          ]
+        : [],
+      updatedAtMs: input.updatedAt ?? input.createdAt ?? Date.now(),
+      createdAtMs: input.createdAt ?? input.updatedAt ?? Date.now()
+    },
+    hydrationLevel: "marker",
+    sourceRoute: "map.markers",
+    debugSource: "MapMarkersFirestoreAdapter.project"
+  });
 }
 
 function buildEtag(markers: MapMarkerRecord[]): string {

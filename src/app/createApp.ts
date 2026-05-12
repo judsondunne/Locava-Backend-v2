@@ -182,8 +182,6 @@ import {
   markProcessBoot
 } from "../runtime/warmer-traffic-gate.js";
 import { globalCache } from "../cache/global-cache.js";
-import type { MapMarkersResponse } from "../contracts/surfaces/map-markers.contract.js";
-import { MapMarkersFirestoreAdapter } from "../repositories/source-of-truth/map-markers-firestore.adapter.js";
 import { primeCoherenceProvider } from "../runtime/coherence-provider.js";
 import { runFirebaseAdminPermissionProbe } from "../lib/firebase-admin.js";
 import { isReadOnlyLatencyAuditEnabled } from "../safety/read-only-latency-audit-guard.js";
@@ -276,7 +274,6 @@ try {
 export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   const env = { ...loadEnv(), ...overrides };
   markProcessBoot();
-  const mapMarkersAdapter = new MapMarkersFirestoreAdapter();
   const shouldPrimeFirestoreOnReady = process.env.VITEST !== "true";
 
   const app = Fastify({
@@ -314,14 +311,6 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
       await primeFirestoreSourceClient();
       if (env.NODE_ENV !== "production" && !isReadOnlyLatencyAuditEnabled()) {
         await primeFirestoreMutationChannel();
-      }
-      if (env.NODE_ENV !== "production") {
-        await primeMapMarkersRouteCache({
-          adapter: mapMarkersAdapter,
-          maxDocs: env.MAP_MARKERS_MAX_DOCS,
-          ttlMs: env.MAP_MARKERS_CACHE_TTL_MS,
-          log: app.log
-        });
       }
     });
   }
@@ -925,40 +914,4 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   });
 
   return app;
-}
-
-async function primeMapMarkersRouteCache(input: {
-  adapter: MapMarkersFirestoreAdapter;
-  maxDocs: number;
-  ttlMs: number;
-  log: FastifyInstance["log"];
-}): Promise<void> {
-  const cacheKey = "map:markers:v2:all";
-  const existing = await globalCache.get<MapMarkersResponse>(cacheKey);
-  if (existing) return;
-  try {
-    const dataset = await input.adapter.fetchAll({ maxDocs: input.maxDocs });
-    const cacheSource = dataset.queryCount > 0 || dataset.readCount > 0 ? "miss" : "hit";
-    const payload: MapMarkersResponse = {
-      routeName: "map.markers.get",
-      markers: dataset.markers,
-      count: dataset.count,
-      generatedAt: dataset.generatedAt,
-      version: dataset.version,
-      etag: dataset.etag,
-      diagnostics: {
-        queryCount: dataset.queryCount,
-        readCount: dataset.readCount,
-        payloadBytes: Buffer.byteLength(JSON.stringify(dataset.markers), "utf8"),
-        invalidCoordinateDrops: dataset.invalidCoordinateDrops,
-        cacheSource
-      }
-    };
-    await globalCache.set(cacheKey, payload, input.ttlMs);
-  } catch (error) {
-    input.log.warn(
-      { reason: error instanceof Error ? error.message : String(error), routeName: "map.markers.get" },
-      "map markers route cache prewarm skipped"
-    );
-  }
 }

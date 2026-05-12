@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
+import { MAP_MARKERS_MIN_DOCS, MAP_MARKERS_SAFE_HARD_MAX_DOCS } from "../../lib/map/map-marker-budgets.js";
 
 export const MapMarkerRecordSchema = z.object({
   id: z.string(),
@@ -31,10 +32,33 @@ export const MapMarkersResponseSchema = z.object({
   diagnostics: z.object({
     queryCount: z.number().int().nonnegative(),
     readCount: z.number().int().nonnegative(),
+    docsScanned: z.number().int().nonnegative(),
+    estimatedReads: z.number().int().nonnegative(),
     payloadBytes: z.number().int().nonnegative(),
     invalidCoordinateDrops: z.number().int().nonnegative(),
     cacheSource: z.enum(["miss", "hit", "revalidated_304"]),
-    payloadMode: z.enum(["full", "compact"]).optional()
+    payloadMode: z.enum(["full", "compact"]).optional(),
+    requestedLimit: z.number().int().nullable(),
+    effectiveLimit: z.number().int().nonnegative(),
+    candidateLimit: z.number().int().nonnegative(),
+    ownerScoped: z.boolean(),
+    boundsApplied: z.boolean(),
+    hardCapApplied: z.boolean(),
+    sourceQueryMode: z.string().nullable().optional(),
+    degradedReason: z.string().nullable().optional(),
+    /** Optional diagnostics — safe for logs; omit when unknown. */
+    bboxKey: z.string().nullable().optional(),
+    pageCount: z.number().int().nonnegative().optional(),
+    nextCursor: z.string().nullable().optional(),
+    totalEligibleEstimate: z.number().nullable().optional(),
+    droppedMissingCoords: z.number().int().nonnegative().optional(),
+    droppedNoMedia: z.number().int().nonnegative().optional(),
+    droppedNoOpenPayload: z.number().int().nonnegative().optional(),
+    droppedByPolicy: z.number().int().nonnegative().optional(),
+    returnedMarkerCount: z.number().int().nonnegative().optional(),
+    bboxArea: z.number().nullable().optional(),
+    zoomBucket: z.string().nullable().optional(),
+    bboxClamped: z.boolean().optional()
   })
 });
 
@@ -43,7 +67,7 @@ export const mapMarkersContract = defineContract({
   method: "GET",
   path: "/v2/map/markers",
   query: z.object({
-    limit: z.coerce.number().int().min(20).max(10_000).optional(),
+    limit: z.coerce.number().int().min(MAP_MARKERS_MIN_DOCS).max(10_000).optional(),
     /**
      * Optional owner filter used by profile/other-user minimaps.
      * When present, the backend performs server-side filtering so older posts
@@ -51,7 +75,14 @@ export const mapMarkersContract = defineContract({
      */
     ownerId: z.string().min(1).optional()
     ,
-    payloadMode: z.enum(["full", "compact"]).default("compact")
+    payloadMode: z.enum(["full", "compact"]).default("compact"),
+    bbox: z
+      .string()
+      .regex(
+        /^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/,
+        "bbox must be minLng,minLat,maxLng,maxLat"
+      )
+      .optional()
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema
