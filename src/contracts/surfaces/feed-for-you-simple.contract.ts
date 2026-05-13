@@ -164,6 +164,8 @@ export const FeedForYouSimpleResponseSchema = z.object({
   wrapAroundUsed: z.boolean(),
   fallbackAllPostsUsed: z.boolean(),
   emergencyFallbackUsed: z.boolean(),
+  /** When true, Native may show end-of-feed; when false/omitted with empty page, keep paging/recovery. */
+  terminalExhaustionConfirmed: z.boolean().optional(),
   debug: FeedForYouSimpleDebugSchema
 });
 

@@ -223,6 +223,8 @@ function pickPageFromDeck(input: {
   blockedAuthors: Set<string>;
   viewerId: string;
   radiusGate: (c: SimpleFeedCandidate) => boolean;
+  /** When true, ignore durable seen capsules for eligibility (repeat lane; ledger still updated on serve). */
+  relaxDurableSeen?: boolean;
 }): {
   picked: SimpleFeedCandidate[];
   nextCursor: ForYouV5CursorPayload;
@@ -264,7 +266,7 @@ function pickPageFromDeck(input: {
       return false;
     }
     const d = isReelPhase ? input.durableReelSeen : input.durableRegularSeen;
-    if (d.has(c.postId)) {
+    if (!input.relaxDurableSeen && d.has(c.postId)) {
       filteredByDurableSeen += 1;
       return false;
     }
@@ -299,7 +301,7 @@ function pickPageFromDeck(input: {
       if (input.blockedAuthors.has(c.authorId)) continue;
       if (input.viewerId && c.authorId === input.viewerId) continue;
       if (sessionSeen.has(c.postId)) continue;
-      if (input.durableReelSeen.has(c.postId)) continue;
+      if (!input.relaxDurableSeen && input.durableReelSeen.has(c.postId)) continue;
       n += 1;
     }
     return sum + n;
@@ -394,6 +396,7 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
   exhaustedReels: boolean;
   exhaustedNormal: boolean;
   hasMore: boolean;
+  terminalExhaustionConfirmed: boolean;
   debug: FeedForYouSimplePageDebug;
 }> {
   const startedAt = Date.now();
@@ -430,7 +433,7 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
       ? "fresh_no_cursor_requests_can_repeat_when_readonly"
       : null;
 
-  const { snapshot, cacheStatus, dbReadEstimate } = await ensureForYouV5ReadyDeck({
+  let { snapshot, cacheStatus, dbReadEstimate } = await ensureForYouV5ReadyDeck({
     repository: input.repository,
     forceRefresh: input.refresh === true,
   });
@@ -476,24 +479,133 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
     : { blocked: new Set<string>(), readCount: 0 };
   const radiusGate = (c: SimpleFeedCandidate) => candidateMatchesRadius(c, input.radiusFilter);
 
-  const pick = pickPageFromDeck({
-    snapshot,
-    cursor,
-    limit,
-    durableReelSeen,
-    durableRegularSeen,
-    blockedAuthors: blocked.blocked,
-    viewerId: viewerIdRaw,
-    radiusGate,
-  });
+  let emptyPageRecoveryAttempted = false;
+  let emptyPageRecoveryReason: string | null = null;
+  let memoryDeckExhausted = false;
+  let repeatModeActivated = false;
+  let fallbackRefillSource: string | null = null;
+  let terminalExhaustionConfirmed = false;
+  let eligibleCandidateCount = 0;
+  let seenFilteredCount = 0;
 
-  const sessionSeenBeforePick = new Set(cursor.sessionSeenPostIds.map((x) => String(x).trim()).filter(Boolean));
-  const finalized = finalizeV5PickedCandidates({
-    picked: pick.picked,
-    sessionSeenBefore: sessionSeenBeforePick,
-  });
-  const pickedFin = finalized.picked;
-  const duplicateReturnedPostIds = finalized.duplicateReturnedPostIds;
+  const serveAttempt = (args: {
+    snap: ForYouV5ReadyDeckSnapshot;
+    cur: ForYouV5CursorPayload;
+    relaxDurableSeen?: boolean;
+  }) => {
+    const p = pickPageFromDeck({
+      snapshot: args.snap,
+      cursor: args.cur,
+      limit,
+      durableReelSeen,
+      durableRegularSeen,
+      blockedAuthors: blocked.blocked,
+      viewerId: viewerIdRaw,
+      radiusGate,
+      relaxDurableSeen: args.relaxDurableSeen === true,
+    });
+    const sess = new Set(args.cur.sessionSeenPostIds.map((x) => String(x).trim()).filter(Boolean));
+    const fin = finalizeV5PickedCandidates({
+      picked: p.picked,
+      sessionSeenBefore: sess,
+    });
+    return { pick: p, pickedFin: fin.picked, duplicateReturnedPostIds: fin.duplicateReturnedPostIds, inputCur: args.cur };
+  };
+
+  let attempt = serveAttempt({ snap: snapshot, cur: cursor });
+
+  if (attempt.pickedFin.length === 0) {
+    emptyPageRecoveryAttempted = true;
+    const sortedRegularProbe = sortPhase(snapshot.regular, effectiveViewerKey, snapshot.deckVersion);
+    memoryDeckExhausted =
+      attempt.pick.reelsRemainingEstimate === 0 &&
+      (!attempt.pick.regularFallbackUsed ||
+        attempt.pick.nextCursor.phaseOffsets.regular >= sortedRegularProbe.length);
+    eligibleCandidateCount =
+      snapshot.reelTier5.length +
+      snapshot.reelTier4.length +
+      snapshot.reelOther.length +
+      snapshot.regular.length;
+    seenFilteredCount = attempt.pick.filteredByCursorSeen + attempt.pick.filteredByDurableSeen;
+
+    const curRelax = createFreshForYouV5Cursor({
+      viewerKey: effectiveViewerKey,
+      deckVersion: snapshot.deckVersion,
+      randomMode: snapshot.randomMode,
+      regularAnchor: snapshot.regularAnchor,
+      durableReelCapsule: [...durableReelSeen].slice(-500),
+      durableRegularCapsule: [...durableRegularSeen].slice(-500),
+    });
+    curRelax.sessionSeenPostIds = cursor.sessionSeenPostIds.slice(-FOR_YOU_V5_SESSION_SEEN_CAP);
+    attempt = serveAttempt({ snap: snapshot, cur: curRelax, relaxDurableSeen: true });
+    if (attempt.pickedFin.length > 0) {
+      emptyPageRecoveryReason = "relax_durable_same_deck";
+      repeatModeActivated = true;
+    } else {
+      emptyPageRecoveryReason = "relax_durable_still_empty";
+    }
+  }
+
+  if (attempt.pickedFin.length === 0 && memoryDeckExhausted) {
+    const refill = await ensureForYouV5ReadyDeck({
+      repository: input.repository,
+      forceRefresh: true,
+    });
+    snapshot = refill.snapshot;
+    cacheStatus = refill.cacheStatus;
+    dbReadEstimate += refill.dbReadEstimate;
+    fallbackRefillSource = refill.cacheStatus === "cold_fill" ? "firestore_cold_fill" : "deck_refresh";
+    const cur2 = createFreshForYouV5Cursor({
+      viewerKey: effectiveViewerKey,
+      deckVersion: snapshot.deckVersion,
+      randomMode: snapshot.randomMode,
+      regularAnchor: snapshot.regularAnchor,
+      durableReelCapsule: [...durableReelSeen].slice(-500),
+      durableRegularCapsule: [...durableRegularSeen].slice(-500),
+    });
+    cur2.sessionSeenPostIds = cursor.sessionSeenPostIds.slice(-48);
+    attempt = serveAttempt({ snap: snapshot, cur: cur2 });
+    if (attempt.pickedFin.length > 0) {
+      emptyPageRecoveryReason = "deck_force_refill";
+    } else {
+      attempt = serveAttempt({ snap: snapshot, cur: cur2, relaxDurableSeen: true });
+      if (attempt.pickedFin.length > 0) {
+        repeatModeActivated = true;
+        emptyPageRecoveryReason = "deck_refill_repeat_mode";
+      }
+    }
+  }
+
+  const deckPopulation =
+    snapshot.reelTier5.length + snapshot.reelTier4.length + snapshot.reelOther.length + snapshot.regular.length;
+
+  if (attempt.pickedFin.length === 0 && deckPopulation > 0) {
+    emptyPageRecoveryAttempted = true;
+    const curClear = createFreshForYouV5Cursor({
+      viewerKey: effectiveViewerKey,
+      deckVersion: snapshot.deckVersion,
+      randomMode: snapshot.randomMode,
+      regularAnchor: snapshot.regularAnchor,
+      durableReelCapsule: [...durableReelSeen].slice(-500),
+      durableRegularCapsule: [...durableRegularSeen].slice(-500),
+    });
+    curClear.sessionSeenPostIds = [];
+    attempt = serveAttempt({ snap: snapshot, cur: curClear, relaxDurableSeen: true });
+    if (attempt.pickedFin.length > 0) {
+      repeatModeActivated = true;
+      emptyPageRecoveryReason = "session_cleared_relax_durable";
+    }
+  }
+
+  terminalExhaustionConfirmed = attempt.pickedFin.length === 0 && deckPopulation === 0;
+  if (terminalExhaustionConfirmed) {
+    emptyPageRecoveryReason = emptyPageRecoveryReason ?? "terminal_empty_deck";
+  }
+
+  const pick = attempt.pick;
+  const pickedFin = attempt.pickedFin;
+  const duplicateReturnedPostIds = attempt.duplicateReturnedPostIds;
+  const sessionSeenBeforePick = new Set(attempt.inputCur.sessionSeenPostIds.map((x) => String(x).trim()).filter(Boolean));
 
   const mergedSessionSeen = new Set(sessionSeenBeforePick);
   for (const c of pickedFin) mergedSessionSeen.add(c.postId);
@@ -529,7 +641,8 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
     pick.regularFallbackUsed &&
     adjustedNextCursor.phaseOffsets.regular >= sortedRegularFull.length &&
     pick.reelsRemainingEstimate === 0;
-  const nextEnc = hasMoreInDeck || pickedFin.length > 0 ? encodeForYouV5Cursor(finalNext) : null;
+  const nextEnc =
+    terminalExhaustionConfirmed ? null : encodeForYouV5Cursor(finalNext);
 
   let seenWriteAttempted = false;
   if (authUid && pickedFin.length > 0 && seenWritesEnabled) {
@@ -574,6 +687,17 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
   diag.cursorUsed = Boolean(input.cursor) && !input.refresh;
   diag.returnedCount = pickedFin.length;
   diag.nextCursorPresent = Boolean(nextEnc);
+  diag.emptyPageRecoveryAttempted = emptyPageRecoveryAttempted;
+  diag.emptyPageRecoveryReason = emptyPageRecoveryReason;
+  diag.memoryDeckExhausted = memoryDeckExhausted;
+  diag.cursorPhaseExhausted = exhaustedReels && exhaustedNormal;
+  diag.eligibleCandidateCount = eligibleCandidateCount || deckPopulation;
+  diag.seenFilteredCount = seenFilteredCount;
+  diag.sessionSeenCount = sessionSeenBeforePick.size;
+  diag.durableSeenCount = durableReelSeen.size + durableRegularSeen.size;
+  diag.repeatModeActivated = repeatModeActivated;
+  diag.fallbackRefillSource = fallbackRefillSource;
+  diag.terminalExhaustionConfirmed = terminalExhaustionConfirmed;
   diag.deckSource = v5DeckSourceFromCacheStatus(cacheStatus);
   diag.deckHit = cacheStatus === "memory_hit" || cacheStatus === "stale_hit";
   diag.randomSeedOrAnchor = `v5:${snapshot.deckVersion}:${pick.activePhase}`;
@@ -622,8 +746,16 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
     phaseCounts: pick.phaseCounts,
     filteredByDurableSeen: pick.filteredByDurableSeen,
     filteredByCursorSeen: pick.filteredByCursorSeen,
-    filteredByInvalidMedia: pick.filteredByInvalidMedia,
-    authorSpacingSkips: pick.authorSpacingSkips,
+    terminalExhaustionConfirmed,
+    repeatModeActivated,
+    emptyPageRecoveryAttempted,
+    emptyPageRecoveryReason,
+    memoryDeckExhausted,
+    eligibleCandidateCount: eligibleCandidateCount || deckPopulation,
+    seenFilteredCount,
+    sessionSeenCount: sessionSeenBeforePick.size,
+    durableSeenCount: durableReelSeen.size + durableRegularSeen.size,
+    fallbackRefillSource,
   };
   debugLog("feed", "FOR_YOU_V5_RESPONSE", () => logPayload);
 
@@ -639,8 +771,8 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
     routeName: "feed.for_you_simple.get",
     items: cards,
     nextCursor: nextEnc,
-    exhausted: pickedFin.length === 0 && !hasMoreInDeck,
-    emptyReason: pickedFin.length === 0 && !hasMoreInDeck ? "no_playable_posts" : null,
+    exhausted: terminalExhaustionConfirmed,
+    emptyReason: terminalExhaustionConfirmed ? "no_playable_posts" : null,
     degradedFallbackUsed: false,
     relaxedSeenUsed: false,
     wrapAroundUsed: false,
@@ -650,6 +782,7 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
     exhaustedReels,
     exhaustedNormal,
     hasMore: Boolean(nextEnc),
+    terminalExhaustionConfirmed,
     debug: {
       ...diag,
       elapsedMs,

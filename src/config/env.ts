@@ -1,9 +1,5 @@
 import { z } from "zod";
-import {
-  MAP_MARKERS_MIN_DOCS,
-  MAP_MARKERS_SAFE_DEFAULT_MAX_DOCS,
-  MAP_MARKERS_SAFE_HARD_MAX_DOCS
-} from "../lib/map/map-marker-budgets.js";
+import { MAP_MARKERS_MIN_DOCS, MAP_MARKERS_SAFE_HARD_MAX_DOCS } from "../lib/map/map-marker-budgets.js";
 import { config as loadDotEnvFile, parse as parseDotEnv } from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
@@ -100,7 +96,7 @@ const EnvSchema = z.object({
     .int()
     .min(MAP_MARKERS_MIN_DOCS)
     .max(MAP_MARKERS_SAFE_HARD_MAX_DOCS)
-    .default(MAP_MARKERS_SAFE_DEFAULT_MAX_DOCS),
+    .default(MAP_MARKERS_SAFE_HARD_MAX_DOCS),
   /**
    * When set, `/v2/map/current-weather` uses OpenWeather current weather (commercial-friendly).
    * When unset, the route uses Open-Meteo (free, non-commercial terms — use OWM key in production apps with ads/subscriptions).

@@ -335,6 +335,18 @@ export type FeedForYouSimplePageDebug = {
     deckKeyHash: string | null;
   };
   forYouRouteVariant?: "v5" | "legacy";
+  /** V5 empty-page / recovery diagnostics (optional; present on V5 responses). */
+  emptyPageRecoveryAttempted?: boolean;
+  emptyPageRecoveryReason?: string | null;
+  memoryDeckExhausted?: boolean;
+  cursorPhaseExhausted?: boolean;
+  eligibleCandidateCount?: number;
+  seenFilteredCount?: number;
+  sessionSeenCount?: number;
+  durableSeenCount?: number;
+  repeatModeActivated?: boolean;
+  fallbackRefillSource?: string | null;
+  terminalExhaustionConfirmed?: boolean;
   legacyReason?: string;
   returnedPostIds?: string[];
   routeEnteredV5?: boolean;
@@ -400,6 +412,7 @@ export class FeedForYouSimpleService {
     exhaustedReels: boolean;
     exhaustedNormal: boolean;
     hasMore: boolean;
+    terminalExhaustionConfirmed?: boolean;
     debug: FeedForYouSimplePageDebug;
   }> {
     const requestStartedAt = Date.now();

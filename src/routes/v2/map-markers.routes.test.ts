@@ -25,6 +25,8 @@ describe("v2 map markers route", () => {
     await globalCache.del("map:markers:v2:all");
     await globalCache.del("map:markers:v2:all:payload:compact");
     await globalCache.del("map:markers:v2:all:payload:full");
+    await globalCache.del("map:markers:v2:all:cur:start:payload:compact");
+    await globalCache.del("map:markers:v2:all:cur:start:payload:full");
     await globalCache.del("map:markers:v2:240");
     await globalCache.del("map:markers:v2:60");
     await globalCache.del("map:markers:v2:owner:public:u1");
@@ -43,10 +45,12 @@ describe("v2 map markers route", () => {
       queryCount: 1,
       readCount: 0,
       docsScanned: 0,
-      candidateLimit: 180,
+      candidateLimit: 300,
       sourceQueryMode: "global_latest",
       degradedReason: null,
-      invalidCoordinateDrops: 0
+      invalidCoordinateDrops: 0,
+      hasMore: false,
+      nextCursor: null
     });
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -56,7 +60,7 @@ describe("v2 map markers route", () => {
       headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" }
     });
     expect(response.statusCode).toBe(200);
-    expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 180, includeOpenPayload: true });
+    expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 300, includeOpenPayload: true, cursor: null });
   }, 15_000);
 
   it("uses ownerId filter to fetch markers server-side", async () => {
@@ -139,7 +143,9 @@ describe("v2 map markers route", () => {
       candidateLimit: 180,
       sourceQueryMode: "global_latest",
       degradedReason: null,
-      invalidCoordinateDrops: 2
+      invalidCoordinateDrops: 2,
+      hasMore: false,
+      nextCursor: null
     });
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -162,7 +168,7 @@ describe("v2 map markers route", () => {
     expect(data.markers[0].comments).toBeUndefined();
     expect(data.diagnostics.payloadMode).toBe("compact");
     expect(data.diagnostics.invalidCoordinateDrops).toBe(2);
-    expect(data.diagnostics.effectiveLimit).toBe(180);
+    expect(data.diagnostics.effectiveLimit).toBe(300);
     expect(data.diagnostics.candidateLimit).toBe(180);
     expect(data.diagnostics.hardCapApplied).toBe(false);
     expect(response.headers.etag).toBe("\"abc\"");
@@ -194,7 +200,9 @@ describe("v2 map markers route", () => {
       candidateLimit: 80,
       sourceQueryMode: "global_latest",
       degradedReason: null,
-      invalidCoordinateDrops: 0
+      invalidCoordinateDrops: 0,
+      hasMore: false,
+      nextCursor: null
     });
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -221,10 +229,12 @@ describe("v2 map markers route", () => {
       queryCount: 1,
       readCount: 0,
       docsScanned: 0,
-      candidateLimit: 180,
+      candidateLimit: 300,
       sourceQueryMode: "global_latest",
       degradedReason: null,
       invalidCoordinateDrops: 0,
+      hasMore: false,
+      nextCursor: null
     });
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -234,7 +244,7 @@ describe("v2 map markers route", () => {
       headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" }
     });
     expect(response.statusCode).toBe(200);
-    expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 180, includeOpenPayload: true });
+    expect(fetchAllMock).toHaveBeenCalledWith({ maxDocs: 300, includeOpenPayload: true, cursor: null });
     expect(response.json().data.diagnostics.hardCapApplied).toBe(true);
   });
 
@@ -266,6 +276,8 @@ describe("v2 map markers route", () => {
       sourceQueryMode: "global_latest",
       degradedReason: null,
       invalidCoordinateDrops: 0,
+      hasMore: true,
+      nextCursor: "eyJ2IjoxLCJpIjoicDE4MCIsInQiOjE3MDAwMDAwMDE3OX0"
     });
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -367,7 +379,9 @@ describe("v2 map markers route", () => {
       candidateLimit: 180,
       sourceQueryMode: "global_latest",
       degradedReason: null,
-      invalidCoordinateDrops: 0
+      invalidCoordinateDrops: 0,
+      hasMore: false,
+      nextCursor: null
     });
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -401,7 +415,9 @@ describe("v2 map markers route", () => {
       candidateLimit: 180,
       sourceQueryMode: "global_latest",
       degradedReason: null,
-      invalidCoordinateDrops: 0
+      invalidCoordinateDrops: 0,
+      hasMore: false,
+      nextCursor: null
     });
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
@@ -421,6 +437,8 @@ describe("v2 map markers route", () => {
   });
 
   it("returns non-200 when firestore fails", async () => {
+    await globalCache.del("map:markers:v2:all:cur:start:payload:compact");
+    await globalCache.del("map:markers:v2:all:cur:start:payload:full");
     fetchAllMock.mockRejectedValue(new Error("firestore_timeout"));
     const { createApp } = await import("../../app/createApp.js");
     const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });

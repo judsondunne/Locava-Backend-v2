@@ -1,4 +1,4 @@
-import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
+import type { DocumentSnapshot, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { createHash } from "node:crypto";
 import { loadEnv } from "../../config/env.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
@@ -10,6 +10,26 @@ import {
 } from "../../lib/map/map-marker-budgets.js";
 
 const env = loadEnv();
+
+function encodeGlobalMapCursor(last: MapMarkerRecord | undefined): string | null {
+  if (!last?.postId?.trim()) return null;
+  const t = last.updatedAt ?? last.createdAt ?? 0;
+  return Buffer.from(JSON.stringify({ v: 1, i: last.postId.trim(), t }), "utf8").toString("base64url");
+}
+
+function decodeGlobalMapCursor(raw: string | null | undefined): { id: string; t: number } | null {
+  if (!raw || typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const o = JSON.parse(Buffer.from(raw.trim(), "base64url").toString("utf8")) as { v?: unknown; i?: unknown; t?: unknown };
+    if (o?.v !== 1) return null;
+    const id = String(o.i ?? "").trim();
+    const t = Number(o.t);
+    if (!id || !Number.isFinite(t)) return null;
+    return { id, t };
+  } catch {
+    return null;
+  }
+}
 
 export type MapMarkerRecord = {
   id: string;
@@ -110,48 +130,89 @@ export class MapMarkersFirestoreAdapter {
     sharedDatasetPromise = null;
   }
 
-  async fetchAll(input: { maxDocs: number; includeOpenPayload?: boolean }): Promise<MapMarkersDataset> {
+  async fetchAll(input: {
+    maxDocs: number;
+    includeOpenPayload?: boolean;
+    /** Pagination: opaque cursor from prior `nextCursor` (global_latest pages only). */
+    cursor?: string | null;
+  }): Promise<MapMarkersDataset & { hasMore: boolean; nextCursor: string | null }> {
     if (!this.db) {
       throw new Error("map_markers_firestore_unavailable");
     }
     const safeMaxDocs = clampConfiguredMapMarkersMaxDocs(input.maxDocs);
     const includeOpenPayload = input.includeOpenPayload ?? true;
+    const cursorDecoded = decodeGlobalMapCursor(input.cursor ?? null);
     const now = Date.now();
-    const cached = sharedDatasetCache;
-    if (
-      cached &&
-      cached.expiresAt > now &&
-      cached.maxDocs >= safeMaxDocs &&
-      cached.includeOpenPayload === includeOpenPayload
-    ) {
-      return sliceDataset(cached.dataset, safeMaxDocs);
-    }
-    const inFlight = sharedDatasetPromise;
-    if (
-      inFlight &&
-      inFlight.maxDocs >= safeMaxDocs &&
-      inFlight.includeOpenPayload === includeOpenPayload
-    ) {
-      const dataset = await inFlight.promise;
-      return sliceDataset(dataset, safeMaxDocs);
-    }
+    if (!cursorDecoded) {
+      const cached = sharedDatasetCache;
+      if (
+        cached &&
+        cached.expiresAt > now &&
+        cached.maxDocs >= safeMaxDocs &&
+        cached.includeOpenPayload === includeOpenPayload
+      ) {
+        const sliced = sliceDataset(cached.dataset, safeMaxDocs);
+        const last = sliced.markers[sliced.markers.length - 1];
+        const hasMore = cached.dataset.markers.length > safeMaxDocs;
+        return {
+          ...sliced,
+          hasMore,
+          nextCursor: hasMore ? encodeGlobalMapCursor(last) : null
+        };
+      }
+      const inFlight = sharedDatasetPromise;
+      if (
+        inFlight &&
+        inFlight.maxDocs >= safeMaxDocs &&
+        inFlight.includeOpenPayload === includeOpenPayload
+      ) {
+        const dataset = await inFlight.promise;
+        const sliced = sliceDataset(dataset, safeMaxDocs);
+        const last = sliced.markers[sliced.markers.length - 1];
+        const hasMore = dataset.markers.length > safeMaxDocs;
+        return {
+          ...sliced,
+          hasMore,
+          nextCursor: hasMore ? encodeGlobalMapCursor(last) : null
+        };
+      }
 
-    const promise = this.fetchAllFromFirestore(safeMaxDocs, { includeNonPublic: false, includeOpenPayload });
-    sharedDatasetPromise = { maxDocs: safeMaxDocs, includeOpenPayload, promise };
-    try {
-      const dataset = await promise;
-      sharedDatasetCache = {
-        dataset,
-        expiresAt: Date.now() + env.MAP_MARKERS_CACHE_TTL_MS,
-        maxDocs: safeMaxDocs,
-        includeOpenPayload
-      };
-      return dataset;
-    } finally {
-      if (sharedDatasetPromise?.promise === promise) {
-        sharedDatasetPromise = null;
+      const promise = this.fetchAllFromFirestore(safeMaxDocs, { includeNonPublic: false, includeOpenPayload }, null);
+      sharedDatasetPromise = { maxDocs: safeMaxDocs, includeOpenPayload, promise };
+      try {
+        const dataset = await promise;
+        sharedDatasetCache = {
+          dataset,
+          expiresAt: Date.now() + env.MAP_MARKERS_CACHE_TTL_MS,
+          maxDocs: safeMaxDocs,
+          includeOpenPayload
+        };
+        const last = dataset.markers[dataset.markers.length - 1];
+        const hasMore = dataset.markers.length >= safeMaxDocs;
+        return {
+          ...dataset,
+          hasMore,
+          nextCursor: hasMore ? encodeGlobalMapCursor(last) : null
+        };
+      } finally {
+        if (sharedDatasetPromise?.promise === promise) {
+          sharedDatasetPromise = null;
+        }
       }
     }
+
+    const paged = await this.fetchAllFromFirestore(
+      safeMaxDocs,
+      { includeNonPublic: false, includeOpenPayload },
+      cursorDecoded.id
+    );
+    const last = paged.markers[paged.markers.length - 1];
+    const hasMore = paged.markers.length >= safeMaxDocs;
+    return {
+      ...paged,
+      hasMore,
+      nextCursor: hasMore ? encodeGlobalMapCursor(last) : null
+    };
   }
 
   async fetchWindow(input: {
@@ -181,16 +242,15 @@ export class MapMarkersFirestoreAdapter {
           marker.lat >= input.bounds.minLat &&
           marker.lat <= input.bounds.maxLat
       );
+      const hitReadCap = attempt.readCount >= safeCandidateLimit;
       const page = filtered.slice(0, input.limit);
       return {
         ...attempt,
         markers: page,
         count: page.length,
-        hasMore: filtered.length > page.length,
+        hasMore: filtered.length > page.length || hitReadCap,
         nextCursor:
-          filtered.length > page.length
-            ? String(page[page.length - 1]?.updatedAt ?? page[page.length - 1]?.createdAt ?? null)
-            : null
+          filtered.length > page.length || hitReadCap ? encodeGlobalMapCursor(page[page.length - 1]) : null
       };
     }
     const fallback = await this.fetchAll({ maxDocs: safeCandidateLimit, includeOpenPayload });
@@ -201,6 +261,7 @@ export class MapMarkersFirestoreAdapter {
         marker.lat >= input.bounds.minLat &&
         marker.lat <= input.bounds.maxLat
     );
+    const hitReadCap = fallback.readCount >= safeCandidateLimit;
     const page = filtered.slice(0, input.limit);
     return {
       ...fallback,
@@ -209,11 +270,9 @@ export class MapMarkersFirestoreAdapter {
       candidateLimit: safeCandidateLimit,
       degradedReason: "bounds_query_failed_global_slice",
       sourceQueryMode: "global_latest_fallback",
-      hasMore: filtered.length > page.length,
+      hasMore: filtered.length > page.length || hitReadCap,
       nextCursor:
-        filtered.length > page.length
-          ? String(page[page.length - 1]?.updatedAt ?? page[page.length - 1]?.createdAt ?? null)
-          : null
+        filtered.length > page.length || hitReadCap ? encodeGlobalMapCursor(page[page.length - 1]) : null
     };
   }
 
@@ -250,16 +309,28 @@ export class MapMarkersFirestoreAdapter {
     MapMarkersFirestoreAdapter.invalidateSharedCache();
   }
 
-  private async fetchAllFromFirestore(maxDocs: number, options: ProjectOptions): Promise<MapMarkersDataset> {
+  private async fetchAllFromFirestore(
+    maxDocs: number,
+    options: ProjectOptions,
+    startAfterPostId: string | null
+  ): Promise<MapMarkersDataset> {
     const db = this.db;
     if (!db) {
       throw new Error("map_markers_firestore_unavailable");
     }
-    const query = db
+    let startSnap: DocumentSnapshot | null = null;
+    if (startAfterPostId) {
+      startSnap = await db.collection("posts").doc(startAfterPostId).get();
+      incrementDbOps("reads", 1);
+    }
+    let query = db
       .collection("posts")
       .orderBy("time", "desc")
       .select(...MAP_MARKER_SELECT_FIELDS)
       .limit(maxDocs);
+    if (startSnap?.exists) {
+      query = query.startAfter(startSnap);
+    }
     incrementDbOps("queries", 1);
     const snapshot = await query.get();
     incrementDbOps("reads", snapshot.docs.length);
@@ -272,8 +343,8 @@ export class MapMarkersFirestoreAdapter {
       generatedAt,
       version: "map-markers-v2",
       etag,
-      queryCount: 1,
-      readCount: snapshot.docs.length,
+      queryCount: startSnap?.exists ? 2 : 1,
+      readCount: snapshot.docs.length + (startSnap?.exists ? 1 : 0),
       docsScanned: snapshot.docs.length,
       candidateLimit: maxDocs,
       sourceQueryMode: "global_latest",

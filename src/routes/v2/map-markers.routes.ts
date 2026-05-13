@@ -92,7 +92,8 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       ownerId || boundsApplied || !hasExplicitLimit || limit >= limitResolution.configuredLimit
         ? cacheKeyBase
         : `${cacheKeyBase}:${limit}`;
-    const cacheKey = `${cacheKeyRoot}:payload:${payloadMode}`;
+    const cursorNonce = query.cursor?.trim() ? `cur:${query.cursor.trim().slice(0, 240)}` : "cur:start";
+    const cacheKey = `${cacheKeyRoot}:${cursorNonce}:payload:${payloadMode}`;
     const ifNoneMatch = request.headers["if-none-match"];
     const cached = await globalCache.get<MapMarkersResponse>(cacheKey);
     if (cached) {
@@ -116,6 +117,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     recordCacheMiss();
     try {
       let nextCursor: string | null = null;
+      let hasMoreMarkers = false;
       let dataset: import("../../repositories/source-of-truth/map-markers-firestore.adapter.js").MapMarkersDataset;
       if (ownerId) {
         dataset = await adapter.fetchByOwner({ ownerId, maxDocs: limit, includeNonPublic, includeOpenPayload: true });
@@ -128,8 +130,16 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
         });
         dataset = windowDataset;
         nextCursor = windowDataset.nextCursor ?? null;
+        hasMoreMarkers = windowDataset.hasMore === true;
       } else {
-        dataset = await adapter.fetchAll({ maxDocs: limit, includeOpenPayload: true });
+        const globalDataset = await adapter.fetchAll({
+          maxDocs: limit,
+          includeOpenPayload: true,
+          cursor: query.cursor ?? null
+        });
+        dataset = globalDataset;
+        nextCursor = globalDataset.nextCursor ?? null;
+        hasMoreMarkers = globalDataset.hasMore === true;
       }
       const markers =
 		        payloadMode === "compact"
@@ -198,6 +208,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
               bboxClamped: bboxClamp?.clamped ?? false,
               pageCount: 1,
               nextCursor: ownerId ? null : nextCursor,
+              hasMore: ownerId ? false : hasMoreMarkers,
               totalEligibleEstimate: null,
               droppedMissingCoords: dataset.invalidCoordinateDrops,
               droppedNoMedia,

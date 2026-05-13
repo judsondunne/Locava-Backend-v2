@@ -58,7 +58,8 @@ export const MapMarkersResponseSchema = z.object({
     returnedMarkerCount: z.number().int().nonnegative().optional(),
     bboxArea: z.number().nullable().optional(),
     zoomBucket: z.string().nullable().optional(),
-    bboxClamped: z.boolean().optional()
+    bboxClamped: z.boolean().optional(),
+    hasMore: z.boolean().optional()
   })
 });
 
@@ -82,7 +83,9 @@ export const mapMarkersContract = defineContract({
         /^-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?,-?\d+(\.\d+)?$/,
         "bbox must be minLng,minLat,maxLng,maxLat"
       )
-      .optional()
+      .optional(),
+    /** Opaque pagination cursor (global_latest + bounded viewport paging). */
+    cursor: z.string().min(1).max(4096).optional()
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema

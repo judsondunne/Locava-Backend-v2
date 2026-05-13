@@ -28,7 +28,7 @@ describe("MapRepository", () => {
       queryCount: 1,
       readCount: 1,
       docsScanned: 1,
-      candidateLimit: 180,
+      candidateLimit: 280,
       sourceQueryMode: "viewport_bounds",
       degradedReason: null,
       invalidCoordinateDrops: 0,
@@ -45,7 +45,7 @@ describe("MapRepository", () => {
     expect(fetchWindow).toHaveBeenCalledWith({
       bounds: { minLng: -75, minLat: 40, maxLng: -73, maxLat: 41 },
       limit: 120,
-      maxDocs: 180,
+      maxDocs: 280,
       includeOpenPayload: true
     });
     expect(result.markers).toHaveLength(1);

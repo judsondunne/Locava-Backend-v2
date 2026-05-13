@@ -488,4 +488,129 @@ describe("getForYouV5Page", () => {
     }
     expect(seen.size).toBe(200);
   });
+
+  it("refetches deck after playable exhaustion instead of returning a terminal empty page", async () => {
+    const emptySnapshot = {
+      deckVersion: 10,
+      loadedAtMs: Date.now(),
+      randomMode: "randomKey" as const,
+      regularAnchor: 0.2,
+      reelTier5: [] as SimpleFeedCandidate[],
+      reelTier4: [] as SimpleFeedCandidate[],
+      reelOther: [] as SimpleFeedCandidate[],
+      regular: [] as SimpleFeedCandidate[],
+    };
+    const r1 = mkCand("fresh_after_refill", { tier: 5, authorId: "u_refill" });
+    const refilled = {
+      ...emptySnapshot,
+      deckVersion: 11,
+      reelTier5: [r1],
+    };
+    vi.spyOn(readyDeck, "ensureForYouV5ReadyDeck")
+      .mockResolvedValueOnce({ snapshot: emptySnapshot, cacheStatus: "memory_hit", dbReadEstimate: 0 })
+      .mockResolvedValueOnce({ snapshot: refilled, cacheStatus: "cold_fill", dbReadEstimate: 3 });
+    const repo = {
+      isEnabled: () => true,
+      resolveSortMode: async () => "randomKey" as const,
+      fetchReelCandidatesForYouV5Deck: async () => [],
+      fetchRegularReservoirForYouV5Deck: async () => ({ items: [], readCount: 0 }),
+      fetchBatch: async () => ({
+        items: [],
+        rawCount: 0,
+        segmentExhausted: true,
+        readCount: 0,
+        stats: {
+          rawDocCount: 0,
+          filteredInvisible: 0,
+          filteredMissingAuthor: 0,
+          filteredMissingMedia: 0,
+          filteredInvalidContract: 0,
+          filteredInvalidSort: 0,
+          playableMapped: 0,
+        },
+        tailRandomKey: null,
+        tailDocId: null,
+      }),
+      readForYouV5CompactFeedState: async () => ({
+        reelSeenPostIds: new Set<string>(),
+        regularSeenPostIds: new Set<string>(),
+        readCount: 0,
+      }),
+      writeForYouV5CompactFeedState: async () => undefined,
+      loadBlockedAuthorIdsForViewer: async () => ({ blocked: new Set<string>(), readCount: 0 }),
+    };
+    const out = await getForYouV5Page({
+      repository: repo as never,
+      viewerId: null,
+      limit: 5,
+      cursor: null,
+      refresh: false,
+      radiusFilter: { mode: "global", centerLat: null, centerLng: null, radiusMiles: null },
+      dryRunSeen: true,
+    });
+    expect(out.items.length).toBeGreaterThan(0);
+    expect(out.terminalExhaustionConfirmed).toBe(false);
+    expect(out.nextCursor).toBeTruthy();
+    expect(out.debug.emptyPageRecoveryAttempted).toBe(true);
+    expect(out.debug.fallbackRefillSource).toBeTruthy();
+  });
+
+  it("sets terminalExhaustionConfirmed when deck truly has zero candidates after recovery", async () => {
+    const snapshot = {
+      deckVersion: 12,
+      loadedAtMs: Date.now(),
+      randomMode: "randomKey" as const,
+      regularAnchor: 0,
+      reelTier5: [] as SimpleFeedCandidate[],
+      reelTier4: [] as SimpleFeedCandidate[],
+      reelOther: [] as SimpleFeedCandidate[],
+      regular: [] as SimpleFeedCandidate[],
+    };
+    vi.spyOn(readyDeck, "ensureForYouV5ReadyDeck").mockResolvedValue({
+      snapshot,
+      cacheStatus: "memory_hit",
+      dbReadEstimate: 0,
+    });
+    const repo = {
+      isEnabled: () => true,
+      resolveSortMode: async () => "randomKey" as const,
+      fetchReelCandidatesForYouV5Deck: async () => [],
+      fetchRegularReservoirForYouV5Deck: async () => ({ items: [], readCount: 0 }),
+      fetchBatch: async () => ({
+        items: [],
+        rawCount: 0,
+        segmentExhausted: true,
+        readCount: 0,
+        stats: {
+          rawDocCount: 0,
+          filteredInvisible: 0,
+          filteredMissingAuthor: 0,
+          filteredMissingMedia: 0,
+          filteredInvalidContract: 0,
+          filteredInvalidSort: 0,
+          playableMapped: 0,
+        },
+        tailRandomKey: null,
+        tailDocId: null,
+      }),
+      readForYouV5CompactFeedState: async () => ({
+        reelSeenPostIds: new Set<string>(),
+        regularSeenPostIds: new Set<string>(),
+        readCount: 0,
+      }),
+      writeForYouV5CompactFeedState: async () => undefined,
+      loadBlockedAuthorIdsForViewer: async () => ({ blocked: new Set<string>(), readCount: 0 }),
+    };
+    const out = await getForYouV5Page({
+      repository: repo as never,
+      viewerId: null,
+      limit: 5,
+      cursor: null,
+      refresh: false,
+      radiusFilter: { mode: "global", centerLat: null, centerLng: null, radiusMiles: null },
+      dryRunSeen: true,
+    });
+    expect(out.terminalExhaustionConfirmed).toBe(true);
+    expect(out.nextCursor).toBeNull();
+  });
 });
