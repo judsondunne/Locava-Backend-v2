@@ -535,12 +535,68 @@ export class ChatsRepository {
     if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
     const docData = await this.assertViewerMembership(input.viewerId, input.conversationId);
     const unreadBy = Array.isArray(docData.manualUnreadBy) ? docData.manualUnreadBy.filter((v): v is string => typeof v === "string") : [];
-    if (!unreadBy.includes(input.viewerId)) {
-      return { conversationId: input.conversationId, unreadCount: 0, idempotent: true };
-    }
+    const hadUnreadFlag = unreadBy.includes(input.viewerId);
+    const lastMessageIdFromChat = typeof docData.lastMessageId === "string" && docData.lastMessageId.trim() ? docData.lastMessageId.trim() : null;
+    const lastReadMessageId = lastMessageIdFromChat ?? (await this.resolveLatestMessageId(input.conversationId));
     incrementDbOps("writes", 1);
-    await this.db.collection("chats").doc(input.conversationId).update({ manualUnreadBy: FieldValue.arrayRemove(input.viewerId) });
-    return { conversationId: input.conversationId, unreadCount: 0, idempotent: false };
+    const chatRef = this.db.collection("chats").doc(input.conversationId);
+    const receiptRef = chatRef.collection("readReceipts").doc(input.viewerId);
+    const batch = this.db.batch();
+    batch.set(
+      receiptRef,
+      {
+        userId: input.viewerId,
+        lastReadAt: FieldValue.serverTimestamp(),
+        lastReadMessageId: lastReadMessageId ?? null,
+        updatedAt: FieldValue.serverTimestamp()
+      },
+      { merge: true }
+    );
+    if (hadUnreadFlag) {
+      batch.update(chatRef, { manualUnreadBy: FieldValue.arrayRemove(input.viewerId) });
+    }
+    await batch.commit();
+    void globalCache.del(entityCacheKeys.chatConversationMembership(input.viewerId, input.conversationId)).catch(() => undefined);
+    return { conversationId: input.conversationId, unreadCount: 0, idempotent: !hadUnreadFlag };
+  }
+
+  private async resolveLatestMessageId(conversationId: string): Promise<string | null> {
+    if (!this.db) return null;
+    incrementDbOps("queries", 1);
+    const snap = await this.db
+      .collection("chats")
+      .doc(conversationId)
+      .collection("messages")
+      .orderBy("timestamp", "desc")
+      .orderBy(FieldPath.documentId(), "desc")
+      .limit(1)
+      .select("senderId")
+      .get();
+    incrementDbOps("reads", snap.docs.length);
+    const first = snap.docs[0];
+    return first?.id ?? null;
+  }
+
+  async updateTypingStatus(input: { viewerId: string; conversationId: string; isTyping: boolean }): Promise<{ conversationId: string; isTyping: boolean }> {
+    if (shouldAllowSeededFallback(input.viewerId)) {
+      recordFallback("chats_seeded_typing");
+      this.ensureSeededViewer(input.viewerId);
+      incrementDbOps("writes", 1);
+      return { conversationId: input.conversationId, isTyping: input.isTyping };
+    }
+    if (!this.db) throw new ChatsRepositoryError("conversation_not_found", "Conversation was not found.");
+    await this.assertViewerMembership(input.viewerId, input.conversationId);
+    incrementDbOps("writes", 1);
+    const ref = this.db.collection("chats").doc(input.conversationId).collection("typingStatus").doc(input.viewerId);
+    await ref.set(
+      {
+        userId: input.viewerId,
+        isTyping: input.isTyping,
+        updatedAt: FieldValue.serverTimestamp()
+      },
+      { merge: true }
+    );
+    return { conversationId: input.conversationId, isTyping: input.isTyping };
   }
 
   async markUnread(input: { viewerId: string; conversationId: string }): Promise<{ conversationId: string; unreadCount: number; idempotent: boolean }> {
@@ -920,6 +976,7 @@ export class ChatsRepository {
     batch.set(messageRef, messagePayload);
     batch.update(this.db.collection("chats").doc(input.conversationId), {
       lastMessageTime: now,
+      lastMessageId: messageRef.id,
       lastMessage: {
         type,
         content:
@@ -1468,6 +1525,7 @@ export class ChatsRepository {
         await chatRef.set(
           {
             lastMessageTime: now,
+            lastMessageId: FieldValue.delete(),
             lastMessage: {
               type: "message",
               content: "Message unsent",
@@ -1487,6 +1545,7 @@ export class ChatsRepository {
         await chatRef.set(
           {
             lastMessageTime: ts,
+            lastMessageId: last.id,
             lastMessage: {
               type,
               content: type === "photo" ? "Sent a photo" : type === "gif" ? "Sent a GIF" : type === "post" ? "Shared a post" : content,

@@ -559,6 +559,8 @@ function derivePostingVisibilityRouteKeys(viewerId: string): string[] {
     keys.add(`map:markers:v2:${limit}`);
   }
   keys.add("map:markers:v2:all");
+  keys.add("map:markers:v2:all:idx:0");
+  keys.add("map:markers:v2:all:idx:1");
   keys.add("map:markers:v1");
 
   return [...keys];

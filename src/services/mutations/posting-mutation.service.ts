@@ -37,6 +37,7 @@ import {
   triggerVideoProcessingSynchronously
 } from "../posting/video-processing-cloud-task.service.js";
 import { searchPlacesIndexService } from "../surfaces/search-places-index.service.js";
+import { XP_REWARDS } from "../surfaces/achievements-core.js";
 import { postingAchievementsService } from "./posting-achievements.service.js";
 import { legendService } from "../../domains/legends/legend.service.js";
 import type { AchievementDelta } from "../../contracts/entities/achievement-entities.contract.js";
@@ -530,7 +531,12 @@ export class PostingMutationService {
     postId: string
   ): Promise<AchievementDelta> {
     try {
-      return await postingAchievementsService.processPostCreated({
+      console.info("POST_REWARD_CALC_STARTED", {
+        postId,
+        userId: input.userId?.trim() || input.viewerId,
+        source: "post_finalize_build_delta"
+      });
+      const delta = await postingAchievementsService.processPostCreated({
         viewerId: input.viewerId,
         userId: input.userId?.trim() || input.viewerId,
         postId,
@@ -540,6 +546,7 @@ export class PostingMutationService {
         address: input.address,
         requestAward: true
       });
+      return delta;
     } catch (error) {
       console.warn("[posting.finalize] achievements post-created failed", {
         viewerId: input.viewerId,
@@ -564,8 +571,15 @@ export class PostingMutationService {
   }
 
   private buildPendingFinalizeAchievementDelta(): AchievementDelta {
+    // Client uses this as an optimistic hint while post-create XP is processed asynchronously.
+    const optimisticXp = Math.max(0, XP_REWARDS.post_create);
+    console.info("POST_REWARD_CALC_STARTED", {
+      mode: "finalize_pending_placeholder",
+      optimisticXp,
+      deltaError: "ACHIEVEMENTS_PENDING"
+    });
     return {
-      xpGained: 0,
+      xpGained: optimisticXp,
       newTotalXP: 0,
       leveledUp: false,
       newLevel: 1,
@@ -611,6 +625,11 @@ export class PostingMutationService {
   ): void {
     if (this.achievementProcessingTimers.has(postId)) return;
     this.achievementProcessingTimers.set(postId, true);
+    console.info("POST_REWARD_CALC_STARTED", {
+      postId,
+      userId: input.userId?.trim() || input.viewerId,
+      source: "post_finalize_async_scheduled"
+    });
     scheduleBackgroundWork(async () => {
       this.achievementProcessingTimers.delete(postId);
       await this.buildFinalizeAchievementDelta(input, postId);

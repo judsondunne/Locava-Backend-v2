@@ -10,6 +10,11 @@ import {
   buildCanonicalNewUserDocument,
   normalizeCanonicalUserDocument,
 } from "../../domains/users/canonical-user-document.js";
+import {
+  buildSafeProfileUpsertPayload,
+  decideExistingUserMergePolicy,
+  PROTECTED_PROFILE_FIELDS
+} from "../../domains/users/safe-profile-upsert.js";
 import { AuthBranchAttributionService } from "./auth-branch-attribution.service.js";
 
 type AuthRuntimeState = {
@@ -844,7 +849,7 @@ export class AuthMutationsService {
         ? input.pushTokenPlatform.trim()
         : "";
     const attributionFields = this.branchAttributionService.buildCreateProfileFields(input.branchData ?? null);
-    const payload = mergeUserDocumentWritePayload({
+    const proposedPayload = mergeUserDocumentWritePayload({
       ...buildCanonicalNewUserDocument({
         uid: input.userId,
         email: rawEmail,
@@ -871,6 +876,22 @@ export class AuthMutationsService {
       ...(pushTokenPlatform ? { pushTokenPlatform } : {}),
       ...(pushToken ? { pushTokenUpdatedAt: nowMs } : {}),
     });
+
+    // BUG-FIX (#1 B): never let provider fallbacks / empty incoming values overwrite an
+    // existing user's customized handle/name/profilePic. Detect existing doc up-front and
+    // build a "fill-missing-only" patch when one is present.
+    const existingDocSnapshot = this.db
+      ? await this.db.collection("users").doc(input.userId).get().catch(() => null)
+      : null;
+    const existingData =
+      existingDocSnapshot && existingDocSnapshot.exists ? (existingDocSnapshot.data() as Record<string, unknown>) : null;
+    const mergePolicy = decideExistingUserMergePolicy({ existingDoc: existingData });
+    const safe = buildSafeProfileUpsertPayload({
+      existingDoc: existingData,
+      proposedPayload
+    });
+    const payload = safe.safePayload;
+
     console.info("USER_CREATE_CANONICAL_SHAPE", {
       userId: input.userId,
       hasEmail: rawEmail.length > 0,
@@ -881,6 +902,25 @@ export class AuthMutationsService {
       rawType: Array.isArray(input.activityProfile) ? "array" : typeof input.activityProfile,
       normalizedCount: Object.keys((payload.activityProfile as Record<string, unknown>) ?? {}).length,
     });
+    if (mergePolicy === "fill_missing_only") {
+      console.info("AUTH_GOOGLE_EXISTING_USER_PRESERVED_PROFILE", {
+        userId: input.userId,
+        provider: input.oauthInfo?.provider ?? "email_password",
+        preservedFields: safe.preservedFields,
+        overwrittenByTyped: safe.overwrittenByTyped,
+        remainedEmptyFields: safe.remainedEmptyFields,
+        protectedFieldCount: PROTECTED_PROFILE_FIELDS.length,
+        mergePolicy
+      });
+    } else {
+      console.info("AUTH_GOOGLE_NEW_USER_FALLBACK_PROFILE_CREATED", {
+        userId: input.userId,
+        provider: input.oauthInfo?.provider ?? "email_password",
+        hasOauthDisplayNameFallback: Boolean(input.oauthInfo?.displayName),
+        hasOauthEmailFallback: Boolean(input.oauthInfo?.email),
+        mergePolicy
+      });
+    }
     Object.assign(payload, attributionFields);
 
     let storage: "firestore" | "local_state_fallback" = "local_state_fallback";

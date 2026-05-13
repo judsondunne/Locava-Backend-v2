@@ -8,6 +8,7 @@ import { SuggestedFriendsService } from "../../services/surfaces/suggested-frien
 import type { UserSuggestionSummary } from "../../repositories/surfaces/suggested-friends.repository.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { wireFeedCandidateToPostCardSummary } from "../../lib/feed/feed-post-card-wire.js";
+import { getFollowingFeedCacheGeneration } from "../../lib/feed/following-feed-cache-generation.js";
 import { TimeoutError, withTimeout } from "../timeouts.js";
 
 export class FeedBootstrapOrchestrator {
@@ -37,6 +38,11 @@ export class FeedBootstrapOrchestrator {
   }): Promise<FeedBootstrapResponse> {
     const { viewer, limit, tab, lat, lng, radiusKm, debugSlowDeferredMs } = input;
 
+    const followingFeedCacheGen =
+      tab === "following" && viewer.viewerId !== "anonymous"
+        ? await getFollowingFeedCacheGeneration(viewer.viewerId)
+        : 0;
+
     const enableBootstrapCache = debugSlowDeferredMs === 0;
     const bootstrapCacheKey = buildCacheKey("bootstrap", [
       "feed-bootstrap-v1",
@@ -45,7 +51,8 @@ export class FeedBootstrapOrchestrator {
       String(lat ?? "_"),
       String(lng ?? "_"),
       String(radiusKm ?? "_"),
-      String(limit)
+      String(limit),
+      tab === "following" ? String(followingFeedCacheGen) : "_"
     ]);
     if (enableBootstrapCache) {
       const cachedBootstrap = await globalCache.get<FeedBootstrapResponse>(bootstrapCacheKey);
@@ -64,7 +71,8 @@ export class FeedBootstrapOrchestrator {
         String(lat ?? "_"),
         String(lng ?? "_"),
         String(radiusKm ?? "_"),
-        String(limit)
+        String(limit),
+        tab === "following" ? String(followingFeedCacheGen) : "0"
       ]),
       () => this.service.loadBootstrapCandidates(viewer.viewerId, limit, { tab, lat, lng, radiusKm }),
       8_000

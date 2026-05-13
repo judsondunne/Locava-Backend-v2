@@ -251,6 +251,7 @@ export function buildFeedCardFromSimpleCandidate(candidate: SimpleFeedCandidate,
     (leanCard as Record<string, unknown>).appPostV2 = fullCard.appPostV2;
     (leanCard as Record<string, unknown>).postContractVersion = 3 as const;
   }
+  (leanCard as Record<string, unknown>).likesSubcollectionCount = Math.max(0, Math.floor(candidate.likeCount));
   return leanCard as FeedCardDTO;
 }
 

@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { MAP_MARKERS_MIN_DOCS, MAP_MARKERS_SAFE_HARD_MAX_DOCS } from "../lib/map/map-marker-budgets.js";
+import {
+  MAP_MARKERS_INDEX_PAGE_ABS_MAX,
+  MAP_MARKERS_MIN_DOCS,
+  MAP_MARKERS_SAFE_HARD_MAX_DOCS
+} from "../lib/map/map-marker-budgets.js";
 import { config as loadDotEnvFile, parse as parseDotEnv } from "dotenv";
 import fs from "node:fs";
 import path from "node:path";
@@ -97,6 +101,16 @@ const EnvSchema = z.object({
     .min(MAP_MARKERS_MIN_DOCS)
     .max(MAP_MARKERS_SAFE_HARD_MAX_DOCS)
     .default(MAP_MARKERS_SAFE_HARD_MAX_DOCS),
+  /**
+   * Max posts per Firestore page for global `/v2/map/markers` index sync (compact, cursor-paginated).
+   * Separate from {@link MAP_MARKERS_MAX_DOCS} which caps bbox/owner + legacy 300-doc universe slices.
+   */
+  MAP_MARKERS_INDEX_PAGE_MAX_DOCS: z.coerce
+    .number()
+    .int()
+    .min(MAP_MARKERS_MIN_DOCS)
+    .max(MAP_MARKERS_INDEX_PAGE_ABS_MAX)
+    .default(5000),
   /**
    * When set, `/v2/map/current-weather` uses OpenWeather current weather (commercial-friendly).
    * When unset, the route uses Open-Meteo (free, non-commercial terms — use OWM key in production apps with ads/subscriptions).

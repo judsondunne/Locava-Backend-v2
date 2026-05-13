@@ -17,6 +17,55 @@ import {
   SourceOfTruthRequiredError
 } from "../source-of-truth/strict-mode.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { tryMapSimpleFeedCandidate } from "./feed-for-you-simple.repository.js";
+import { buildFeedCardFromSimpleCandidate } from "../../services/surfaces/feed-for-you-simple-post-card.js";
+import { countPostLikesSubcollectionBatch } from "./post-likes-subcollection-count.js";
+
+function logFollowingFeedAudit(event: string, payload: Record<string, unknown>): void {
+  try {
+    console.info(JSON.stringify({ event, ...payload }));
+  } catch {
+    // best-effort
+  }
+}
+
+function buildFollowingFeedCardOrShell(
+  viewerId: string,
+  item: Parameters<typeof buildFeedCardShell>[1],
+  index: number,
+  likeCounts?: Map<string, number>
+): FeedBootstrapCandidateRecord {
+  const raw = item.rawPost ?? item.sourcePost;
+  const mapped = tryMapSimpleFeedCandidate("docId", item.postId, (raw ?? {}) as Record<string, unknown>);
+  const shell = buildFeedCardShell(viewerId, item);
+  if (!("candidate" in mapped)) {
+    logFollowingFeedAudit("FOLLOWING_POST_MEDIA_MISSING_AFTER_NORMALIZE", {
+      postId: item.postId,
+      reject: mapped.reject
+    });
+    return shell;
+  }
+  if (likeCounts?.has(item.postId)) {
+    const n = likeCounts.get(item.postId);
+    if (typeof n === "number" && Number.isFinite(n)) {
+      mapped.candidate.likeCount = Math.max(0, Math.floor(n));
+    }
+  }
+  try {
+    const cardDto = buildFeedCardFromSimpleCandidate(mapped.candidate, index, viewerId);
+    return {
+      ...(cardDto as unknown as FeedBootstrapCandidateRecord),
+      viewer: shell.viewer,
+      social: shell.social
+    };
+  } catch (error) {
+    logFollowingFeedAudit("FOLLOWING_POST_MEDIA_MISSING_AFTER_NORMALIZE", {
+      postId: item.postId,
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return shell;
+  }
+}
 
 type FirestoreUserSummary = {
   userId: string;
@@ -639,9 +688,24 @@ export class FeedRepository {
         });
         incrementDbOps("queries", page.queryCount);
         incrementDbOps("reads", page.readCount);
-        const shells = page.items.map((item) =>
-          buildFeedCardShell(viewerId, item)
-        );
+        const postIds = page.items
+          .map((it) => it.postId)
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+        const likeCounts =
+          queryContext.tab === "following" && this.db
+            ? await countPostLikesSubcollectionBatch(this.db, postIds)
+            : new Map<string, number>();
+        const shells =
+          queryContext.tab === "following"
+            ? page.items.map((item, idx) => buildFollowingFeedCardOrShell(viewerId, item, idx, likeCounts))
+            : page.items.map((item) => buildFeedCardShell(viewerId, item));
+        if (queryContext.tab === "following") {
+          const appPostV2Count = shells.filter((s) => (s as { appPostV2?: unknown }).appPostV2 != null).length;
+          logFollowingFeedAudit("FOLLOWING_POST_NORMALIZED_CANONICAL_MEDIA", {
+            returnedCount: shells.length,
+            appPostV2Count
+          });
+        }
         const withAuthors = await this.hydrateCardAuthors(shells);
         return applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
       } catch (error) {
@@ -906,9 +970,24 @@ export class FeedRepository {
         });
         incrementDbOps("queries", page.queryCount);
         incrementDbOps("reads", page.readCount);
-        const shells = page.items.map((item) =>
-          buildFeedCardShell(viewerId, item)
-        );
+        const postIds = page.items
+          .map((it) => it.postId)
+          .filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+        const likeCounts =
+          queryContext.tab === "following" && this.db
+            ? await countPostLikesSubcollectionBatch(this.db, postIds)
+            : new Map<string, number>();
+        const shells =
+          queryContext.tab === "following"
+            ? page.items.map((item, idx) => buildFollowingFeedCardOrShell(viewerId, item, idx, likeCounts))
+            : page.items.map((item) => buildFeedCardShell(viewerId, item));
+        if (queryContext.tab === "following") {
+          const appPostV2Count = shells.filter((s) => (s as { appPostV2?: unknown }).appPostV2 != null).length;
+          logFollowingFeedAudit("FOLLOWING_POST_NORMALIZED_CANONICAL_MEDIA", {
+            returnedCount: shells.length,
+            appPostV2Count
+          });
+        }
         const withAuthors = await this.hydrateCardAuthors(shells);
         const spaced = applyAuthorSpacingToFeedCards(withAuthors, { spacing: DEFAULT_FEED_AUTHOR_SPACING });
         return {

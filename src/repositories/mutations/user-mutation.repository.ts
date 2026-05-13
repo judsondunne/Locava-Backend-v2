@@ -1,5 +1,6 @@
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { bumpFollowingFeedCacheGeneration } from "../../lib/feed/following-feed-cache-generation.js";
 import { scheduleBackgroundWork } from "../../lib/background-work.js";
 import { incrementDbOps, recordSurfaceTimings } from "../../observability/request-context.js";
 import { SuggestedFriendsService } from "../../services/surfaces/suggested-friends.service.js";
@@ -53,6 +54,7 @@ export class UserMutationRepository {
         : globalCache.del(entityCacheKeys.userFirestoreDoc(userId))
     ]);
     void this.suggestedFriendsService.invalidateViewerCaches(viewerId).catch(() => undefined);
+    void bumpFollowingFeedCacheGeneration(viewerId).catch(() => undefined);
   }
 
   private syncFollowMirrorInBackground(input: { viewerId: string; userId: string; following: boolean }): void {

@@ -1,10 +1,10 @@
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
-import { incrementDbOps, recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
+import { recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import type { PostMutationService } from "../../services/mutations/post-mutation.service.js";
 import { notificationsRepository } from "../../repositories/surfaces/notifications.repository.js";
 import { NotificationsService } from "../../services/surfaces/notifications.service.js";
-import { readPostLikeCountFromFirestoreData } from "./post-document-like-count.js";
+import { countPostLikesSubcollection } from "../../repositories/surfaces/post-likes-subcollection-count.js";
 
 const notificationsService = new NotificationsService(notificationsRepository);
 
@@ -54,10 +54,7 @@ export class PostLikeOrchestrator {
     let likeCount = 0;
     const db = getFirestoreSourceClient();
     if (db) {
-      const snap = await db.collection("posts").doc(postId).get();
-      incrementDbOps("reads", snap.exists ? 1 : 0);
-      const d = (snap.data() ?? {}) as Record<string, unknown>;
-      likeCount = readPostLikeCountFromFirestoreData(d);
+      likeCount = await countPostLikesSubcollection(db, postId);
     }
     return {
       routeName: "posts.like.post" as const,

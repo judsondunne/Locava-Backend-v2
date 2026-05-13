@@ -6,6 +6,8 @@ import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
 import { CompatPostsBatchOrchestrator } from "../../orchestration/compat/posts-batch.orchestrator.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
+import { countPostLikesSubcollectionBatch } from "../../repositories/surfaces/post-likes-subcollection-count.js";
+import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
 function parsePostIdsFromQuery(raw: Record<string, unknown>): string[] {
   const postIds: string[] = [];
@@ -47,13 +49,17 @@ export async function registerV2SocialBatchRoutes(app: FastifyInstance): Promise
 
     const posts = (await postsBatch.run({ postIds: unique })).posts;
     const byId = new Map(posts.map((p) => [String((p as any).postId ?? (p as any).id ?? ""), p]));
+    const db = getFirestoreSourceClient();
+    const likeByPostId =
+      db && unique.length > 0 ? await countPostLikesSubcollectionBatch(db, unique) : new Map<string, number>();
 
     const items = unique
       .map((postId) => {
         const row = byId.get(postId) as Record<string, unknown> | undefined;
-        const likeCountRaw = row?.likeCount ?? row?.likesCount;
+        const likeFromSub = likeByPostId.get(postId);
+        const likeCount =
+          typeof likeFromSub === "number" && Number.isFinite(likeFromSub) ? Math.max(0, likeFromSub) : 0;
         const commentCountRaw = row?.commentCount ?? row?.commentsCount;
-        const likeCount = typeof likeCountRaw === "number" && Number.isFinite(likeCountRaw) ? Math.max(0, likeCountRaw) : 0;
         const commentCount =
           typeof commentCountRaw === "number" && Number.isFinite(commentCountRaw) ? Math.max(0, commentCountRaw) : 0;
         return {

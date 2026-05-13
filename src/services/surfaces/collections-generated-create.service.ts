@@ -1,5 +1,7 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { MixPostsRepository, type MixPostRow } from "../../repositories/mixPosts.repository.js";
+import type { MixFilter } from "../../contracts/v2/mixes.contract.js";
+import { MixesOrchestrator } from "../../orchestration/mixes/mixes.orchestrator.js";
+import { MixPostsRepository } from "../../repositories/mixPosts.repository.js";
 import { CollectionsFirestoreAdapter } from "../../repositories/source-of-truth/collections-firestore.adapter.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { getBestPostCover } from "../mixes/mixCover.service.js";
@@ -15,38 +17,8 @@ function normalizeActivities(raw: unknown): string[] {
   return [...new Set(raw.map((a) => String(a ?? "").trim().toLowerCase()).filter(Boolean))].slice(0, 12);
 }
 
-function milesBetween(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const toRad = (v: number) => (v * Math.PI) / 180;
-  const R = 3959;
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
-  const sa =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(sa), Math.sqrt(1 - sa));
-  return R * c;
-}
-
-function postLatLng(row: MixPostRow): { lat: number; lng: number } | null {
-  const lat = Number((row as { lat?: unknown }).lat ?? (row as { location?: { lat?: unknown } }).location?.lat);
-  const lng = Number(
-    (row as { lng?: unknown }).lng ??
-      (row as { long?: unknown }).long ??
-      (row as { location?: { lng?: unknown } }).location?.lng,
-  );
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  return { lat, lng };
-}
-
-function filterByRadius(rows: MixPostRow[], center: { lat: number; lng: number }, radiusMiles: number): MixPostRow[] {
-  const out: MixPostRow[] = [];
-  for (const row of rows) {
-    const ll = postLatLng(row);
-    if (!ll) continue;
-    if (milesBetween(center, ll) <= radiusMiles) out.push(row);
-  }
-  return out;
+function milesToKm(miles: number): number {
+  return miles * 1.609344;
 }
 
 function buildMixTitle(activities: string[]): string {
@@ -56,6 +28,124 @@ function buildMixTitle(activities: string[]): string {
     return `${first.replace(/[_-]+/g, " ")} mix`;
   }
   return `Mix · ${activities.length} activities`;
+}
+
+function postIdsFromMixPagePayload(payload: { posts?: Array<{ postId?: string }> }): string[] {
+  const posts = Array.isArray(payload.posts) ? payload.posts : [];
+  return posts.map((p) => String(p.postId ?? "").trim()).filter(Boolean);
+}
+
+function firstMixCardFromPayload(payload: unknown): Record<string, unknown> | null {
+  const p = payload as { posts?: unknown[] };
+  const row = Array.isArray(p.posts) && p.posts[0] && typeof p.posts[0] === "object" ? (p.posts[0] as Record<string, unknown>) : null;
+  return row;
+}
+
+/**
+ * Resolves initial post IDs using {@link MixesOrchestrator} — the same implementation
+ * backing `GET /v2/mixes/:mixKey/page` (Search / home mix cards).
+ */
+async function collectMixPostIdsViaSearchMixEngine(params: {
+  viewerId: string;
+  activities: string[];
+  lat: number | null;
+  lng: number | null;
+  radiusMiles: number | null;
+  postCount: number;
+}): Promise<{ postIds: string[]; mixKeyUsed: string; coverRow: Record<string, unknown> | null }> {
+  const orchestrator = new MixesOrchestrator();
+  const limit = Math.max(1, Math.min(24, Math.floor(params.postCount)));
+  const lat = params.lat;
+  const lng = params.lng;
+  const radiusKm =
+    lat != null && lng != null && params.radiusMiles != null
+      ? Math.min(500, Math.max(1e-6, milesToKm(Math.min(50, Math.max(1, params.radiusMiles)))))
+      : undefined;
+  const hasGeo = lat != null && lng != null && radiusKm != null;
+  const acts = params.activities;
+
+  const mergeDedupe = (into: string[], next: string[], cap: number): void => {
+    const seen = new Set(into);
+    for (const id of next) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      into.push(id);
+      if (into.length >= cap) return;
+    }
+  };
+
+  let coverRow: Record<string, unknown> | null = null;
+
+  if (hasGeo && acts.length === 0) {
+    const payload = await orchestrator.page({
+      mixKey: "nearby",
+      filter: { lat: lat!, lng: lng!, radiusKm } satisfies MixFilter,
+      limit,
+      cursor: null,
+      viewerId: params.viewerId,
+    });
+    coverRow = firstMixCardFromPayload(payload);
+    return { postIds: postIdsFromMixPagePayload(payload).slice(0, limit), mixKeyUsed: "nearby", coverRow };
+  }
+
+  if (hasGeo && acts.length > 0) {
+    const out: string[] = [];
+    const first = acts[0]!;
+    const p1 = await orchestrator.page({
+      mixKey: "nearby",
+      filter: { activity: first, lat: lat!, lng: lng!, radiusKm } satisfies MixFilter,
+      limit,
+      cursor: null,
+      viewerId: params.viewerId,
+    });
+    coverRow = firstMixCardFromPayload(p1);
+    mergeDedupe(out, postIdsFromMixPagePayload(p1), limit);
+    for (const act of acts.slice(1, 5)) {
+      if (out.length >= limit) break;
+      const p2 = await orchestrator.page({
+        mixKey: "nearby",
+        filter: { activity: act, lat: lat!, lng: lng!, radiusKm } satisfies MixFilter,
+        limit: Math.min(12, limit),
+        cursor: null,
+        viewerId: params.viewerId,
+      });
+      if (!coverRow) coverRow = firstMixCardFromPayload(p2);
+      mergeDedupe(out, postIdsFromMixPagePayload(p2), limit);
+    }
+    return { postIds: out, mixKeyUsed: "nearby", coverRow };
+  }
+
+  if (!hasGeo && acts.length === 1) {
+    const act = acts[0]!;
+    const payload = await orchestrator.page({
+      mixKey: act,
+      filter: { activity: act } satisfies MixFilter,
+      limit,
+      cursor: null,
+      viewerId: params.viewerId,
+    });
+    coverRow = firstMixCardFromPayload(payload);
+    return { postIds: postIdsFromMixPagePayload(payload).slice(0, limit), mixKeyUsed: act, coverRow };
+  }
+
+  if (!hasGeo && acts.length > 1) {
+    const out: string[] = [];
+    for (const act of acts.slice(0, 4)) {
+      if (out.length >= limit) break;
+      const payload = await orchestrator.page({
+        mixKey: act,
+        filter: { activity: act } satisfies MixFilter,
+        limit: Math.ceil(limit / acts.length) + 4,
+        cursor: null,
+        viewerId: params.viewerId,
+      });
+      if (!coverRow) coverRow = firstMixCardFromPayload(payload);
+      mergeDedupe(out, postIdsFromMixPagePayload(payload), limit);
+    }
+    return { postIds: out, mixKeyUsed: acts.join("|"), coverRow };
+  }
+
+  return { postIds: [], mixKeyUsed: "none", coverRow: null };
 }
 
 export class CollectionsGeneratedCreateService {
@@ -74,9 +164,6 @@ export class CollectionsGeneratedCreateService {
     const viewerId = String(input.viewerId ?? "").trim();
     if (!viewerId) return { success: false, error: "viewer_required" };
     const activities = normalizeActivities(input.activities);
-    if (activities.length === 0) {
-      return { success: false, error: "Add at least one activity for this mix." };
-    }
     const postCount = clampPostCount(input.postCount);
     const lat = typeof input.lat === "number" && Number.isFinite(input.lat) ? input.lat : null;
     const lng = typeof input.lng === "number" && Number.isFinite(input.lng) ? input.lng : null;
@@ -85,33 +172,44 @@ export class CollectionsGeneratedCreateService {
         ? Math.min(50, Math.max(1, input.radiusMiles))
         : null;
     const hasGeo = lat != null && lng != null && radiusMiles != null;
-
-    const poolLimit = hasGeo ? Math.min(120, postCount * 14) : Math.min(80, postCount * 8);
-    const page = await this.posts.pageByActivities({
-      activities,
-      limit: poolLimit,
-      cursor: null,
-    });
-    let ranked = page.items;
-    if (hasGeo && lat != null && lng != null && radiusMiles != null) {
-      ranked = filterByRadius(ranked, { lat, lng }, radiusMiles);
-    }
-    ranked = ranked.slice(0, postCount);
-    if (ranked.length === 0) {
+    if (activities.length === 0 && !hasGeo) {
       return {
         success: false,
-        error: hasGeo
-          ? "No posts matched that mix in this area. Try a wider radius or different activities."
-          : "No posts matched that mix right now.",
+        error: "Add at least one activity, or send lat, lng, and radiusMiles for a nearby-only mix.",
       };
     }
-    const postIds = ranked.map((p) => String(p.postId ?? p.id ?? "").trim()).filter(Boolean);
-    const cover = getBestPostCover(ranked[0] as Record<string, unknown>);
-    const name = buildMixTitle(activities);
+
+    const { postIds, mixKeyUsed, coverRow } = await collectMixPostIdsViaSearchMixEngine({
+      viewerId,
+      activities,
+      lat,
+      lng,
+      radiusMiles,
+      postCount,
+    });
+
+    const defaultName =
+      activities.length > 0 ? buildMixTitle(activities) : hasGeo ? "Nearby mix" : "Mix";
+    const prompt = String(input.prompt ?? "").trim();
+    const description =
+      prompt ||
+      (postIds.length > 0
+        ? activities.length > 0
+          ? `Posts across: ${activities.join(", ")}`
+          : "Posts near the area you picked."
+        : activities.length > 0
+          ? "No posts matched those activities yet. Try different activities or widen the area."
+          : "No posts in this area yet — widen the radius or check back later.");
+
+    const cover =
+      postIds.length > 0 && coverRow
+        ? getBestPostCover(coverRow)
+        : { coverImageUrl: null as string | null, coverPostId: null as string | null };
+
     const created = await this.collections.createCollection({
       viewerId,
-      name,
-      description: String(input.prompt ?? "").trim() || `Posts across: ${activities.join(", ")}`,
+      name: defaultName,
+      description,
       privacy: "public",
       collaborators: [viewerId],
       items: postIds,
@@ -123,8 +221,11 @@ export class CollectionsGeneratedCreateService {
       createdAtMs: Date.now(),
       postCount: postIds.length,
       activities,
-      ...(String(input.prompt ?? "").trim() ? { prompt: String(input.prompt).trim() } : {}),
+      mixEngine: "v2_mixes_orchestrator_page" as const,
+      mixKeyUsed,
+      ...(prompt ? { prompt } : {}),
       ...(hasGeo && lat != null && lng != null && radiusMiles != null ? { lat, lng, radiusMiles } : {}),
+      ...(postIds.length === 0 ? { emptyMix: true as const } : {}),
     };
     const db = getFirestoreSourceClient();
     if (!db) return { success: false, error: "collections_unavailable" };
@@ -165,16 +266,20 @@ export class CollectionsGeneratedCreateService {
       perChunkCursor: chunks.map(() => ({ lastTime: null, lastId: null, exhausted: false })),
     });
     const posts = merged.items.slice(0, postCount);
-    if (posts.length === 0) {
-      return { success: false, error: "No posts matched that blend right now." };
-    }
     const postIds = posts.map((p) => String(p.postId ?? p.id ?? "").trim()).filter(Boolean);
-    const cover = getBestPostCover(posts[0] as Record<string, unknown>);
+    const cover =
+      postIds.length > 0
+        ? getBestPostCover(posts[0] as Record<string, unknown>)
+        : { coverImageUrl: null as string | null, coverPostId: null as string | null };
     const name = `Blend · ${others.length + 1} people`;
+    const description =
+      postIds.length > 0
+        ? "Taste blend from the people you picked."
+        : "No posts from these people yet — check back as they add spots.";
     const created = await this.collections.createCollection({
       viewerId,
       name,
-      description: "Taste blend from the people you picked.",
+      description,
       privacy: "public",
       collaborators: [viewerId],
       items: postIds,
@@ -186,6 +291,8 @@ export class CollectionsGeneratedCreateService {
       createdAtMs: Date.now(),
       postCount: postIds.length,
       sourceUserIds: others,
+      memberUserIds: sourceIds,
+      ...(postIds.length === 0 ? { emptyBlend: true as const } : {}),
     };
     const db = getFirestoreSourceClient();
     if (!db) return { success: false, error: "collections_unavailable" };

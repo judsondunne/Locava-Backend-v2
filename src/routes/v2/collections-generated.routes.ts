@@ -44,10 +44,17 @@ export async function registerV2CollectionsGeneratedRoutes(app: FastifyInstance)
       const hasPrompt = !!(body.prompt && body.prompt.length > 0);
       const hasActivity = !!(body.activity && body.activity.length > 0);
       const hasActivities = Array.isArray(body.activities) && body.activities.length > 0;
-      if (!hasPrompt && !hasActivity && !hasActivities) {
+      const hasGeo =
+        typeof body.lat === "number" &&
+        Number.isFinite(body.lat) &&
+        typeof body.lng === "number" &&
+        Number.isFinite(body.lng) &&
+        typeof body.radiusMiles === "number" &&
+        Number.isFinite(body.radiusMiles);
+      if (!hasPrompt && !hasActivity && !hasActivities && !hasGeo) {
         return reply
           .status(400)
-          .send(failure("invalid_body", "Add a mood, an activity, or at least one activity from the list"));
+          .send(failure("invalid_body", "Add a mood, an activity, at least one activity, or a full location (lat, lng, radius)."));
       }
     }
     try {

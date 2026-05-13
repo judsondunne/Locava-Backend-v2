@@ -7,7 +7,7 @@ import { failure, success } from "../../lib/response.js";
 import { setRouteName, recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 import { mapMarkersContract, type MapMarkersResponse } from "../../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../../repositories/source-of-truth/map-markers-firestore.adapter.js";
-import { resolveMapMarkerLimit, clampMapRequestBounds, formatBoundsCsv } from "../../lib/map/map-marker-budgets.js";
+import { resolveMapMarkerLimit, clampMapRequestBounds, formatBoundsCsv, resolveMapMarkerIndexPageLimit } from "../../lib/map/map-marker-budgets.js";
 
 const env = loadEnv();
 const adapter = new MapMarkersFirestoreAdapter();
@@ -66,6 +66,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     const viewer = buildViewerContext(request);
     const query = mapMarkersContract.query.parse(request.query);
     const payloadMode = query.payloadMode ?? "compact";
+    const markerIndexOnly = query.markerIndexOnly === true;
     let bbox = parseBounds(query.bbox);
     let bboxClamp: ReturnType<typeof clampMapRequestBounds> | null = null;
     if (bbox) {
@@ -73,32 +74,58 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       bbox = bboxClamp.bounds;
     }
     const bboxKeyForCache = bbox ? formatBoundsCsv(bbox) : query.bbox?.trim() ?? null;
-    const limitResolution = resolveMapMarkerLimit({
-      requestedLimit: query.limit ?? null,
-      configuredMaxDocs: env.MAP_MARKERS_MAX_DOCS,
-      payloadMode
-    });
-    const hasExplicitLimit = limitResolution.requestedLimit != null;
-    const limit = limitResolution.effectiveLimit;
     const ownerId = query.ownerId?.trim() || null;
     const includeNonPublic = Boolean(ownerId && viewer.viewerId === ownerId);
     const boundsApplied = Boolean(bbox && !ownerId);
-    const cacheKeyBase = ownerId
+    const isGlobal = !ownerId && !bbox;
+    const isGlobalCompactIndex = isGlobal && payloadMode === "compact";
+    const limitResolution =
+      !isGlobal || payloadMode === "full"
+        ? resolveMapMarkerLimit({
+            requestedLimit: query.limit ?? null,
+            configuredMaxDocs: env.MAP_MARKERS_MAX_DOCS,
+            payloadMode
+          })
+        : null;
+    const indexPageLimit = isGlobalCompactIndex
+      ? resolveMapMarkerIndexPageLimit({
+          requestedLimit: query.limit ?? null,
+          configuredIndexPageMax: env.MAP_MARKERS_INDEX_PAGE_MAX_DOCS
+        })
+      : null;
+    const hasExplicitLimit = (query.limit ?? null) != null;
+    const limit = isGlobalCompactIndex ? indexPageLimit! : limitResolution!.effectiveLimit;
+    const cacheKeyRoot = ownerId
       ? `map:markers:v2:owner:${includeNonPublic ? "self" : "public"}:${ownerId}`
       : bbox
         ? `map:markers:v2:bbox:${bboxKeyForCache}`
-        : "map:markers:v2:all";
-    const cacheKeyRoot =
-      ownerId || boundsApplied || !hasExplicitLimit || limit >= limitResolution.configuredLimit
-        ? cacheKeyBase
-        : `${cacheKeyBase}:${limit}`;
+        : payloadMode === "full"
+          ? "map:markers:v2:all"
+          : `map:markers:v2:all:idx:${markerIndexOnly ? "1" : "0"}`;
+    const configuredLimitForKey = limitResolution?.configuredLimit ?? env.MAP_MARKERS_INDEX_PAGE_MAX_DOCS;
+    const indexHardCapApplied =
+      isGlobalCompactIndex &&
+      hasExplicitLimit &&
+      typeof query.limit === "number" &&
+      Number.isFinite(query.limit) &&
+      Math.floor(query.limit) > limit;
+    const cacheKeyRootWithLimit =
+      isGlobalCompactIndex || ownerId || boundsApplied || !hasExplicitLimit || limit >= configuredLimitForKey
+        ? cacheKeyRoot
+        : `${cacheKeyRoot}:${limit}`;
     const cursorNonce = query.cursor?.trim() ? `cur:${query.cursor.trim().slice(0, 240)}` : "cur:start";
-    const cacheKey = `${cacheKeyRoot}:${cursorNonce}:payload:${payloadMode}`;
+    const cacheKey = `${cacheKeyRootWithLimit}:${cursorNonce}:payload:${payloadMode}`;
     const ifNoneMatch = request.headers["if-none-match"];
+    /** Cursor pages must always return JSON — clients paginate by parsing `hasMore`/`nextCursor`; a 304 has no body and can spin the same URL under HTTP caches. */
+    const isCursorPage = Boolean(query.cursor?.trim());
     const cached = await globalCache.get<MapMarkersResponse>(cacheKey);
     if (cached) {
       recordCacheHit();
-      if (ifNoneMatch && String(ifNoneMatch).trim() === cached.etag) {
+      if (
+        ifNoneMatch &&
+        String(ifNoneMatch).trim() === cached.etag &&
+        !isCursorPage
+      ) {
         request.log.info({ routeName: "map.markers.get", cacheSource: "revalidated_304" }, "map markers cache revalidated");
         reply.header("ETag", cached.etag);
         return reply.status(304).send();
@@ -116,17 +143,23 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
     }
     recordCacheMiss();
     try {
+      const includeOpenPayloadWire = !(markerIndexOnly && payloadMode === "compact");
       let nextCursor: string | null = null;
       let hasMoreMarkers = false;
       let dataset: import("../../repositories/source-of-truth/map-markers-firestore.adapter.js").MapMarkersDataset;
       if (ownerId) {
-        dataset = await adapter.fetchByOwner({ ownerId, maxDocs: limit, includeNonPublic, includeOpenPayload: true });
+        dataset = await adapter.fetchByOwner({
+          ownerId,
+          maxDocs: limit,
+          includeNonPublic,
+          includeOpenPayload: includeOpenPayloadWire
+        });
       } else if (bbox) {
         const windowDataset = await adapter.fetchWindow({
           maxDocs: limit,
           bounds: bbox,
           limit,
-          includeOpenPayload: true
+          includeOpenPayload: includeOpenPayloadWire
         });
         dataset = windowDataset;
         nextCursor = windowDataset.nextCursor ?? null;
@@ -134,7 +167,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       } else {
         const globalDataset = await adapter.fetchAll({
           maxDocs: limit,
-          includeOpenPayload: true,
+          includeOpenPayload: includeOpenPayloadWire,
           cursor: query.cursor ?? null
         });
         dataset = globalDataset;
@@ -160,7 +193,9 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
 	                followedUserPic: marker.followedUserPic ?? null,
 	                hasPhoto: marker.hasPhoto,
 	                hasVideo: marker.hasVideo,
-                    openPayload: ensureMarkerOpenPayload(marker as Record<string, unknown>),
+                    openPayload: includeOpenPayloadWire
+                      ? ensureMarkerOpenPayload(marker as Record<string, unknown>)
+                      : null,
 	              })
 	            )
 		          : dataset.markers.map((marker) => ({
@@ -171,7 +206,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       let droppedNoOpenPayload = 0;
       for (const m of markers as Array<{ thumbnailUrl?: unknown; openPayload?: unknown }>) {
         if (typeof m.thumbnailUrl !== "string" || !m.thumbnailUrl.trim()) droppedNoMedia += 1;
-        if (m.openPayload == null || typeof m.openPayload !== "object") droppedNoOpenPayload += 1;
+        if (includeOpenPayloadWire && (m.openPayload == null || typeof m.openPayload !== "object")) droppedNoOpenPayload += 1;
       }
       const clampNote = bboxClamp?.clamped === true ? "viewport_bbox_clamped" : null;
       const degradedReasonCombined =
@@ -194,12 +229,12 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
 	          invalidCoordinateDrops: dataset.invalidCoordinateDrops,
 	          cacheSource: "miss",
 	          payloadMode,
-              requestedLimit: limitResolution.requestedLimit,
+              requestedLimit: limitResolution?.requestedLimit ?? null,
               effectiveLimit: limit,
               candidateLimit: dataset.candidateLimit,
               ownerScoped: Boolean(ownerId),
               boundsApplied,
-              hardCapApplied: limitResolution.hardCapApplied,
+              hardCapApplied: (limitResolution?.hardCapApplied ?? false) || indexHardCapApplied,
               sourceQueryMode: dataset.sourceQueryMode,
               degradedReason: degradedReasonCombined,
               bboxKey: bboxKeyForCache,
@@ -219,7 +254,11 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
 	      };
       const ttlMs = Math.max(env.MAP_MARKERS_CACHE_TTL_MS, 120_000);
       await globalCache.set(cacheKey, payload, ttlMs);
-      if (ifNoneMatch && String(ifNoneMatch).trim() === payload.etag) {
+      if (
+        ifNoneMatch &&
+        String(ifNoneMatch).trim() === payload.etag &&
+        !isCursorPage
+      ) {
         request.log.info({ routeName: "map.markers.get", cacheSource: "revalidated_304" }, "map markers immediate revalidated");
         reply.header("ETag", payload.etag);
         return reply.status(304).send();
@@ -229,14 +268,14 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
 	          routeName: "map.markers.get",
 	          cacheSource: "miss",
 	          count: payload.count,
-              requestedLimit: limitResolution.requestedLimit,
+              requestedLimit: limitResolution?.requestedLimit,
               effectiveLimit: limit,
               candidateLimit: payload.diagnostics.candidateLimit,
               docsScanned: payload.diagnostics.docsScanned,
               estimatedReads: payload.diagnostics.estimatedReads,
               boundsApplied,
               ownerScoped: Boolean(ownerId),
-              hardCapApplied: limitResolution.hardCapApplied,
+              hardCapApplied: (limitResolution?.hardCapApplied ?? false) || indexHardCapApplied,
 	          payloadBytes: payload.diagnostics.payloadBytes,
 	          invalidCoordinateDrops: payload.diagnostics.invalidCoordinateDrops,
               sourceQueryMode: payload.diagnostics.sourceQueryMode,

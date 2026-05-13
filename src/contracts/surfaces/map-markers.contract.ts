@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { defineContract } from "../conventions.js";
-import { MAP_MARKERS_MIN_DOCS, MAP_MARKERS_SAFE_HARD_MAX_DOCS } from "../../lib/map/map-marker-budgets.js";
+import { MAP_MARKERS_MIN_DOCS } from "../../lib/map/map-marker-budgets.js";
 
 export const MapMarkerRecordSchema = z.object({
   id: z.string(),
@@ -84,8 +84,8 @@ export const mapMarkersContract = defineContract({
         "bbox must be minLng,minLat,maxLng,maxLat"
       )
       .optional(),
-    /** Opaque pagination cursor (global_latest + bounded viewport paging). */
-    cursor: z.string().min(1).max(4096).optional()
+    /** When true, markers omit synthetic `openPayload` (native hydrates on tap via real-post batch). */
+    markerIndexOnly: z.coerce.boolean().optional().default(false),
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema

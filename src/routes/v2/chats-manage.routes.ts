@@ -106,12 +106,23 @@ export async function registerV2ChatsManageRoutes(app: FastifyInstance): Promise
     const params = ConversationParamsSchema.parse(request.params);
     const body = TypingBodySchema.parse(request.body);
     setRouteName("chats.typing.put");
-    // invalidation: typing updates are ephemeral thread state updates, not durable inbox mutations.
-    return success({
-      routeName: "chats.typing.put",
-      conversationId: params.conversationId,
-      isTyping: body.isTyping
-    });
+    try {
+      const result = await service.updateTypingStatus({
+        viewerId: viewer.viewerId,
+        conversationId: params.conversationId,
+        isTyping: body.isTyping
+      });
+      return success({
+        routeName: "chats.typing.put",
+        conversationId: result.conversationId,
+        isTyping: result.isTyping
+      });
+    } catch (error) {
+      if (error instanceof ChatsRepositoryError && error.code === "conversation_not_found") {
+        return reply.status(404).send(failure("conversation_not_found", error.message));
+      }
+      throw error;
+    }
   });
 
   app.delete("/v2/chats/:conversationId/messages/:messageId", async (request, reply) => {

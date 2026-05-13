@@ -305,6 +305,12 @@ export class PostingAchievementsService {
     }
 
     const normalizedActivities = [...new Set((params.activities ?? []).map((value) => normalizeActivityId(value)).filter(Boolean))];
+    console.info("POST_REWARD_CALC_STARTED", {
+      postId: params.postId,
+      userId: params.userId,
+      activities: normalizedActivities,
+      requestAward: params.requestAward === true
+    });
     const awardRef = db.collection("users").doc(params.userId).collection("achievements_awards").doc(params.postId);
     const achievementsRef = db.collection("users").doc(params.userId).collection("achievements").doc("state");
     const progressRef = db.collection("users").doc(params.userId).collection("progress");
@@ -342,6 +348,11 @@ export class PostingAchievementsService {
           awardCreated: false,
           alreadyAwarded: true,
           reasonSkipped: "idempotent_existing_award"
+        });
+        console.info("POST_REWARD_ALREADY_PROCESSED", {
+          postId: params.postId,
+          userId: params.userId,
+          source: "post_create"
         });
         return {
           idempotent: true,
@@ -487,6 +498,22 @@ export class PostingAchievementsService {
       awardCreated: true,
       alreadyAwarded: false,
       reasonSkipped: null
+    });
+    console.info("POST_REWARD_CALC_SUCCESS", {
+      postId: params.postId,
+      userId: params.userId,
+      xpGained: transactional.delta.xpGained,
+      newTotalXP: transactional.delta.newTotalXP,
+      leveledUp: transactional.delta.leveledUp === true
+    });
+    console.info("POST_REWARD_ACTIVITY_DELTA_APPLIED", {
+      postId: params.postId,
+      userId: params.userId,
+      progressBumps: (transactional.delta.progressBumps ?? []).map((b) => ({
+        key: b.key,
+        prev: b.prev,
+        next: b.next
+      }))
     });
     achievementsRepository.seedPendingDelta(params.userId, {
       xpGained: transactional.delta.xpGained,

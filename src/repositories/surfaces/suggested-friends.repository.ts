@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { FieldPath } from "firebase-admin/firestore";
 import { entityCacheKeys } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
 import { getRequestContext, incrementDbOps } from "../../observability/request-context.js";
@@ -10,6 +11,14 @@ import {
   digitsOnly,
   normalizePhoneForSearch,
 } from "../../lib/phone-search-fields.js";
+
+function logSuggestionsAudit(event: string, payload: Record<string, unknown>): void {
+  try {
+    console.info(JSON.stringify({ event, ...payload }));
+  } catch {
+    // best-effort
+  }
+}
 
 export type UserSuggestionSummary = {
   userId: string;
@@ -1035,6 +1044,14 @@ export class SuggestedFriendsRepository {
       });
     }
 
+    const socialAndReferralEmpty = out.size === 0;
+    if (socialAndReferralEmpty) {
+      logSuggestionsAudit("FOLLOWING_SUGGESTIONS_PRIMARY_EMPTY", {
+        viewerIdPrefix: viewerId.slice(0, 8),
+        surface: options.surface ?? "generic"
+      });
+    }
+
     const needPopular = includePopular && out.size < safeLimit;
     const needNearby = includeNearby && out.size < safeLimit;
     const popularPromise =
@@ -1076,6 +1093,59 @@ export class SuggestedFriendsRepository {
           })
         )
       );
+      if (socialAndReferralEmpty && popularSnap.size > 0) {
+        logSuggestionsAudit("FOLLOWING_SUGGESTIONS_FALLBACK_TOP_CREATORS_USED", {
+          path: "postCount_desc",
+          viewerIdPrefix: viewerId.slice(0, 8),
+          readCount: popularSnap.size
+        });
+      }
+    }
+
+    if (
+      this.db &&
+      includePopular &&
+      socialAndReferralEmpty &&
+      (!popularSnap || popularSnap.size === 0) &&
+      out.size < safeLimit
+    ) {
+      try {
+        const recentSnap = await this.db
+          .collection("users")
+          .orderBy("updatedAt", "desc")
+          .select(
+            "handle",
+            "name",
+            "displayName",
+            "profilePic",
+            "profilePicPath",
+            "profilePicLarge",
+            "profilePicSmall",
+            "photoURL",
+            "followers",
+            "postCount",
+            "updatedAt"
+          )
+          .limit(Math.min(16, Math.max(safeLimit * 2, 8)))
+          .get();
+        incrementDbOps("queries", 1);
+        incrementDbOps("reads", recentSnap.size);
+        if (recentSnap.size > 0) {
+          logSuggestionsAudit("FOLLOWING_SUGGESTIONS_FALLBACK_TOP_CREATORS_USED", {
+            path: "updatedAt_desc",
+            viewerIdPrefix: viewerId.slice(0, 8),
+            readCount: recentSnap.size
+          });
+          add(
+            recentSnap.docs.map((doc) => ({
+              ...toSummary(doc.id, doc.data() as Record<string, unknown>, "popular", viewer.following.has(doc.id), 480),
+              reasonLabel: "Active on Locava"
+            }))
+          );
+        }
+      } catch (error) {
+        warnSourceFailure("popular_recent_fallback", error);
+      }
     }
 
     if (nearbySnap) {
@@ -1091,7 +1161,7 @@ export class SuggestedFriendsRepository {
     // Final fallback: return real eligible users when every signal is empty.
     if (this.db && includeAllUsersFallback && out.size < safeLimit) {
       try {
-        const fallbackSnap = await this.db
+        let fallbackSnap = await this.db
           .collection("users")
           .orderBy("postCount", "desc")
           .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
@@ -1099,6 +1169,28 @@ export class SuggestedFriendsRepository {
           .get();
         incrementDbOps("queries", 1);
         incrementDbOps("reads", fallbackSnap.size);
+        if (fallbackSnap.size === 0) {
+          fallbackSnap = await this.db
+            .collection("users")
+            .orderBy("updatedAt", "desc")
+            .select(
+              "handle",
+              "name",
+              "displayName",
+              "profilePic",
+              "profilePicPath",
+              "profilePicLarge",
+              "profilePicSmall",
+              "photoURL",
+              "followers",
+              "postCount",
+              "updatedAt"
+            )
+            .limit(Math.min(28, Math.max(safeLimit * 2, 16)))
+            .get();
+          incrementDbOps("queries", 1);
+          incrementDbOps("reads", fallbackSnap.size);
+        }
         add(
           fallbackSnap.docs.map((doc) => ({
             ...toSummary(doc.id, doc.data() as Record<string, unknown>, "all_users", viewer.following.has(doc.id), 200),
@@ -1113,7 +1205,7 @@ export class SuggestedFriendsRepository {
     // Hard floor: always return at least a few real users, even if viewer follows everyone in the normal pool.
     if (this.db && out.size === 0) {
       try {
-        const hardFallbackSnap = await this.db
+        let hardFallbackSnap = await this.db
           .collection("users")
           .orderBy("postCount", "desc")
           .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
@@ -1121,6 +1213,38 @@ export class SuggestedFriendsRepository {
           .get();
         incrementDbOps("queries", 1);
         incrementDbOps("reads", hardFallbackSnap.size);
+        if (hardFallbackSnap.size === 0) {
+          hardFallbackSnap = await this.db
+            .collection("users")
+            .orderBy("updatedAt", "desc")
+            .select(
+              "handle",
+              "name",
+              "displayName",
+              "profilePic",
+              "profilePicPath",
+              "profilePicLarge",
+              "profilePicSmall",
+              "photoURL",
+              "followers",
+              "postCount",
+              "updatedAt"
+            )
+            .limit(12)
+            .get();
+          incrementDbOps("queries", 1);
+          incrementDbOps("reads", hardFallbackSnap.size);
+        }
+        if (hardFallbackSnap.size === 0) {
+          hardFallbackSnap = await this.db
+            .collection("users")
+            .orderBy(FieldPath.documentId())
+            .select("handle", "name", "displayName", "profilePic", "profilePicPath", "profilePicLarge", "profilePicSmall", "photoURL", "followers", "postCount")
+            .limit(12)
+            .get();
+          incrementDbOps("queries", 1);
+          incrementDbOps("reads", hardFallbackSnap.size);
+        }
         addHardFallback(
           hardFallbackSnap.docs.map((doc) => ({
             ...toSummary(doc.id, doc.data() as Record<string, unknown>, "popular", viewer.following.has(doc.id), 100),
@@ -1164,6 +1288,11 @@ export class SuggestedFriendsRepository {
     const etag = createHash("sha1")
       .update(`${viewerId}:${surface}:${users.map((u) => `${u.userId}:${u.reason}:${u.isFollowing ? 1 : 0}`).join("|")}`)
       .digest("hex");
+    logSuggestionsAudit("FOLLOWING_SUGGESTIONS_RETURNED", {
+      count: users.length,
+      viewerIdPrefix: viewerId.slice(0, 8),
+      surface: options.surface ?? "generic"
+    });
     return { users, sourceBreakdown, generatedAt, etag, sourceDiagnostics };
   }
 }

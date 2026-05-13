@@ -1,6 +1,7 @@
 import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
 import { entityCacheKeys, getOrSetEntityCache } from "../../cache/entity-cache.js";
 import { globalCache } from "../../cache/global-cache.js";
+import { getFollowingFeedCacheGeneration } from "../../lib/feed/following-feed-cache-generation.js";
 import { withConcurrencyLimit } from "../../lib/concurrency-limit.js";
 import { recordEntityCacheHit, recordEntityCacheMiss, recordEntityConstructed } from "../../observability/request-context.js";
 import type { FeedRepository } from "../../repositories/surfaces/feed.repository.js";
@@ -26,7 +27,8 @@ export class FeedService {
   async loadBootstrapCandidates(viewerId: string, limit: number, context?: FeedQueryContext) {
     const tab = context?.tab ?? "explore";
     const geo = `${context?.lat ?? "_"}:${context?.lng ?? "_"}:${context?.radiusKm ?? "_"}`;
-    return dedupeInFlight(`feed-bootstrap-candidates:${viewerId}:${limit}:${tab}:${geo}`, async () => {
+    const followingGen = tab === "following" ? await getFollowingFeedCacheGeneration(viewerId) : 0;
+    return dedupeInFlight(`feed-bootstrap-candidates:${viewerId}:${limit}:${tab}:${geo}:g${followingGen}`, async () => {
       const candidates = await withConcurrencyLimit("feed-bootstrap-candidates-repo", 4, () =>
         this.repository.getBootstrapCandidates(viewerId, limit, context)
       );
@@ -46,7 +48,8 @@ export class FeedService {
     const cursorPart = cursor ?? "start";
     const tab = context?.tab ?? "explore";
     const geo = `${context?.lat ?? "_"}:${context?.lng ?? "_"}:${context?.radiusKm ?? "_"}`;
-    return dedupeInFlight(`feed-page:${viewerId}:${cursorPart}:${limit}:${tab}:${geo}`, () =>
+    const followingGen = tab === "following" ? await getFollowingFeedCacheGeneration(viewerId) : 0;
+    return dedupeInFlight(`feed-page:${viewerId}:${cursorPart}:${limit}:${tab}:${geo}:g${followingGen}`, () =>
       withConcurrencyLimit("feed-page-repo", 4, async () => {
         return this.repository.getFeedPage(viewerId, cursor, limit, context);
       })

@@ -5,6 +5,7 @@ import { logFirestoreDebug } from "./firestore-debug.js";
 import { readPostOrderMillis } from "./post-firestore-projection.js";
 import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
 import { buildSafeDisplayTextBlock, sanitizeDisplayFieldValue } from "../../lib/posts/displayText.js";
+import { getFollowingFeedCacheGeneration } from "../../lib/feed/following-feed-cache-generation.js";
 
 export type FirestoreFeedCandidate = {
   /** Firestore document ID — canonical post id */
@@ -127,6 +128,30 @@ const FEED_CANDIDATE_SELECT_FIELDS = [
   "privacy"
 ] as const;
 
+/** Extra fields so following-tab postcards match For You simple `tryMapSimpleFeedCandidate` + AppPostV2 wiring. */
+const FEED_FOLLOWING_EXTRA_SELECT_FIELDS = [
+  "media",
+  "schema",
+  "classification",
+  "compatibility",
+  "randomKey",
+  "reel",
+  "moderatorTier",
+  "assetsReady",
+  "instantPlaybackReady",
+  "videoProcessingStatus",
+  "location",
+  "coordinates",
+  "visibility",
+  "status"
+] as const;
+
+const FOLLOWING_FEED_SELECT_FIELDS = [...new Set([...FEED_CANDIDATE_SELECT_FIELDS, ...FEED_FOLLOWING_EXTRA_SELECT_FIELDS])];
+
+function followingFeedCandidateFieldList(): readonly string[] {
+  return FOLLOWING_FEED_SELECT_FIELDS;
+}
+
 export class FeedFirestoreAdapter {
   private readonly db = getFirestoreSourceClient();
   private static readonly MAX_SCAN_LIMIT = 320;
@@ -172,7 +197,9 @@ export class FeedFirestoreAdapter {
     const radiusRotationBucket = radiusActive ? Math.floor(Date.now() / radiusRotationMs) : null;
     const cacheRotationSuffix =
       radiusRotationBucket !== null ? `rb${radiusRotationBucket}` : new Date().toISOString().slice(0, 10);
-    const cacheKey = `feed:candidates:${viewerId}:${tab}:${lat ?? "_"}:${lng ?? "_"}:${radiusKm ?? "_"}:${cacheRotationSuffix}`;
+    const followingFeedCacheGen =
+      tab === "following" && viewerId !== "anonymous" ? await getFollowingFeedCacheGeneration(viewerId) : 0;
+    const cacheKey = `feed:candidates:${viewerId}:${tab}:${lat ?? "_"}:${lng ?? "_"}:${radiusKm ?? "_"}:${cacheRotationSuffix}:g${followingFeedCacheGen}`;
     const requiredCandidateCount = cursorOffset + limit + 1;
     const cached = await globalCache.get<{ ranked: FirestoreFeedCandidate[]; sourceExhausted: boolean }>(cacheKey);
     if (cached && (cached.sourceExhausted || cached.ranked.length >= requiredCandidateCount) && cursorOffset <= cached.ranked.length) {
@@ -377,7 +404,9 @@ export class FeedFirestoreAdapter {
         })
         .filter(Boolean);
       if (fanoutIds.length > 0 && readCount < FeedFirestoreAdapter.FOLLOWING_MAX_READS) {
-        const rows = await this.getCandidatesByPostIds(fanoutIds.slice(0, FeedFirestoreAdapter.FOLLOWING_MAX_READS - readCount));
+        const rows = await this.getCandidatesByPostIds(fanoutIds.slice(0, FeedFirestoreAdapter.FOLLOWING_MAX_READS - readCount), {
+          selectMode: "following"
+        });
         queryCount += rows.queryCount;
         readCount += rows.readCount;
         for (const row of rows.items) byId.set(row.postId, row);
@@ -398,7 +427,7 @@ export class FeedFirestoreAdapter {
             .collection("posts")
             .where("userId", "in", chunk)
             .orderBy("time", "desc")
-            .select(...FEED_CANDIDATE_SELECT_FIELDS)
+            .select(...followingFeedCandidateFieldList())
             .limit(perChunkLimit)
             .get(),
           900,
@@ -425,7 +454,10 @@ export class FeedFirestoreAdapter {
     };
   }
 
-  async getCandidatesByPostIds(postIds: string[]): Promise<{ items: FirestoreFeedCandidate[]; queryCount: number; readCount: number }> {
+  async getCandidatesByPostIds(
+    postIds: string[],
+    options?: { selectMode?: "default" | "following" }
+  ): Promise<{ items: FirestoreFeedCandidate[]; queryCount: number; readCount: number }> {
     if (!this.db) {
       throw new Error("firestore_source_unavailable");
     }
@@ -433,6 +465,8 @@ export class FeedFirestoreAdapter {
     if (uniqueIds.length === 0) {
       return { items: [], queryCount: 0, readCount: 0 };
     }
+    const fieldMask =
+      options?.selectMode === "following" ? followingFeedCandidateFieldList() : FEED_CANDIDATE_SELECT_FIELDS;
     const chunks: string[][] = [];
     for (let i = 0; i < uniqueIds.length; i += 50) {
       chunks.push(uniqueIds.slice(i, i + 50));
@@ -443,7 +477,7 @@ export class FeedFirestoreAdapter {
     for (const chunk of chunks) {
       const refs = chunk.map((id) => this.db!.collection("posts").doc(id));
       const docs = await withTimeout(
-        this.db.getAll(...refs, { fieldMask: [...FEED_CANDIDATE_SELECT_FIELDS] }),
+        this.db.getAll(...refs, { fieldMask: [...fieldMask] }),
         Math.min(500, FeedFirestoreAdapter.FIRESTORE_TIMEOUT_MS),
         "feed-firestore-candidates-by-id"
       );

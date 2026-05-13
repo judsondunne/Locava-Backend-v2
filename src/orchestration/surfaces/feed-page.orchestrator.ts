@@ -4,6 +4,7 @@ import type { FeedPageResponse } from "../../contracts/surfaces/feed-page.contra
 import { recordCacheHit, recordCacheMiss } from "../../observability/request-context.js";
 import type { FeedService } from "../../services/surfaces/feed.service.js";
 import { wireFeedCandidateToPostCardSummary } from "../../lib/feed/feed-post-card-wire.js";
+import { getFollowingFeedCacheGeneration } from "../../lib/feed/following-feed-cache-generation.js";
 
 export class FeedPageOrchestrator {
   constructor(private readonly service: FeedService) {}
@@ -19,6 +20,8 @@ export class FeedPageOrchestrator {
   }): Promise<FeedPageResponse> {
     const { viewerId, cursor, limit, tab, lat, lng, radiusKm } = input;
     const cursorPart = cursor ?? "start";
+    const followingFeedCacheGen =
+      tab === "following" && viewerId !== "anonymous" ? await getFollowingFeedCacheGeneration(viewerId) : 0;
     const cacheKey = buildCacheKey("list", [
       "feed-page-v1",
       viewerId,
@@ -27,7 +30,8 @@ export class FeedPageOrchestrator {
       String(lng ?? "_"),
       String(radiusKm ?? "_"),
       cursorPart,
-      String(limit)
+      String(limit),
+      tab === "following" ? String(followingFeedCacheGen) : "0"
     ]);
     const cached = await globalCache.get<FeedPageResponse>(cacheKey);
     if (cached) {

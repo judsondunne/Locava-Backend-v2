@@ -3,6 +3,8 @@ export type MapMarkerPayloadMode = "compact" | "full";
 export const MAP_MARKERS_MIN_DOCS = 20;
 export const MAP_MARKERS_SAFE_DEFAULT_MAX_DOCS = 180;
 export const MAP_MARKERS_SAFE_HARD_MAX_DOCS = 300;
+/** Upper bound for a single global marker-index page (compact, paginated full-universe sync). */
+export const MAP_MARKERS_INDEX_PAGE_ABS_MAX = 10_000;
 export const MAP_MARKERS_SAFE_FULL_PAYLOAD_MAX_DOCS = 80;
 export const MAP_MARKERS_VIEWPORT_HEADROOM_DOCS = 40;
 export const MAP_MARKERS_VIEWPORT_MULTIPLIER = 2;
@@ -14,6 +16,11 @@ function clampInt(value: number, min: number, max: number): number {
 
 export function clampConfiguredMapMarkersMaxDocs(value: number): number {
   return clampInt(value, MAP_MARKERS_MIN_DOCS, MAP_MARKERS_SAFE_HARD_MAX_DOCS);
+}
+
+/** Firestore `.limit()` for global marker index pages (may exceed 300). */
+export function clampMapMarkerIndexPageFirestoreLimit(value: number): number {
+  return clampInt(value, MAP_MARKERS_MIN_DOCS, MAP_MARKERS_INDEX_PAGE_ABS_MAX);
 }
 
 export function resolveMapMarkerLimit(input: {
@@ -53,6 +60,23 @@ export function resolveMapMarkerLimit(input: {
       configuredLimit !== clampConfiguredMapMarkersMaxDocs(input.configuredMaxDocs) ||
       (requestedLimit != null && requestedLimit !== effectiveLimit),
   };
+}
+
+/**
+ * Global map marker index (no bbox / owner): large bounded pages for cursor pagination.
+ * Separate from {@link resolveMapMarkerLimit} which caps viewport + full-payload surfaces at 300.
+ */
+export function resolveMapMarkerIndexPageLimit(input: {
+  requestedLimit: number | null | undefined;
+  configuredIndexPageMax: number;
+}): number {
+  const cap = clampInt(input.configuredIndexPageMax, MAP_MARKERS_MIN_DOCS, MAP_MARKERS_INDEX_PAGE_ABS_MAX);
+  const requested =
+    typeof input.requestedLimit === "number" && Number.isFinite(input.requestedLimit)
+      ? Math.floor(input.requestedLimit)
+      : null;
+  if (requested == null) return cap;
+  return clampInt(requested, MAP_MARKERS_MIN_DOCS, cap);
 }
 
 export function resolveMapMarkerViewportCandidateLimit(input: {

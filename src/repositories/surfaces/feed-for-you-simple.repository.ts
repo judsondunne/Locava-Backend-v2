@@ -13,6 +13,7 @@ import { accumulateSurfaceTiming, incrementDbOps } from "../../observability/req
 import { NearbyMixRepository } from "../nearbyMix.repository.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { readMaybeMillis } from "../source-of-truth/post-firestore-projection.js";
+import { countPostLikesSubcollectionBatch } from "./post-likes-subcollection-count.js";
 
 export type SimpleFeedSortMode = "randomKey" | "docId";
 export const FOR_YOU_SIMPLE_SURFACE = "for_you_simple" as const;
@@ -283,6 +284,8 @@ export class FeedForYouSimpleRepository {
       items.push(mapped.candidate);
     }
 
+    await this.hydrateCandidateLikeCountsFromLikesSubcollection(items);
+
     return {
       items,
       rawCount: snap.docs.length,
@@ -379,7 +382,7 @@ export class FeedForYouSimpleRepository {
       const snap = await query.limit(boundedLimit).get();
       incrementDbOps("reads", snap.docs.length);
       accumulateSurfaceTiming("feed_simple_query_reel_tier_index_ms", Date.now() - startedAt);
-      return this.mapSimpleFeedBatchDocs("docId", snap.docs, boundedLimit);
+      return await this.mapSimpleFeedBatchDocsWithLikeHydration("docId", snap.docs, boundedLimit);
     } catch (error) {
       const code = (error as { code?: unknown } | null)?.code;
       if (code === 9 || code === "failed-precondition") {
@@ -447,6 +450,28 @@ export class FeedForYouSimpleRepository {
     };
   }
 
+  private async hydrateCandidateLikeCountsFromLikesSubcollection(items: SimpleFeedCandidate[]): Promise<void> {
+    if (!this.db || items.length === 0) return;
+    const postIds = items.map((it) => it.postId).filter((id) => typeof id === "string" && id.trim().length > 0);
+    const counts = await countPostLikesSubcollectionBatch(this.db, postIds);
+    for (const item of items) {
+      const n = counts.get(item.postId);
+      if (typeof n === "number" && Number.isFinite(n)) {
+        item.likeCount = Math.max(0, Math.floor(n));
+      }
+    }
+  }
+
+  private async mapSimpleFeedBatchDocsWithLikeHydration(
+    mode: SimpleFeedSortMode,
+    docs: QueryDocumentSnapshot[],
+    boundedLimit: number
+  ): Promise<SimpleFeedBatchResult> {
+    const result = this.mapSimpleFeedBatchDocs(mode, docs, boundedLimit);
+    await this.hydrateCandidateLikeCountsFromLikesSubcollection(result.items);
+    return result;
+  }
+
   // REIMPLEMENTED AFTER FIRESTORE READ CONTAINMENT: bounded reel bootstrap (<= REEL_POOL_COLD_MAX_DOCS reads).
   async fetchReelPoolBootstrap(limit: number): Promise<SimpleFeedCandidate[]> {
     if (!this.db) return [];
@@ -475,7 +500,7 @@ export class FeedForYouSimpleRepository {
     }
     incrementDbOps("reads", snap.docs.length);
     accumulateSurfaceTiming("feed_simple_query_reel_bootstrap_ms", Date.now() - startedAt);
-    const mapped = this.mapSimpleFeedBatchDocs("docId", snap.docs, cap);
+    const mapped = await this.mapSimpleFeedBatchDocsWithLikeHydration("docId", snap.docs, cap);
     if (mapped.items.length > 0) return mapped.items;
     incrementDbOps("queries", 1);
     const fallback = await this.db
@@ -485,7 +510,8 @@ export class FeedForYouSimpleRepository {
       .limit(Math.min(FOR_YOU_FALLBACK_MAX_DOCS, cap))
       .get();
     incrementDbOps("reads", fallback.docs.length);
-    return this.mapSimpleFeedBatchDocs("docId", fallback.docs, FOR_YOU_FALLBACK_MAX_DOCS).items;
+    return (await this.mapSimpleFeedBatchDocsWithLikeHydration("docId", fallback.docs, FOR_YOU_FALLBACK_MAX_DOCS))
+      .items;
   }
 
   /**
@@ -557,6 +583,7 @@ export class FeedForYouSimpleRepository {
       stats.playableMapped += 1;
       items.push(mapped.candidate);
     }
+    await this.hydrateCandidateLikeCountsFromLikesSubcollection(items);
     return {
       items,
       rawCount: snap.docs.length,
@@ -619,6 +646,7 @@ export class FeedForYouSimpleRepository {
     for (const row of ranked) {
       items.push(row.candidate);
     }
+    await this.hydrateCandidateLikeCountsFromLikesSubcollection(items);
     return {
       items,
       readCount: batch.items.length,
@@ -745,6 +773,7 @@ export class FeedForYouSimpleRepository {
       }
       items.push(c);
     }
+    await this.hydrateCandidateLikeCountsFromLikesSubcollection(items);
     return {
       items,
       readCount: snap.docs.length,
@@ -779,7 +808,9 @@ export class FeedForYouSimpleRepository {
       const mapped = tryMapSimpleFeedCandidate("docId", snap.id, raw);
       if ("candidate" in mapped) mappedById.set(snap.id, mapped.candidate);
     }
-    return ordered.map((id) => mappedById.get(id)).filter((row): row is SimpleFeedCandidate => Boolean(row));
+    const list = ordered.map((id) => mappedById.get(id)).filter((row): row is SimpleFeedCandidate => Boolean(row));
+    await this.hydrateCandidateLikeCountsFromLikesSubcollection(list);
+    return list;
   }
 
   async loadBlockedAuthorIdsForViewer(viewerId: string): Promise<{ blocked: Set<string>; readCount: number }> {
@@ -1009,6 +1040,7 @@ export class FeedForYouSimpleRepository {
         return "candidate" in mapped ? mapped.candidate : null;
       })
       .filter((row): row is SimpleFeedCandidate => row !== null);
+    await this.hydrateCandidateLikeCountsFromLikesSubcollection(items);
     return {
       viewerId: pickString(raw.viewerId) ?? id,
       surface: pickString(raw.surface) ?? s,
@@ -1106,7 +1138,7 @@ export class FeedForYouSimpleRepository {
     }
     incrementDbOps("reads", snap.docs.length);
     accumulateSurfaceTiming("feed_simple_query_reel_v5_deck_ms", Date.now() - startedAt);
-    return this.mapSimpleFeedBatchDocs("docId", snap.docs, cap).items;
+    return (await this.mapSimpleFeedBatchDocsWithLikeHydration("docId", snap.docs, cap)).items;
   }
 
   /**
@@ -1243,7 +1275,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 type SimpleFeedRejectReason = "invisible" | "no_author" | "no_media" | "invalid_contract" | "bad_sort";
 
-function tryMapSimpleFeedCandidate(
+export function tryMapSimpleFeedCandidate(
   mode: SimpleFeedSortMode,
   postId: string,
   data: Record<string, unknown>

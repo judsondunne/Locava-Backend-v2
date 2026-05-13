@@ -1,8 +1,8 @@
 import { invalidateEntitiesForMutation } from "../../cache/entity-invalidation.js";
-import { incrementDbOps, recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
+import { recordIdempotencyHit, recordIdempotencyMiss } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import type { PostMutationService } from "../../services/mutations/post-mutation.service.js";
-import { readPostLikeCountFromFirestoreData } from "./post-document-like-count.js";
+import { countPostLikesSubcollection } from "../../repositories/surfaces/post-likes-subcollection-count.js";
 
 export class PostUnlikeOrchestrator {
   constructor(private readonly service: PostMutationService) {}
@@ -43,10 +43,7 @@ export class PostUnlikeOrchestrator {
     let likeCount = 0;
     const db = getFirestoreSourceClient();
     if (db) {
-      const snap = await db.collection("posts").doc(postId).get();
-      incrementDbOps("reads", snap.exists ? 1 : 0);
-      const d = (snap.data() ?? {}) as Record<string, unknown>;
-      likeCount = readPostLikeCountFromFirestoreData(d);
+      likeCount = await countPostLikesSubcollection(db, postId);
     }
     return {
       routeName: "posts.unlike.post" as const,

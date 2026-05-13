@@ -41,6 +41,12 @@ export class ChatsService {
     );
   }
 
+  async updateTypingStatus(input: { viewerId: string; conversationId: string; isTyping: boolean }) {
+    return withConcurrencyLimit("chats-typing", 16, () =>
+      withMutationLock(`chats-typing:${input.viewerId}:${input.conversationId}`, () => this.repository.updateTypingStatus(input))
+    );
+  }
+
   async loadThreadPage(input: { viewerId: string; conversationId: string; cursor: string | null; limit: number }): Promise<{
     cursorIn: string | null;
     items: Array<MessageSummary & { seenBy: string[] }>;

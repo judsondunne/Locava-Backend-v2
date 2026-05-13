@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readPostLikeCountFromFirestoreData } from "./post-document-like-count.js";
 
 describe("readPostLikeCountFromFirestoreData", () => {
-  it("prefers the higher of likeCount vs likesCount when both exist", () => {
+  it("prefers likesCount (primary denormalized field) when both likesCount and likeCount exist", () => {
     expect(readPostLikeCountFromFirestoreData({ likeCount: 1, likesCount: 17 })).toBe(17);
   });
 
