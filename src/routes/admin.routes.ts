@@ -1,6 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { renderAdminPage } from "../dashboard/admin-page.js";
 import { renderSearchAutofillLabPage } from "../dashboard/search-autofill-lab.js";
+import { renderWikiCurationLabPage } from "../dashboard/wiki-curation-lab.js";
+import { renderInventoryLabPage } from "../dashboard/inventory-lab.js";
+import { renderOpenStreetMapLabPage } from "../dashboard/openstreetmap-lab.js";
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get("/admin", async (_request, reply) => {
@@ -8,8 +11,23 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(renderAdminPage());
   });
 
+  app.get("/admin/wiki-curation", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return reply.send(renderWikiCurationLabPage());
+  });
+
   app.get("/admin/search-autofill-lab", async (_request, reply) => {
     reply.type("text/html; charset=utf-8");
     return reply.send(renderSearchAutofillLabPage());
+  });
+
+  app.get("/admin/inventory", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return reply.send(renderInventoryLabPage());
+  });
+
+  app.get("/admin/openstreetmap", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return reply.send(renderOpenStreetMapLabPage());
   });
 }

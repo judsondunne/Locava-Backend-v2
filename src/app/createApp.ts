@@ -33,6 +33,9 @@ import { registerUserChatsCollectionsPurgeRoutes } from "../routes/internal/user
 import { registerReelsMvpPublisherRoutes } from "../admin/reelsMvpPublisher/reelsMvpPublisher.routes.js";
 import { registerPostSingleVideoRepairRoutes } from "../admin/postSingleVideoRepair/postSingleVideoRepair.routes.js";
 import { registerSeedLikesRoutes } from "../admin/seedLikes/seedLikes.routes.js";
+import { registerWikiCurationRoutes } from "../admin/wikiCuration/wikiCuration.routes.js";
+import { registerInventoryAdminRoutes } from "../admin/inventory/inventory.routes.js";
+import { registerOpenStreetMapAdminRoutes } from "../admin/openstreetmap/openstreetmap.routes.js";
 import { registerSystemRoutes } from "../routes/system.routes.js";
 import { registerTestRoutes } from "../routes/test.routes.js";
 import { registerV2AuthBootstrapRoutes } from "../routes/v2/auth-bootstrap.routes.js";
@@ -143,6 +146,9 @@ import { registerV2AchievementsClaimIntroBonusRoutes } from "../routes/v2/achiev
 import { registerV2MapBootstrapRoutes } from "../routes/v2/map-bootstrap.routes.js";
 import { registerV2MapCurrentWeatherRoutes } from "../routes/v2/map-current-weather.routes.js";
 import { registerV2MapMarkersRoutes } from "../routes/v2/map-markers.routes.js";
+import { registerV2InventoryTilesRoutes } from "../routes/v2/inventory-tiles.routes.js";
+import { registerV2InventorySpotDetailRoutes } from "../routes/v2/inventory-spot-detail.routes.js";
+import { registerV2InventoryRouteDetailRoutes } from "../routes/v2/inventory-route-detail.routes.js";
 import { registerV2DirectoryUsersRoutes } from "../routes/v2/directory-users.routes.js";
 import { registerV2SocialSuggestedFriendsRoutes } from "../routes/v2/social-suggested-friends.routes.js";
 import { registerV2SocialContactsSyncRoutes } from "../routes/v2/social-contacts-sync.routes.js";
@@ -788,6 +794,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2MapBootstrapRoutes);
   app.register(registerV2MapMarkersRoutes);
   app.register(registerV2MapCurrentWeatherRoutes);
+  app.register(registerV2InventoryTilesRoutes);
+  app.register(registerV2InventorySpotDetailRoutes);
+  app.register(registerV2InventoryRouteDetailRoutes);
   app.register(registerV2DirectoryUsersRoutes);
   app.register(registerV2SocialSuggestedFriendsRoutes);
   app.register(registerV2SocialContactsSyncRoutes);
@@ -803,6 +812,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerStateContentFactoryDevRoutes);
   app.register(registerPostSingleVideoRepairRoutes);
   app.register(registerSeedLikesRoutes);
+  app.register(registerWikiCurationRoutes);
+  app.register(registerInventoryAdminRoutes);
+  app.register(registerOpenStreetMapAdminRoutes);
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerAdminRoutes);
   app.register(registerPublicExpoPushRoutes);

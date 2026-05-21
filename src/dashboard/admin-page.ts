@@ -20,7 +20,15 @@ export function renderAdminPage(): string {
   <body>
     <h1>Locava Backend V2 Diagnostics</h1>
     <p>Internal dashboard for route visibility, diagnostics, and curl-equivalent test triggering.</p>
-    <p><a href="/admin/search-autofill-lab" style="color:#93c5fd; text-decoration:none;">Search autofill lab</a></p>
+    <p>
+      <a href="/admin/wiki-curation" style="color:#93c5fd; text-decoration:none;">Wiki spot curation (AI dry review)</a>
+      ·
+      <a href="/admin/search-autofill-lab" style="color:#93c5fd; text-decoration:none;">Search autofill lab</a>
+      ·
+      <a href="/admin/inventory" style="color:#93c5fd; text-decoration:none;">Inventory MVP (Hartland VT)</a>
+      ·
+      <a href="/admin/openstreetmap" style="color:#93c5fd; text-decoration:none;">OSM Locava Classifier (Hartland VT)</a>
+    </p>
 
     <div class="grid">
       <section class="panel">

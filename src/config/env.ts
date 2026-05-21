@@ -217,6 +217,10 @@ const EnvSchema = z.object({
   ENABLE_STATE_CONTENT_FACTORY_DEV_PAGE: z.string().optional(),
   /** Separate guard for staging-only Firestore writes from State Content Factory. */
   STATE_CONTENT_FACTORY_ALLOW_STAGING_WRITES: z.string().optional(),
+  /** When true, allows production inventory writes with explicit confirmation phrase. */
+  INVENTORY_IMPORT_ALLOW_PROD_WRITE: z.coerce.boolean().default(false),
+  /** When true, dry-run may persist import run docs even outside emulator. */
+  INVENTORY_DRY_RUN_WRITE_RUN_DOC: z.coerce.boolean().default(false),
 });
 
 export type AppEnv = z.infer<typeof EnvSchema>;
@@ -265,6 +269,108 @@ function mergeCandidateEnvFiles(cwd: string): Record<string, string> {
     }
   }
   return merged;
+}
+
+/** Only `./.env` then `./.env.local` under Backendv2 (no monorepo parent `.env` files). */
+function mergeBackendV2RootEnvFilesOnlyInternal(cwd: string): {
+  merged: Record<string, string>;
+  /** Last file (in merge order) that assigned either Gemini env var. */
+  lastGeminiAssignment: { relative: ".env" | ".env.local"; absolutePath: string } | null;
+} {
+  const merged: Record<string, string> = {};
+  let lastGeminiAssignment: { relative: ".env" | ".env.local"; absolutePath: string } | null = null;
+  const ordered = [".env", ".env.local"] as const;
+  for (const rel of ordered) {
+    const candidate = path.resolve(cwd, rel);
+    const values = readEnvFileIfPresent(candidate);
+    for (const [key, value] of Object.entries(values)) {
+      const trimmed = stripWrappingQuotes(value)?.trim() ?? "";
+      if (!trimmed.length) continue;
+      merged[key] = value;
+      if (key === "GEMINI_API_KEY" || key === "GOOGLE_GEMINI_API_KEY") {
+        lastGeminiAssignment = { relative: rel, absolutePath: candidate };
+      }
+    }
+  }
+  return { merged, lastGeminiAssignment };
+}
+
+function mergeBackendV2RootEnvFilesOnly(cwd: string): Record<string, string> {
+  return mergeBackendV2RootEnvFilesOnlyInternal(cwd).merged;
+}
+
+/** Where Backendv2 looks for Gemini keys on disk (and whether those files exist). */
+export function backendV2RepoGeminiEnvResolutionDiagnostics(cwd: string = process.cwd()): {
+  processCwd: string;
+  backendV2DotEnvPath: string;
+  backendV2DotEnvLocalPath: string;
+  dotEnvExists: boolean;
+  dotEnvLocalExists: boolean;
+  lastGeminiAssignment: { relative: ".env" | ".env.local"; absolutePath: string } | null;
+} {
+  const backendV2DotEnvPath = path.resolve(cwd, ".env");
+  const backendV2DotEnvLocalPath = path.resolve(cwd, ".env.local");
+  let dotEnvExists = false;
+  let dotEnvLocalExists = false;
+  try {
+    dotEnvExists = fs.existsSync(backendV2DotEnvPath);
+  } catch {
+    dotEnvExists = false;
+  }
+  try {
+    dotEnvLocalExists = fs.existsSync(backendV2DotEnvLocalPath);
+  } catch {
+    dotEnvLocalExists = false;
+  }
+  const { lastGeminiAssignment } = mergeBackendV2RootEnvFilesOnlyInternal(cwd);
+  return {
+    processCwd: cwd,
+    backendV2DotEnvPath,
+    backendV2DotEnvLocalPath,
+    dotEnvExists,
+    dotEnvLocalExists,
+    lastGeminiAssignment
+  };
+}
+
+/** Gemini key meta from Backendv2 repo root only (`./.env` → `./.env.local`). */
+export function backendV2RepoGeminiApiKeyMeta(cwd: string = process.cwd()): {
+  configured: boolean;
+  source: "GEMINI_API_KEY" | "GOOGLE_GEMINI_API_KEY" | null;
+  keyLength: number;
+  bothGeminiVarsSet: boolean;
+} {
+  const m = mergeBackendV2RootEnvFilesOnly(cwd);
+  const g = stripWrappingQuotes(m.GEMINI_API_KEY)?.trim() || "";
+  const gg = stripWrappingQuotes(m.GOOGLE_GEMINI_API_KEY)?.trim() || "";
+  const both = !!(g && gg);
+  if (g) {
+    return { configured: true, source: "GEMINI_API_KEY", keyLength: g.length, bothGeminiVarsSet: both };
+  }
+  if (gg) {
+    return { configured: true, source: "GOOGLE_GEMINI_API_KEY", keyLength: gg.length, bothGeminiVarsSet: both };
+  }
+  return { configured: false, source: null, keyLength: 0, bothGeminiVarsSet: false };
+}
+
+/** Same precedence as `wikiSpotCurationGeminiApiKeyMeta()` but from full monorepo layered files (see `mergeCandidateEnvFiles`). */
+export function monorepoLayeredGeminiApiKeyMeta(cwd: string = process.cwd()): {
+  configured: boolean;
+  source: "GEMINI_API_KEY" | "GOOGLE_GEMINI_API_KEY" | null;
+  keyLength: number;
+  bothGeminiVarsSet: boolean;
+} {
+  const candidateFileEnv = mergeCandidateEnvFiles(cwd);
+  const g = stripWrappingQuotes(candidateFileEnv.GEMINI_API_KEY)?.trim() || "";
+  const gg = stripWrappingQuotes(candidateFileEnv.GOOGLE_GEMINI_API_KEY)?.trim() || "";
+  const both = !!(g && gg);
+  if (g) {
+    return { configured: true, source: "GEMINI_API_KEY", keyLength: g.length, bothGeminiVarsSet: both };
+  }
+  if (gg) {
+    return { configured: true, source: "GOOGLE_GEMINI_API_KEY", keyLength: gg.length, bothGeminiVarsSet: both };
+  }
+  return { configured: false, source: null, keyLength: 0, bothGeminiVarsSet: false };
 }
 
 /** Process env overlays file env only where the incoming value is non-empty (avoid erasing merged file keys). */

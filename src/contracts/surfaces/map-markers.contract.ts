@@ -86,6 +86,8 @@ export const mapMarkersContract = defineContract({
       .optional(),
     /** When true, markers omit synthetic `openPayload` (native hydrates on tap via real-post batch). */
     markerIndexOnly: z.coerce.boolean().optional().default(false),
+    /** Opaque server cursor for global compact index pagination (Firestore document id). */
+    cursor: z.string().min(1).max(2048).optional(),
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema

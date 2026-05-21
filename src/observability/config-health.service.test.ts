@@ -50,6 +50,7 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     INTERNAL_DASHBOARD_TOKEN: "super-secret-dashboard-token",
     MAP_MARKERS_CACHE_TTL_MS: 60000,
     MAP_MARKERS_MAX_DOCS: 180,
+    MAP_MARKERS_INDEX_PAGE_MAX_DOCS: 5000,
     LEGACY_MONOLITH_PROXY_BASE_URL: undefined,
     ALLOW_PUBLIC_POSTING_TEST: false,
     CONTACT_SYNC_VERBOSE_DIAGNOSTICS: false,
@@ -104,6 +105,8 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     WIKIMEDIA_MVP_FETCH_ALL_MAX_SEARCH_PAGES: 100,
     WIKIMEDIA_MVP_PLACE_TIMEOUT_MS: 120_000,
     ENABLE_PLACE_CANDIDATE_DEV_PAGE: undefined,
+    INVENTORY_IMPORT_ALLOW_PROD_WRITE: false,
+    INVENTORY_DRY_RUN_WRITE_RUN_DOC: false,
     ...overrides
   };
 }
