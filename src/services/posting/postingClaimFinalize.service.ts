@@ -4,11 +4,15 @@ import { buildXpState } from "../surfaces/achievements-core.js";
 import {
   buildCaptureDocId,
   scoreClaimCandidate,
+  claimDistanceToMarker,
+  maxRadiusForMarker,
+  bboxAroundPoint,
+  HARD_MAX_SPOT_RADIUS_METERS,
+  HARD_MAX_ROUTE_RADIUS_METERS,
   type ClaimMatchCandidate
 } from "./postingClaimMatching.js";
 import { resolvePostingClaimCandidate } from "./postingClaimCandidate.service.js";
 import { fetchUnexploredMapMarkerSummaries } from "../map/unexploredMapMarkers.service.js";
-import { bboxAroundPoint, HARD_MAX_SPOT_RADIUS_METERS } from "./postingClaimMatching.js";
 
 const FIRST_CAPTURE_XP = 25;
 
@@ -120,6 +124,52 @@ async function resolveVerifiedCandidate(input: {
   return resolved.candidate;
 }
 
+function logClaimDistanceComparison(input: {
+  postId: string;
+  userId: string;
+  enforcePostDistanceCheck: boolean;
+  skipped: boolean;
+  requestLat: number;
+  requestLng: number;
+  postLat: number | null;
+  postLng: number | null;
+  candidate: ClaimMatchCandidate;
+  distanceMeters: number;
+  maxRadius: number;
+  matchedBy: string;
+  withinRadius: boolean;
+}): void {
+  console.info("[posting.claim_finalize.distance_check]", {
+    postId: input.postId,
+    userId: input.userId,
+    enforcePostDistanceCheck: input.enforcePostDistanceCheck,
+    skipped: input.skipped,
+    requestLat: input.requestLat,
+    requestLng: input.requestLng,
+    postLat: input.postLat,
+    postLng: input.postLng,
+    candidateId: input.candidate.id,
+    candidateLat: input.candidate.lat,
+    candidateLng: input.candidate.lng,
+    itemType: input.candidate.itemType,
+    distanceMeters: Number(input.distanceMeters.toFixed(2)),
+    maxRadiusMeters: input.maxRadius,
+    matchedBy: input.matchedBy,
+    withinRadius: input.withinRadius,
+    deltaRequestVsPostMeters:
+      input.postLat != null && input.postLng != null
+        ? Number(
+            Math.hypot(
+              (input.requestLat - input.postLat) * 111_320,
+              (input.requestLng - input.postLng) *
+                111_320 *
+                Math.max(0.2, Math.cos((input.postLat * Math.PI) / 180))
+            ).toFixed(2)
+          )
+        : null
+  });
+}
+
 export async function finalizePostingClaim(input: {
   viewerId: string;
   postId: string;
@@ -131,6 +181,7 @@ export async function finalizePostingClaim(input: {
   itemType?: "unexploredSpot" | "unexploredRoute";
   activities?: string[];
   title?: string;
+  enforcePostDistanceCheck?: boolean;
 }): Promise<{
   captured: boolean;
   isFirstCapture?: boolean;
@@ -235,28 +286,82 @@ export async function finalizePostingClaim(input: {
       asNumber(postData.lng) ??
       asNumber((postData.location as FirestoreMap | undefined)?.long) ??
       asNumber((postData.location as FirestoreMap | undefined)?.lng);
+    const enforcePostDistanceCheck = input.enforcePostDistanceCheck !== false;
     if (postLat != null && postLng != null) {
-      const verified = scoreClaimCandidate({
-        marker: {
-          id: candidate.id,
-          sourceCollection: candidate.sourceCollection,
-          itemType: candidate.itemType,
-          title: candidate.title,
-          lat: candidate.lat,
-          lng: candidate.lng,
-          firstActivity: candidate.firstActivity,
-          emoji: candidate.emoji,
-          hasMedia: false,
-          isUnexplored: true,
-          isRoute: candidate.itemType === "unexploredRoute"
-        },
+      const markerForDistance = {
+        id: candidate.id,
+        sourceCollection: candidate.sourceCollection,
+        itemType: candidate.itemType,
+        title: candidate.title,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        firstActivity: candidate.firstActivity,
+        emoji: candidate.emoji,
+        hasMedia: false,
+        isUnexplored: true as const,
+        isRoute: candidate.itemType === "unexploredRoute",
+        routeSummary:
+          candidate.itemType === "unexploredRoute"
+            ? ((unexploredData.routeSummary as Record<string, unknown> | undefined) ??
+              (unexploredData.route as Record<string, unknown> | undefined) ??
+              undefined)
+            : undefined
+      };
+      const { distanceMeters, matchedBy } = claimDistanceToMarker({
+        marker: markerForDistance,
         postLat,
-        postLng,
-        postActivities: input.activities ?? [],
-        postTitle: input.title
+        postLng
       });
-      if (!verified) {
-        return { captured: false, reason: "post_too_far_from_candidate" as const };
+      const maxRadius = Math.min(
+        candidate.itemType === "unexploredRoute"
+          ? HARD_MAX_ROUTE_RADIUS_METERS
+          : HARD_MAX_SPOT_RADIUS_METERS,
+        maxRadiusForMarker(markerForDistance)
+      );
+      const withinRadius = distanceMeters <= maxRadius;
+
+      if (!enforcePostDistanceCheck) {
+        logClaimDistanceComparison({
+          postId: input.postId,
+          userId: input.userId,
+          enforcePostDistanceCheck,
+          skipped: true,
+          requestLat: input.lat,
+          requestLng: input.lng,
+          postLat,
+          postLng,
+          candidate,
+          distanceMeters,
+          maxRadius,
+          matchedBy,
+          withinRadius
+        });
+      } else {
+        const verified = scoreClaimCandidate({
+          marker: markerForDistance,
+          postLat,
+          postLng,
+          postActivities: input.activities ?? [],
+          postTitle: input.title
+        });
+        logClaimDistanceComparison({
+          postId: input.postId,
+          userId: input.userId,
+          enforcePostDistanceCheck,
+          skipped: false,
+          requestLat: input.lat,
+          requestLng: input.lng,
+          postLat,
+          postLng,
+          candidate,
+          distanceMeters,
+          maxRadius,
+          matchedBy,
+          withinRadius
+        });
+        if (!verified) {
+          return { captured: false, reason: "post_too_far_from_candidate" as const };
+        }
       }
     }
 
@@ -425,11 +530,13 @@ export async function finalizePostingClaim(input: {
     };
   });
 
-  if (process.env.NODE_ENV !== "production" && txResult.captured) {
+  if (process.env.NODE_ENV !== "production") {
     console.info("[posting.claim_finalize]", {
       postId: input.postId,
       userId: input.userId,
       itemId: txResult.itemId,
+      captured: txResult.captured,
+      reason: txResult.reason,
       isFirstCapture: txResult.isFirstCapture,
       xpAward: txResult.xpAward
     });

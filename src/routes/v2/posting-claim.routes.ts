@@ -121,8 +121,23 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
       sourceCollection: body.sourceCollection,
       itemType: body.itemType,
       activities: body.activities,
-      title: body.title
+      title: body.title,
+      enforcePostDistanceCheck: body.enforcePostDistanceCheck
     });
+
+    if (process.env.NODE_ENV !== "production" && result.reason === "post_too_far_from_candidate") {
+      request.log.warn(
+        {
+          postId: body.postId,
+          userId: body.userId,
+          requestLat: body.lat,
+          requestLng: body.lng,
+          candidateId: body.candidateId,
+          enforcePostDistanceCheck: body.enforcePostDistanceCheck
+        },
+        "claim_finalize_post_too_far"
+      );
+    }
 
     return success({
       routeName: "posting.claim_finalize.post",

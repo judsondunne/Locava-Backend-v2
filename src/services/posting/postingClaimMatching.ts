@@ -99,7 +99,7 @@ export function titleSimilarity(a?: string | null, b?: string | null): number {
   return overlap / Math.max(leftTokens.size, rightTokens.size);
 }
 
-function claimDistanceToMarker(input: {
+export function claimDistanceToMarker(input: {
   marker: UnexploredMapMarkerSummary;
   postLat: number;
   postLng: number;

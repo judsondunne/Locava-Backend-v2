@@ -11,7 +11,9 @@ export const PostingClaimFinalizeBodySchema = z
     sourceCollection: z.enum(["unexploredSpots", "unexploredRoutes"]).optional(),
     itemType: z.enum(["unexploredSpot", "unexploredRoute"]).optional(),
     activities: z.array(z.string().trim().max(80)).max(12).optional(),
-    title: z.string().trim().max(200).optional()
+    title: z.string().trim().max(200).optional(),
+    /** When false, skip stored-post ↔ candidate distance validation (dev / relaxed claims). */
+    enforcePostDistanceCheck: z.boolean().optional()
   })
   .strict();
 
