@@ -293,43 +293,79 @@ export class CommentsRepository {
     return { comments: mapped, debug };
   }
 
+  /**
+   * A "placeholder" author name is one that does not represent the user's real display name:
+   * an empty string, a value that merely echoes the handle, or one of the synthetic fallbacks
+   * (`User <id>` / `user_<id>`). When a brand-new account comments in its first session, a viewer
+   * summary cached BEFORE the profile finished propagating can hold such a placeholder. Persisting
+   * it would bake "user" into the stored comment forever, so we never trust a placeholder from cache
+   * and instead fall through to an authoritative Firestore read.
+   */
+  private isPlaceholderAuthorName(name: string | null | undefined, handle: string | null | undefined): boolean {
+    const trimmed = typeof name === "string" ? name.trim() : "";
+    if (!trimmed) return true;
+    const handleTrimmed = typeof handle === "string" ? handle.trim().replace(/^@+/, "") : "";
+    if (handleTrimmed && trimmed.toLowerCase() === handleTrimmed.toLowerCase()) return true;
+    if (/^user[_ ]/i.test(trimmed)) return true;
+    return false;
+  }
+
   private async resolveViewerAuthor(viewerId: string): Promise<CommentRecord["author"]> {
     const mode = this.assertOrUseFallback();
     if (mode === "firestore") {
       const summaryCacheKey = entityCacheKeys.userSummary(viewerId);
+      const fallbackAuthor: CommentRecord["author"] = {
+        userId: viewerId,
+        handle: `user_${viewerId.slice(0, 8)}`,
+        name: `User ${viewerId.slice(0, 8)}`,
+        pic: null
+      };
+      // Track the best (non-placeholder preferred) candidate seen so far so we never regress to the
+      // synthetic fallback when a real handle/pic is available.
+      let best: CommentRecord["author"] | null = null;
+      const consider = (candidate: CommentRecord["author"] | null): CommentRecord["author"] | null => {
+        if (!candidate) return null;
+        if (!this.isPlaceholderAuthorName(candidate.name, candidate.handle)) {
+          return candidate; // authoritative: use immediately
+        }
+        if (!best) best = candidate;
+        return null;
+      };
+
       const authBootstrapSummary = AuthBootstrapFirestoreAdapter.getCachedViewerSummary(viewerId);
-      if (authBootstrapSummary) {
-        return {
-          userId: viewerId,
-          handle: authBootstrapSummary.handle,
-          name: authBootstrapSummary.name,
-          pic: authBootstrapSummary.pic
-        };
-      }
+      const resolvedFromBootstrap = consider(
+        authBootstrapSummary
+          ? { userId: viewerId, handle: authBootstrapSummary.handle, name: authBootstrapSummary.name, pic: authBootstrapSummary.pic }
+          : null,
+      );
+      if (resolvedFromBootstrap) return resolvedFromBootstrap;
+
       const [cached, cachedUserDoc] = await Promise.all([
         globalCache.get<{ userId: string; handle: string; name: string | null; pic: string | null }>(summaryCacheKey),
         globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(viewerId)),
       ]);
-      if (cached) {
-        return {
-          userId: cached.userId,
-          handle: cached.handle,
-          name: cached.name ?? cached.handle ?? `User ${viewerId.slice(0, 8)}`,
-          pic: cached.pic
-        };
-      }
+      const resolvedFromCache = consider(
+        cached
+          ? { userId: cached.userId, handle: cached.handle, name: cached.name ?? cached.handle ?? `User ${viewerId.slice(0, 8)}`, pic: cached.pic }
+          : null,
+      );
+      if (resolvedFromCache) return resolvedFromCache;
+
       if (cachedUserDoc) {
         const handle = String(cachedUserDoc.handle ?? "").replace(/^@+/, "").trim();
         const name = String(cachedUserDoc.name ?? cachedUserDoc.displayName ?? "").trim();
         const pic = String(cachedUserDoc.profilePic ?? cachedUserDoc.profilePicture ?? cachedUserDoc.photo ?? "").trim();
-        const author = {
+        const author: CommentRecord["author"] = {
           userId: viewerId,
           handle: handle || `user_${viewerId.slice(0, 8)}`,
           name: name || handle || `User ${viewerId.slice(0, 8)}`,
           pic: pic || null
         };
-        void globalCache.set(summaryCacheKey, author, 300_000);
-        return author;
+        const resolvedFromDoc = consider(author);
+        if (resolvedFromDoc) {
+          void globalCache.set(summaryCacheKey, author, 300_000);
+          return resolvedFromDoc;
+        }
       }
 
       // Last chance: fetch viewer summary fields from Firestore (bounded + cached via adapter).
@@ -337,30 +373,24 @@ export class CommentsRepository {
         if (this.authBootstrapAdapter.isEnabled()) {
           await this.authBootstrapAdapter.getViewerBootstrapFields(viewerId);
           const refreshed = AuthBootstrapFirestoreAdapter.getCachedViewerSummary(viewerId);
-          if (refreshed) {
-            return { userId: viewerId, handle: refreshed.handle, name: refreshed.name, pic: refreshed.pic };
-          }
+          const resolvedFromRefresh = consider(
+            refreshed ? { userId: viewerId, handle: refreshed.handle, name: refreshed.name, pic: refreshed.pic } : null,
+          );
+          if (resolvedFromRefresh) return resolvedFromRefresh;
           const afterCache = await globalCache.get<{ userId: string; handle: string; name: string | null; pic: string | null }>(
             summaryCacheKey
           );
-          if (afterCache) {
-            return {
-              userId: afterCache.userId,
-              handle: afterCache.handle,
-              name: afterCache.name ?? afterCache.handle ?? `User ${viewerId.slice(0, 8)}`,
-              pic: afterCache.pic
-            };
-          }
+          const resolvedFromAfterCache = consider(
+            afterCache
+              ? { userId: afterCache.userId, handle: afterCache.handle, name: afterCache.name ?? afterCache.handle ?? `User ${viewerId.slice(0, 8)}`, pic: afterCache.pic }
+              : null,
+          );
+          if (resolvedFromAfterCache) return resolvedFromAfterCache;
         }
       } catch {
-        // ignore and fall through to fallback author
+        // ignore and fall through to best/fallback author
       }
-      return {
-        userId: viewerId,
-        handle: `user_${viewerId.slice(0, 8)}`,
-        name: `User ${viewerId.slice(0, 8)}`,
-        pic: null
-      };
+      return best ?? fallbackAuthor;
     }
     return {
       userId: viewerId,

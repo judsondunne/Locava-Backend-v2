@@ -8,6 +8,7 @@ import { setRouteName, recordCacheHit, recordCacheMiss } from "../../observabili
 import { mapMarkersContract, type MapMarkersResponse } from "../../contracts/surfaces/map-markers.contract.js";
 import { MapMarkersFirestoreAdapter } from "../../repositories/source-of-truth/map-markers-firestore.adapter.js";
 import { resolveMapMarkerLimit, clampMapRequestBounds, formatBoundsCsv, resolveMapMarkerIndexPageLimit } from "../../lib/map/map-marker-budgets.js";
+import { fetchUnexploredMapMarkerSummaries } from "../../services/map/unexploredMapMarkers.service.js";
 
 const env = loadEnv();
 const adapter = new MapMarkersFirestoreAdapter();
@@ -114,7 +115,11 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
         ? cacheKeyRoot
         : `${cacheKeyRoot}:${limit}`;
     const cursorNonce = query.cursor?.trim() ? `cur:${query.cursor.trim().slice(0, 240)}` : "cur:start";
-    const cacheKey = `${cacheKeyRootWithLimit}:${cursorNonce}:payload:${payloadMode}`;
+    const unexploredScopeKey =
+      bbox && !ownerId
+        ? `:uvp:${query.includeViewportPosts ? "1" : "0"}:us:${query.includeUnexploredSpots ? "1" : "0"}:ur:${query.includeUnexploredRoutes ? "1" : "0"}:rg:${query.includeRouteGeometry ? "1" : "0"}`
+        : "";
+    const cacheKey = `${cacheKeyRootWithLimit}:${cursorNonce}:payload:${payloadMode}${unexploredScopeKey}`;
     const ifNoneMatch = request.headers["if-none-match"];
     /** Cursor pages must always return JSON — clients paginate by parsing `hasMore`/`nextCursor`; a 304 has no body and can spin the same URL under HTTP caches. */
     const isCursorPage = Boolean(query.cursor?.trim());
@@ -155,15 +160,34 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
           includeOpenPayload: includeOpenPayloadWire
         });
       } else if (bbox) {
-        const windowDataset = await adapter.fetchWindow({
-          maxDocs: limit,
-          bounds: bbox,
-          limit,
-          includeOpenPayload: includeOpenPayloadWire
-        });
-        dataset = windowDataset;
-        nextCursor = windowDataset.nextCursor ?? null;
-        hasMoreMarkers = windowDataset.hasMore === true;
+        if (query.includeViewportPosts) {
+          const windowDataset = await adapter.fetchWindow({
+            maxDocs: limit,
+            bounds: bbox,
+            limit,
+            includeOpenPayload: includeOpenPayloadWire
+          });
+          dataset = windowDataset;
+          nextCursor = windowDataset.nextCursor ?? null;
+          hasMoreMarkers = windowDataset.hasMore === true;
+        } else {
+          dataset = {
+            markers: [],
+            count: 0,
+            generatedAt: Date.now(),
+            version: "map-markers-v2-unexplored-only",
+            etag: `"unexplored:${bboxKeyForCache ?? "bbox"}"`,
+            queryCount: 0,
+            readCount: 0,
+            docsScanned: 0,
+            candidateLimit: limit,
+            sourceQueryMode: "unexplored_only",
+            degradedReason: null,
+            invalidCoordinateDrops: 0,
+            hasMore: false,
+            nextCursor: null,
+          };
+        }
       } else {
         const globalDataset = await adapter.fetchAll({
           maxDocs: limit,
@@ -208,6 +232,120 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
         if (typeof m.thumbnailUrl !== "string" || !m.thumbnailUrl.trim()) droppedNoMedia += 1;
         if (includeOpenPayloadWire && (m.openPayload == null || typeof m.openPayload !== "object")) droppedNoOpenPayload += 1;
       }
+
+      let unexploredSpotsCount = 0;
+      let unexploredRoutesCount = 0;
+      if (bbox && !ownerId && (query.includeUnexploredSpots || query.includeUnexploredRoutes)) {
+        const unexploredLimit = Math.min(4000, Math.max(500, limit));
+        const unexplored = await fetchUnexploredMapMarkerSummaries({
+          bbox,
+          zoom: query.zoom ?? undefined,
+          limit: unexploredLimit,
+          includeSpots: query.includeUnexploredSpots,
+          includeRoutes: query.includeUnexploredRoutes,
+          includeRouteGeometry: query.includeRouteGeometry,
+        });
+        const existingIds = new Set(
+          (markers as Array<{ id?: string; postId?: string; sourceCollection?: string; itemType?: string }>).map(
+            (m) => `${m.sourceCollection ?? "posts"}:${m.itemType ?? "post"}:${m.id ?? m.postId ?? ""}`,
+          ),
+        );
+        for (const u of unexplored.markers) {
+          const key = `${u.sourceCollection}:${u.itemType}:${u.id}`;
+          if (existingIds.has(key)) continue;
+          existingIds.add(key);
+          if (u.sourceCollection === "unexploredSpots") unexploredSpotsCount += 1;
+          if (u.sourceCollection === "unexploredRoutes") unexploredRoutesCount += 1;
+          (markers as Array<Record<string, unknown>>).push({
+            id: u.id,
+            postId: u.id,
+            lat: u.lat,
+            lng: u.lng,
+            sourceCollection: u.sourceCollection,
+            itemType: u.itemType,
+            title: u.title ?? undefined,
+            firstActivity: u.firstActivity,
+            emoji: u.emoji,
+            hasMedia: u.hasMedia,
+            isUnexplored: u.isUnexplored,
+            isRoute: u.isRoute,
+            routeSummary: u.routeSummary ?? null,
+            markerPriority: u.markerPriority ?? null,
+            activity: u.firstActivity,
+            activities: u.firstActivity ? [u.firstActivity] : [],
+            thumbnailUrl: null,
+            hasPhoto: false,
+            hasVideo: false,
+            openPayload: includeOpenPayloadWire
+              ? {
+                  id: u.id,
+                  itemId: u.id,
+                  sourceCollection: u.sourceCollection,
+                  itemType: u.itemType,
+                  title: u.title,
+                  displayName: u.title,
+                  lat: u.lat,
+                  lng: u.lng,
+                  activities: u.firstActivity ? [u.firstActivity] : [],
+                  primaryActivity: u.firstActivity,
+                  isUnexplored: true,
+                  undiscovered: true,
+                  hasMedia: false,
+                  emoji: u.emoji,
+                  isRoute: u.isRoute,
+                  routeSummary: u.routeSummary ?? null,
+                }
+              : null,
+          });
+        }
+        request.log.info(
+          {
+            routeName: "map.markers.get",
+            unexploredTileCount: unexplored.tileCount,
+            unexploredLimit,
+            includeViewportPosts: query.includeViewportPosts,
+            includeUnexploredSpots: query.includeUnexploredSpots,
+            includeUnexploredRoutes: query.includeUnexploredRoutes,
+            includeRouteGeometry: query.includeRouteGeometry,
+            unexploredFromTiles: unexplored.fromTiles,
+            unexploredFromSpotsQuery: unexplored.fromSpotsQuery,
+            unexploredFromRoutesQuery: unexplored.fromRoutesQuery,
+            unexploredSpotsCount,
+            unexploredRoutesCount,
+            unexploredDroppedMissingCoords: unexplored.droppedMissingCoords,
+          },
+          "map markers unexplored merge",
+        );
+        if (env.NODE_ENV === "development" && query.includeRouteGeometry && query.includeUnexploredRoutes) {
+          const routeMarkers = (markers as Array<Record<string, unknown>>).filter((m) => {
+            return (
+              m.isRoute === true ||
+              m.itemType === "unexploredRoute" ||
+              m.sourceCollection === "unexploredRoutes"
+            );
+          });
+          if (routeMarkers.length > 0) {
+            const sample = routeMarkers.slice(0, 3).map((m) => {
+              const rs = (m.routeSummary as Record<string, unknown> | null) ?? null;
+              const prev = rs?.routePreviewCoordinates;
+              return {
+                id: m.id ?? m.postId,
+                routePreviewCoordinateCount: Array.isArray(prev) ? prev.length : 0,
+                encodedPolylineLength:
+                  typeof rs?.encodedPolyline === "string" ? rs.encodedPolyline.length : 0,
+              };
+            });
+            request.log.debug(
+              {
+                event: "MAP_MARKERS_ROUTE_PAYLOAD_SUMMARY",
+                routeMarkerCount: routeMarkers.length,
+                sample,
+              },
+              "map markers route payload summary",
+            );
+          }
+        }
+      }
       const clampNote = bboxClamp?.clamped === true ? "viewport_bbox_clamped" : null;
       const degradedReasonCombined =
         clampNote && dataset.degradedReason
@@ -215,7 +353,7 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
           : clampNote ?? dataset.degradedReason ?? null;
       const payload: MapMarkersResponse = {
 	        routeName: "map.markers.get",
-	        markers,
+	        markers: markers as MapMarkersResponse["markers"],
 	        count: dataset.count,
 	        generatedAt: dataset.generatedAt,
 	        version: dataset.version,

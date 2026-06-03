@@ -72,6 +72,7 @@ import { registerV2PostsPublishRoutes } from "../routes/v2/posts-publish.routes.
 import { registerV2PostingStagingPresignRoutes } from "../routes/v2/posting-staging-presign.routes.js";
 import { registerV2PostingUploadSessionRoutes } from "../routes/v2/posting-upload-session.routes.js";
 import { registerV2PostingFinalizeRoutes } from "../routes/v2/posting-finalize.routes.js";
+import { registerV2PostingClaimRoutes } from "../routes/v2/posting-claim.routes.js";
 import { registerV2PostingOperationStatusRoutes } from "../routes/v2/posting-operation-status.routes.js";
 import { registerV2PostingOperationCancelRoutes } from "../routes/v2/posting-operation-cancel.routes.js";
 import { registerV2PostingOperationRetryRoutes } from "../routes/v2/posting-operation-retry.routes.js";
@@ -146,9 +147,13 @@ import { registerV2AchievementsClaimIntroBonusRoutes } from "../routes/v2/achiev
 import { registerV2MapBootstrapRoutes } from "../routes/v2/map-bootstrap.routes.js";
 import { registerV2MapCurrentWeatherRoutes } from "../routes/v2/map-current-weather.routes.js";
 import { registerV2MapMarkersRoutes } from "../routes/v2/map-markers.routes.js";
+import { registerV2UnexploredRouteTilesRoutes } from "../routes/v2/unexplored-route-tiles.routes.js";
+import { registerV2UnexploredSpotTilesRoutes } from "../routes/v2/unexplored-spot-tiles.routes.js";
+import { registerV2UndiscoveredMapLayerRoutes } from "../routes/v2/undiscovered-map-layer.routes.js";
 import { registerV2InventoryTilesRoutes } from "../routes/v2/inventory-tiles.routes.js";
 import { registerV2InventorySpotDetailRoutes } from "../routes/v2/inventory-spot-detail.routes.js";
 import { registerV2InventoryRouteDetailRoutes } from "../routes/v2/inventory-route-detail.routes.js";
+import { registerV2PostLikeItemDetailRoutes } from "../routes/v2/post-like-item-detail.routes.js";
 import { registerV2DirectoryUsersRoutes } from "../routes/v2/directory-users.routes.js";
 import { registerV2SocialSuggestedFriendsRoutes } from "../routes/v2/social-suggested-friends.routes.js";
 import { registerV2SocialContactsSyncRoutes } from "../routes/v2/social-contacts-sync.routes.js";
@@ -171,7 +176,9 @@ import { registerDebugNotificationsSendTestRoutes } from "../routes/debug/notifi
 import { registerEmergencyPostRestoreRoutes } from "../routes/debug/emergency-post-restore.routes.js";
 import { registerPostCanonicalBackupsRestorePreviewRoutes } from "../routes/debug/post-canonical-backups-restore-preview.routes.js";
 import { registerPublicExpoPushRoutes } from "../routes/public/expo-push.routes.js";
+import { registerPublicPbfCopierRoutes } from "../routes/public/pbf-copier.routes.js";
 import { SourceOfTruthRequiredError } from "../repositories/source-of-truth/strict-mode.js";
+import { OsmNationalLargePlanConfirmationError } from "../admin/openstreetmap/national/osmNationalPlanner.service.js";
 import {
   getFirestoreAdminIdentity,
   getFirestoreSourceClient,
@@ -212,6 +219,17 @@ function classifyError(error: unknown): { code: string; statusCode: number; deta
   if (error instanceof Error && error.message === "mutation_lock_timeout") {
     return { code: "mutation_lock_timeout", statusCode: 503 };
   }
+  if (error instanceof OsmNationalLargePlanConfirmationError) {
+    return {
+      code: error.code,
+      statusCode: 400,
+      details: {
+        estimatedTotalChunks: error.estimatedTotalChunks,
+        stateCount: error.stateCount,
+      },
+    };
+  }
+
   if (error instanceof SourceOfTruthRequiredError) {
     return {
       code: "source_of_truth_required",
@@ -709,6 +727,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2PostingUploadSessionRoutes);
   app.register(registerV2PostingStagingPresignRoutes);
   app.register(registerV2PostingFinalizeRoutes);
+  app.register(registerV2PostingClaimRoutes);
   app.register(registerV2PostingOperationStatusRoutes);
   app.register(registerV2PostingOperationCancelRoutes);
   app.register(registerV2PostingOperationRetryRoutes);
@@ -793,10 +812,14 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2AchievementsClaimIntroBonusRoutes);
   app.register(registerV2MapBootstrapRoutes);
   app.register(registerV2MapMarkersRoutes);
+  app.register(registerV2UnexploredSpotTilesRoutes);
+  app.register(registerV2UnexploredRouteTilesRoutes);
+  app.register(registerV2UndiscoveredMapLayerRoutes);
   app.register(registerV2MapCurrentWeatherRoutes);
   app.register(registerV2InventoryTilesRoutes);
   app.register(registerV2InventorySpotDetailRoutes);
   app.register(registerV2InventoryRouteDetailRoutes);
+  app.register(registerV2PostLikeItemDetailRoutes);
   app.register(registerV2DirectoryUsersRoutes);
   app.register(registerV2SocialSuggestedFriendsRoutes);
   app.register(registerV2SocialContactsSyncRoutes);
@@ -818,6 +841,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerAdminRoutes);
   app.register(registerPublicExpoPushRoutes);
+  app.register(registerPublicPbfCopierRoutes);
   if (isLocalDevIdentityModeEnabled()) {
     app.register(registerLocalDebugRoutes);
     app.register(registerPublicFirestoreProbeRoutes);

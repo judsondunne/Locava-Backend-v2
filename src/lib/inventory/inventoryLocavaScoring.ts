@@ -1,4 +1,19 @@
 import type { LocavaClassifierConfig, LocavaClassifierFeatureInput } from "./inventoryLocavaTypes.js";
+import {
+  hillOrPeakHasOnTagTrailContext,
+  isOsmObservationTowerTags,
+  isOsmViewpointTags,
+} from "./inventoryHillPeakGate.js";
+import {
+  evaluateNameInference,
+  type NameInferenceEvaluation,
+} from "./inventoryNameInference.js";
+import { inferActivitiesFromOsmTags } from "./inventoryOsmActivityTags.js";
+import { dedupeActivities } from "./activities/locavaActivities.js";
+import {
+  evaluateOsmVisitability,
+  visitabilityBlocksSpotAcceptance,
+} from "./inventoryVisitability.js";
 
 export type LocavaScoreBreakdown = {
   score: number;
@@ -10,9 +25,11 @@ export type LocavaScoreBreakdown = {
   hardReject: boolean;
   hardRejectReason?: string;
   visitorOverride: boolean;
+  visitability?: ReturnType<typeof evaluateOsmVisitability>;
   primaryCategory: string | null;
   secondaryCategories: string[];
   activities: string[];
+  nameInference?: NameInferenceEvaluation;
 };
 
 const NATIONAL_CHAIN_FAST_FOOD = new Set([
@@ -145,8 +162,18 @@ function hasVisitorOverride(tags: Record<string, string>): boolean {
   const tourism = tag(tags, "tourism");
   if (tourism && STRONG_VISITOR_TOURISM.has(tourism)) return true;
   if (hasTag(tags, "historic")) return true;
-  if (hasTag(tags, "leisure", "park") || hasTag(tags, "leisure", "nature_reserve")) return true;
-  if (hasTag(tags, "natural", "waterfall") || hasTag(tags, "natural", "peak")) return true;
+  if (hasTag(tags, "leisure", "park")) {
+    if (tag(tags, "boundary") === "protected_area") {
+      const visit = evaluateOsmVisitability(tags);
+      return visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal;
+    }
+    return true;
+  }
+  if (hasTag(tags, "leisure", "nature_reserve")) {
+    const visit = evaluateOsmVisitability(tags);
+    return visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal;
+  }
+  if (hasTag(tags, "natural", "waterfall")) return true;
   return false;
 }
 
@@ -167,6 +194,107 @@ function isSidewalkOrCrossing(tags: Record<string, string>): boolean {
 function isPrivateAccess(tags: Record<string, string>): boolean {
   const access = tag(tags, "access");
   return access === "private" || access === "no" || tag(tags, "private") === "yes";
+}
+
+export function isPrivateRecreationDestination(tags: Record<string, string>): boolean {
+  if (!isPrivateAccess(tags)) return false;
+  if (tag(tags, "access") === "permissive" || tag(tags, "access") === "public" || tag(tags, "access") === "designated") {
+    return false;
+  }
+  if (hasVisitorOverride(tags)) return false;
+  return true;
+}
+
+export function hasLocavaNatureSignal(tags: Record<string, string>): boolean {
+  if (tag(tags, "natural") === "waterfall" || tag(tags, "natural") === "beach" || tag(tags, "natural") === "cave_entrance") {
+    return true;
+  }
+  if (tag(tags, "waterway") === "waterfall") return true;
+  if (tag(tags, "leisure") === "swimming_area") return true;
+  if (tag(tags, "tourism") && ["viewpoint", "picnic_site", "camp_site", "attraction", "museum"].includes(tag(tags, "tourism")!)) {
+    return true;
+  }
+  if (isOsmObservationTowerTags(tags)) return true;
+  if (tag(tags, "historic") || tag(tags, "heritage")) return true;
+  if (tag(tags, "amenity") && STRONG_VISITOR_AMENITY.has(tag(tags, "amenity")!)) return true;
+  if (tag(tags, "leisure") === "park" && tag(tags, "boundary") !== "protected_area") return true;
+  if (tag(tags, "leisure") === "nature_reserve" || tag(tags, "boundary") === "protected_area") {
+    const visit = evaluateOsmVisitability(tags);
+    return visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal;
+  }
+  if (tag(tags, "natural") === "peak" || tag(tags, "natural") === "hill") {
+    return false;
+  }
+  if (tag(tags, "natural") === "wetland" || tag(tags, "natural") === "wood" || tag(tags, "natural") === "scrub") {
+    const visit = evaluateOsmVisitability(tags);
+    return visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal;
+  }
+  if (tag(tags, "landuse") === "recreation_ground") return true;
+  return false;
+}
+
+export function isStrongSwimmingOrBeachTagSignal(tags: Record<string, string>): boolean {
+  if (tag(tags, "leisure") === "swimming_area") return true;
+  if (tag(tags, "natural") === "beach") return true;
+  if (tag(tags, "leisure") === "beach_resort") return true;
+  if (tag(tags, "leisure") === "beach") return true;
+  if (tag(tags, "beach") === "yes") return true;
+  if (tag(tags, "sport") === "swimming") return true;
+  if (tag(tags, "swimming") === "yes" || tag(tags, "swimming") === "designated") return true;
+  if (tag(tags, "bathing") === "yes") return true;
+  if ((tag(tags, "natural") === "water" || tag(tags, "waterway")) && (tag(tags, "swimming") || tag(tags, "bathing"))) {
+    return true;
+  }
+  return false;
+}
+
+/** @deprecated Use isStrongSwimmingOrBeachTagSignal — name is ignored. */
+export function isStrongSwimmingOrBeachSignal(tags: Record<string, string>, _name?: string | null): boolean {
+  return isStrongSwimmingOrBeachTagSignal(tags);
+}
+
+export function isBridgeSpot(tags: Record<string, string>): boolean {
+  if (tag(tags, "man_made") === "bridge") return true;
+  if (tag(tags, "bridge") && tag(tags, "bridge") !== "no") return true;
+  if (tag(tags, "railway") && tag(tags, "bridge")) return true;
+  return false;
+}
+
+export function isRailroadBridge(tags: Record<string, string>): boolean {
+  if (!isBridgeSpot(tags)) return false;
+  if (tag(tags, "railway")) return true;
+  return Object.keys(tags).some((k) => k === "railway" || k.startsWith("railway:"));
+}
+
+function isBusinessOrOfficeOnly(tags: Record<string, string>): boolean {
+  if (tag(tags, "office")) return true;
+  if (tag(tags, "shop")) return true;
+  if (tag(tags, "craft") && !hasVisitorOverride(tags)) return true;
+  if (tag(tags, "healthcare") === "centre" || tag(tags, "healthcare") === "clinic") return true;
+  return false;
+}
+
+function isNameOnlyFeature(feature: LocavaClassifierFeatureInput, breakdown: LocavaScoreBreakdown): boolean {
+  if (
+    feature.nearbyHikingTrail === true &&
+    (tag(feature.tags, "natural") === "peak" || tag(feature.tags, "natural") === "hill")
+  ) {
+    return false;
+  }
+  if (!hasRealName(feature)) return false;
+  const tags = feature.tags;
+  if (hasLocavaNatureSignal(tags)) return false;
+  if (hasVisitorOverride(tags)) return false;
+  if (isBridgeSpot(tags)) return false;
+  if (isStrongSwimmingOrBeachTagSignal(tags)) return false;
+  if (tag(tags, "route")) return false;
+  if (isBusinessOrOfficeOnly(tags)) return true;
+  const meaningfulKeys = Object.keys(tags).filter((k) => !["name", "note", "source", "created_by", "fixme"].includes(k));
+  if (meaningfulKeys.length === 0) return true;
+  const raw = feature.rawTypeLabel ?? "";
+  if (raw === "name" || raw === "unknown" || raw === "") return true;
+  if (!hasLocavaNatureSignal(tags) && breakdown.spotScore < 55) return true;
+  return false;
 }
 
 function isNotableHistoricOrTourism(tags: Record<string, string>): boolean {
@@ -200,7 +328,7 @@ export function isDestinationSpotEligible(feature: LocavaClassifierFeatureInput)
   if (amenity === "townhall" && !isNotableHistoricOrTourism(tags) && tag(tags, "amenity") !== "theatre") return false;
   if (amenity && CIVIC_AMENITY_REJECT.has(amenity) && !isNotableHistoricOrTourism(tags)) return false;
 
-  if (feature.geometryKind === "line" && highway && !hasVisitorOverride(tags)) return false;
+  if (feature.geometryKind === "line" && highway && !hasVisitorOverride(tags) && !isBridgeSpot(tags)) return false;
 
   return true;
 }
@@ -316,6 +444,7 @@ export function scoreOsmFeatureForLocava(
     { match: Boolean(tag(tags, "manhole") || tag(tags, "power") === "tower" || tag(tags, "power") === "pole"), score: -80, reason: "utility_object" },
     { match: landuse === "residential" || landuse === "commercial" || landuse === "industrial", score: -70, reason: "generic_landuse" },
     { match: tag(tags, "boundary") === "administrative", score: -70, reason: "administrative_boundary" },
+    { match: isBusinessOrOfficeOnly(tags) && !hasVisitorOverride(tags), score: -85, reason: "business_office_only" },
   ];
 
   if (building && !hasVisitorOverride(tags)) {
@@ -334,6 +463,26 @@ export function scoreOsmFeatureForLocava(
 
   if (amenity === "parking" && !isProtectedOrRecreationContext(tags) && !hasTag(tags, "parking", "trailhead")) {
     hardRejectChecks.push({ match: true, score: -45, reason: "generic_parking" });
+  }
+
+  if (isPrivateRecreationDestination(tags) && (isStrongSwimmingOrBeachSignal(tags, feature.name) || isTrailLike(tags))) {
+    hardRejectChecks.push({ match: true, score: -90, reason: "private_access" });
+  }
+
+  if (amenity === "swimming_pool" && (isPrivateAccess(tags) || tag(tags, "access") === "customers")) {
+    hardRejectChecks.push({ match: true, score: -85, reason: "private_swimming_pool" });
+  }
+
+  if (natural === "hill" && !isOsmViewpointTags(tags) && feature.nearbyHikingTrail !== true) {
+    hardRejectChecks.push({ match: true, score: -80, reason: "bare_hill_no_trail_or_viewpoint" });
+  }
+  if (
+    natural === "peak" &&
+    !hillOrPeakHasOnTagTrailContext(tags) &&
+    feature.nearbyHikingTrail !== true &&
+    !isOsmViewpointTags(tags)
+  ) {
+    hardRejectChecks.push({ match: true, score: -75, reason: "bare_peak_no_trail_or_viewpoint" });
   }
 
   let hardestReject = 0;
@@ -357,20 +506,75 @@ export function scoreOsmFeatureForLocava(
   if (tag(tags, "waterway") === "waterfall" || natural === "waterfall") addScore(breakdown, 75, "waterway_waterfall", "spot");
   if (natural === "waterfall") addScore(breakdown, 70, "natural_waterfall", "spot");
   if (tourism === "viewpoint") addScore(breakdown, 65, "tourism_viewpoint", "spot");
-  if (natural === "peak") addScore(breakdown, 65, "natural_peak", "spot");
-  if (natural === "hill") addScore(breakdown, 55, "natural_hill", "spot");
-  if (leisure === "park") addScore(breakdown, 60, "leisure_park", "spot");
-  if (leisure === "nature_reserve") addScore(breakdown, 65, "leisure_nature_reserve", "spot");
-  if (tag(tags, "boundary") === "protected_area") addScore(breakdown, 60, "boundary_protected_area", "spot");
+  if (isOsmObservationTowerTags(tags) && named) addScore(breakdown, 62, "observation_tower", "spot");
+  if (
+    natural === "peak" &&
+    (hillOrPeakHasOnTagTrailContext(tags) || feature.nearbyHikingTrail === true)
+  ) {
+    addScore(breakdown, 65, "natural_peak", "spot");
+  }
+  if (leisure === "park") {
+    if (tag(tags, "boundary") === "protected_area") {
+      const visit = evaluateOsmVisitability(tags, { name: feature.name, geometryKind: feature.geometryKind });
+      if (visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal) {
+        addScore(breakdown, 60, "leisure_park", "spot");
+      } else {
+        addScore(breakdown, 15, "leisure_park_in_protected_context", "spot");
+      }
+    } else {
+      addScore(breakdown, 60, "leisure_park", "spot");
+    }
+  }
+  if (leisure === "nature_reserve") {
+    const visit = evaluateOsmVisitability(tags, { name: feature.name, geometryKind: feature.geometryKind });
+    if (visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal) {
+      addScore(breakdown, 65, "leisure_nature_reserve", "spot");
+    } else {
+      addScore(breakdown, 20, "leisure_nature_reserve_weak", "spot");
+    }
+  }
+  if (tag(tags, "boundary") === "protected_area") {
+    const visit = evaluateOsmVisitability(tags, { name: feature.name, geometryKind: feature.geometryKind });
+    if (visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal) {
+      addScore(breakdown, 55, "boundary_protected_area_with_visitor_signal", "spot");
+    } else {
+      addScore(breakdown, 10, "boundary_protected_area_only", "spot");
+    }
+  }
   if (tourism === "picnic_site") addScore(breakdown, 55, "tourism_picnic_site", "spot");
   if (tourism === "camp_site") addScore(breakdown, 55, "tourism_camp_site", "spot");
-  if (natural === "beach") addScore(breakdown, 55, "natural_beach", "spot");
-  if (leisure === "swimming_area") addScore(breakdown, 50, "leisure_swimming_area", "spot");
+  if (natural === "beach") addScore(breakdown, 70, "natural_beach", "spot");
+  if (tag(tags, "beach") === "yes") addScore(breakdown, 65, "beach_yes", "spot");
+  if (leisure === "swimming_area") addScore(breakdown, 80, "leisure_swimming_area", "spot");
+  if (leisure === "beach_resort") addScore(breakdown, 70, "leisure_beach_resort", "spot");
+  if (tag(tags, "sport") === "swimming") addScore(breakdown, 75, "sport_swimming", "spot");
+  if (tag(tags, "swimming") === "yes" || tag(tags, "swimming") === "designated") addScore(breakdown, 75, "swimming_yes", "spot");
+  if (tag(tags, "bathing") === "yes") addScore(breakdown, 70, "bathing_yes", "spot");
+  if (tag(tags, "amenity") === "public_bath" && isProtectedOrRecreationContext(tags)) addScore(breakdown, 55, "public_bath_outdoor", "spot");
+  if (isStrongSwimmingOrBeachTagSignal(tags) && isProtectedOrRecreationContext(tags)) addScore(breakdown, 30, "swim_beach_public_context", "spot");
+  if (tag(tags, "access") === "public" || tag(tags, "access") === "permissive" || tag(tags, "access") === "designated") {
+    addScore(breakdown, 20, "public_access", "spot");
+  }
+
+  if (isBridgeSpot(tags)) {
+    addScore(breakdown, 65, "bridge_spot", "spot");
+    if (isRailroadBridge(tags) || tags.railway != null) addScore(breakdown, 25, "railroad_bridge", "spot");
+    else if (isTrailLike(tags) || isProtectedOrRecreationContext(tags) || tag(tags, "foot") === "yes" || tag(tags, "hiking") === "yes") {
+      addScore(breakdown, 20, "trail_bridge", "spot");
+    }
+  }
 
   if (natural === "wetland") {
-    if (named || isProtectedOrRecreationContext(tags)) addScore(breakdown, 50, "natural_wetland_named_or_rec", "spot");
-    else if (config.natureMode === "broad_natural") addScore(breakdown, 30, "natural_wetland_broad", "spot");
-    else addNegative(breakdown, -30, "unnamed_wetland_fragment", "spot");
+    const visit = evaluateOsmVisitability(tags, { name: feature.name, geometryKind: feature.geometryKind });
+    if (visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal) {
+      addScore(breakdown, 50, "natural_wetland_with_visitor_signal", "spot");
+    } else if (named || isProtectedOrRecreationContext(tags)) {
+      addScore(breakdown, 25, "natural_wetland_named_or_rec", "spot");
+    } else if (config.natureMode === "broad_natural") {
+      addScore(breakdown, 30, "natural_wetland_broad", "spot");
+    } else {
+      addNegative(breakdown, -30, "unnamed_wetland_fragment", "spot");
+    }
   }
 
   if (natural === "water" || tag(tags, "water")) {
@@ -383,8 +587,25 @@ export function scoreOsmFeatureForLocava(
   }
 
   if (natural === "wood" || natural === "forest") {
-    if (named || isProtectedOrRecreationContext(tags)) addScore(breakdown, 35, "natural_wood_named_or_protected", "spot");
-    else if (config.natureMode === "broad_natural") addScore(breakdown, 20, "natural_wood_broad", "spot");
+    const visit = evaluateOsmVisitability(tags, { name: feature.name, geometryKind: feature.geometryKind });
+    if (visit.hasStrongDestinationSignal || visit.hasAccessOrRecreationSignal) {
+      addScore(breakdown, 35, "natural_wood_with_visitor_signal", "spot");
+    } else if (named || isProtectedOrRecreationContext(tags)) {
+      addScore(breakdown, 20, "natural_wood_named_or_protected", "spot");
+    } else if (config.natureMode === "broad_natural") {
+      addScore(breakdown, 20, "natural_wood_broad", "spot");
+    }
+  }
+
+  breakdown.visitability = evaluateOsmVisitability(tags, { name: feature.name, geometryKind: feature.geometryKind });
+  const visitBlock = visitabilityBlocksSpotAcceptance(tags, breakdown.visitability);
+  if (visitBlock.reject && !breakdown.visitorOverride && !isStrongSwimmingOrBeachTagSignal(tags)) {
+    addNegative(breakdown, -95, visitBlock.reason ?? "large_natural_area_no_visitor_signal", "spot");
+    breakdown.hardReject = true;
+    breakdown.hardRejectReason = visitBlock.reason ?? "large_natural_area_no_visitor_signal";
+    breakdown.visitorOverride = false;
+  } else if (breakdown.visitability.visitabilityTier === "moderate" || breakdown.visitability.visitabilityTier === "strong") {
+    addScore(breakdown, Math.min(25, Math.floor(breakdown.visitability.score / 4)), "visitability_boost", "spot");
   }
 
   // Routes / trails
@@ -456,12 +677,63 @@ export function scoreOsmFeatureForLocava(
   // Linear highways should not accumulate spot score
   if (highway && LINEAR_HIGHWAY_NEVER_SPOT.has(highway)) addNegative(breakdown, -90, "linear_highway_not_spot", "spot");
 
-  // Category mapping
-  breakdown.primaryCategory = inferPrimaryCategory(tags, breakdown);
-  breakdown.secondaryCategories = inferSecondaryCategories(tags);
-  breakdown.activities = inferActivities(breakdown.primaryCategory, breakdown.secondaryCategories, tags);
+  // Category mapping from explicit tags first.
+  breakdown.primaryCategory = inferPrimaryCategory(tags, breakdown, feature);
 
-  // Visitor override on building
+  const nameEval = evaluateNameInference(tags, feature.name ?? tag(tags, "name") ?? null);
+  breakdown.nameInference = nameEval;
+  if (nameEval.nameInferenceBlockedReason) {
+    breakdown.warnings.push(`name_inference_blocked:${nameEval.nameInferenceBlockedReason}`);
+  }
+
+  if (isNameOnlyFeature(feature, breakdown)) {
+    addNegative(breakdown, -85, "name_only_no_locava_signal", "spot");
+    breakdown.hardReject = true;
+    if (
+      breakdown.hardRejectReason !== "large_natural_area_no_visitor_signal" &&
+      breakdown.hardRejectReason !== "bare_peak_no_trail_or_viewpoint" &&
+      breakdown.hardRejectReason !== "bare_hill_no_trail_or_viewpoint"
+    ) {
+      breakdown.hardRejectReason = "name_only_no_locava_signal";
+    }
+  }
+
+  const place = tag(tags, "place");
+  const adminPlaces = new Set([
+    "city",
+    "town",
+    "village",
+    "hamlet",
+    "suburb",
+    "neighbourhood",
+    "neighborhood",
+    "quarter",
+    "isolated_dwelling",
+  ]);
+  const nameLower = (feature.name ?? tag(tags, "name") ?? "").toLowerCase();
+  if (/\bmobile\s+home\s+park\b/i.test(nameLower)) {
+    addNegative(breakdown, -95, "mobile_home_park", "spot");
+    breakdown.hardReject = true;
+    breakdown.hardRejectReason = "mobile_home_park";
+  } else if (
+    place &&
+    adminPlaces.has(place) &&
+    !hasVisitorOverride(tags) &&
+    !isBridgeSpot(tags) &&
+    !isStrongSwimmingOrBeachTagSignal(tags)
+  ) {
+    addNegative(breakdown, -90, "administrative_place", "spot");
+    breakdown.hardReject = true;
+    breakdown.hardRejectReason = "administrative_place";
+  }
+
+  if (breakdown.primaryCategory === "natural_feature" && !hasLocavaNatureSignal(tags)) {
+    breakdown.primaryCategory = null;
+    addNegative(breakdown, -60, "natural_feature_without_signal", "spot");
+  }
+
+  breakdown.secondaryCategories = inferSecondaryCategories(tags);
+  breakdown.activities = dedupeActivities(inferActivities(breakdown.primaryCategory, breakdown.secondaryCategories, tags));
   if (building && breakdown.visitorOverride) {
     breakdown.hardReject = false;
     breakdown.warnings.push("building_overridden_by_visitor_amenity");
@@ -470,13 +742,28 @@ export function scoreOsmFeatureForLocava(
   return breakdown;
 }
 
-function inferPrimaryCategory(tags: Record<string, string>, breakdown: LocavaScoreBreakdown): string | null {
+function inferPrimaryCategory(
+  tags: Record<string, string>,
+  breakdown: LocavaScoreBreakdown,
+  feature?: LocavaClassifierFeatureInput
+): string | null {
   if (tag(tags, "waterway") === "waterfall" || tag(tags, "natural") === "waterfall") return "waterfall";
   if (tag(tags, "tourism") === "viewpoint") return "viewpoint";
+  if (isOsmObservationTowerTags(tags)) return "viewpoint";
   if (tag(tags, "natural") === "peak") return "peak";
   if (tag(tags, "natural") === "hill") return "hill";
   if (tag(tags, "leisure") === "park") return "park";
   if (tag(tags, "leisure") === "nature_reserve") return "nature_reserve";
+  if (tag(tags, "leisure") === "swimming_area") return "swimming";
+  if (tag(tags, "natural") === "beach" || tag(tags, "beach") === "yes" || tag(tags, "leisure") === "beach_resort" || tag(tags, "leisure") === "beach") return "beach";
+  if (tag(tags, "swimming") === "yes" || tag(tags, "swimming") === "designated" || tag(tags, "bathing") === "yes" || tag(tags, "sport") === "swimming") {
+    return "swimming_hole";
+  }
+  if (isBridgeSpot(tags)) {
+    if (isRailroadBridge(tags) || tags.railway != null) return "railroad_bridge";
+    if (tag(tags, "bridge") === "covered" || /\bcovered\s+bridge\b/i.test(tag(tags, "name") ?? "")) return "covered_bridge";
+    return "bridge";
+  }
   if (tag(tags, "natural") === "wetland") return "wetland";
   if (tag(tags, "natural") === "water") return "water";
   if (tag(tags, "amenity") === "ice_cream") return "ice_cream";
@@ -485,6 +772,7 @@ function inferPrimaryCategory(tags: Record<string, string>, breakdown: LocavaSco
   if (tag(tags, "amenity") === "fast_food") return "fast_food";
   if (tag(tags, "landuse") === "grave_yard" || tag(tags, "amenity") === "grave_yard" || tag(tags, "historic") === "cemetery") return "grave_yard";
   if (tag(tags, "tourism") === "museum") return "museum";
+  if (tag(tags, "tourism") === "picnic_site") return "picnic_site";
   if (tag(tags, "route")) return tag(tags, "route") ?? "route";
   if (breakdown.routeScore > breakdown.spotScore + 5) {
     return tag(tags, "route") ?? tag(tags, "highway") ?? "trail";
@@ -495,7 +783,16 @@ function inferPrimaryCategory(tags: Record<string, string>, breakdown: LocavaSco
   if (tag(tags, "highway") === "path") return "path";
   if (tag(tags, "highway") === "footway") return "footway";
   if (tag(tags, "highway") === "track") return "track";
-  if (breakdown.spotScore >= breakdown.routeScore) return tag(tags, "natural") ?? tag(tags, "amenity") ?? tag(tags, "tourism") ?? null;
+  if (breakdown.spotScore >= breakdown.routeScore) {
+    const natural = tag(tags, "natural");
+    const amenity = tag(tags, "amenity");
+    const tourism = tag(tags, "tourism");
+    if (natural) return natural;
+    if (amenity) return amenity;
+    if (tourism) return tourism;
+    if (hasLocavaNatureSignal(tags)) return "natural_feature";
+    if (feature && hasRealName(feature) && breakdown.spotScore >= 45) return null;
+  }
   return tag(tags, "route") ?? tag(tags, "highway") ?? "trail";
 }
 
@@ -508,20 +805,8 @@ function inferSecondaryCategories(tags: Record<string, string>): string[] {
   return [...out];
 }
 
-function inferActivities(primary: string | null, secondary: string[], tags: Record<string, string>): string[] {
-  const acts = new Set<string>();
-  if (!primary) return [];
-  if (["waterfall", "viewpoint", "peak", "hill", "park", "nature_reserve", "wetland", "water"].includes(primary)) {
-    acts.add("hiking");
-    acts.add("scenic");
-  }
-  if (["cafe", "restaurant", "ice_cream", "fast_food", "marketplace"].includes(primary)) acts.add("food");
-  if (primary === "path" || primary === "footway" || primary === "track" || primary === "hiking" || primary === "walking") {
-    acts.add("hiking");
-  }
-  if (tag(tags, "route") === "bicycle" || tag(tags, "highway") === "cycleway") acts.add("biking");
-  if (secondary.some((s) => s.includes("swimming"))) acts.add("swimming");
-  return [...acts];
+export function inferActivities(_primary: string | null, _secondary: string[], tags: Record<string, string>): string[] {
+  return inferActivitiesFromOsmTags(tags);
 }
 
 export function confidenceFromScore(score: number, warnings: string[]): "high" | "medium" | "low" {
@@ -545,8 +830,21 @@ export function displayPriorityFromCategory(
     "water",
     "lake",
     "hiking",
+    "beach",
+    "swimming",
+    "swimming_hole",
   ]);
-  const highCategories = new Set(["cafe", "restaurant", "ice_cream", "wetland", "historic", "camp_site", "picnic_site"]);
+  const highCategories = new Set([
+    "cafe",
+    "restaurant",
+    "ice_cream",
+    "wetland",
+    "historic",
+    "camp_site",
+    "picnic_site",
+    "bridge",
+    "railroad_bridge",
+  ]);
 
   if (score < 45) return { displayPriority: "hidden", showAtZoom: 99 };
   if (primaryCategory && heroCategories.has(primaryCategory)) return { displayPriority: "hero", showAtZoom: 10 };
@@ -556,4 +854,10 @@ export function displayPriorityFromCategory(
   return { displayPriority: "low", showAtZoom: 15 };
 }
 
-export { DECISION_THRESHOLD, hasRealName, hasVisitorOverride, isChainFastFood, isSidewalkOrCrossing };
+export {
+  DECISION_THRESHOLD,
+  hasRealName,
+  hasVisitorOverride,
+  isChainFastFood,
+  isSidewalkOrCrossing,
+};

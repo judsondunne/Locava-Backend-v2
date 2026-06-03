@@ -2,11 +2,32 @@ import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { MAP_MARKERS_MIN_DOCS } from "../../lib/map/map-marker-budgets.js";
 
+function queryBoolean(defaultValue: boolean) {
+  return z
+    .union([z.boolean(), z.enum(["true", "false"]), z.literal("1"), z.literal("0")])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return defaultValue;
+      if (typeof value === "boolean") return value;
+      return value === "true" || value === "1";
+    });
+}
+
 export const MapMarkerRecordSchema = z.object({
   id: z.string(),
   postId: z.string(),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+  sourceCollection: z.enum(["posts", "unexploredSpots", "unexploredRoutes"]).optional(),
+  itemType: z.enum(["post", "unexploredSpot", "unexploredRoute"]).optional(),
+  title: z.string().optional(),
+  firstActivity: z.string().nullable().optional(),
+  emoji: z.string().nullable().optional(),
+  hasMedia: z.boolean().optional(),
+  isUnexplored: z.boolean().optional(),
+  isRoute: z.boolean().optional(),
+  routeSummary: z.record(z.unknown()).nullable().optional(),
+  markerPriority: z.string().nullable().optional(),
   activity: z.string().nullable().optional(),
   activities: z.array(z.string()).default([]),
   createdAt: z.number().int().nullable().optional(),
@@ -85,9 +106,19 @@ export const mapMarkersContract = defineContract({
       )
       .optional(),
     /** When true, markers omit synthetic `openPayload` (native hydrates on tap via real-post batch). */
-    markerIndexOnly: z.coerce.boolean().optional().default(false),
+    markerIndexOnly: queryBoolean(false),
     /** Opaque server cursor for global compact index pagination (Firestore document id). */
     cursor: z.string().min(1).max(2048).optional(),
+    /** Optional zoom hint for unexplored tile index selection when bbox is provided. */
+    zoom: z.coerce.number().min(0).max(22).optional(),
+    /** When false, skip viewport post fetch (unexplored-only bbox reads). Default true. */
+    includeViewportPosts: queryBoolean(true),
+    /** Include unexplored spot markers in bbox responses. Default true when bbox is set. */
+    includeUnexploredSpots: queryBoolean(true),
+    /** Include unexplored route markers in bbox responses. Default true when bbox is set. */
+    includeUnexploredRoutes: queryBoolean(true),
+    /** When false, route markers omit encoded polylines / preview coordinates. Default true. */
+    includeRouteGeometry: queryBoolean(true),
   }),
   body: z.object({}).strict(),
   response: MapMarkersResponseSchema

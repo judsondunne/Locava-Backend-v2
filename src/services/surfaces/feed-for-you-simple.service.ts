@@ -361,6 +361,10 @@ export type FeedForYouSimplePageDebug = {
   seenWriteSkippedReason?: string | null;
   regularFallbackUsed?: boolean;
   reelsRemainingEstimate?: number;
+  /** Number of client-supplied excludeIds the request carried (after server-side cap). */
+  clientExcludeIdsCount?: number;
+  /** Number of candidate posts skipped solely because they matched a client excludeIds entry. */
+  clientExcludeIdsFiltered?: number;
 };
 
 export class FeedForYouSimpleService {
@@ -397,6 +401,11 @@ export class FeedForYouSimpleService {
     deviceIdHeader?: string | null;
     /** Radius filter; default "global" preserves legacy behavior. */
     radiusFilter?: ForYouRadiusFilter;
+    /**
+     * Optional safety-net excludeIds from the client (e.g. on-device recently-served IDs).
+     * Layered ON TOP of durable seen + session seen. Capped upstream by contract.
+     */
+    excludeIds?: readonly string[];
   }): Promise<{
     routeName: "feed.for_you_simple.get";
     items: FeedCardDTO[];
@@ -430,6 +439,7 @@ export class FeedForYouSimpleService {
      * Requiring `home_reel_first` caused native first paint to stay on the legacy `cold_refill` path
      * with huge reads and repeated posts.
      */
+    const normalizedExcludeIds = normalizeClientExcludeIds(input.excludeIds);
     const routeVariant = resolveForYouSimpleFeedRouteVariant({ cursor: input.cursor ?? null });
     if (routeVariant.kind === "v5") {
       return getForYouV5Page({
@@ -442,6 +452,7 @@ export class FeedForYouSimpleService {
         dryRunSeen: input.dryRunSeen === true,
         verifyReadOnly: input.verifyReadOnly === true,
         deviceIdHeader: input.deviceIdHeader ?? null,
+        excludeIds: normalizedExcludeIds,
       });
     }
     const legacyRouteReason = routeVariant.reason;
@@ -471,6 +482,22 @@ export class FeedForYouSimpleService {
     const mode = cursorState.mode;
     const cursorSeenBefore = normalizeCursorSeenIds(cursorState.seen ?? []).length;
     const cursorSeen = new Set(normalizeCursorSeenIds(cursorState.seen ?? []));
+    /**
+     * Layer client-supplied excludeIds INTO cursorSeen for the legacy path so the entire
+     * picker pipeline (deck → emergency → starvation → recycle) treats them as already-seen.
+     * The diag fields below let us audit how many candidates were actually skipped because
+     * of this safety net (separate from durable seen + cursor seen).
+     */
+    const clientExcludeIdsList = normalizeClientExcludeIds(input.excludeIds);
+    let clientExcludeIdsFiltered = 0;
+    if (clientExcludeIdsList.length > 0) {
+      for (const id of clientExcludeIdsList) {
+        if (!cursorSeen.has(id)) {
+          cursorSeen.add(id);
+          clientExcludeIdsFiltered += 1;
+        }
+      }
+    }
     const recentAuthorIds = new Set((cursorState.recentAuthorIds ?? []).filter(Boolean));
     const recycleMode = cursorState.recycleMode === true;
     /**
@@ -1000,6 +1027,8 @@ export class FeedForYouSimpleService {
     diag.returnedCount = finalItems.length;
     diag.nextCursorPresent = Boolean(nextCursor);
     diag.randomSeedOrAnchor = `phase:${workingCursor.activePhase}`;
+    diag.clientExcludeIdsCount = clientExcludeIdsList.length;
+    diag.clientExcludeIdsFiltered = clientExcludeIdsFiltered;
     diag.seenWriteAttempted = seenWriteAttempted;
     diag.seenWriteSucceeded = seenWriteSucceeded;
     diag.blockingResponseWrites = blockingResponseWrites;
@@ -1850,7 +1879,9 @@ function emptyDiagnostics(requestedLimit: number): FeedForYouSimplePageDebug {
     candidateReadCount: 0,
     dbReads: 0,
     queryCount: 0,
-    paginationBudgetCapped: false
+    paginationBudgetCapped: false,
+    clientExcludeIdsCount: 0,
+    clientExcludeIdsFiltered: 0
   };
 }
 
@@ -1915,6 +1946,28 @@ function pickFromDeckForPage(input: {
 function clampLimit(raw: number): number {
   const n = Number.isFinite(raw) ? Math.floor(raw) : LIMIT_DEFAULT;
   return Math.max(LIMIT_MIN, Math.min(LIMIT_MAX, n || LIMIT_DEFAULT));
+}
+
+/**
+ * Defensive normalization for client-supplied excludeIds. The contract layer already
+ * trims, dedupes, and caps; we re-apply the cap here as well so any internal caller
+ * that bypasses the contract can not blow up the picker.
+ */
+const CLIENT_EXCLUDE_IDS_CAP = 200;
+export function normalizeClientExcludeIds(raw: readonly string[] | undefined): string[] {
+  if (!raw || raw.length === 0) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const candidate of raw) {
+    const id = String(candidate ?? "").trim();
+    if (!id) continue;
+    if (id.length > 64) continue;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= CLIENT_EXCLUDE_IDS_CAP) break;
+  }
+  return out;
 }
 
 function isDurableViewerId(viewerId: string): boolean {

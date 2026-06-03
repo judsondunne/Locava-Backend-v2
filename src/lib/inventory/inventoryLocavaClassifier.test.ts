@@ -8,17 +8,16 @@ const cfg = DEFAULT_LOCAVA_CLASSIFIER_CONFIG;
 function classify(tags: Record<string, string>, extra: Partial<Parameters<typeof classifyOsmFeatureForLocava>[0]> = {}) {
   return classifyOsmFeatureForLocava(
     {
-      sourceKey: extra.sourceKey ?? "node/1",
-      sourceType: extra.sourceType ?? "node",
-      sourceId: extra.sourceId ?? "1",
-      name: extra.name ?? tags.name ?? null,
+      sourceKey: "node/1",
+      sourceType: "node",
+      sourceId: "1",
+      name: tags.name ?? null,
       tags,
-      geometryKind: extra.geometryKind ?? "point",
-      lat: extra.lat ?? 43.54,
-      lng: extra.lng ?? -72.39,
-      coordinates: extra.coordinates,
-      closed: extra.closed,
-      rawTypeLabel: extra.rawTypeLabel,
+      geometryKind: "point",
+      lat: 43.54,
+      lng: -72.39,
+      ...extra,
+      tags,
     },
     cfg
   );
@@ -99,8 +98,49 @@ describe("inventoryLocavaClassifier v1", () => {
     expect(vp.decision).toBe("spot");
   });
 
-  it("accepts natural=peak", () => {
-    expect(classify({ natural: "peak", name: "Summit" }, { name: "Summit" }).decision).toBe("spot");
+  it("rejects bare natural=peak without trail or viewpoint context", () => {
+    const r = classify({ natural: "peak", name: "Summit" }, { name: "Summit" });
+    expect(r.decision).toBe("reject");
+    expect(r.rejectionReason).toBe("bare_peak_no_trail_or_viewpoint");
+  });
+
+  it("accepts natural=peak when hiking trail is nearby (PBF spatial pass)", () => {
+    expect(
+      classify(
+        { natural: "peak", name: "Summit" },
+        { name: "Summit", nearbyHikingTrail: true }
+      ).decision
+    ).toBe("spot");
+  });
+
+  it("accepts natural=beach with beach/swimming-style activities", () => {
+    const r = classify({ natural: "beach", name: "Cedar Beach" }, { name: "Cedar Beach" });
+    expect(r.decision).toBe("spot");
+    expect(r.primaryCategory).toBeTruthy();
+    expect(r.activities.some((a) => /beach|swim|water/i.test(a))).toBe(true);
+  });
+
+  it("rejects place=hamlet with beach in name without destination tags", () => {
+    const r = classify({ place: "hamlet", name: "Cedar Beach" }, { name: "Cedar Beach" });
+    expect(r.decision).toBe("reject");
+  });
+
+  it("rejects name-only waterfall without supporting tags", () => {
+    const r = classify({ name: "Cadys Falls" }, { name: "Cadys Falls" });
+    expect(r.decision).toBe("reject");
+    expect(r.rejectionReason).toBe("name_only_no_locava_signal");
+  });
+
+  it("rejects trailhead from name only without tags", () => {
+    const r = classify({ name: "Lincoln Gap Trailhead" }, { name: "Lincoln Gap Trailhead" });
+    expect(r.decision).toBe("reject");
+  });
+
+  it("accepts waterway=waterfall with waterfall/nature-style category", () => {
+    const r = classify({ waterway: "waterfall", name: "Moss Glen Falls" }, { name: "Moss Glen Falls" });
+    expect(r.decision).toBe("spot");
+    expect(r.primaryCategory).toBeTruthy();
+    expect(r.activities.some((a) => /waterfall|nature|hik/i.test(a))).toBe(true);
   });
 
   it("accepts named leisure=park polygon", () => {
@@ -111,10 +151,34 @@ describe("inventoryLocavaClassifier v1", () => {
     expect(r.decision).toBe("spot");
   });
 
-  it("accepts named natural=wetland polygon", () => {
+  it("rejects named natural=wetland polygon without visitor signal", () => {
     const r = classify(
       { natural: "wetland", name: "Ottauquechee Marsh" },
       { name: "Ottauquechee Marsh", geometryKind: "polygon", closed: true }
+    );
+    expect(r.decision).toBe("reject");
+    expect(r.rejectionReason).toBe("large_natural_area_no_visitor_signal");
+  });
+
+  it("rejects protected area polygon without visitor/access signal", () => {
+    const r = classify(
+      { boundary: "protected_area", leisure: "park", name: "Dead Creek Wildlife Management Area" },
+      { name: "Dead Creek Wildlife Management Area", geometryKind: "polygon", closed: true }
+    );
+    expect(r.decision).toBe("reject");
+    expect(r.rejectionReason).toBe("large_natural_area_no_visitor_signal");
+  });
+
+  it("accepts protected area with recreation/access tags", () => {
+    const r = classify(
+      {
+        boundary: "protected_area",
+        leisure: "nature_reserve",
+        name: "Otter Creek Wildlife Management Area",
+        foot: "yes",
+        hiking: "yes",
+      },
+      { name: "Otter Creek Wildlife Management Area", geometryKind: "polygon", closed: true }
     );
     expect(r.decision).toBe("spot");
   });
@@ -124,7 +188,7 @@ describe("inventoryLocavaClassifier v1", () => {
     expect(r.decision).toBe("reject");
   });
 
-  it("accepts route=hiking with line geometry", () => {
+  it("accepts route=hiking relation with line geometry as route classification", () => {
     const r = classify(
       { route: "hiking", name: "App Trail", type: "route" },
       {
@@ -141,7 +205,7 @@ describe("inventoryLocavaClassifier v1", () => {
     expect(r.decision).toBe("route");
   });
 
-  it("accepts highway=path with trail_visibility", () => {
+  it("highway=path with trail_visibility deferred to trail assembler at feature level", () => {
     const r = classify(
       { highway: "path", trail_visibility: "good", name: "Forest Path" },
       {
@@ -153,7 +217,7 @@ describe("inventoryLocavaClassifier v1", () => {
         ],
       }
     );
-    expect(r.decision).toBe("route");
+    expect(r.decision).toBe("reject");
   });
 
   it("rejects footway=sidewalk", () => {
@@ -173,7 +237,10 @@ describe("inventoryLocavaClassifier v1", () => {
   });
 
   it("rejects route missing geometry", () => {
-    const r = classify({ route: "hiking", name: "Ghost Trail" }, { name: "Ghost Trail", geometryKind: "line", coordinates: [] });
+    const r = classify(
+      { route: "hiking", name: "Ghost Trail" },
+      { name: "Ghost Trail", geometryKind: "line", coordinates: [], rawTypeLabel: "route=hiking" }
+    );
     expect(r.decision).toBe("reject");
     expect(r.rejectionReason).toBe("route_missing_geometry");
   });

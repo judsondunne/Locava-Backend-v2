@@ -3,7 +3,11 @@ import {
   DECISION_THRESHOLD,
   displayPriorityFromCategory,
   hasRealName,
+  inferActivities,
+  isBridgeSpot,
   isDestinationSpotEligible,
+  isPrivateRecreationDestination,
+  isStrongSwimmingOrBeachTagSignal,
   isTrailLikeHighway,
   scoreOsmFeatureForLocava,
 } from "./inventoryLocavaScoring.js";
@@ -13,6 +17,7 @@ import type {
   LocavaClassifierFeatureInput,
   LocavaGeometryIntent,
 } from "./inventoryLocavaTypes.js";
+import { dedupeActivities } from "./activities/locavaActivities.js";
 
 export function normalizeLocavaName(name: string | null | undefined): string | null {
   if (!name?.trim()) return null;
@@ -73,10 +78,20 @@ export function classifyOsmFeatureForLocava(
     decision = "reject";
     reason = "hard_reject";
     rejectionReason = breakdown.hardRejectReason ?? "hard_reject";
-  } else if (feature.geometryKind === "line" && highway && !isTrailLikeHighway(feature.tags) && !tag(feature.tags, "route")) {
+  } else if (
+    feature.geometryKind === "line" &&
+    highway &&
+    !isTrailLikeHighway(feature.tags) &&
+    !tag(feature.tags, "route") &&
+    !isBridgeSpot(feature.tags)
+  ) {
     decision = "reject";
     reason = "linear_highway_not_trail";
     rejectionReason = breakdown.hardRejectReason ?? "linear_highway_not_trail";
+  } else if (isBridgeSpot(feature.tags) && feature.lat != null && feature.lng != null && breakdown.spotScore >= 40) {
+    decision = "spot";
+    reason = "bridge_spot";
+    rejectionReason = undefined;
   } else if (routeCandidate && routePreferred) {
     decision = "route";
     reason = "trail_route_signals";
@@ -86,7 +101,7 @@ export function classifyOsmFeatureForLocava(
     isDestinationSpotEligible(feature) &&
     feature.lat != null &&
     feature.lng != null &&
-    feature.geometryKind !== "line"
+    (feature.geometryKind !== "line" || isBridgeSpot(feature.tags))
   ) {
     decision = "spot";
     reason = "destination_signals";
@@ -102,6 +117,41 @@ export function classifyOsmFeatureForLocava(
     else if (breakdown.hardRejectReason) rejectionReason = breakdown.hardRejectReason;
     else rejectionReason = "below_threshold";
     reason = rejectionReason;
+  }
+
+  if (
+    decision === "reject" &&
+    !breakdown.hardReject &&
+    isStrongSwimmingOrBeachTagSignal(feature.tags) &&
+    !isPrivateRecreationDestination(feature.tags) &&
+    feature.lat != null &&
+    feature.lng != null &&
+    feature.geometryKind !== "line"
+  ) {
+    decision = "spot";
+    reason = "swimming_beach_priority";
+    rejectionReason = undefined;
+  }
+
+  if (decision === "spot" && !breakdown.primaryCategory) {
+    decision = "reject";
+    reason = "missing_category";
+    rejectionReason = "missing_category";
+  }
+
+  if (decision === "spot" && breakdown.activities.length === 0) {
+    decision = "reject";
+    reason = "no_activity_metadata";
+    rejectionReason = "no_activity_metadata";
+  }
+
+  if (decision === "spot") {
+    breakdown.activities = dedupeActivities(breakdown.activities);
+    if (breakdown.activities.length === 0) {
+      decision = "reject";
+      reason = "no_canonical_activity";
+      rejectionReason = "no_canonical_activity";
+    }
   }
 
   const confidence = confidenceFromScore(effectiveScore, breakdown.warnings);

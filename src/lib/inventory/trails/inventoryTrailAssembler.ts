@@ -9,8 +9,10 @@ import {
   distanceMetersForCoords,
   flattenSegmentsDistance,
   stitchSegments,
+  trailStartPoint,
   type TrailPoint,
 } from "./inventoryTrailGraph.js";
+import { isGenericNamedForestOrTownRoad, isOffroadWayForTrailExclusion } from "../offroad/inventoryOffroadClassifier.js";
 
 export type TrailAssemblyInput = {
   features: OsmFeatureListItem[];
@@ -58,8 +60,36 @@ function tag(tags: Record<string, string>, key: string): string | undefined {
   return tags[key]?.trim().toLowerCase();
 }
 
-function isTrailLikeWay(feature: OsmFeatureListItem): boolean {
+function isTigerImportRoad(tags: Record<string, string>): boolean {
+  if (tag(tags, "tiger:cfcc") || tag(tags, "tiger:reviewed") || tag(tags, "tiger:name_base")) return true;
+  return Object.keys(tags).some((k) => k.startsWith("tiger:"));
+}
+
+function hasHikingTrailSignals(tags: Record<string, string>): boolean {
+  if (TRAIL_ROUTES.has(tag(tags, "route") ?? "")) return true;
+  if (tag(tags, "sac_scale") || tag(tags, "trail_visibility")) return true;
+  if (tag(tags, "hiking") === "yes") return true;
+  const foot = tag(tags, "foot");
+  return foot === "designated" || foot === "permissive" || foot === "yes";
+}
+
+function isTrackAcceptedAsHikingTrail(feature: OsmFeatureListItem): boolean {
   const highway = tag(feature.tags, "highway");
+  if (highway !== "track") return true;
+  if (hasHikingTrailSignals(feature.tags)) return true;
+  const name = feature.name ?? tag(feature.tags, "name") ?? "";
+  if (/\btrail\b/i.test(name) && !isGenericNamedForestOrTownRoad(name)) return true;
+  return false;
+}
+
+function isTrailLikeWay(feature: OsmFeatureListItem): boolean {
+  if (isOffroadWayForTrailExclusion(feature)) return false;
+  const highway = tag(feature.tags, "highway");
+  if (highway === "track" && isTigerImportRoad(feature.tags)) {
+    if (!hasHikingTrailSignals(feature.tags)) return false;
+  }
+  if (highway === "track" && !isTrackAcceptedAsHikingTrail(feature)) return false;
+  if (highway === "track" && isGenericNamedForestOrTownRoad(feature.name ?? tag(feature.tags, "name"))) return false;
   if (highway && TRAIL_HIGHWAYS.has(highway)) {
     if (tag(feature.tags, "footway") === "sidewalk") return false;
     if (tag(feature.tags, "highway") === "crossing") return false;
@@ -132,7 +162,6 @@ function buildRouteFromAssembly(input: {
   const allPoints = input.coordinates ?? input.segments.flat();
   const bbox = bboxOfTrailPoints(allPoints);
   if (!bbox) return null;
-  const center = { lat: (bbox.minLat + bbox.maxLat) / 2, lng: (bbox.minLng + bbox.maxLng) / 2 };
   const distanceMiles = distanceMilesFromMeters(distanceMeters);
   const parkingSpots = input.accessFeatures.filter(
     (f) =>
@@ -147,11 +176,17 @@ function buildRouteFromAssembly(input: {
       (tag(f.tags, "tourism") === "information" && ["map", "board", "guidepost"].includes(tag(f.tags, "information") ?? "")) ||
       /trailhead/i.test(f.name ?? "")
   );
+  const segmentsForAccess = input.segments.length > 0 ? input.segments : input.coordinates ? [input.coordinates] : [];
   const access = findTrailAccess({
-    segments: input.segments.length > 0 ? input.segments : input.coordinates ? [input.coordinates] : [],
+    segments: segmentsForAccess,
     parkingSpots,
     trailheadSpots,
   });
+  const start = trailStartPoint({ coordinates: input.coordinates, segments: segmentsForAccess });
+  const center = start ?? {
+    lat: (bbox.minLat + bbox.maxLat) / 2,
+    lng: (bbox.minLng + bbox.maxLng) / 2,
+  };
 
   const primaryKey = input.sourceKeys[0] ?? input.id;
   return {
@@ -307,7 +342,12 @@ export function assembleInventoryTrails(input: TrailAssemblyInput): TrailAssembl
     const coords = wayCoords(way);
     const dist = distanceMetersForCoords(coords);
     const hasStrongTrailTag = Boolean(tag(way.tags, "sac_scale") || tag(way.tags, "trail_visibility") || tag(way.tags, "hiking") === "yes");
-    if (dist < (hasStrongTrailTag ? 100 : 250)) {
+    const minUnnamedMeters = hasStrongTrailTag ? 120 : 400;
+    if (dist < minUnnamedMeters) {
+      suppressedTinySegments += 1;
+      continue;
+    }
+    if (!way.hasRealName && !hasStrongTrailTag) {
       suppressedTinySegments += 1;
       continue;
     }

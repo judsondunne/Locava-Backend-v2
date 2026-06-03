@@ -27,6 +27,8 @@ export type OsmFeatureListItem = {
   coordinates: Array<{ lat: number; lng: number }>;
   closed: boolean;
   tags: Record<string, string>;
+  /** PBF spatial pass: hiking trail geometry within gate distance. */
+  nearbyHikingTrail?: boolean;
 };
 
 export type OverpassElement = {
@@ -75,7 +77,11 @@ const SKIP_TAG_KEYS = new Set(["source", "source:date", "created_by", "attributi
 export function buildHartlandOverpassQuery(bbox: InventoryBbox): string {
   const { minLat, minLng, maxLat, maxLng } = bbox;
   const box = `${minLat},${minLng},${maxLat},${maxLng}`;
-  const lines: string[] = [`[out:json][timeout:180];`, `(`];
+  const latSpanKm = ((maxLat - minLat) / 2) * 111.32;
+  const lngSpanKm = ((maxLng - minLng) / 2) * 111.32 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
+  const approxRadiusKm = Math.max(latSpanKm, lngSpanKm);
+  const timeoutSec = Math.min(360, Math.max(180, Math.round(approxRadiusKm * 12)));
+  const lines: string[] = [`[out:json][timeout:${timeoutSec}];`, `(`];
 
   for (const key of FEATURE_TAG_KEYS) {
     lines.push(`  node["${key}"](${box});`);
@@ -85,6 +91,20 @@ export function buildHartlandOverpassQuery(bbox: InventoryBbox): string {
   lines.push(`  node["name"](${box});`);
   lines.push(`  way["name"](${box});`);
   lines.push(`  relation["name"](${box});`);
+  const offroadKeys = ["atv", "ohv", "ohrv", "4wd_only", "motorcycle", "tracktype", "smoothness", "surface", "maintenance", "seasonal", "legal_trail", "class", "road_class", "highway_class", "town_highway_class", "vt_class", "nh_class"];
+  for (const key of offroadKeys) {
+    lines.push(`  way["${key}"](${box});`);
+    lines.push(`  relation["${key}"](${box});`);
+  }
+  // Town highways and unmaintained roads are often tagged only as highway=unclassified|track|service.
+  for (const highway of ["unclassified", "track", "service"]) {
+    lines.push(`  way["highway"="${highway}"](${box});`);
+  }
+  lines.push(`  way["highway"="path"]["motor_vehicle"](${box});`);
+  lines.push(`  way["highway"="path"]["atv"](${box});`);
+  lines.push(`  way["highway"="path"]["ohv"](${box});`);
+  lines.push(`  way["highway"="path"]["ohrv"](${box});`);
+  lines.push(`  way["highway"="path"]["4wd_only"](${box});`);
   lines.push(`);`);
   lines.push(`out body geom;`);
   return lines.join("\n");
@@ -129,7 +149,6 @@ function isClosedRing(coords: Array<{ lat: number; lng: number }>): boolean {
 
 function geometryKindFromCoords(count: number, osmType: OsmElementType): OsmFeatureListItem["geometryKind"] {
   if (osmType === "node" || count <= 1) return "point";
-  if (count >= 3) return "polygon";
   if (count >= 2) return "line";
   return "unknown";
 }

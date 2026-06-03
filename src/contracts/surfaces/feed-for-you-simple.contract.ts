@@ -19,6 +19,31 @@ export const FeedForYouSimpleRadiusSchema = z
   })
   .partial();
 
+/**
+ * Maximum number of client-supplied excludeIds accepted per request. The
+ * client cap is the same. Anything past this is silently dropped so a
+ * misbehaving client can't enlarge the request beyond Cloud Run limits.
+ */
+export const FOR_YOU_SIMPLE_EXCLUDE_IDS_MAX = 200;
+
+const ExcludeIdsTransform = z
+  .union([z.string(), z.array(z.string())])
+  .transform((raw) => {
+    const tokens = Array.isArray(raw) ? raw : String(raw).split(",");
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const token of tokens) {
+      const t = String(token ?? "").trim();
+      if (!t) continue;
+      if (t.length > 64) continue;
+      if (seen.has(t)) continue;
+      seen.add(t);
+      out.push(t);
+      if (out.length >= FOR_YOU_SIMPLE_EXCLUDE_IDS_MAX) break;
+    }
+    return out;
+  });
+
 export const FeedForYouSimpleQuerySchema = z.object({
   viewerId: z.string().min(1).optional(),
   limit: z.coerce.number().int().min(1).max(12).default(5),
@@ -29,6 +54,13 @@ export const FeedForYouSimpleQuerySchema = z.object({
   dryRunSeen: z.coerce.boolean().optional(),
   /** When true, response debug may include extra V5 diagnostics (bounded). */
   debug: z.coerce.boolean().optional(),
+  /**
+   * Optional safety net: extra post IDs the client wants excluded from this response
+   * (e.g. recently-served IDs persisted on-device). Backed by Native's `forYouRecentSeenStore`.
+   * Accepts a comma-separated list or repeated query param. Capped at FOR_YOU_SIMPLE_EXCLUDE_IDS_MAX.
+   * Layered on top of durable seen + session seen; never replaces them.
+   */
+  excludeIds: ExcludeIdsTransform.optional(),
   /** Radius filter mode; only "nearMe" / "custom" alter behavior. Defaults to "global". */
   radiusMode: z.enum(["global", "nearMe", "custom"]).optional(),
   centerLat: z.coerce.number().min(-90).max(90).optional(),
@@ -109,6 +141,10 @@ export const FeedForYouSimpleDebugSchema = z.object({
   firstVisibleNeedsDetailBeforePlay: z.boolean().optional(),
   deckStarvationRefillUsed: z.boolean().optional(),
   softServedRecentPicks: z.number().int().nonnegative().optional(),
+  /** Count of post IDs the client asked us to exclude this request (`excludeIds` param). */
+  clientExcludeIdsCount: z.number().int().nonnegative().optional(),
+  /** Count of candidates skipped because they matched a client-supplied excludeIds entry. */
+  clientExcludeIdsFiltered: z.number().int().nonnegative().optional(),
   /** Radius filter diagnostics (always present; "global" mode echoes radiusMode only). */
   radiusFilter: z
     .object({

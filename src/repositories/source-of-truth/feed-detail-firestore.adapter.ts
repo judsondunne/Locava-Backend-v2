@@ -266,20 +266,16 @@ export class FeedDetailFirestoreAdapter {
     postId: string,
     postData: PostDataShape,
   ): Promise<{ likeCount: number; commentCount: number; additionalReads: number }> {
-    const likeCountFromPost = normalizeCounter(postData.likesCount ?? postData.likeCount);
     const commentCountFromPost = resolveCommentCount(postData);
-    if (likeCountFromPost > 0 && commentCountFromPost > 0) {
-      return { likeCount: likeCountFromPost, commentCount: commentCountFromPost, additionalReads: 0 };
-    }
     const postRef = this.db!.collection("posts").doc(postId);
     const [likesAgg, commentsAgg] = await Promise.all([
-      likeCountFromPost > 0 ? null : postRef.collection("likes").count().get(),
+      postRef.collection("likes").count().get(),
       commentCountFromPost > 0 ? null : postRef.collection("comments").count().get(),
     ]);
     return {
-      likeCount: likeCountFromPost > 0 ? likeCountFromPost : normalizeCounter(likesAgg?.data().count),
+      likeCount: normalizeCounter(likesAgg?.data().count),
       commentCount: commentCountFromPost > 0 ? commentCountFromPost : normalizeCounter(commentsAgg?.data().count),
-      additionalReads: (likeCountFromPost > 0 ? 0 : 1) + (commentCountFromPost > 0 ? 0 : 1),
+      additionalReads: 1 + (commentCountFromPost > 0 ? 0 : 1),
     };
   }
 }

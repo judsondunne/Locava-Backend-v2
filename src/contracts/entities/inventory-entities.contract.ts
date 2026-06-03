@@ -19,7 +19,7 @@ export const InventoryRouteStatusSchema = z.enum(["staged", "active", "hidden", 
 export const InventorySourceSchema = z.enum(["osm", "fixture", "manual", "other"]);
 export const InventorySpotSourceTypeSchema = z.enum(["node", "way", "relation", "fixture"]);
 export const InventoryRouteSourceTypeSchema = z.enum(["way", "relation", "fixture"]);
-export const InventoryRouteActivitySchema = z.enum(["hiking", "walking", "running", "biking", "other"]);
+export const InventoryRouteActivitySchema = z.enum(["hiking", "walking", "running", "biking", "offroading", "other"]);
 
 export const InventorySpotSchema = z.object({
   id: z.string(),

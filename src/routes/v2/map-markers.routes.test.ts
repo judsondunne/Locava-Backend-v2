@@ -4,6 +4,7 @@ import { globalCache } from "../../cache/global-cache.js";
 const fetchAllMock = vi.fn();
 const fetchByOwnerMock = vi.fn();
 const fetchWindowMock = vi.fn();
+const fetchUnexploredSummariesMock = vi.fn();
 
 vi.mock("../../repositories/source-of-truth/map-markers-firestore.adapter.js", () => {
   return {
@@ -15,11 +16,25 @@ vi.mock("../../repositories/source-of-truth/map-markers-firestore.adapter.js", (
   };
 });
 
+vi.mock("../../services/map/unexploredMapMarkers.service.js", () => ({
+  fetchUnexploredMapMarkerSummaries: (...args: unknown[]) => fetchUnexploredSummariesMock(...args),
+}));
+
 describe("v2 map markers route", () => {
   beforeEach(async () => {
     fetchAllMock.mockReset();
     fetchByOwnerMock.mockReset();
     fetchWindowMock.mockReset();
+    fetchUnexploredSummariesMock.mockReset();
+    fetchUnexploredSummariesMock.mockResolvedValue({
+      markers: [],
+      tileKeys: [],
+      tileCount: 0,
+      droppedMissingCoords: 0,
+      fromTiles: 0,
+      fromSpotsQuery: 0,
+      fromRoutesQuery: 0,
+    });
     await globalCache.del("map:markers:v1");
     await globalCache.del("map:markers:v2");
     await globalCache.del("map:markers:v2:all:idx:0:cur:start:payload:compact");
@@ -443,6 +458,53 @@ describe("v2 map markers route", () => {
     expect(warm.json().meta.db.reads).toBe(0);
     expect(warm.json().meta.db.queries).toBe(0);
   });
+
+  it("spots-only bbox skips viewport posts and route merge flags", async () => {
+    fetchUnexploredSummariesMock.mockResolvedValue({
+      markers: [
+        {
+          id: "spot-1",
+          sourceCollection: "unexploredSpots",
+          itemType: "unexploredSpot",
+          title: "Trailhead",
+          lat: 43.54,
+          lng: -72.39,
+          firstActivity: "hiking",
+          emoji: "🥾",
+          hasMedia: false,
+          isUnexplored: true,
+          isRoute: false,
+          routeSummary: null,
+        },
+      ],
+      tileKeys: [],
+      tileCount: 0,
+      droppedMissingCoords: 0,
+      fromTiles: 0,
+      fromSpotsQuery: 1,
+      fromRoutesQuery: 0,
+    });
+    const { createApp } = await import("../../app/createApp.js");
+    const app = createApp({ NODE_ENV: "test", LOG_LEVEL: "silent" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/v2/map/markers?bbox=-72.5,43.5,-72.3,43.6&includeViewportPosts=false&includeUnexploredSpots=true&includeUnexploredRoutes=false&includeRouteGeometry=false&markerIndexOnly=true",
+      headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(fetchWindowMock).not.toHaveBeenCalled();
+    expect(fetchUnexploredSummariesMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeSpots: true,
+        includeRoutes: false,
+        includeRouteGeometry: false,
+      }),
+    );
+    const data = response.json().data;
+    expect(data.markers).toHaveLength(1);
+    expect(data.markers[0].sourceCollection).toBe("unexploredSpots");
+    expect(data.diagnostics.payloadBytes).toBeLessThan(5000);
+  }, 15_000);
 
   it("returns non-200 when firestore fails", async () => {
     await globalCache.del("map:markers:v2:all:idx:0:cur:start:payload:compact");

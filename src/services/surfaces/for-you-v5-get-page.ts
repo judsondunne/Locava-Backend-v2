@@ -225,6 +225,12 @@ function pickPageFromDeck(input: {
   radiusGate: (c: SimpleFeedCandidate) => boolean;
   /** When true, ignore durable seen capsules for eligibility (repeat lane; ledger still updated on serve). */
   relaxDurableSeen?: boolean;
+  /**
+   * Optional safety-net set of post IDs from the client. Treated like sessionSeen
+   * (always filtered, regardless of relaxDurableSeen) so a recently-served-on-device
+   * post never appears even when the durable ledger missed.
+   */
+  clientExcludeIds?: Set<string>;
 }): {
   picked: SimpleFeedCandidate[];
   nextCursor: ForYouV5CursorPayload;
@@ -235,6 +241,7 @@ function pickPageFromDeck(input: {
   filteredByDurableSeen: number;
   filteredByCursorSeen: number;
   filteredByInvalidMedia: number;
+  filteredByClientExcludeIds: number;
   authorSpacingSkips: number;
 } {
   const sessionSeen = new Set(input.cursor.sessionSeenPostIds.map((x) => String(x).trim()).filter(Boolean));
@@ -249,9 +256,11 @@ function pickPageFromDeck(input: {
   let filteredByDurableSeen = 0;
   let filteredByCursorSeen = 0;
   let filteredByInvalidMedia = 0;
+  let filteredByClientExcludeIds = 0;
   const pool: SimpleFeedCandidate[] = [];
   let activePhase: ForYouV5PhaseKey = "reel_tier_5";
   let regularFallbackUsed = false;
+  const clientExcludeIds = input.clientExcludeIds ?? new Set<string>();
 
   const tryPush = (c: SimpleFeedCandidate, phase: ForYouV5PhaseKey, isReelPhase: boolean): boolean => {
     if (!isPlayableCandidate(c)) {
@@ -261,6 +270,16 @@ function pickPageFromDeck(input: {
     if (!input.radiusGate(c)) return false;
     if (input.blockedAuthors.has(c.authorId)) return false;
     if (input.viewerId && c.authorId === input.viewerId) return false;
+    /**
+     * Client safety-net excludeIds are checked BEFORE relaxDurableSeen kicks in so even
+     * the "show repeats" recovery lane respects the on-device recent-served record.
+     * This is the surgical fix that closes the cold-restart repeat hole when the
+     * durable Firestore write was lost.
+     */
+    if (clientExcludeIds.has(c.postId)) {
+      filteredByClientExcludeIds += 1;
+      return false;
+    }
     if (sessionSeen.has(c.postId)) {
       filteredByCursorSeen += 1;
       return false;
@@ -300,6 +319,7 @@ function pickPageFromDeck(input: {
       if (!input.radiusGate(c)) continue;
       if (input.blockedAuthors.has(c.authorId)) continue;
       if (input.viewerId && c.authorId === input.viewerId) continue;
+      if (clientExcludeIds.has(c.postId)) continue;
       if (sessionSeen.has(c.postId)) continue;
       if (!input.relaxDurableSeen && input.durableReelSeen.has(c.postId)) continue;
       n += 1;
@@ -355,6 +375,7 @@ function pickPageFromDeck(input: {
     filteredByDurableSeen,
     filteredByCursorSeen,
     filteredByInvalidMedia,
+    filteredByClientExcludeIds,
     authorSpacingSkips,
   };
 }
@@ -379,7 +400,28 @@ export type GetForYouV5PageInput = {
   dryRunSeen?: boolean;
   verifyReadOnly?: boolean;
   deviceIdHeader?: string | null;
+  /**
+   * Optional client-supplied safety-net exclude list. Already capped/deduped upstream
+   * by the contract; we re-cap and dedupe defensively. Used as an in-memory layer on
+   * top of durableSeen + sessionSeen so a stale on-device record can suppress repeats
+   * even when the durable Firestore write was lost.
+   */
+  excludeIds?: readonly string[];
 };
+
+const V5_CLIENT_EXCLUDE_IDS_CAP = 200;
+function normalizeClientExcludeIdsV5(raw: readonly string[] | undefined): Set<string> {
+  if (!raw || raw.length === 0) return new Set();
+  const out = new Set<string>();
+  for (const candidate of raw) {
+    const id = String(candidate ?? "").trim();
+    if (!id) continue;
+    if (id.length > 64) continue;
+    out.add(id);
+    if (out.size >= V5_CLIENT_EXCLUDE_IDS_CAP) break;
+  }
+  return out;
+}
 
 export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
   routeName: "feed.for_you_simple.get";
@@ -478,6 +520,7 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
     ? await input.repository.loadBlockedAuthorIdsForViewer(authUid)
     : { blocked: new Set<string>(), readCount: 0 };
   const radiusGate = (c: SimpleFeedCandidate) => candidateMatchesRadius(c, input.radiusFilter);
+  const clientExcludeIdsSet = normalizeClientExcludeIdsV5(input.excludeIds);
 
   let emptyPageRecoveryAttempted = false;
   let emptyPageRecoveryReason: string | null = null;
@@ -503,6 +546,7 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
       viewerId: viewerIdRaw,
       radiusGate,
       relaxDurableSeen: args.relaxDurableSeen === true,
+      clientExcludeIds: clientExcludeIdsSet,
     });
     const sess = new Set(args.cur.sessionSeenPostIds.map((x) => String(x).trim()).filter(Boolean));
     const fin = finalizeV5PickedCandidates({
@@ -710,6 +754,8 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
   diag.fallbackReturnedCount = pickedFin.filter((c) => !isForYouSimpleReel(c)).length;
   diag.fallbackAllPostsUsed = pick.regularFallbackUsed;
   diag.reelPhaseExhausted = exhaustedReels;
+  diag.clientExcludeIdsCount = clientExcludeIdsSet.size;
+  diag.clientExcludeIdsFiltered = pick.filteredByClientExcludeIds;
 
   const lane: "reels" | "normal" | "recycled" = pick.regularFallbackUsed ? "normal" : "reels";
 
@@ -756,6 +802,8 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
     sessionSeenCount: sessionSeenBeforePick.size,
     durableSeenCount: durableReelSeen.size + durableRegularSeen.size,
     fallbackRefillSource,
+    clientExcludeIdsCount: clientExcludeIdsSet.size,
+    clientExcludeIdsFiltered: pick.filteredByClientExcludeIds,
   };
   debugLog("feed", "FOR_YOU_V5_RESPONSE", () => logPayload);
 
@@ -800,6 +848,8 @@ export async function getForYouV5Page(input: GetForYouV5PageInput): Promise<{
       reelsRemainingEstimate: pick.reelsRemainingEstimate,
       durableSeenRead,
       seenWriteSkippedReason,
+      clientExcludeIdsCount: clientExcludeIdsSet.size,
+      clientExcludeIdsFiltered: pick.filteredByClientExcludeIds,
     } as FeedForYouSimplePageDebug,
   };
 }

@@ -53,9 +53,26 @@ describe("osmFeatureParse", () => {
       name: "Forest Trail",
       featureType: "highway=path",
       coordSource: "line_center",
+      geometryKind: "line",
     });
     expect(feature?.lat).toBeGreaterThan(43.54);
     expect(feature?.lng).toBeGreaterThan(-72.4);
+  });
+
+  it("open footway with many nodes is a line not a polygon", () => {
+    const geometry = Array.from({ length: 12 }, (_, i) => ({
+      lat: 43.64 + i * 0.0001,
+      lon: -72.41 + i * 0.0001,
+    }));
+    const feature = parseOverpassElement({
+      type: "way",
+      id: 926028987,
+      tags: { highway: "footway", name: "Laughlin Trail" },
+      geometry,
+    });
+    expect(feature?.geometryKind).toBe("line");
+    expect(feature?.closed).toBe(false);
+    expect(feature?.coordinates.length).toBe(12);
   });
 
   it("parses geojson fixture features", () => {

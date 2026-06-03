@@ -68,6 +68,12 @@ export type LocavaDiagnosticsJson = {
   debugQuestionsForReview: string[];
   filterAudit?: import("./inventoryFilterAudit.js").LocavaFilterAudit;
   trailDiagnostics?: Record<string, unknown>;
+  finalPolishDiagnostics?: import("./inventoryFinalPolishDiagnostics.js").FinalPolishDiagnostics;
+  existingMediaDiagnostics?: import("./media/inventoryExistingMediaDiagnostics.js").ExistingMediaDiagnostics;
+  offroadDiagnostics?: import("./offroad/inventoryOffroadDiagnostics.js").OffroadDiagnostics;
+  placeHierarchyDiagnostics?: import("./inventoryPlaceHierarchy.js").PlaceHierarchyDiagnostics;
+  parkingDiagnostics?: import("./inventoryParking.js").ParkingDiagnostics;
+  activityTitleDiagnostics?: import("./inventoryActivityTitleDiagnostics.js").ActivityTitleDiagnostics;
 };
 
 function countBy<T>(items: T[], keyFn: (item: T) => string): Record<string, number> {
@@ -89,7 +95,8 @@ function scoreBucket(score: number): string {
 
 function spotSample(spot: LocavaInventorySpot): Record<string, unknown> {
   return {
-    name: spot.name,
+    name: spot.displayName ?? spot.name,
+    rawName: spot.rawName,
     category: spot.category,
     score: spot.locavaScore,
     confidence: spot.confidence,
@@ -97,6 +104,8 @@ function spotSample(spot: LocavaInventorySpot): Record<string, unknown> {
     sourceKey: spot.sourceKey,
     lat: spot.lat,
     lng: spot.lng,
+    anchor: spot.primaryAnchor?.anchorType,
+    nameQuality: spot.nameQuality,
     reason: spot.classificationReason,
     negativeSignals: spot.negativeSignals.slice(0, 5),
   };
@@ -145,6 +154,11 @@ export function buildLocavaDiagnosticsJson(input: {
   missingGeometry?: number;
   outsideBbox?: number;
   trailDiagnostics?: Record<string, unknown>;
+  finalPolishDiagnostics?: import("./inventoryFinalPolishDiagnostics.js").FinalPolishDiagnostics;
+  offroadDiagnostics?: import("./offroad/inventoryOffroadDiagnostics.js").OffroadDiagnostics;
+  placeHierarchyDiagnostics?: import("./inventoryPlaceHierarchy.js").PlaceHierarchyDiagnostics;
+  parkingDiagnostics?: import("./inventoryParking.js").ParkingDiagnostics;
+  activityTitleDiagnostics?: import("./inventoryActivityTitleDiagnostics.js").ActivityTitleDiagnostics;
 }): LocavaDiagnosticsJson {
   const allAccepted = [...input.spots, ...input.routes];
   const allScores = [...input.classifications.map((c) => c.locavaScore)];
@@ -253,6 +267,11 @@ export function buildLocavaDiagnosticsJson(input: {
     ],
     filterAudit,
     trailDiagnostics: input.trailDiagnostics,
+    finalPolishDiagnostics: input.finalPolishDiagnostics,
+    offroadDiagnostics: input.offroadDiagnostics,
+    placeHierarchyDiagnostics: input.placeHierarchyDiagnostics,
+    parkingDiagnostics: input.parkingDiagnostics,
+    activityTitleDiagnostics: input.activityTitleDiagnostics,
   };
 }
 

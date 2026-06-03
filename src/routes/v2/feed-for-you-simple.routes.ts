@@ -84,6 +84,7 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
 
     try {
       const startedAt = Date.now();
+      const clientExcludeIds = Array.isArray(query.excludeIds) ? query.excludeIds : [];
       const payload = await service.getPage({
         viewerId,
         limit: query.limit,
@@ -92,7 +93,8 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         dryRunSeen: query.dryRunSeen === true,
         verifyReadOnly: request.headers["x-locava-readonly"]?.toString().trim() === "1",
         deviceIdHeader: request.headers["x-device-id"]?.toString() ?? null,
-        radiusFilter
+        radiusFilter,
+        excludeIds: clientExcludeIds
       });
       const ctx = getRequestContext();
       const dbReads = ctx?.dbOps.reads ?? 0;
@@ -129,6 +131,8 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
             seenWriteSkippedReason: payload.debug.seenWriteSkippedReason ?? null,
             repeatRisk: payload.debug.repeatRisk ?? null,
             returnedCount: payload.items.length,
+            clientExcludeIdsCount: payload.debug.clientExcludeIdsCount ?? clientExcludeIds.length,
+            clientExcludeIdsFiltered: payload.debug.clientExcludeIdsFiltered ?? 0,
           },
           "FOR_YOU_V5_RESPONSE"
         );
@@ -145,6 +149,8 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
             deckSource: payload.debug.deckSource ?? "fallback",
             returnedPostIds: returnedPostIdsForLog,
             returnedCount: payload.items.length,
+            clientExcludeIdsCount: payload.debug.clientExcludeIdsCount ?? clientExcludeIds.length,
+            clientExcludeIdsFiltered: payload.debug.clientExcludeIdsFiltered ?? 0,
           },
           "FOR_YOU_LEGACY_RESPONSE"
         );

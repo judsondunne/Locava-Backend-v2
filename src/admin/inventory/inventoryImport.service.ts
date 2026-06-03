@@ -31,6 +31,8 @@ import {
 } from "../../repositories/source-of-truth/inventory-import-runs-firestore.adapter.js";
 import { isFirestoreEmulatorActive } from "./inventoryWriteGuard.js";
 import { loadEnv } from "../../config/env.js";
+import { refreshExistingMediaBundle } from "./inventoryExistingMedia.service.js";
+import { attachExistingMediaFields } from "../../lib/inventory/media/inventoryExistingMediaRefs.js";
 
 export type InventoryDryRunInput = {
   source?: "fixture" | "geojson" | "overpass_json_file";
@@ -142,10 +144,12 @@ export async function processInventorySource(input: InventoryDryRunInput = {}): 
     };
 
     putInventoryRun(completed, {
-      stagedSpots: normalized.spots,
-      stagedRoutes: normalized.routes,
+      stagedSpots: normalized.spots.map((s) => attachExistingMediaFields(s)),
+      stagedRoutes: normalized.routes.map((r) => attachExistingMediaFields(r)),
       tilePreview: [],
     });
+
+    refreshExistingMediaBundle(runId);
 
     if (shouldWriteDryRunDoc(input.writeRunDoc)) {
       await writeInventoryImportRun(completed, {
@@ -156,8 +160,8 @@ export async function processInventorySource(input: InventoryDryRunInput = {}): 
 
     return {
       run: completed,
-      stagedSpots: normalized.spots,
-      stagedRoutes: normalized.routes,
+      stagedSpots: normalized.spots.map((s) => attachExistingMediaFields(s)),
+      stagedRoutes: normalized.routes.map((r) => attachExistingMediaFields(r)),
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

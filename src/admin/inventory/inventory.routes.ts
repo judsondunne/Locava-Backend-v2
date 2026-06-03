@@ -25,6 +25,10 @@ import {
   isInventoryProductionWriteUnlocked,
 } from "./inventoryWriteGuard.js";
 import { runOsmDebugBbox } from "./inventoryOsmDebug.service.js";
+import {
+  getOrRefreshExistingMediaBundle,
+  searchExistingMedia,
+} from "./inventoryExistingMedia.service.js";
 
 const base = "/admin/inventory/api";
 
@@ -157,6 +161,67 @@ export async function registerInventoryAdminRoutes(app: FastifyInstance): Promis
       stagedSpots: artifacts?.stagedSpots ?? [],
       stagedRoutes: artifacts?.stagedRoutes ?? [],
       tilePreview: artifacts?.tilePreview ?? [],
+    });
+  });
+
+  app.get(`${base}/search`, async (request, reply) => {
+    setRouteName("admin.inventory.search.get");
+    if (!(await requireInventoryAdmin(request, reply, env))) return;
+    const q = request.query as Record<string, string | undefined>;
+    const result = searchExistingMedia({
+      runId: q.runId,
+      q: q.q,
+      decision: q.decision as "all" | "accepted" | "rejected" | undefined,
+      kind: q.kind as "all" | "spot" | "route" | "raw" | undefined,
+      hasMediaRef: q.hasMediaRef === "true" ? true : q.hasMediaRef === "false" ? false : undefined,
+      canPreview: q.canPreview === "true" ? true : q.canPreview === "false" ? false : undefined,
+      mediaKind: q.mediaKind,
+      mediaTagKey: q.mediaTagKey,
+      includeRejected: q.includeRejected !== "false",
+      limit: q.limit ? Number(q.limit) : 200,
+      offset: q.offset ? Number(q.offset) : 0,
+    });
+    if (!result) return reply.status(404).send(failure("run_not_found", "No dry run in memory — run classifier or dry run first"));
+    return success({ routeName: "admin.inventory.search.get" as const, ...result });
+  });
+
+  app.get(`${base}/media/existing`, async (request, reply) => {
+    setRouteName("admin.inventory.media.existing.get");
+    if (!(await requireInventoryAdmin(request, reply, env))) return;
+    const q = request.query as Record<string, string | undefined>;
+    const result = searchExistingMedia({
+      runId: q.runId,
+      q: q.q,
+      decision: q.decision as "all" | "accepted" | "rejected" | undefined,
+      kind: q.kind as "all" | "spot" | "route" | "raw" | undefined,
+      hasMediaRef: q.hasMediaRef === "true" ? true : q.hasMediaRef === "false" ? false : undefined,
+      canPreview: q.canPreview === "true" ? true : q.canPreview === "false" ? false : undefined,
+      mediaKind: q.mediaKind,
+      limit: q.limit ? Number(q.limit) : 200,
+      offset: q.offset ? Number(q.offset) : 0,
+      includeRejected: q.includeRejected !== "false",
+    });
+    if (!result) return reply.status(404).send(failure("run_not_found", "No dry run in memory"));
+    return success({
+      routeName: "admin.inventory.media.existing.get" as const,
+      runId: result.runId,
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+      summary: result.summary,
+      results: result.results.map((item) => ({ item, existingMediaRefs: item.existingMediaRefs })),
+    });
+  });
+
+  app.get(`${base}/media/diagnostics`, async (request, reply) => {
+    setRouteName("admin.inventory.media.diagnostics.get");
+    if (!(await requireInventoryAdmin(request, reply, env))) return;
+    const runId = (request.query as { runId?: string }).runId;
+    const bundle = getOrRefreshExistingMediaBundle(runId);
+    if (!bundle) return reply.status(404).send(failure("run_not_found", "No dry run in memory"));
+    return success({
+      routeName: "admin.inventory.media.diagnostics.get" as const,
+      existingMediaDiagnostics: bundle.diagnostics,
     });
   });
 }

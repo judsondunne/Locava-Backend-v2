@@ -13,7 +13,8 @@ import {
 import {
   buildSafeProfileUpsertPayload,
   decideExistingUserMergePolicy,
-  PROTECTED_PROFILE_FIELDS
+  PROTECTED_PROFILE_FIELDS,
+  summarizeLocavaIdentityPresence
 } from "../../domains/users/safe-profile-upsert.js";
 import { AuthBranchAttributionService } from "./auth-branch-attribution.service.js";
 
@@ -903,6 +904,7 @@ export class AuthMutationsService {
       normalizedCount: Object.keys((payload.activityProfile as Record<string, unknown>) ?? {}).length,
     });
     if (mergePolicy === "fill_missing_only") {
+      const identityPresence = summarizeLocavaIdentityPresence(existingData);
       console.info("AUTH_GOOGLE_EXISTING_USER_PRESERVED_PROFILE", {
         userId: input.userId,
         provider: input.oauthInfo?.provider ?? "email_password",
@@ -911,6 +913,14 @@ export class AuthMutationsService {
         remainedEmptyFields: safe.remainedEmptyFields,
         protectedFieldCount: PROTECTED_PROFILE_FIELDS.length,
         mergePolicy
+      });
+      // Privacy-safe summary that proves Locava-owned username/handle/displayName were
+      // present before the merge ran. Booleans only — never log the actual stored
+      // values (email/handle/etc).
+      console.info("AUTH_PROFILE_MERGE_PRESERVED_LOCAVA_IDENTITY", {
+        userId: input.userId,
+        provider: input.oauthInfo?.provider ?? "email_password",
+        ...identityPresence
       });
     } else {
       console.info("AUTH_GOOGLE_NEW_USER_FALLBACK_PROFILE_CREATED", {

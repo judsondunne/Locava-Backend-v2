@@ -100,3 +100,13 @@ export function stitchSegments(segments: TrailPoint[][]): { coordinates: TrailPo
 export function flattenSegmentsDistance(segments: TrailPoint[][]): number {
   return segments.reduce((sum, seg) => sum + distanceMetersForCoords(seg), 0);
 }
+
+/** Map/post anchor — first point of the stitched trail line (trailhead end). */
+export function trailStartPoint(input: {
+  coordinates?: TrailPoint[];
+  segments?: TrailPoint[][];
+}): TrailPoint | null {
+  if (input.coordinates && input.coordinates.length > 0) return input.coordinates[0]!;
+  const firstSegment = input.segments?.find((seg) => seg.length > 0);
+  return firstSegment?.[0] ?? null;
+}

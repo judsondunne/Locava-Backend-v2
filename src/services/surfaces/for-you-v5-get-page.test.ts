@@ -613,4 +613,177 @@ describe("getForYouV5Page", () => {
     expect(out.terminalExhaustionConfirmed).toBe(true);
     expect(out.nextCursor).toBeNull();
   });
+
+  /**
+   * REPEAT BUG REGRESSION — client-supplied `excludeIds` are honoured.
+   *
+   * When the durable Firestore seen write is lost (fire-and-forget setTimeout(0) on a
+   * recycled worker), the only protection against the cold-restart "same 5 posts" loop
+   * is the on-device `forYouRecentSeenStore`. This test confirms that those IDs:
+   *   1. drop matching candidates from the response, even if they're at the top of the deck,
+   *   2. do NOT corrupt the reel-first ordering (remaining reels still beat regular posts),
+   *   3. are accounted for in `debug.clientExcludeIdsFiltered` so we can see them in logs.
+   */
+  it("honours client excludeIds without breaking reel-first ordering", async () => {
+    const reelTopExcluded = mkCand("excluded_top", { tier: 5, authorId: "u_a" });
+    const reelKept = mkCand("kept_reel", { tier: 4, authorId: "u_b" });
+    const reelOtherKept = mkCand("kept_other", { tier: 3, authorId: "u_c" });
+    const regularKept = mkCand("kept_regular", { reel: false, authorId: "u_d" });
+    const snapshot = {
+      deckVersion: 21,
+      loadedAtMs: Date.now(),
+      randomMode: "randomKey" as const,
+      regularAnchor: 0.4,
+      reelTier5: [reelTopExcluded],
+      reelTier4: [reelKept],
+      reelOther: [reelOtherKept],
+      regular: [regularKept],
+    };
+    vi.spyOn(readyDeck, "ensureForYouV5ReadyDeck").mockResolvedValue({
+      snapshot,
+      cacheStatus: "memory_hit",
+      dbReadEstimate: 0,
+    });
+    const repo = {
+      isEnabled: () => true,
+      resolveSortMode: async () => "randomKey" as const,
+      fetchReelCandidatesForYouV5Deck: async () => [],
+      fetchRegularReservoirForYouV5Deck: async () => ({ items: [], readCount: 0 }),
+      fetchBatch: async () => ({
+        items: [],
+        rawCount: 0,
+        segmentExhausted: true,
+        readCount: 0,
+        stats: {
+          rawDocCount: 0,
+          filteredInvisible: 0,
+          filteredMissingAuthor: 0,
+          filteredMissingMedia: 0,
+          filteredInvalidContract: 0,
+          filteredInvalidSort: 0,
+          playableMapped: 0,
+        },
+        tailRandomKey: null,
+        tailDocId: null,
+      }),
+      readForYouV5CompactFeedState: async () => ({
+        reelSeenPostIds: new Set<string>(),
+        regularSeenPostIds: new Set<string>(),
+        readCount: 0,
+      }),
+      writeForYouV5CompactFeedState: async () => undefined,
+      loadBlockedAuthorIdsForViewer: async () => ({ blocked: new Set<string>(), readCount: 0 }),
+    };
+
+    const out = await getForYouV5Page({
+      repository: repo as never,
+      viewerId: "exclude_ids_viewer",
+      limit: 4,
+      cursor: null,
+      refresh: false,
+      radiusFilter: { mode: "global", centerLat: null, centerLng: null, radiusMiles: null },
+      dryRunSeen: true,
+      excludeIds: ["excluded_top", "  ", "", "excluded_top"],
+    });
+
+    const ids = out.items.map((x) => (x as { postId?: string }).postId).filter(Boolean) as string[];
+    expect(ids).not.toContain("excluded_top");
+    /** Reel-first still holds: reel `kept_reel` (tier_4) precedes the regular candidate. */
+    const idxReelKept = ids.indexOf("kept_reel");
+    const idxRegular = ids.indexOf("kept_regular");
+    if (idxReelKept !== -1 && idxRegular !== -1) {
+      expect(idxReelKept).toBeLessThan(idxRegular);
+    } else {
+      expect(idxReelKept).toBeGreaterThanOrEqual(0);
+    }
+    expect((out.debug as { clientExcludeIdsCount?: number }).clientExcludeIdsCount).toBe(1);
+    expect((out.debug as { clientExcludeIdsFiltered?: number }).clientExcludeIdsFiltered ?? 0).toBeGreaterThanOrEqual(1);
+  });
+
+  /**
+   * REPEAT BUG REGRESSION — excludeIds + cursor pagination still produces disjoint pages.
+   *
+   * Stacks the deck with 12 reels, asks for 4-post pages, and excludes the first two via
+   * the on-device safety net. Page 1 + Page 2 must collectively contain no excluded ID
+   * and no duplicates across pages — proving cursor advancement still works under the
+   * client safety net.
+   */
+  it("pagination after excludeIds still produces a disjoint Page 2", async () => {
+    const reels = Array.from({ length: 12 }, (_, i) =>
+      mkCand(`pX_${i}`, { tier: 5, authorId: `auX_${i}` })
+    );
+    const snapshot = {
+      deckVersion: 22,
+      loadedAtMs: Date.now(),
+      randomMode: "randomKey" as const,
+      regularAnchor: 0.1,
+      reelTier5: reels,
+      reelTier4: [],
+      reelOther: [],
+      regular: [],
+    };
+    vi.spyOn(readyDeck, "ensureForYouV5ReadyDeck").mockResolvedValue({
+      snapshot,
+      cacheStatus: "memory_hit",
+      dbReadEstimate: 0,
+    });
+    const repo = {
+      isEnabled: () => true,
+      resolveSortMode: async () => "randomKey" as const,
+      fetchReelCandidatesForYouV5Deck: async () => [],
+      fetchRegularReservoirForYouV5Deck: async () => ({ items: [], readCount: 0 }),
+      fetchBatch: async () => ({
+        items: [],
+        rawCount: 0,
+        segmentExhausted: true,
+        readCount: 0,
+        stats: {
+          rawDocCount: 0,
+          filteredInvisible: 0,
+          filteredMissingAuthor: 0,
+          filteredMissingMedia: 0,
+          filteredInvalidContract: 0,
+          filteredInvalidSort: 0,
+          playableMapped: 0,
+        },
+        tailRandomKey: null,
+        tailDocId: null,
+      }),
+      readForYouV5CompactFeedState: async () => ({
+        reelSeenPostIds: new Set<string>(),
+        regularSeenPostIds: new Set<string>(),
+        readCount: 0,
+      }),
+      writeForYouV5CompactFeedState: async () => undefined,
+      loadBlockedAuthorIdsForViewer: async () => ({ blocked: new Set<string>(), readCount: 0 }),
+    };
+    const excludes = ["pX_0", "pX_1"];
+    const first = await getForYouV5Page({
+      repository: repo as never,
+      viewerId: "exclude_chain_user",
+      limit: 4,
+      cursor: null,
+      refresh: false,
+      radiusFilter: { mode: "global", centerLat: null, centerLng: null, radiusMiles: null },
+      dryRunSeen: true,
+      excludeIds: excludes,
+    });
+    const firstIds = first.items.map((x) => (x as { postId?: string }).postId).filter(Boolean) as string[];
+    expect(firstIds.length).toBeGreaterThan(0);
+    for (const ex of excludes) expect(firstIds).not.toContain(ex);
+    expect(first.nextCursor).toBeTruthy();
+    const second = await getForYouV5Page({
+      repository: repo as never,
+      viewerId: "exclude_chain_user",
+      limit: 4,
+      cursor: first.nextCursor,
+      refresh: false,
+      radiusFilter: { mode: "global", centerLat: null, centerLng: null, radiusMiles: null },
+      dryRunSeen: true,
+      excludeIds: excludes,
+    });
+    const secondIds = second.items.map((x) => (x as { postId?: string }).postId).filter(Boolean) as string[];
+    for (const ex of excludes) expect(secondIds).not.toContain(ex);
+    for (const id of secondIds) expect(firstIds.includes(id)).toBe(false);
+  });
 });

@@ -3,7 +3,7 @@ import { buildViewerContext } from "../../auth/viewer-context.js";
 import { socialBatchContract, SocialBatchQuerySchema } from "../../contracts/surfaces/social-batch.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
-import { setRouteName } from "../../observability/request-context.js";
+import { setRouteName, incrementDbOps } from "../../observability/request-context.js";
 import { CompatPostsBatchOrchestrator } from "../../orchestration/compat/posts-batch.orchestrator.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
 import { countPostLikesSubcollectionBatch } from "../../repositories/surfaces/post-likes-subcollection-count.js";
@@ -52,6 +52,18 @@ export async function registerV2SocialBatchRoutes(app: FastifyInstance): Promise
     const db = getFirestoreSourceClient();
     const likeByPostId =
       db && unique.length > 0 ? await countPostLikesSubcollectionBatch(db, unique) : new Map<string, number>();
+    const viewerLikedByPostId = new Map<string, boolean>();
+    if (db && unique.length > 0) {
+      const viewerLikeRefs = unique.map((postId) =>
+        db.collection("posts").doc(postId).collection("likes").doc(viewer.viewerId)
+      );
+      const viewerLikeSnaps = await db.getAll(...viewerLikeRefs);
+      incrementDbOps("reads", viewerLikeSnaps.filter((snap) => snap.exists).length);
+      incrementDbOps("queries", 1);
+      unique.forEach((postId, index) => {
+        viewerLikedByPostId.set(postId, viewerLikeSnaps[index]?.exists === true);
+      });
+    }
 
     const items = unique
       .map((postId) => {
@@ -62,11 +74,16 @@ export async function registerV2SocialBatchRoutes(app: FastifyInstance): Promise
         const commentCountRaw = row?.commentCount ?? row?.commentsCount;
         const commentCount =
           typeof commentCountRaw === "number" && Number.isFinite(commentCountRaw) ? Math.max(0, commentCountRaw) : 0;
+        const viewerHasLikedFromFirestore = viewerLikedByPostId.get(postId);
+        const viewerHasLiked =
+          typeof viewerHasLikedFromFirestore === "boolean"
+            ? viewerHasLikedFromFirestore
+            : mutationStateRepository.hasViewerLikedPost(viewer.viewerId, postId);
         return {
           postId,
           likeCount,
           commentCount,
-          viewerHasLiked: mutationStateRepository.hasViewerLikedPost(viewer.viewerId, postId),
+          viewerHasLiked,
           viewerHasSaved: mutationStateRepository.resolveViewerSavedPost(viewer.viewerId, postId, false)
         };
       })

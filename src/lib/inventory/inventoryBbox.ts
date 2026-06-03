@@ -27,6 +27,46 @@ export const INVENTORY_MVP_DEFAULT_VIEWPORT: InventoryDefaultViewport = {
   },
 };
 
+/** Approximate radius of the default Hartland MVP bbox (km). */
+export const INVENTORY_MVP_DEFAULT_RADIUS_KM = 12;
+
+export function bboxFromCenterRadiusKm(center: LatLng, radiusKm: number): InventoryBbox {
+  const latDelta = radiusKm / 111.32;
+  const lngDelta = radiusKm / (111.32 * Math.cos((center.lat * Math.PI) / 180));
+  return {
+    minLat: center.lat - latDelta,
+    maxLat: center.lat + latDelta,
+    minLng: center.lng - lngDelta,
+    maxLng: center.lng + lngDelta,
+  };
+}
+
+export type AdminViewportInput = {
+  centerLat?: number;
+  centerLng?: number;
+  radiusKm?: number;
+  label?: string;
+  regionKey?: string;
+};
+
+export function resolveAdminViewport(input?: AdminViewportInput): InventoryDefaultViewport {
+  const base = INVENTORY_MVP_DEFAULT_VIEWPORT;
+  const centerLat = input?.centerLat ?? base.center.lat;
+  const centerLng = input?.centerLng ?? base.center.lng;
+  const radiusKm = input?.radiusKm ?? INVENTORY_MVP_DEFAULT_RADIUS_KM;
+  if (!Number.isFinite(centerLat) || !Number.isFinite(centerLng) || !Number.isFinite(radiusKm)) {
+    return base;
+  }
+  const clampedRadius = Math.min(80, Math.max(2, radiusKm));
+  const center = { lat: centerLat, lng: centerLng };
+  return {
+    label: input?.label?.trim() || base.label,
+    regionKey: input?.regionKey?.trim() || base.regionKey,
+    center,
+    bbox: bboxFromCenterRadiusKm(center, clampedRadius),
+  };
+}
+
 export function isPointInBbox(lat: number, lng: number, bbox: InventoryBbox): boolean {
   return isPointInsideBbox({ lat, lng }, bbox);
 }

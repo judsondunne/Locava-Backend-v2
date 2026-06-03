@@ -28,6 +28,16 @@ export function renderAdminPage(): string {
       <a href="/admin/inventory" style="color:#93c5fd; text-decoration:none;">Inventory MVP (Hartland VT)</a>
       ·
       <a href="/admin/openstreetmap" style="color:#93c5fd; text-decoration:none;">OSM Locava Classifier (Hartland VT)</a>
+      ·
+      <a href="/admin/openstreetmap/offroad-master" style="color:#93c5fd; text-decoration:none;">National Offroad Sources</a>
+      <br/>
+      <a href="/admin/openstreetmap/national-import" style="color:#93c5fd; text-decoration:none;">National Unexplored OSM Import</a>
+      ·
+      <a href="/admin/openstreetmap/national-copier" style="color:#93c5fd; text-decoration:none;">Master National OSM Copier</a>
+      ·
+      <a href="/admin/openstreetmap/pbf-copier" style="color:#93c5fd; text-decoration:none;">Master PBF OSM Copier</a>
+      ·
+      <a href="/admin/openstreetmap/pbf-copier-v2" style="color:#93c5fd; text-decoration:none;">PBF Copier V2</a>
     </p>
 
     <div class="grid">

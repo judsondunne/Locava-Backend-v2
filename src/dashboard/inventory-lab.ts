@@ -80,6 +80,20 @@ export function renderInventoryLabPage(): string {
     #spotMiniMap{position:absolute;inset:0}
     .maplibregl-popup-content{font-size:12px;line-height:1.45;color:#0f172a;border-radius:8px;padding:8px 10px}
     .maplibregl-ctrl-attrib{font-size:10px}
+    .tab-row{display:flex;gap:8px;margin:14px 0 0}
+    .tab{padding:8px 14px;border-radius:8px;border:1px solid #334155;background:#1f2937;color:#cbd5e1;font-size:13px;font-weight:600;cursor:pointer}
+    .tab.active{background:#2563eb;border-color:#2563eb;color:#fff}
+    .media-badge{display:inline-block;padding:2px 7px;border-radius:6px;font-size:10px;margin:2px 4px 2px 0;border:1px solid #334155;background:#0b1220;color:#cbd5e1}
+    .media-badge.preview{border-color:#166534;color:#86efac}
+    .media-card{border:1px solid #334155;border-radius:10px;background:#0b1220;padding:10px 12px;margin:8px 0}
+    .media-card-head{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;cursor:pointer}
+    .media-card-head:hover{background:#1e293b;margin:-10px -12px;padding:10px 12px;border-radius:10px}
+    .media-card-body{margin-top:10px;border-top:1px solid #334155;padding-top:10px}
+    .media-ref{border:1px solid #1f2937;border-radius:8px;padding:8px;margin:8px 0;background:#020617}
+    .media-preview{max-width:220px;max-height:160px;border-radius:8px;border:1px solid #334155;background:#111827}
+    .media-preview.broken{display:none}
+    .media-preview-fallback{font-size:11px;color:#fca5a5}
+    #mediaDiagnosticsJson{width:100%;min-height:200px;font-family:ui-monospace,Menlo,monospace;font-size:11px}
   </style>
 </head>
 <body>
@@ -91,6 +105,12 @@ export function renderInventoryLabPage(): string {
 
     <div id="statusBar" class="status-bar idle">Ready — click <strong>Run Dry Run</strong> to load spots on the map.</div>
 
+    <div class="tab-row">
+      <button type="button" id="tabImport" class="tab active">Import &amp; Map</button>
+      <button type="button" id="tabMedia" class="tab">Existing Media</button>
+    </div>
+
+    <div id="importTabContent">
     <section class="panel">
       <h2>Region map — ${defaults.label}</h2>
       <p class="muted">Orange box = import bbox. Blue = accepted spots. Green = routes. Red = rejected. Click a spot row below to verify on the bottom mini map.</p>
@@ -191,6 +211,50 @@ export function renderInventoryLabPage(): string {
         </div>
       </div>
     </section>
+    </div>
+
+    <div id="mediaTabContent" style="display:none">
+      <section class="panel">
+        <h2>Existing Media</h2>
+        <p class="muted">Inspect OSM tags already on inventory spots/routes from the latest dry run or OSM classification. No refetch, no external API calls, no Firestore writes.</p>
+        <div class="row">
+          <button type="button" id="btnLoadMedia" class="secondary">Refresh media catalog</button>
+          <button type="button" id="btnCopyAllMediaJson" class="ghost">Copy all media diagnostics JSON</button>
+        </div>
+        <div id="mediaSummaryGrid" class="summary-grid"></div>
+        <div class="row" style="margin-top:12px">
+          <label>Filter
+            <select id="mediaFilter">
+              <option value="all">All</option>
+              <option value="accepted_spot">Accepted spots</option>
+              <option value="accepted_route">Accepted routes</option>
+              <option value="rejected">Rejected</option>
+              <option value="has_media">Has any media</option>
+              <option value="previewable">Previewable image</option>
+              <option value="commons_file">Commons file</option>
+              <option value="commons_category">Commons category</option>
+              <option value="wikidata">Wikidata clue</option>
+              <option value="wikipedia">Wikipedia clue</option>
+              <option value="mapillary">Mapillary clue</option>
+              <option value="website">Website clue</option>
+              <option value="no_media">No media</option>
+            </select>
+          </label>
+          <label style="flex:1;min-width:200px">Search
+            <input id="mediaSearch" type="text" placeholder="Name, category, sourceKey, tag key, media value…"/>
+          </label>
+          <button type="button" id="btnMediaSearch" class="secondary">Search</button>
+        </div>
+        <p id="mediaMeta" class="run-meta"></p>
+        <div id="mediaResults"></div>
+      </section>
+      <section class="panel">
+        <h2>Copy/Paste Diagnostics JSON</h2>
+        <p class="muted">Includes <code>existingMediaDiagnostics</code> from the latest in-memory run.</p>
+        <div class="row"><button type="button" id="btnCopyMediaJson" class="secondary">Copy JSON</button></div>
+        <textarea id="mediaDiagnosticsJson" readonly></textarea>
+      </section>
+    </div>
   </div>
 
   <script>
@@ -747,6 +811,7 @@ export function renderInventoryLabPage(): string {
         });
         renderRunResult(data.result.run, data.result.stagedSpots, data.result.stagedRoutes, [], body.source);
         setStatus("success", "Dry run complete — verify pins on the region map and bottom mini map.");
+        if (document.getElementById("mediaTabContent").style.display !== "none") void loadExistingMedia();
       } catch (e) {
         setStatus("error", "Dry run failed: " + (e.message || e));
       } finally {
@@ -822,6 +887,190 @@ export function renderInventoryLabPage(): string {
         setBusy(false);
       }
     };
+
+    var mediaCatalogCache = [];
+    var mediaDiagnosticsCache = null;
+
+    function mediaBadgeClass(kind) {
+      if (kind === "direct_image" || kind === "commons_file") return "media-badge preview";
+      return "media-badge";
+    }
+
+    function mediaBadgeLabel(kind) {
+      var labels = {
+        direct_image: "direct image",
+        commons_file: "commons file",
+        commons_category: "commons category",
+        wikidata: "wikidata",
+        wikipedia: "wikipedia",
+        mapillary: "mapillary",
+        website: "website",
+        generic_media_url: "media url",
+        unknown_media_tag: "unknown"
+      };
+      return labels[kind] || kind;
+    }
+
+    function buildMediaSearchParams() {
+      var filter = document.getElementById("mediaFilter").value;
+      var q = document.getElementById("mediaSearch").value.trim();
+      var params = new URLSearchParams();
+      params.set("limit", "200");
+      params.set("includeRejected", "true");
+      if (q) params.set("q", q);
+      if (filter === "accepted_spot") { params.set("decision", "accepted"); params.set("kind", "spot"); }
+      else if (filter === "accepted_route") { params.set("decision", "accepted"); params.set("kind", "route"); }
+      else if (filter === "rejected") params.set("decision", "rejected");
+      else if (filter === "has_media") params.set("hasMediaRef", "true");
+      else if (filter === "previewable") params.set("canPreview", "true");
+      else if (filter === "no_media") params.set("hasMediaRef", "false");
+      else if (filter === "commons_file") params.set("mediaKind", "commons_file");
+      else if (filter === "commons_category") params.set("mediaKind", "commons_category");
+      else if (filter === "wikidata") params.set("mediaKind", "wikidata");
+      else if (filter === "wikipedia") params.set("mediaKind", "wikipedia");
+      else if (filter === "mapillary") params.set("mediaKind", "mapillary");
+      else if (filter === "website") params.set("mediaKind", "website");
+      return params;
+    }
+
+    function renderMediaSummary(diag) {
+      if (!diag) return;
+      var checked = diag.checked || {};
+      var counts = diag.counts || {};
+      var items = [
+        ["Accepted spots checked", checked.acceptedSpots],
+        ["Accepted routes checked", checked.acceptedRoutes],
+        ["Items with media refs", counts.itemsWithAnyMediaRef],
+        ["Previewable images", counts.itemsWithPreviewableMedia],
+        ["Commons files", counts.itemsWithCommonsFile],
+        ["Commons categories", counts.itemsWithCommonsCategory],
+        ["Wikidata clues", counts.itemsWithWikidata],
+        ["Wikipedia clues", counts.itemsWithWikipedia],
+        ["Mapillary clues", counts.itemsWithMapillary],
+        ["Website clues", counts.itemsWithWebsite],
+        ["No media refs", counts.itemsWithNoMediaRefs],
+      ];
+      document.getElementById("mediaSummaryGrid").innerHTML = items.map(function(pair) {
+        return '<div class="stat-box"><div class="stat-label">' + pair[0] + '</div><div class="stat-value">' + (pair[1] ?? 0) + "</div></div>";
+      }).join("");
+    }
+
+    function renderMediaRef(ref) {
+      var preview = "";
+      if (ref.canPreview && ref.previewUrl) {
+        preview =
+          '<img class="media-preview" src="' + esc(ref.previewUrl) + '" alt="preview" loading="lazy" ' +
+          'onerror="this.classList.add(\\'broken\\'); this.nextElementSibling.style.display=\\'block\\';"/>' +
+          '<div class="media-preview-fallback" style="display:none">Preview failed — use source link</div>';
+      }
+      var link = ref.displayUrl || ref.sourceUrl;
+      var linkHtml = link ? '<a href="' + esc(link) + '" target="_blank" rel="noopener">' + esc(link) + "</a>" : "—";
+      return (
+        '<div class="media-ref">' +
+        "<div><strong>" + esc(ref.tagKey) + "</strong> · " + esc(ref.mediaKind) +
+        (ref.requiresLaterResolution ? ' · <span class="muted">requires resolution</span>' : "") + "</div>" +
+        '<div class="muted"><code>' + esc(ref.rawValue) + "</code></div>" +
+        preview +
+        "<div>" + linkHtml + "</div>" +
+        (ref.notes && ref.notes.length ? "<ul><li>" + ref.notes.map(esc).join("</li><li>") + "</li></ul>" : "") +
+        "</div>"
+      );
+    }
+
+    function renderMediaResults(results) {
+      mediaCatalogCache = results || [];
+      var root = document.getElementById("mediaResults");
+      if (!results.length) {
+        root.innerHTML = '<p class="muted">No items match. Run a dry run or OSM classification first, then refresh.</p>';
+        return;
+      }
+      root.innerHTML = results.map(function(item, idx) {
+        var badges = (item.existingMediaRefs || []).map(function(ref) {
+          return '<span class="' + mediaBadgeClass(ref.mediaKind) + '">' + esc(mediaBadgeLabel(ref.mediaKind)) + "</span>";
+        }).join("");
+        if (!badges) badges = '<span class="media-badge">no media</span>';
+        return (
+          '<div class="media-card" data-idx="' + idx + '">' +
+          '<div class="media-card-head" data-toggle="' + idx + '">' +
+          "<div><strong>" + esc(item.displayName || item.name) + "</strong> · " + esc(item.kind) +
+          " · " + esc(item.decision) +
+          (item.category ? " · " + esc(item.category) : "") +
+          (item.activity ? " · " + esc(item.activity) : "") +
+          "</div>" +
+          "<div>" + badges + "</div>" +
+          "</div>" +
+          '<div class="media-card-body" id="mediaBody' + idx + '" style="display:none">' +
+          "<div class='muted'>sourceKey: <code>" + esc(item.sourceKey) + "</code> · refs: " + item.existingMediaRefCount +
+          " · previewable: " + item.previewableMediaCount + "</div>" +
+          (item.existingMediaRefs || []).map(renderMediaRef).join("") +
+          '<button type="button" class="ghost btnCopyItemMedia" data-idx="' + idx + '">Copy media refs JSON for this item</button>' +
+          "</div></div>"
+        );
+      }).join("");
+
+      root.querySelectorAll("[data-toggle]").forEach(function(el) {
+        el.addEventListener("click", function() {
+          var idx = el.getAttribute("data-toggle");
+          var body = document.getElementById("mediaBody" + idx);
+          if (body) body.style.display = body.style.display === "none" ? "block" : "none";
+        });
+      });
+      root.querySelectorAll(".btnCopyItemMedia").forEach(function(btn) {
+        btn.addEventListener("click", function(ev) {
+          ev.stopPropagation();
+          var idx = Number(btn.getAttribute("data-idx"));
+          var item = mediaCatalogCache[idx];
+          navigator.clipboard.writeText(JSON.stringify(item.existingMediaRefs || [], null, 2));
+        });
+      });
+    }
+
+    async function loadExistingMedia() {
+      try {
+        var params = buildMediaSearchParams();
+        var data = await api("/admin/inventory/api/media/existing?" + params.toString());
+        document.getElementById("mediaMeta").textContent =
+          "runId: " + (data.runId || "—") + " · showing " + (data.results?.length || 0) + " / " + (data.total || 0);
+        var items = (data.results || []).map(function(r) { return r.item; });
+        renderMediaResults(items);
+
+        var diagData = await api("/admin/inventory/api/media/diagnostics" + (data.runId ? "?runId=" + encodeURIComponent(data.runId) : ""));
+        mediaDiagnosticsCache = diagData.existingMediaDiagnostics;
+        renderMediaSummary(mediaDiagnosticsCache);
+        document.getElementById("mediaDiagnosticsJson").value = JSON.stringify({ existingMediaDiagnostics: mediaDiagnosticsCache }, null, 2);
+      } catch (e) {
+        document.getElementById("mediaResults").innerHTML = '<p class="warn">' + esc(e.message || String(e)) + "</p>";
+      }
+    }
+
+    document.getElementById("tabImport").addEventListener("click", function() {
+      document.getElementById("tabImport").classList.add("active");
+      document.getElementById("tabMedia").classList.remove("active");
+      document.getElementById("importTabContent").style.display = "block";
+      document.getElementById("mediaTabContent").style.display = "none";
+    });
+    document.getElementById("tabMedia").addEventListener("click", function() {
+      document.getElementById("tabMedia").classList.add("active");
+      document.getElementById("tabImport").classList.remove("active");
+      document.getElementById("importTabContent").style.display = "none";
+      document.getElementById("mediaTabContent").style.display = "block";
+      void loadExistingMedia();
+    });
+    document.getElementById("btnLoadMedia").addEventListener("click", function() { void loadExistingMedia(); });
+    document.getElementById("btnMediaSearch").addEventListener("click", function() { void loadExistingMedia(); });
+    document.getElementById("mediaSearch").addEventListener("keydown", function(ev) {
+      if (ev.key === "Enter") void loadExistingMedia();
+    });
+    document.getElementById("btnCopyMediaJson").addEventListener("click", function() {
+      var ta = document.getElementById("mediaDiagnosticsJson");
+      ta.select();
+      document.execCommand("copy");
+    });
+    document.getElementById("btnCopyAllMediaJson").addEventListener("click", function() {
+      if (mediaDiagnosticsCache) {
+        navigator.clipboard.writeText(JSON.stringify({ existingMediaDiagnostics: mediaDiagnosticsCache }, null, 2));
+      }
+    });
 
     async function boot() {
       try {

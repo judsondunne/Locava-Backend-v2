@@ -21,6 +21,31 @@ export const routeContracts: RouteContract[] = [
     bodySchema: { to: "ExponentPushToken[...] required", title: "string optional", body: "string required", data: "object optional" }
   },
   {
+    method: "GET",
+    path: "/api/public/pbf-copier/config",
+    description: "Local-dev public PBF copier defaults (matches /admin/openstreetmap/pbf-copier UI)",
+    tags: ["public", "debug", "osm"]
+  },
+  {
+    method: "GET",
+    path: "/api/public/pbf-copier/dry-run",
+    description: "Local-dev synchronous PBF dry-run returning all accepted previewDocs JSON (zero Firebase writes)",
+    tags: ["public", "debug", "osm"],
+    querySchema: {
+      preset: "admin_page|vermont_full|fast_smoke optional",
+      filePath: "string optional",
+      acceptedLimit: "number (1-5000) optional",
+      maxRawObjectsToScan: "number|null optional",
+      fast: "boolean optional"
+    }
+  },
+  {
+    method: "POST",
+    path: "/api/public/pbf-copier/dry-run",
+    description: "Local-dev synchronous PBF dry-run (POST body same fields as GET query)",
+    tags: ["public", "debug", "osm"]
+  },
+  {
     method: "POST",
     path: "/video-processor",
     description:

@@ -57,9 +57,19 @@
     "inventory:dry-run": "tsx scripts/inventory/dryRunInventoryFixture.ts",
     "inventory:dry-run:fixture": "tsx scripts/inventory/dryRunInventoryFixture.ts",
     "inventory:audit:hartland": "tsx scripts/inventory/auditHartlandOsmMirror.ts",
+    "audit:osm:pbf:map-layer": "tsx scripts/read-only-audit-osm-pbf-map-layer.mts",
+    "audit:map-layer:endpoint": "tsx scripts/read-only-harness-map-layer-endpoint.mts",
+    "audit:map:undiscovered:firestore": "tsx scripts/read-only-audit-hartland-undiscovered-map-layer.mts",
+    "audit:map:undiscovered:endpoints": "tsx scripts/read-only-harness-map-markers-undiscovered.mts",
+    "audit:map:undiscovered:routes": "tsx scripts/read-only-audit-hartland-undiscovered-routes.mts",
+    "audit:map:routes:payload": "tsx scripts/read-only-harness-map-markers-routes-payload.mts",
+    "inventory:download:vt-class4": "tsx scripts/inventory/downloadVtClass4RoadsGeojson.ts",
+    "inventory:offroad:vtrans-dry-run": "tsx scripts/inventory/hartlandVtransClass4DryRun.ts",
     "inventory:commit:emulator": "tsx scripts/inventory/commitInventoryFixtureToEmulator.ts",
     "inventory:tiles:dry-run": "tsx scripts/inventory/buildInventoryTilesDryRun.ts",
     "inventory:tiles:commit:emulator": "tsx scripts/inventory/buildInventoryTilesDryRun.ts",
+    "pbf:review:vt": "tsx scripts/pbf-review-vt.mts",
+    "verify:pbf-copier-v2-trails": "vitest run src/admin/openstreetmap/national/pbfCopier/pbfCopierV2TrailLines.integration.test.ts",
     "typecheck": "tsc --noEmit",
     "check:logging": "node scripts/check-logging-cleanup.js",
     "test:logging": "vitest run src/lib/logging/debug-log.test.ts",
@@ -106,6 +116,7 @@
     "test:feed.for-you.simple": "vitest run src/routes/v2/feed-for-you-simple.routes.test.ts src/services/surfaces/feed-for-you-simple.native-contract.test.ts src/services/surfaces/feed-for-you-simple-tier.test.ts src/services/surfaces/feed-for-you-simple-cursor.test.ts src/services/surfaces/feed-for-you-simple-cursor-chain.test.ts src/services/surfaces/feed-for-you-simple-author-diversity.test.ts src/services/surfaces/feed-for-you-simple-serving-mode.test.ts src/services/surfaces/feed-for-you-simple.service-phase.test.ts src/services/surfaces/for-you-v5-get-page.test.ts src/services/surfaces/for-you-simple-route-variant.test.ts src/services/surfaces/feed-for-you-simple-v5-gate.test.ts",
     "audit:feed:for-you-simple-performance": "READ_ONLY_LATENCY_AUDIT=1 tsx scripts/auditForYouSimplePerformance.mts",
     "verify:for-you-v5:readonly": "tsx scripts/verify-for-you-v5-readonly.mts",
+    "verify:for-you-repeat:readonly": "tsx scripts/verify-for-you-repeat-readonly.mts",
     "verify:for-you-v5:local-production-like": "tsx scripts/verify-for-you-v5-local-production-like.mts",
     "debug:feed-for-you": "tsx scripts/debug-feed-for-you.mts",
     "debug:feed-for-you:simple": "node scripts/safety/refuse-dangerous-script.cjs debug:feed-for-you:simple",
@@ -155,7 +166,6 @@
     "test:contract-v2": "vitest run src/contracts/posts/postContractV2.test.ts src/contracts/posts/audit-safe-repairs.test.ts src/services/posting/native-async-video-post-complete.fieldvalue-delete.test.ts src/services/video/hdr-poster-pipeline.test.ts"
   },
   "dependencies": {
-    "@locava/contracts": "file:../locava-contracts",
     "@aws-sdk/client-s3": "^3.1036.0",
     "@aws-sdk/lib-storage": "^3.1036.0",
     "@aws-sdk/s3-request-presigner": "^3.1036.0",
@@ -163,6 +173,7 @@
     "@fastify/multipart": "^9.4.0",
     "@google-cloud/bigquery": "^8.3.0",
     "@google-cloud/tasks": "^5.5.2",
+    "@locava/contracts": "file:../locava-contracts",
     "@loskir/styled-qr-code-node": "^1.5.2",
     "@opentelemetry/api": "^1.9.0",
     "canvas": "^3.2.1",
@@ -179,5 +190,8 @@
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
     "vitest": "^3.1.3"
+  },
+  "optionalDependencies": {
+    "osm-pbf-parser-node": "^1.1.4"
   }
 }

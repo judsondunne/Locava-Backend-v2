@@ -111,6 +111,8 @@ const EnvSchema = z.object({
     .min(MAP_MARKERS_MIN_DOCS)
     .max(MAP_MARKERS_INDEX_PAGE_ABS_MAX)
     .default(5000),
+  /** GET /v2/map/layers/undiscovered lightweight map layer (v1). Default on; set false to disable. */
+  ENABLE_UNDISCOVERED_MAP_LAYER_V1: z.coerce.boolean().default(true),
   /**
    * When set, `/v2/map/current-weather` uses OpenWeather current weather (commercial-friendly).
    * When unset, the route uses Open-Meteo (free, non-commercial terms — use OWM key in production apps with ads/subscriptions).

@@ -34,7 +34,7 @@ export function buildLocavaInventorySpot(
 ): LocavaInventorySpot {
   const name = classification.name ?? classification.primaryCategory ?? "Unnamed spot";
   const normalizedName = classification.normalizedName ?? normalizeLocavaName(name) ?? name.toLowerCase();
-  const category = classification.primaryCategory ?? "natural_feature";
+  const category = classification.primaryCategory ?? "unknown";
   const bbox = {
     minLat: feature.lat,
     minLng: feature.lng,
@@ -118,8 +118,17 @@ export function dedupeLocavaInventory(input: {
 
   for (const route of uniqueRoutes.sort((a, b) => b.locavaScore - a.locavaScore)) {
     const dup = keptRoutes.find((existing) => {
-      if (existing.normalizedName !== route.normalizedName) return false;
-      return haversineMeters(existing.center, route.center) <= NEAR_DUPLICATE_METERS;
+      const sameName =
+        existing.normalizedName === route.normalizedName &&
+        existing.normalizedName.length > 2;
+      const sameRelationParent =
+        existing.sourceType === "relation" &&
+        route.sourceType === "way" &&
+        route.tags.route != null &&
+        existing.normalizedName === route.normalizedName;
+      if (!sameName && !sameRelationParent) return false;
+      const mergeRadius = sameRelationParent ? NEAR_DUPLICATE_METERS * 4 : NEAR_DUPLICATE_METERS * 2;
+      return haversineMeters(existing.center, route.center) <= mergeRadius;
     });
     if (dup) {
       duplicatesSuppressed += 1;

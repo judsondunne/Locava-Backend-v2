@@ -7,6 +7,7 @@ import {
 } from "./post-firestore-projection.js";
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { buildSafeDisplayTextBlock } from "../../lib/posts/displayText.js";
+import { countPostLikesSubcollection } from "../surfaces/post-likes-subcollection-count.js";
 
 export type FirestoreProfilePostDetail = {
   postId: string;
@@ -91,11 +92,12 @@ export class ProfilePostDetailFirestoreAdapter {
   async getPostDetail(input: { userId: string; postId: string; viewerId: string }): Promise<{ data: FirestoreProfilePostDetail; queryCount: number; readCount: number }> {
     if (!this.db) throw new Error("firestore_source_unavailable");
     const { userId, postId, viewerId } = input;
-    const [postDoc, userDoc, likedDoc] = await withTimeout(
+    const [postDoc, userDoc, likedDoc, likeCountFromSub] = await withTimeout(
       Promise.all([
         this.db.collection("posts").doc(postId).get(),
         this.db.collection("users").doc(userId).get(),
-        this.db.collection("posts").doc(postId).collection("likes").doc(viewerId).get()
+        this.db.collection("posts").doc(postId).collection("likes").doc(viewerId).get(),
+        countPostLikesSubcollection(this.db, postId)
       ]),
       ProfilePostDetailFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
       "profile-post-detail-firestore"
@@ -106,10 +108,11 @@ export class ProfilePostDetailFirestoreAdapter {
         userId,
         viewerId,
         userDoc,
-        likedDoc
+        likedDoc,
+        likeCountFromSubcollection: likeCountFromSub
       }),
-      queryCount: 3,
-      readCount: 3
+      queryCount: 4,
+      readCount: 4
     };
   }
 
@@ -130,10 +133,11 @@ export class ProfilePostDetailFirestoreAdapter {
         ? raw.userId.trim()
         : null;
     if (!userId) return null;
-    const [userDoc, likedDoc] = await withTimeout(
+    const [userDoc, likedDoc, likeCountFromSub] = await withTimeout(
       Promise.all([
         this.db.collection("users").doc(userId).get(),
-        this.db.collection("posts").doc(input.postId).collection("likes").doc(input.viewerId).get()
+        this.db.collection("posts").doc(input.postId).collection("likes").doc(input.viewerId).get(),
+        countPostLikesSubcollection(this.db, input.postId)
       ]),
       ProfilePostDetailFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
       "profile-post-detail-by-id-hydration"
@@ -144,10 +148,11 @@ export class ProfilePostDetailFirestoreAdapter {
         userId,
         viewerId: input.viewerId,
         userDoc,
-        likedDoc
+        likedDoc,
+        likeCountFromSubcollection: likeCountFromSub
       }),
-      queryCount: 3,
-      readCount: 3
+      queryCount: 4,
+      readCount: 4
     };
   }
 }
@@ -158,6 +163,7 @@ function mapProfilePostDetail(input: {
   viewerId: string;
   userDoc: DocumentSnapshot;
   likedDoc: DocumentSnapshot;
+  likeCountFromSubcollection?: number;
 }): FirestoreProfilePostDetail {
   if (!input.postDoc.exists) throw new Error("post_not_found_for_profile");
   const raw = input.postDoc.data() as Record<string, unknown>;
@@ -202,7 +208,10 @@ function mapProfilePostDetail(input: {
   const description =
     normalizeNullable(safe.description) ?? normalizeNullable(safe.caption) ?? normalizeNullable(safe.content);
   const mediaType = inferPostMediaType(raw);
-  const likeCount = normalizeCounter(postData.likeCount ?? postData.likesCount);
+  const likeCount =
+    typeof input.likeCountFromSubcollection === "number" && Number.isFinite(input.likeCountFromSubcollection)
+      ? Math.max(0, Math.floor(input.likeCountFromSubcollection))
+      : normalizeCounter(postData.likeCount ?? postData.likesCount);
   const likesArr = Array.isArray(postData.likes) ? postData.likes : [];
   const likedViaArray = likesArr.some(
     (value) => value === input.viewerId || (typeof value === "object" && value && "userId" in value && (value as { userId?: string }).userId === input.viewerId)
