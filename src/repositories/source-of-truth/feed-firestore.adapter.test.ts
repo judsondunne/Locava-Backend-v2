@@ -111,4 +111,88 @@ describe("feed firestore adapter following feed", () => {
     expect(page.items.map((item) => item.postId)).toEqual(["post-2", "post-1"]);
     expect(page.items.map((item) => item.authorId)).toEqual(["author-b", "author-a"]);
   });
+
+  it("keeps hasMore while a single followed author still has posts beyond the first window", async () => {
+    const authorPosts = Array.from({ length: 30 }, (_, index) => {
+      const rank = 30 - index;
+      return buildPostDoc(`post-${rank}`, {
+        userId: "author-heavy",
+        time: 1_714_000_000 + rank,
+        createdAtMs: (1_714_000_000 + rank) * 1000,
+        updatedAtMs: (1_714_000_000 + rank) * 1000,
+        displayPhotoLink: `https://example.com/post-${rank}.jpg`,
+        mediaType: "image",
+      });
+    });
+
+    const db = {
+      collection: (name: string) => {
+        if (name === "users") {
+          return {
+            doc: (_viewerId: string) => ({
+              get: async () => ({
+                exists: true,
+                data: () => ({ following: ["author-heavy"] }),
+              }),
+              collection: (sub: string) => {
+                if (sub === "feed") {
+                  return {
+                    orderBy: (_field: string, _dir: string) => ({
+                      limit: (_limit: number) => ({
+                        get: async () => ({ size: 0, docs: [] }),
+                      }),
+                    }),
+                  };
+                }
+                if (sub === "following") {
+                  return {
+                    limit: (_limit: number) => ({
+                      get: async () => ({ size: 1, docs: [{ id: "author-heavy" }] }),
+                    }),
+                  };
+                }
+                throw new Error(`unexpected_subcollection:${sub}`);
+              },
+            }),
+          };
+        }
+        if (name === "posts") {
+          return {
+            where: (_field: string, _op: string, ids: string[]) => ({
+              orderBy: (_orderField: string, _dir: string) => ({
+                select: (..._fields: string[]) => ({
+                  limit: (limit: number) => ({
+                    get: async () => {
+                      const docs = authorPosts
+                        .filter((doc) => ids.includes(String(doc.data().userId ?? "")))
+                        .slice(0, limit);
+                      return { size: docs.length, docs };
+                    },
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        throw new Error(`unexpected_collection:${name}`);
+      },
+    };
+
+    vi.spyOn(firestoreClient, "getFirestoreSourceClient").mockReturnValue(db as never);
+    vi.spyOn(globalCache, "get").mockResolvedValue(undefined);
+    vi.spyOn(globalCache, "set").mockResolvedValue(undefined);
+
+    const adapter = new FeedFirestoreAdapter();
+    const page = await adapter.getFeedCandidatesPage({
+      viewerId: "viewer-1",
+      tab: "following",
+      cursorOffset: 10,
+      limit: 5,
+    });
+
+    expect(page.items).toHaveLength(5);
+    expect(page.items[0]?.postId).toBe("post-20");
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBe("cursor:15");
+  });
 });

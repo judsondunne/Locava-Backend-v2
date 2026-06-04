@@ -86,6 +86,10 @@ export class ChatsService {
       originalUrl?: string;
     };
     postId: string | null;
+    sourceCollection?: "posts" | "unexploredSpots" | "unexploredRoutes" | null;
+    itemType?: "post" | "unexploredSpot" | "unexploredRoute" | null;
+    postSource?: string | null;
+    sharedPostPreview?: Record<string, unknown> | null;
     replyingToMessageId: string | null;
     clientMessageId: string | null;
   }) {

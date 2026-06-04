@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizePostVisibilityForWrite } from "./postVisibilityNormalize.js";
 import {
   buildRouteSummaryForMapMarker,
   routeMapPreviewFromDoc,
@@ -377,11 +378,14 @@ function buildClaimedRouteFirestoreFields(input: {
     undiscoveredRouteId: input.undiscoveredRouteId,
     sourceUnexploredRouteId: input.undiscoveredRouteId,
     routeId: input.undiscoveredRouteId,
-    privacy: routePrivacyLabel,
+    /** Top-level privacy mirrors visibility for native finalize; label lives on classification.privacyLabel. */
+    privacy: "public",
+    visibility: "public",
     ...(input.routeName ? { routeName: input.routeName, title: input.routeName } : {}),
     ...(routeActivity ? { routeActivity, routeKind: routeActivity, routeType: routeActivity } : {}),
     ...(input.category ? { category: input.category } : {}),
     classification: {
+      visibility: normalizePostVisibilityForWrite("public"),
       privacyLabel: routePrivacyLabel,
       settingType: "outdoor",
     },

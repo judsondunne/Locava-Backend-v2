@@ -51,6 +51,13 @@ describe("normalizeMasterPostV2", () => {
     expect(result.canonical.schema.version).toBe(2);
     expect(result.canonical.classification.visibility).toBe("public");
     expect(result.canonical.classification.privacyLabel).toBe("Public Spot");
+
+    const routePrivacy = normalizeMasterPostV2(
+      { ...raw, privacy: "Public Route", mediaType: "video" },
+      { postId: "post_route_claim" },
+    );
+    expect(routePrivacy.canonical.classification.visibility).toBe("public");
+    expect(routePrivacy.canonical.classification.privacyLabel).toBe("Public Route");
     expect(result.canonical.classification.source).not.toBe("video");
     expect(result.canonical.classification.moderatorTier).toBe(0);
     expect(result.canonical.location.coordinates.geohash).toBe("dr4x27dhh");

@@ -6,6 +6,12 @@ import { readPostOrderMillis } from "./post-firestore-projection.js";
 import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
 import { buildSafeDisplayTextBlock, sanitizeDisplayFieldValue } from "../../lib/posts/displayText.js";
 import { getFollowingFeedCacheGeneration } from "../../lib/feed/following-feed-cache-generation.js";
+import {
+  computeFollowingFetchTarget,
+  computeFollowingPageHasMore,
+  computeFollowingPerChunkLimit,
+  computeFollowingSourceExhausted
+} from "../../lib/feed/following-feed-pagination.js";
 
 export type FirestoreFeedCandidate = {
   /** Firestore document ID — canonical post id */
@@ -204,10 +210,15 @@ export class FeedFirestoreAdapter {
     const cached = await globalCache.get<{ ranked: FirestoreFeedCandidate[]; sourceExhausted: boolean }>(cacheKey);
     if (cached && (cached.sourceExhausted || cached.ranked.length >= requiredCandidateCount) && cursorOffset <= cached.ranked.length) {
       const endExclusive = Math.min(cached.ranked.length, cursorOffset + limit);
+      const hasMore = computeFollowingPageHasMore({
+        endExclusive,
+        rankedLength: cached.ranked.length,
+        sourceExhausted: cached.sourceExhausted
+      });
       return {
         items: cached.ranked.slice(cursorOffset, endExclusive),
-        hasMore: endExclusive < cached.ranked.length || cached.sourceExhausted === false,
-        nextCursor: endExclusive < cached.ranked.length || cached.sourceExhausted === false ? `cursor:${endExclusive}` : null,
+        hasMore,
+        nextCursor: hasMore ? `cursor:${endExclusive}` : null,
         queryCount: 0,
         readCount: 0
       };
@@ -341,10 +352,15 @@ export class FeedFirestoreAdapter {
       };
     }
     const endExclusive = Math.min(ranked.length, cursorOffset + limit);
+    const hasMore = computeFollowingPageHasMore({
+      endExclusive,
+      rankedLength: ranked.length,
+      sourceExhausted
+    });
     return {
       items: ranked.slice(cursorOffset, endExclusive),
-      hasMore: endExclusive < ranked.length || sourceExhausted === false,
-      nextCursor: endExclusive < ranked.length || sourceExhausted === false ? `cursor:${endExclusive}` : null,
+      hasMore,
+      nextCursor: hasMore ? `cursor:${endExclusive}` : null,
       queryCount,
       readCount
     };
@@ -382,9 +398,15 @@ export class FeedFirestoreAdapter {
     cursorOffset: number;
     limit: number;
   }): Promise<{ items: FirestoreFeedCandidate[]; queryCount: number; readCount: number; sourceExhausted: boolean }> {
-    const target = Math.min(Math.max(input.requiredCandidateCount + 8, input.limit + 4), FeedFirestoreAdapter.FOLLOWING_MAX_READS);
+    const target = computeFollowingFetchTarget({
+      requiredCandidateCount: input.requiredCandidateCount,
+      limit: input.limit,
+      scanFloor: FeedFirestoreAdapter.FILTERED_SCAN_FLOOR,
+      maxTarget: FeedFirestoreAdapter.MAX_SCAN_LIMIT
+    });
     let queryCount = 0;
     let readCount = 0;
+    let anyChunkReturnedFullLimit = false;
     const byId = new Map<string, FirestoreFeedCandidate>();
 
     // Option A: viewer fanout feed collection if present.
@@ -421,7 +443,10 @@ export class FeedFirestoreAdapter {
       for (const chunk of chunks) {
         if (chunk.length === 0) continue;
         if (readCount >= FeedFirestoreAdapter.FOLLOWING_MAX_READS || queryCount >= FeedFirestoreAdapter.FOLLOWING_MAX_QUERIES || byId.size >= target) break;
-        const perChunkLimit = Math.max(4, Math.min(12, target - byId.size));
+        const perChunkLimit = computeFollowingPerChunkLimit({
+          requiredCandidateCount: input.requiredCandidateCount,
+          remainingTarget: target - byId.size
+        });
         const snap = await withTimeout(
           this.db!
             .collection("posts")
@@ -436,6 +461,9 @@ export class FeedFirestoreAdapter {
         if (!snap) continue;
         queryCount += 1;
         readCount += snap.size;
+        if (snap.size >= perChunkLimit) {
+          anyChunkReturnedFullLimit = true;
+        }
         for (const doc of snap.docs) {
           const candidate = mapDocToCandidate(doc);
           byId.set(candidate.postId, candidate);
@@ -446,11 +474,16 @@ export class FeedFirestoreAdapter {
     const ordered = [...byId.values()].sort((a, b) =>
       a.createdAtMs === b.createdAtMs ? b.postId.localeCompare(a.postId) : b.createdAtMs - a.createdAtMs
     );
+    const sourceExhausted = computeFollowingSourceExhausted({
+      hitReadBudget: readCount >= FeedFirestoreAdapter.FOLLOWING_MAX_READS,
+      hitQueryBudget: queryCount >= FeedFirestoreAdapter.FOLLOWING_MAX_QUERIES,
+      anyChunkReturnedFullLimit
+    });
     return {
       items: ordered.slice(0, target),
       queryCount,
       readCount,
-      sourceExhausted: readCount < FeedFirestoreAdapter.FOLLOWING_MAX_READS
+      sourceExhausted
     };
   }
 

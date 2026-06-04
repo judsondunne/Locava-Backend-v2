@@ -1765,10 +1765,17 @@ export class PostingMutationService {
       instantPlaybackReady
     });
 
+    const classificationForLog =
+      firestoreWrite.classification && typeof firestoreWrite.classification === "object"
+        ? (firestoreWrite.classification as Record<string, unknown>)
+        : null;
     console.info("[posting.finalize]", {
       event: "native_canonical_post",
       finalizePath: "native_v2",
       postId,
+      isClaimedRoute: Boolean(input.claimedRoutePost),
+      classificationVisibility: classificationForLog?.visibility ?? null,
+      classificationPrivacyLabel: classificationForLog?.privacyLabel ?? null,
       mediaCount: input.stagedItems.length,
       mediaTypes: input.stagedItems.map((r) => r.assetType),
       hasVideo: assembled.hasVideo,

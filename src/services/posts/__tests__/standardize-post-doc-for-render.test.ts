@@ -410,4 +410,32 @@ describe("standardizePostDocForRender", () => {
       );
     }
   });
+
+  it("coerces route claim classification.visibility unknown after route field merge", () => {
+    const raw = baseVideoDoc({
+      isRoute: true,
+      postType: "route",
+      routeSource: "undiscovered_claim",
+      privacy: "Public Route",
+      classification: {
+        visibility: "unknown",
+        privacyLabel: "Public Route",
+        mediaKind: "video",
+        activities: [],
+        primaryActivity: "",
+        isBoosted: false,
+        reel: false,
+        settingType: "outdoor",
+        moderatorTier: 0,
+        source: "user",
+      },
+    });
+    const result = standardizePostDocForRender(raw, POST_ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const parsed = StandardizedPostDocSchema.safeParse(result.doc);
+    expect(parsed.success).toBe(true);
+    expect(result.doc.classification.visibility).toBe("public");
+    expect(result.doc.classification.privacyLabel).toBe("Public Route");
+  });
 });

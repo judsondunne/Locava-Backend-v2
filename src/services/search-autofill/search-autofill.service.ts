@@ -167,14 +167,34 @@ function inferRelatedActivities(query: string, detectedActivity: string | null, 
   return out;
 }
 
-function shouldAwaitPlacesIndexForSuggest(query: string, intent: SearchQueryIntent): boolean {
+function hasStrongActivityPrefix(query: string): boolean {
+  const n = normalizeSearchText(query);
+  if (!n) return false;
+  const top = resolveActivitySuggestions(n, 1)[0];
+  if (!top) return false;
+  const terms = [top.canonical, ...top.matchedTerms].map((t) => normalizeSearchText(t));
+  return terms.some((t) => t.startsWith(n) || n.startsWith(t));
+}
+
+function looksLikeBarePlacePrefixQuery(query: string, intent: SearchQueryIntent): boolean {
   const n = normalizeSearchText(query);
   if (n.length < 3) return false;
+  if (intent.activity?.canonical || intent.hasExplicitLocation || intent.location) return false;
+  if (/\b(in|near|around|by)\s+/.test(n)) return false;
+  if (hasStrongActivityPrefix(n)) return false;
+  if (/^(best|easy|good|fun|short|family|cool)\b/.test(n)) return false;
+  return n.split(/\s+/).filter(Boolean).length === 1;
+}
+
+function shouldAwaitPlacesIndexForSuggest(query: string, intent: SearchQueryIntent): boolean {
+  const n = normalizeSearchText(query);
+  if (n.length < 2) return false;
   if (intent.activity?.canonical) return false;
   const tokens = n.split(/\s+/).filter(Boolean);
   if (tokens.length >= 2) return true;
-  if (intent.location) return true;
-  return n.length >= 6;
+  if (intent.location || intent.hasExplicitLocation) return true;
+  if (n.length >= 6) return true;
+  return looksLikeBarePlacePrefixQuery(query, intent);
 }
 
 /** Multi-token typing that looks like "City ST" / "City State", not activity sentences. */
@@ -222,7 +242,13 @@ function maybeAddFallbackTemplates(input: {
   } else if (!skipViewerLocMods && (query.startsWith("wat") || query.startsWith("water"))) {
     suffixes.push("Waterfall hike near me", "Waterfall hikes near me", "Best waterfall hikes near me");
     if (city) suffixes.push(`Waterfalls in ${city}`);
-  } else if (!skipViewerLocMods && (input.detectedActivity === "hiking" || query.startsWith("h"))) {
+  } else if (
+    !skipViewerLocMods &&
+    (input.detectedActivity === "hiking" ||
+      /^hik(e|ing)?\b/.test(query) ||
+      /^hike(s)?\b/.test(query) ||
+      (query === "h" && input.detectedActivity === "hiking"))
+  ) {
     suffixes.push("Hikes near me", "Hiking trails near me", "Best hikes near me");
     if (city) suffixes.push(`Hikes in ${city}`);
   }
@@ -269,6 +295,7 @@ function addSentenceSuggestions(input: {
 }): void {
   if (!input.detectedActivity) return;
   if (!input.locationText) return;
+  if (!/\b(in|near|around|by)\s+[a-z0-9\s]+$/i.test(input.query)) return;
 
   const quality = input.prefixQuality ? titleCaseFirst(input.prefixQuality) : "";
   const location = String(input.locationText).trim();
@@ -632,22 +659,29 @@ export class SearchAutofillService {
     });
 
     const prefersNamedPlaces = looksLikeNamedPlaceTyping(query);
+    const barePlacePrefix = looksLikeBarePlacePrefixQuery(query, intent);
     const ranked = rankAutofillSuggestions(rows, {
       query,
       detectedActivity: inferredDetected,
       cityName: placeContext?.cityName ?? null,
       stateName: placeContext?.stateName ?? null,
       prefixStem: prefixFrame.stem,
-      preferNamedPlaces: prefersNamedPlaces,
+      preferNamedPlaces: prefersNamedPlaces || barePlacePrefix,
     });
 
-    const generatedMixes = this.buildGeneratedMixSuggestions({
-      query,
-      intent,
-      placeContext,
-      relatedActivities: inferredRelated,
-    });
-    const primaryRanked = prefersNamedPlaces ? [...ranked, ...generatedMixes] : [...generatedMixes, ...ranked];
+    const generatedMixes =
+      barePlacePrefix || prefersNamedPlaces
+        ? []
+        : this.buildGeneratedMixSuggestions({
+            query,
+            intent,
+            placeContext,
+            relatedActivities: inferredRelated,
+          });
+    const primaryRanked =
+      prefersNamedPlaces || barePlacePrefix
+        ? [...ranked, ...generatedMixes]
+        : [...generatedMixes, ...ranked];
     let merged = promoteParsedSentenceToFront(query, primaryRanked).slice(0, 12);
 
     const viewerId = String(input.viewerId ?? "").trim();
@@ -685,6 +719,14 @@ export class SearchAutofillService {
 
     const loaderAfter = searchPlacesIndexService.getLoaderDiagnostics();
     const placesFromIndexRows = locationRows.filter((r) => String(r.cityRegionId ?? "").trim().length > 0);
+    const laneCounts = {
+      users: rows.filter((r) => r.type === "user").length,
+      activities: rows.filter((r) => r.type === "activity").length,
+      places: rows.filter((r) => r.type === "town" || r.type === "state").length,
+      sentences: rows.filter((r) => r.type === "sentence").length,
+      mixes: rows.filter((r) => r.type === "mix").length,
+      library: rows.filter((r) => r.suggestionType === "template" && r.type !== "sentence" && r.type !== "mix").length,
+    };
     const suggestDiagnostics: Record<string, unknown> = {
       placesIndexLoaded: loaderAfter.loaded,
       placesIndexLoadedBeforeAwait: placesIndexLoadedBeforeAwait,
@@ -693,7 +735,13 @@ export class SearchAutofillService {
       placesCandidateCount: placesFromIndexRows.length,
       firestoreCandidateCount: 0,
       externalCandidateCount: 0,
-      selectedTopKinds: merged.slice(0, 5).map((r) => r.type),
+      geocoderFallbackUsed: false,
+      hardcodedFallbackUsed: false,
+      laneCounts,
+      barePlacePrefix,
+      preferNamedPlaces: prefersNamedPlaces,
+      selectedTopKinds: merged.slice(0, 8).map((r) => r.type),
+      selectedTopTexts: merged.slice(0, 8).map((r) => r.text),
       query,
       normalizedQuery: normalizeSearchText(query),
       hasLatLng:
@@ -703,6 +751,14 @@ export class SearchAutofillService {
         Number.isFinite(input.lng),
       placesIndexWarming: !loaderAfter.loaded && loaderAfter.loading,
     };
+
+    if (LOG_SEARCH_DEBUG) {
+      debugLog("search", "SEARCH_AUTOFILL_SUGGEST_RANKED", {
+        ...suggestDiagnostics,
+        detectedActivity: inferredDetected,
+        viewerCity: placeContext?.cityName ?? null,
+      });
+    }
 
     return {
       routeName: "search.suggest.get",

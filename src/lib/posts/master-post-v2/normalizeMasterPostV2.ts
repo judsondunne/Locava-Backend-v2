@@ -184,13 +184,7 @@ function classifyMediaKind(assets: Array<{ type: MasterPostAssetTypeV2 }>, media
   return "unknown";
 }
 
-function normalizeVisibility(value: string | null): "public" | "friends" | "private" | "unknown" {
-  const normalized = value?.trim().toLowerCase() ?? "";
-  if (["public", "public spot"].includes(normalized)) return "public";
-  if (["friends", "friends spot"].includes(normalized)) return "friends";
-  if (["private", "private spot"].includes(normalized)) return "private";
-  return "unknown";
-}
+import { normalizePostVisibilityForWrite } from "../postVisibilityNormalize.js";
 
 function resolvePostSource(rawPost: RawPost): "user" | "admin" | "imported" | "seeded" | "unknown" {
   if (toBool(rawPost.isAdminPost) || toBool(rawPost.adminCreated)) return "admin";
@@ -1457,7 +1451,13 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
       activities: Array.isArray(rawPost.activities) ? rawPost.activities.map((v: unknown) => String(v)) : [],
       primaryActivity: Array.isArray(rawPost.activities) ? (rawPost.activities[0] ?? null) : null,
       mediaKind,
-      visibility: normalizeVisibility(toTrimmed(rawPost.privacy, rawPost.visibility)),
+      visibility: normalizePostVisibilityForWrite(
+        toTrimmed(
+          (rawPost.classification as { visibility?: unknown } | undefined)?.visibility,
+          rawPost.privacy,
+          rawPost.visibility,
+        ),
+      ),
       isBoosted: toBool(rawPost.isBoosted, false),
       reel: toBool(rawPost.reel, false),
       settingType: toTrimmed(rawPost.settingType),

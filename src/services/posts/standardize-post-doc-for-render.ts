@@ -36,6 +36,18 @@ import {
   type PostDocLike,
 } from "../../lib/posts/displayText.js";
 import { extractPersistedRouteFieldsForApi } from "../../lib/posts/claimed-route-post.js";
+import {
+  coerceStandardizedVisibility,
+  ensureStandardizedClassificationVisibility,
+  STANDARDIZED_VISIBILITY_VALUES,
+  type StandardizedVisibilityValue,
+} from "../../lib/posts/postVisibilityNormalize.js";
+
+export {
+  coerceStandardizedVisibility,
+  STANDARDIZED_VISIBILITY_VALUES,
+  type StandardizedVisibilityValue,
+} from "../../lib/posts/postVisibilityNormalize.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -199,12 +211,50 @@ function buildAuthor(
   };
 }
 
+function mergeRouteFieldsOntoStandardizedDoc(
+  doc: StandardizedPostDoc,
+  routeFields: UnknownRecord,
+  ctx: { postId: string },
+): void {
+  const { classification: rawCls, ...restRoute } = routeFields;
+  Object.assign(doc as UnknownRecord, restRoute);
+  if (!rawCls || typeof rawCls !== "object") return;
+  const cls = rawCls as UnknownRecord;
+  const coercedVisibility = coerceStandardizedVisibility(cls.visibility, {
+    postId: ctx.postId,
+    logCoercion: true,
+  });
+  doc.classification = {
+    ...doc.classification,
+    visibility: coercedVisibility,
+    privacyLabel:
+      typeof cls.privacyLabel === "string" && cls.privacyLabel.trim()
+        ? cls.privacyLabel.trim()
+        : doc.classification.privacyLabel,
+    settingType:
+      typeof cls.settingType === "string" && cls.settingType.trim()
+        ? cls.settingType.trim()
+        : doc.classification.settingType,
+  };
+  if (asRecord(doc.routeSummary) && asRecord(routeFields.routeSummary)) {
+    (doc as UnknownRecord).routeSummary = {
+      ...(asRecord((doc as UnknownRecord).routeSummary) ?? {}),
+      ...(asRecord(routeFields.routeSummary) ?? {}),
+    };
+  }
+}
+
 function buildClassification(
   raw: UnknownRecord,
   sanitizer: FieldSanitizer,
   derivedMediaKind: "image" | "video" | "mixed" | "text" | "unknown",
+  postId: string,
 ): StandardizedPostDoc["classification"] {
   const cls = asRecord(raw.classification) ?? {};
+  const visibility = coerceStandardizedVisibility(cls.visibility ?? raw.visibility ?? raw.privacy, {
+    postId,
+    logCoercion: true,
+  });
   return {
     activities: sanitizer.stringArray(
       cls.activities ?? raw.activities,
@@ -223,12 +273,7 @@ function buildClassification(
       derivedMediaKind,
       "classification.mediaKind",
     ),
-    visibility: sanitizer.enum(
-      cls.visibility,
-      ["public", "private", "group"],
-      "public",
-      "classification.visibility",
-    ),
+    visibility,
     isBoosted: sanitizer.bool(
       cls.isBoosted ?? raw.isBoosted,
       false,
@@ -998,7 +1043,7 @@ export function standardizePostDocForRender(
 
   const text = buildText(workingDoc, sanitizer);
   const author = buildAuthor(workingDoc, sanitizer);
-  const classification = buildClassification(workingDoc, sanitizer, mediaResult.mediaKind);
+  const classification = buildClassification(workingDoc, sanitizer, mediaResult.mediaKind, postId);
   const compatibility = buildCompatibility(workingDoc, sanitizer, mediaResult.media.cover as unknown as UnknownRecord);
   const engagement = buildEngagement(workingDoc, sanitizer);
   const engagementPreview = buildEngagementPreview(workingDoc, sanitizer);
@@ -1062,13 +1107,7 @@ export function standardizePostDocForRender(
 
   const routeFields = extractPersistedRouteFieldsForApi(workingDoc as Record<string, unknown>);
   if (Object.keys(routeFields).length > 0) {
-    Object.assign(doc, routeFields);
-    if (routeFields.routeSummary) {
-      (doc as Record<string, unknown>).routeSummary = {
-        ...(asRecord((doc as Record<string, unknown>).routeSummary) ?? {}),
-        ...(asRecord(routeFields.routeSummary) ?? {}),
-      };
-    }
+    mergeRouteFieldsOntoStandardizedDoc(doc, routeFields as UnknownRecord, { postId });
   }
 
   return { ok: true, doc, sanitizedFields: sanitizer.sanitizedFields };

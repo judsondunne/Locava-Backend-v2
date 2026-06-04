@@ -80,4 +80,18 @@ describe("claimed-route-post", () => {
     expect(extracted.sourceUnexploredRouteId).toBe("route_api");
     expect(extracted.privacy).toBe("Public Route");
   });
+
+  it("writes public visibility on new claimed route finalize fields", () => {
+    const fields = buildClaimedRouteFieldsFromClientPayload({
+      undiscoveredRouteId: "route_vis",
+      routeSource: "undiscovered_claim",
+      routeSummary: { encodedPolyline: SAMPLE_POLYLINE },
+    });
+    expect(fields).not.toBeNull();
+    expect(fields?.privacy).toBe("public");
+    expect(fields?.visibility).toBe("public");
+    const cls = fields?.classification as Record<string, unknown>;
+    expect(cls.visibility).toBe("public");
+    expect(cls.privacyLabel).toBe("Public Route");
+  });
 });

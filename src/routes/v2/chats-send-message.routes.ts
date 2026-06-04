@@ -48,6 +48,10 @@ export async function registerV2ChatsSendMessageRoutes(app: FastifyInstance): Pr
         gifUrl: body.gifUrl ?? null,
         gif: body.gif ?? null,
         postId: body.postId?.trim() ?? null,
+        sourceCollection: body.sourceCollection ?? null,
+        itemType: body.itemType ?? null,
+        postSource: body.postSource ?? null,
+        sharedPostPreview: body.sharedPostPreview ?? null,
         replyingToMessageId: body.replyingToMessageId ?? null,
         clientMessageId: body.clientMessageId ?? null
       });

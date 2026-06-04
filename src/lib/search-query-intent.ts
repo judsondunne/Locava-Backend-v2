@@ -136,6 +136,13 @@ const ACTIVITY_DEFINITIONS: ActivityDefinition[] = [
     relatedActivities: ["walking", "forest", "mountain", "view", "views"],
   },
   {
+    canonical: "skiing",
+    label: "Skiing",
+    terms: ["ski", "skis", "skiing", "skier", "skiers", "snowboard", "snowboarding"],
+    queryActivities: ["skiing", "mountain", "winter"],
+    relatedActivities: ["mountain", "hiking"],
+  },
+  {
     canonical: "biking",
     label: "Biking",
     terms: ["bike", "bikes", "biking", "bicycle", "bicycles", "cycling", "ride", "rides", "riding"],

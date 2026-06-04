@@ -21,6 +21,9 @@ type MessageRecord = {
   photoUrl?: string | null;
   gif?: MessageSummary["gif"];
   postId?: string | null;
+  sourceCollection?: "posts" | "unexploredSpots" | "unexploredRoutes";
+  itemType?: "post" | "unexploredSpot" | "unexploredRoute";
+  sharedPostPreview?: Record<string, unknown>;
   post?: Record<string, unknown>;
   createdAtMs: number;
   replyToMessageId: string | null;
@@ -47,6 +50,10 @@ type SendTextMessageInput = {
     originalUrl?: string;
   };
   postId: string | null;
+  sourceCollection?: "posts" | "unexploredSpots" | "unexploredRoutes" | null;
+  itemType?: "post" | "unexploredSpot" | "unexploredRoute" | null;
+  postSource?: string | null;
+  sharedPostPreview?: Record<string, unknown> | null;
   replyingToMessageId: string | null;
   clientMessageId: string | null;
 };
@@ -780,6 +787,16 @@ export class ChatsRepository {
       for (const [k, v] of Object.entries(rawReactions)) {
         if (typeof v === "string" && v.length > 0) reactions[k] = v;
       }
+      const sourceCollection =
+        typeof data.sourceCollection === "string" && data.sourceCollection.trim()
+          ? data.sourceCollection.trim()
+          : undefined;
+      const itemType =
+        typeof data.itemType === "string" && data.itemType.trim() ? data.itemType.trim() : undefined;
+      const sharedPostPreview =
+        data.sharedPostPreview && typeof data.sharedPostPreview === "object"
+          ? (data.sharedPostPreview as Record<string, unknown>)
+          : undefined;
       return {
         messageId: doc.id,
         conversationId: input.conversationId,
@@ -790,6 +807,9 @@ export class ChatsRepository {
         photoUrl: messageType === "photo" ? photoUrl : undefined,
         gif: messageType === "gif" ? gif : undefined,
         postId: messageType === "post" ? postId : undefined,
+        ...(sourceCollection ? { sourceCollection: sourceCollection as "posts" | "unexploredSpots" | "unexploredRoutes" } : {}),
+        ...(itemType ? { itemType: itemType as "post" | "unexploredSpot" | "unexploredRoute" } : {}),
+        ...(sharedPostPreview ? { sharedPostPreview } : {}),
         post: messageType === "post" && postId ? threadPostById.get(postId) : undefined,
         createdAtMs: toMillis(data.timestamp),
         replyToMessageId: typeof data.replyToMessageId === "string" ? data.replyToMessageId : null,
@@ -962,6 +982,18 @@ export class ChatsRepository {
     else if (input.messageType === "post") {
       if (!input.postId) throw new ChatsRepositoryError("conversation_not_found", "postId is required for post messages.");
       messagePayload.postId = input.postId;
+      if (typeof input.sourceCollection === "string" && input.sourceCollection.trim()) {
+        messagePayload.sourceCollection = input.sourceCollection.trim();
+      }
+      if (typeof input.itemType === "string" && input.itemType.trim()) {
+        messagePayload.itemType = input.itemType.trim();
+      }
+      if (typeof input.postSource === "string" && input.postSource.trim()) {
+        messagePayload.postSource = input.postSource.trim();
+      }
+      if (input.sharedPostPreview && typeof input.sharedPostPreview === "object") {
+        messagePayload.sharedPostPreview = input.sharedPostPreview;
+      }
       if (typeof input.text === "string" && input.text.trim().length > 0) {
         messagePayload.content = input.text;
       }

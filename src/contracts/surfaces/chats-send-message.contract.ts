@@ -2,6 +2,37 @@ import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { GifAttachmentSchema, MessageSummarySchema } from "../entities/chat-message-entities.contract.js";
 
+const SharedPostPreviewSchema = z
+  .object({
+    title: z.string().trim().max(240).optional(),
+    thumbUrl: z.string().trim().max(2048).optional(),
+    displayPhotoLink: z.string().trim().max(2048).optional(),
+    photoLink: z.string().trim().max(2048).optional(),
+    poster: z.string().trim().max(2048).optional(),
+    thumbnail: z.string().trim().max(2048).optional(),
+    firstActivity: z.string().trim().max(120).optional(),
+    activities: z.array(z.string().trim().max(120)).max(12).optional(),
+    lat: z.number().finite().optional(),
+    lng: z.number().finite().optional(),
+    lon: z.number().finite().optional(),
+    long: z.number().finite().optional(),
+    address: z.string().trim().max(400).optional(),
+    locationName: z.string().trim().max(400).optional(),
+    undiscoveredLabel: z.string().trim().max(240).optional(),
+    isRoute: z.boolean().optional(),
+    sourceCollection: z.enum(["posts", "unexploredSpots", "unexploredRoutes"]).optional(),
+    itemType: z.enum(["post", "unexploredSpot", "unexploredRoute"]).optional(),
+    routeSummary: z.record(z.unknown()).optional(),
+    routePreviewCoordinates: z
+      .array(z.object({ lat: z.number().finite(), lon: z.number().finite() }))
+      .max(512)
+      .optional(),
+    undiscoveredIconName: z.string().trim().max(64).optional(),
+    undiscoveredColorKey: z.string().trim().max(64).optional(),
+    undiscoveredMarkerColor: z.string().trim().max(32).optional()
+  })
+  .strict();
+
 export const ChatsSendMessageParamsSchema = z.object({
   conversationId: z.string().min(1)
 });
@@ -14,6 +45,10 @@ export const ChatsSendMessageBodySchema = z
     gifUrl: z.string().url().optional(),
     gif: GifAttachmentSchema.optional(),
     postId: z.string().trim().min(4).max(128).optional(),
+    sourceCollection: z.enum(["posts", "unexploredSpots", "unexploredRoutes"]).optional(),
+    itemType: z.enum(["post", "unexploredSpot", "unexploredRoute"]).optional(),
+    postSource: z.enum(["posts", "undiscovered", "undiscoveredPost"]).optional(),
+    sharedPostPreview: SharedPostPreviewSchema.optional(),
     clientMessageId: z.string().trim().min(8).max(128).optional(),
     replyingToMessageId: z.string().trim().min(1).max(128).optional()
   })

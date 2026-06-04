@@ -16,6 +16,21 @@ function distanceMilesApprox(a: { lat: number; lng: number }, b: { lat: number; 
   return Math.sqrt(dx * dx + dy * dy) * 69;
 }
 
+/** Prefix / token-prefix match only — avoids "hart" matching "hanover" via substring. */
+export function matchesPlaceSearchKey(searchKey: string, query: string): boolean {
+  const key = normalizeSearchText(searchKey);
+  const q = normalizeSearchText(query);
+  if (q.length < 2 || key.length < 2) return false;
+  if (key === q) return true;
+  if (key.startsWith(q) || q.startsWith(key)) return true;
+  const tokens = q.split(/\s+/).filter(Boolean);
+  if (tokens.some((tok) => tok.length >= 2 && key.startsWith(tok))) return true;
+  const idx = key.indexOf(q);
+  if (idx < 0) return false;
+  if (idx === 0) return true;
+  return key[idx - 1] === " ";
+}
+
 type PlaceRow = {
   name?: string;
   asciiName?: string;
@@ -375,12 +390,7 @@ class SearchPlacesIndexService {
           const stateNorm = normalizeSearchText(stateName);
           const matches = bucket.filter((row) => {
             if (normalizeSearchText(row.stateName) !== stateNorm) return false;
-            return (
-              row.searchKey.startsWith(cityNorm) ||
-              cityNorm.startsWith(row.searchKey) ||
-              row.searchKey.includes(cityNorm) ||
-              cityNorm.includes(row.searchKey)
-            );
+            return matchesPlaceSearchKey(row.searchKey, cityNorm);
           });
           const ranked = this.rankPlaceCandidates(matches, q, cityNorm, viewer);
           return this.mergePlaces(seedMatches, ranked, limit);
@@ -389,7 +399,7 @@ class SearchPlacesIndexService {
     }
 
     const bucket = this.prefixMap.get(q.slice(0, 3)) ?? [];
-    const fullMatches = bucket.filter((row) => row.searchKey.includes(q));
+    const fullMatches = bucket.filter((row) => matchesPlaceSearchKey(row.searchKey, q));
     const rankedSingle = this.rankPlaceCandidates(fullMatches, q, q, viewer);
     return this.mergePlaces(seedMatches, rankedSingle, limit);
   }
@@ -517,8 +527,9 @@ class SearchPlacesIndexService {
     const normalized = normalizeSearchText(query);
     if (normalized.length < 2) return [];
     const ranked = this.seedEntries
-      .filter(({ searchKey, place }) =>
-        searchKey.includes(normalized) || place.searchKey.includes(normalized),
+      .filter(
+        ({ searchKey, place }) =>
+          matchesPlaceSearchKey(searchKey, normalized) || matchesPlaceSearchKey(place.searchKey, normalized),
       )
       .sort((a, b) => {
         const aStarts = a.searchKey.startsWith(normalized) || a.place.searchKey.startsWith(normalized) ? 1 : 0;

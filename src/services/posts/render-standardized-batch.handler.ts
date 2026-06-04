@@ -41,6 +41,7 @@ import {
 } from "../../contracts/standardized-post-doc.contract.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 import { incrementDbOps } from "../../observability/request-context.js";
+import { ensureStandardizedClassificationVisibility } from "../../lib/posts/postVisibilityNormalize.js";
 import { standardizePostDocForRender } from "./standardize-post-doc-for-render.js";
 
 export type RenderStandardizedBatchInput = {
@@ -189,11 +190,24 @@ function logReturned(
   });
 }
 
+function readRawClassificationVisibility(data: Record<string, unknown> | null | undefined): unknown {
+  if (!data) return null;
+  const cls = data.classification;
+  if (cls && typeof cls === "object") return (cls as Record<string, unknown>).visibility;
+  const app = data.appPostV2 ?? data.appPost;
+  if (app && typeof app === "object") {
+    const appCls = (app as Record<string, unknown>).classification;
+    if (appCls && typeof appCls === "object") return (appCls as Record<string, unknown>).visibility;
+  }
+  return data.visibility ?? data.privacy ?? null;
+}
+
 function logRejected(
   postId: string,
   surface: string | null,
   reason: string,
   detail: string | string[] | null,
+  rawDoc?: Record<string, unknown> | null,
 ): void {
   // eslint-disable-next-line no-console
   console.info("RENDER_STANDARDIZED_BATCH_DOC_REJECTED", {
@@ -201,6 +215,7 @@ function logRejected(
     surface,
     reason,
     detail,
+    classificationVisibility: readRawClassificationVisibility(rawDoc),
   });
 }
 
@@ -236,7 +251,13 @@ export async function handleRenderStandardizedBatch(
         reason: visibility.reason,
         issues: [`visibility:${visibility.reason}`],
       });
-      logRejected(candidate.postId, surface, visibility.reason, [`visibility:${visibility.reason}`]);
+      logRejected(
+        candidate.postId,
+        surface,
+        visibility.reason,
+        [`visibility:${visibility.reason}`],
+        candidate.data,
+      );
       continue;
     }
     const sanitizeResult = standardizePostDocForRender(candidate.data, candidate.postId);
@@ -246,9 +267,19 @@ export async function handleRenderStandardizedBatch(
         reason: "not_standardized",
         issues: [sanitizeResult.reason],
       });
-      logRejected(candidate.postId, surface, sanitizeResult.reason, sanitizeResult.detail ?? null);
+      logRejected(
+        candidate.postId,
+        surface,
+        sanitizeResult.reason,
+        sanitizeResult.detail ?? null,
+        candidate.data,
+      );
       continue;
     }
+    ensureStandardizedClassificationVisibility(sanitizeResult.doc.classification, {
+      postId: candidate.postId,
+      surface,
+    });
     const parsed = StandardizedPostDocSchema.safeParse(sanitizeResult.doc);
     if (!parsed.success) {
       // Sanitiser already coerced every known field — if Zod still rejects
@@ -259,7 +290,7 @@ export async function handleRenderStandardizedBatch(
         .slice(0, 8)
         .map((issue) => `${issue.path.join(".") || "<root>"}:${issue.code}`);
       rejected.push({ postId: candidate.postId, reason: "invalid", issues });
-      logRejected(candidate.postId, surface, "invalid_post_zod_parse", issues);
+      logRejected(candidate.postId, surface, "invalid_post_zod_parse", issues, candidate.data);
       continue;
     }
     posts.push(parsed.data);
