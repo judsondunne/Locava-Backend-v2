@@ -149,12 +149,7 @@ const env = {
   ENABLE_CLIENT_DEBUG_LOG_INGEST:
     process.env.ENABLE_CLIENT_DEBUG_LOG_INGEST ?? merged.ENABLE_CLIENT_DEBUG_LOG_INGEST ?? "1",
   FIELD_TEST_LOGGING_ENABLED:
-    process.env.FIELD_TEST_LOGGING_ENABLED ?? merged.FIELD_TEST_LOGGING_ENABLED ?? "1",
-  // Undiscovered map tiles: production uses precomputed unexploredTiles docs only (no per-spot mapTileKeys blast).
-  UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK:
-    process.env.UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK ??
-    merged.UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK ??
-    "false"
+    process.env.FIELD_TEST_LOGGING_ENABLED ?? merged.FIELD_TEST_LOGGING_ENABLED ?? "1"
 };
 
 const passthroughKeys = [
@@ -210,8 +205,6 @@ const passthroughKeys = [
   "MAP_MARKERS_CACHE_TTL_MS",
   "MAP_MARKERS_MAX_DOCS",
   "MAP_MARKERS_INDEX_PAGE_MAX_DOCS",
-  "UNDISCOVERED_TILE_MANIFEST_VERSION",
-  "UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK",
   "OPENWEATHER_API_KEY",
   "SOURCE_OF_TRUTH_STRICT",
   "REQUEST_TIMEOUT_MS",
@@ -257,7 +250,6 @@ if (env.NODE_ENV === "production") {
   delete env.ENABLE_DEV_DIAGNOSTICS;
   delete env.ALLOW_PUBLIC_POSTING_TEST;
   delete env.DEBUG_VIEWER_ID;
-  env.UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK = "false";
 }
 
 const preferredOrder = [
@@ -322,8 +314,6 @@ const preferredOrder = [
   "MAP_MARKERS_CACHE_TTL_MS",
   "MAP_MARKERS_MAX_DOCS",
   "MAP_MARKERS_INDEX_PAGE_MAX_DOCS",
-  "UNDISCOVERED_TILE_MANIFEST_VERSION",
-  "UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK",
   "OPENWEATHER_API_KEY",
   "SOURCE_OF_TRUTH_STRICT",
   "REQUEST_TIMEOUT_MS"
@@ -359,7 +349,6 @@ echo "🗺️ Region: $REGION"
 echo "☁️ Project: $PROJECT_ID"
 echo "📂 Source (monorepo root): $MONOREPO_ROOT  — includes ../locava-contracts for @locava/contracts"
 echo "🧾 Carrying over old backend env families: Wasabi, Redis, analytics, admin tokens, worker flags, Firebase creds, client telemetry (defaults on)"
-echo "🗺️  Undiscovered map tiles: UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK=false (tile-doc only; override via env only for rollback)"
 echo "⚙️  Cloud Run: memory=$MEMORY cpu=$CPU min=$MIN_INSTANCES max=$MAX_INSTANCES concurrency=$CONCURRENCY timeout=$TIMEOUT"
 echo "🩺 Startup probe: $STARTUP_PROBE"
 

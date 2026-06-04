@@ -113,10 +113,6 @@ const EnvSchema = z.object({
     .default(5000),
   /** GET /v2/map/layers/undiscovered lightweight map layer (v1). Default on; set false to disable. */
   ENABLE_UNDISCOVERED_MAP_LAYER_V1: z.coerce.boolean().default(true),
-  /** Override undiscovered tile manifest version served to clients. */
-  UNDISCOVERED_TILE_MANIFEST_VERSION: z.string().optional(),
-  /** When true, missing tile docs may fall back to per-spot mapTileKeys queries (dev/rollback only). */
-  UNDISCOVERED_TILE_SPOT_INDEX_FALLBACK: z.coerce.boolean().default(false),
   /**
    * When set, `/v2/map/current-weather` uses OpenWeather current weather (commercial-friendly).
    * When unset, the route uses Open-Meteo (free, non-commercial terms — use OWM key in production apps with ads/subscriptions).

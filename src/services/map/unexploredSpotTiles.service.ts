@@ -13,7 +13,6 @@ import {
   getUnexploredTilesByKeys,
   queryUnexploredSpotsByTileKey,
 } from "../../repositories/source-of-truth/unexplored-read-firestore.adapter.js";
-import { isUndiscoveredSpotIndexFallbackEnabled } from "./undiscoveredTileManifest.service.js";
 
 export type UnexploredSpotTileMarker = {
   id: string;
@@ -165,18 +164,6 @@ export async function fetchUnexploredSpotTile(input: {
   let source: "tile_doc" | "spot_index" | "empty" = markers.length > 0 ? "tile_doc" : "empty";
 
   if (markers.length === 0) {
-    const spotIndexFallback = await isUndiscoveredSpotIndexFallbackEnabled();
-    if (!spotIndexFallback) {
-      const cappedResult = capAndSortSpots(markers, input.z);
-      return {
-        tileKey,
-        spots: cappedResult.spots,
-        source: "empty",
-        dbReads,
-        capped: cappedResult.capped,
-        tileLimit: cappedResult.tileLimit,
-      };
-    }
     const tileLimit = maxUnexploredSpotsPerTile(input.z);
     const docs = await queryUnexploredSpotsByTileKey(tileKey, tileLimit);
     dbReads += docs.length;
