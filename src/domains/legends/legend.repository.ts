@@ -1,6 +1,7 @@
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
+import { readPersistedDerivedScopes, readStageContextSnapshot } from "./legend-stage-scopes.js";
 import type {
   LegendAwardDoc,
   CanonicalFirstClaimDoc,
@@ -153,7 +154,12 @@ export class LegendRepository {
 
   readStageDoc(raw: unknown, stageId: string): LegendPostStageDoc {
     const obj = asObject(raw);
-    const derivedScopes = Array.isArray(obj.derivedScopes) ? obj.derivedScopes.map((s) => String(s ?? "")).filter(Boolean) : [];
+    const derivedScopes = readPersistedDerivedScopes(obj);
+    const derivedScopeCount = Math.max(
+      finiteInt(obj.derivedScopeCount, 0),
+      derivedScopes.length
+    );
+    const stageContext = readStageContextSnapshot(obj);
     const previewCards = Array.isArray(obj.previewCards) ? (obj.previewCards as any[]) : [];
     const allowedTypes = new Set<LegendPreviewCardType>([
       "possible_first_finder",
@@ -166,6 +172,8 @@ export class LegendRepository {
       userId: asString(obj.userId) ?? "",
       status: (asString(obj.status) as LegendPostStageDoc["status"]) ?? "staged",
       derivedScopes,
+      derivedScopeCount,
+      stageContext,
       previewCards: (previewCards
         .map((c) => asObject(c))
         .map((c) => {
@@ -190,15 +198,19 @@ export class LegendRepository {
     derivedScopes: string[];
     previewCards: LegendPostStageDoc["previewCards"];
     expiresAtMs: number;
+    stageContext?: LegendPostStageDoc["stageContext"];
   }): Promise<void> {
     const db = this.requireDb();
     const ref = db.collection("legendPostStages").doc(params.stageId);
+    const derivedScopes = params.derivedScopes.map((scopeId) => String(scopeId ?? "").trim()).filter(Boolean);
     await ref.set(
       {
         stageId: params.stageId,
         userId: params.userId,
         status: "staged",
-        derivedScopes: params.derivedScopes,
+        derivedScopes,
+        derivedScopeCount: derivedScopes.length,
+        stageContext: params.stageContext ?? null,
         previewCards: params.previewCards,
         createdAt: FieldValue.serverTimestamp(),
         expiresAt: Timestamp.fromMillis(params.expiresAtMs),
@@ -207,6 +219,13 @@ export class LegendRepository {
       { merge: false }
     );
     incrementDbOps("writes", 1);
+    console.info("[legend.stage] persisted", {
+      stageDocPath: ref.path,
+      stageId: params.stageId,
+      userId: params.userId,
+      persistedScopeCount: derivedScopes.length,
+      derivedScopes
+    });
   }
 
   async cancelStage(stageId: string, viewerUserId: string): Promise<{ cancelled: boolean }> {

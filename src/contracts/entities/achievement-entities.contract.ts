@@ -167,6 +167,8 @@ export const LegendRankChangeSchema = z.object({
 export const LegendRewardEnvelopeSchema = z.object({
   postId: z.string().min(1),
   viewerId: z.string().min(1),
+  status: z.enum(["pending", "ready", "none", "error"]).optional(),
+  pollAfterMs: z.number().int().nonnegative().optional(),
   hasRewards: z.boolean(),
   earnedFirstLegends: z.array(CanonicalLegendItemSchema),
   earnedRankLegends: z.array(CanonicalLegendItemSchema),

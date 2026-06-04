@@ -17,6 +17,7 @@ import {
   SourceOfTruthRequiredError
 } from "../source-of-truth/strict-mode.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { mergePersistedRouteFieldsIntoRecord } from "../../lib/posts/claimed-route-post.js";
 import { tryMapSimpleFeedCandidate } from "./feed-for-you-simple.repository.js";
 import { buildFeedCardFromSimpleCandidate } from "../../services/surfaces/feed-for-you-simple-post-card.js";
 import { countPostLikesSubcollectionBatch } from "./post-likes-subcollection-count.js";
@@ -861,7 +862,7 @@ export class FeedRepository {
   async getPostDetail(postId: string, viewerId: string): Promise<FeedDetailRecord> {
     const fromSource = await this.tryGetDetailBundleForPost(postId, viewerId);
     if (fromSource) {
-      return {
+      const baseDetail: FeedDetailRecord = {
         postId: fromSource.post.postId,
         userId: fromSource.post.userId,
         caption: fromSource.post.caption,
@@ -895,8 +896,15 @@ export class FeedRepository {
           typeof (fromSource.post.rawPost as { media?: unknown }).media === "object"
             ? ((fromSource.post.rawPost as { media: Record<string, unknown> }).media as Record<string, unknown>)
             : undefined,
+        rawPost: fromSource.post.rawPost ?? fromSource.post.sourcePost ?? null,
+        sourcePost: fromSource.post.sourcePost ?? fromSource.post.rawPost ?? null,
         cardSummary: buildFeedCardFromDetailBundle(viewerId, fromSource),
       };
+      const rawPostData =
+        (fromSource.post.rawPost as Record<string, unknown> | undefined) ??
+        (fromSource.post.sourcePost as Record<string, unknown> | undefined) ??
+        {};
+      return mergePersistedRouteFieldsIntoRecord(baseDetail, rawPostData) as FeedDetailRecord;
     }
 
     if (this.db) {

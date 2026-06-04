@@ -35,6 +35,7 @@ import {
   sanitizeHydratedPostDisplayText,
   type PostDocLike,
 } from "../../lib/posts/displayText.js";
+import { extractPersistedRouteFieldsForApi } from "../../lib/posts/claimed-route-post.js";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -1058,6 +1059,17 @@ export function standardizePostDocForRender(
     route: "standardizePostDocForRender",
     postId,
   });
+
+  const routeFields = extractPersistedRouteFieldsForApi(workingDoc as Record<string, unknown>);
+  if (Object.keys(routeFields).length > 0) {
+    Object.assign(doc, routeFields);
+    if (routeFields.routeSummary) {
+      doc.routeSummary = {
+        ...(asRecord((doc as Record<string, unknown>).routeSummary) ?? {}),
+        ...(asRecord(routeFields.routeSummary) ?? {}),
+      } as never;
+    }
+  }
 
   return { ok: true, doc, sanitizedFields: sanitizer.sanitizedFields };
 }

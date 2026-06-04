@@ -31,6 +31,12 @@ import {
   selectPublishLetterboxGradients
 } from "../posting/select-publish-letterbox-gradients.js";
 import { mergeMasterPostV2IntoNativeFinalizeDocument } from "../../lib/posts/master-post-v2/mergeMasterPostV2IntoNativeFinalizeDocument.js";
+import {
+  mergeClaimedRouteFieldsIntoPostDoc,
+  resolveClaimedRouteFieldsForFinalize,
+  normalizePostingFinalizeAssetLocations,
+  type ClaimedRoutePostClientPayload,
+} from "../../lib/posts/claimed-route-post.js";
 import { PostingAudioService } from "../posting/posting-audio.service.js";
 import {
   enqueueVideoProcessingCloudTask,
@@ -40,7 +46,7 @@ import { searchPlacesIndexService } from "../surfaces/search-places-index.servic
 import { XP_REWARDS } from "../surfaces/achievements-core.js";
 import { postingAchievementsService } from "./posting-achievements.service.js";
 import { legendService } from "../../domains/legends/legend.service.js";
-import type { AchievementDelta } from "../../contracts/entities/achievement-entities.contract.js";
+import type { AchievementDelta, LegendRewardEnvelope } from "../../contracts/entities/achievement-entities.contract.js";
 import {
   type PostingMediaRecord,
   postingMutationRepository,
@@ -177,6 +183,8 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
+    assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    claimedRoutePost?: ClaimedRoutePostClientPayload;
     adminPostAsUserId?: string;
     authorizationHeader?: string;
   }): Promise<{
@@ -185,6 +193,7 @@ export class PostingMutationService {
     idempotent: boolean;
     canonicalCreated: boolean;
     achievementDelta?: AchievementDelta;
+    legendRewards?: LegendRewardEnvelope & { status: "pending" | "ready" | "none" | "error"; pollAfterMs: number };
     mediaReadiness?: PostMediaReadiness;
   }> {
     return dedupeInFlight(`posting:finalize:${input.viewerId}:${input.idempotencyKey}`, async () => {
@@ -211,32 +220,25 @@ export class PostingMutationService {
           }
         }
         this.scheduleCompletionInvalidation(input.viewerId, result.operation.operationId);
-        scheduleBackgroundWork(
-          () => this.primeLegendPostResult({
-            postId: result.operation.postId,
-            userId: effectiveAuthor.effectiveUserId,
-            stageId: input.legendStageId?.trim() || null,
-            reason: "idempotent_completed"
-          }),
-          0,
-          { label: "posting.primeLegendPostResult" }
-        );
-        this.scheduleLegendsCommit({
-          stageId: input.legendStageId,
-          postId: result.operation.postId,
-          userId: effectiveAuthor.effectiveUserId
-        });
-        const [finalizeEcho, achievementDelta] = await Promise.all([
+        const [finalizeEcho, achievementDelta, legendRewards] = await Promise.all([
           this.loadCanonicalFinalizeEcho(result.operation.postId),
           this.resolveFinalizeAchievementDelta(
             { ...input, userId: effectiveAuthor.effectiveUserId },
             result.operation.postId,
-          )
+          ),
+          this.resolveFinalizeLegendRewards({
+            postId: result.operation.postId,
+            userId: effectiveAuthor.effectiveUserId,
+            viewerId: input.viewerId,
+            stageId: input.legendStageId,
+            pollAfterMs: result.operation.pollAfterMs
+          })
         ]);
         return {
           ...result,
           canonicalCreated: true,
           achievementDelta,
+          legendRewards,
           ...(finalizeEcho.mediaReadiness ? { mediaReadiness: finalizeEcho.mediaReadiness } : {}),
           ...(finalizeEcho.appPost ? { appPost: finalizeEcho.appPost, postContractVersion: finalizeEcho.postContractVersion ?? 2 } : {})
         };
@@ -276,28 +278,19 @@ export class PostingMutationService {
           operationId: completed.operationId
         });
         this.scheduleCompletionInvalidation(input.viewerId, completed.operationId);
-        scheduleBackgroundWork(
-          () =>
-            this.primeLegendPostResult({
-              postId,
-              userId: effectiveAuthor.effectiveUserId,
-              stageId: input.legendStageId?.trim() || null,
-              reason: "finalize_completed"
-            }),
-          0,
-          { label: "posting.primeLegendPostResult" }
-        );
-        this.scheduleLegendsCommit({
-          stageId: input.legendStageId,
-          postId,
-          userId: effectiveAuthor.effectiveUserId
-        });
-        const [finalizeEcho, achievementDelta] = await Promise.all([
+        const [finalizeEcho, achievementDelta, legendRewards] = await Promise.all([
           this.loadCanonicalFinalizeEcho(postId),
           this.resolveFinalizeAchievementDelta(
             { ...input, userId: effectiveAuthor.effectiveUserId },
             postId,
-          )
+          ),
+          this.resolveFinalizeLegendRewards({
+            postId,
+            userId: effectiveAuthor.effectiveUserId,
+            viewerId: input.viewerId,
+            stageId: input.legendStageId,
+            pollAfterMs: completed.pollAfterMs
+          })
         ]);
         return {
           session: result.session,
@@ -305,6 +298,7 @@ export class PostingMutationService {
           idempotent: result.idempotent,
           canonicalCreated: true,
           achievementDelta,
+          legendRewards,
           ...(finalizeEcho.mediaReadiness ? { mediaReadiness: finalizeEcho.mediaReadiness } : {}),
           ...(finalizeEcho.appPost ? { appPost: finalizeEcho.appPost, postContractVersion: finalizeEcho.postContractVersion ?? 2 } : {})
         };
@@ -347,145 +341,286 @@ export class PostingMutationService {
   }
 
   private scheduleLegendsCommit(input: { stageId?: string; postId: string; userId: string }): void {
+    if (!input.postId || !input.userId) return;
+    scheduleBackgroundWork(() => this.runLegendsCommit(input), 0, { label: "posting.legendsCommit" });
+  }
+
+  private async runLegendsCommit(input: { stageId?: string; postId: string; userId: string }): Promise<void> {
     const stageId = input.stageId?.trim();
     if (!input.postId || !input.userId) return;
-    console.info("[posting.legends] schedule", {
+    console.info("[posting.legends] worker_start", {
       postId: input.postId,
       userId: input.userId,
       stageId: stageId ?? null
     });
-    scheduleBackgroundWork(async () => {
-      try {
-        console.info("[posting.legends] worker_start", {
+    try {
+      if (stageId) {
+        console.info("[posting.legends] commit_staged_start", {
           postId: input.postId,
           userId: input.userId,
-          stageId: stageId ?? null
+          stageId
         });
-        if (stageId) {
-          console.info("[posting.legends] commit_staged_start", {
-            postId: input.postId,
-            userId: input.userId,
-            stageId
-          });
-          const stagedResult = await legendService.commitStagedPostLegend({
-            stageId,
-            post: { postId: input.postId, userId: input.userId }
-          });
-          console.info("[posting.legends] commit_staged_done", {
-            postId: input.postId,
-            userId: input.userId,
-            stageId,
-            committed: stagedResult.committed,
-            alreadyProcessed: stagedResult.alreadyProcessed,
-            awardsCreated: stagedResult.awardsCreated,
-            derivedScopeCount: stagedResult.derivedScopes?.length ?? 0,
-            derivedScopes: stagedResult.derivedScopes ?? []
-          });
-          await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
-          console.info("[posting.legends] badges_sync_done", {
-            postId: input.postId,
-            userId: input.userId,
-            stageId
-          });
-          return;
-        }
-        // Fallback: derive scopes from canonical post doc (single bounded read).
-        const db = getFirestoreSourceClient();
-        if (!db) return;
-        console.info("[posting.legends] fallback_lookup_start", {
-          postId: input.postId,
-          userId: input.userId
+        const stagedResult = await legendService.commitStagedPostLegend({
+          stageId,
+          post: { postId: input.postId, userId: input.userId }
         });
-        const postSnap = await db.collection("posts").doc(input.postId).get();
-        if (!postSnap.exists) {
-          console.warn("[posting.legends] fallback_post_missing", {
-            postId: input.postId,
-            userId: input.userId
-          });
-          return;
-        }
-        const data = postSnap.data() as Record<string, unknown> | undefined;
-        const geoData = data?.geoData && typeof data.geoData === "object" ? (data.geoData as Record<string, unknown>) : null;
-        const geohash = typeof data?.geohash === "string" ? data.geohash : null;
-        const activities = Array.isArray(data?.activities) ? data!.activities.map((v) => String(v ?? "")).filter(Boolean) : [];
-        const city =
-          typeof data?.city === "string"
-            ? data.city
-            : geoData && typeof geoData.city === "string"
-              ? geoData.city
-              : null;
-        const state =
-          typeof data?.state === "string"
-            ? data.state
-            : geoData && typeof geoData.state === "string"
-              ? geoData.state
-              : null;
-        const country =
-          typeof data?.countryRegionId === "string"
-            ? data.countryRegionId
-            : geoData && typeof geoData.country === "string"
-              ? geoData.country
-              : null;
-        const region = typeof data?.region === "string" ? data.region : null;
-        console.info("[posting.legends] fallback_input_prepared", {
+        console.info("[posting.legends] commit_staged_done", {
           postId: input.postId,
           userId: input.userId,
-          geohash,
-          activityCount: activities.length,
-          city,
-          state,
-          country,
-          region
-        });
-        const fallbackResult = await legendService.processPostCreated({
-          postId: input.postId,
-          userId: input.userId,
-          geohash,
-          activities,
-          city,
-          state,
-          country,
-          region
-        });
-        console.info("[posting.legends] fallback_process_done", {
-          postId: input.postId,
-          userId: input.userId,
-          committed: fallbackResult.committed,
-          alreadyProcessed: fallbackResult.alreadyProcessed,
-          awardsCreated: fallbackResult.awardsCreated,
-          derivedScopeCount: fallbackResult.derivedScopes?.length ?? 0,
-          derivedScopes: fallbackResult.derivedScopes ?? []
+          stageId,
+          stageDocPath: `legendPostStages/${stageId}`,
+          committed: stagedResult.committed,
+          alreadyProcessed: stagedResult.alreadyProcessed,
+          awardsCreated: stagedResult.awardsCreated,
+          derivedScopeCount: stagedResult.derivedScopes?.length ?? 0,
+          derivedScopes: stagedResult.derivedScopes ?? [],
+          ineligibleReason: (stagedResult as { ineligibleReason?: string | null }).ineligibleReason ?? null
         });
         await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
-        console.info("[posting.legends] fallback_badges_sync_done", {
+        console.info("[posting.legends] badges_sync_done", {
+          postId: input.postId,
+          userId: input.userId,
+          stageId
+        });
+        return;
+      }
+      const db = getFirestoreSourceClient();
+      if (!db) return;
+      console.info("[posting.legends] fallback_lookup_start", {
+        postId: input.postId,
+        userId: input.userId
+      });
+      const postSnap = await db.collection("posts").doc(input.postId).get();
+      if (!postSnap.exists) {
+        console.warn("[posting.legends] fallback_post_missing", {
           postId: input.postId,
           userId: input.userId
         });
-      } catch (error) {
-        console.warn("[posting.legends] commit failed", {
+        return;
+      }
+      const data = postSnap.data() as Record<string, unknown> | undefined;
+      const geoData = data?.geoData && typeof data.geoData === "object" ? (data.geoData as Record<string, unknown>) : null;
+      const geohash = typeof data?.geohash === "string" ? data.geohash : null;
+      const activities = Array.isArray(data?.activities) ? data!.activities.map((v) => String(v ?? "")).filter(Boolean) : [];
+      const city =
+        typeof data?.city === "string"
+          ? data.city
+          : geoData && typeof geoData.city === "string"
+            ? geoData.city
+            : null;
+      const state =
+        typeof data?.state === "string"
+          ? data.state
+          : geoData && typeof geoData.state === "string"
+            ? geoData.state
+            : null;
+      const country =
+        typeof data?.countryRegionId === "string"
+          ? data.countryRegionId
+          : geoData && typeof geoData.country === "string"
+            ? geoData.country
+            : null;
+      const region = typeof data?.region === "string" ? data.region : null;
+      console.info("[posting.legends] fallback_input_prepared", {
+        postId: input.postId,
+        userId: input.userId,
+        geohash,
+        activityCount: activities.length,
+        city,
+        state,
+        country,
+        region
+      });
+      const fallbackResult = await legendService.processPostCreated({
+        postId: input.postId,
+        userId: input.userId,
+        geohash,
+        activities,
+        city,
+        state,
+        country,
+        region
+      });
+      console.info("[posting.legends] fallback_process_done", {
+        postId: input.postId,
+        userId: input.userId,
+        committed: fallbackResult.committed,
+        alreadyProcessed: fallbackResult.alreadyProcessed,
+        awardsCreated: fallbackResult.awardsCreated,
+        derivedScopeCount: fallbackResult.derivedScopes?.length ?? 0,
+        derivedScopes: fallbackResult.derivedScopes ?? []
+      });
+      await achievementsRepository.syncDynamicLeaderBadgesForViewer(input.userId);
+      console.info("[posting.legends] fallback_badges_sync_done", {
+        postId: input.postId,
+        userId: input.userId
+      });
+    } catch (error) {
+      console.warn("[posting.legends] commit failed", {
+        postId: input.postId,
+        userId: input.userId,
+        stageId: stageId ?? null,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      try {
+        const db = getFirestoreSourceClient();
+        if (!db) return;
+        await db.collection("legendPostResults").doc(input.postId).set(
+          {
+            postId: input.postId,
+            userId: input.userId,
+            status: "error",
+            errorCode: "legends_commit_failed",
+            updatedAt: FieldValue.serverTimestamp()
+          },
+          { merge: true }
+        );
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  private buildPendingLegendRewardEnvelope(input: {
+    postId: string;
+    viewerId: string;
+    pollAfterMs: number;
+  }): LegendRewardEnvelope & { status: "pending"; pollAfterMs: number } {
+    return {
+      postId: input.postId,
+      viewerId: input.viewerId,
+      status: "pending",
+      pollAfterMs: input.pollAfterMs,
+      hasRewards: false,
+      earnedFirstLegends: [],
+      earnedRankLegends: [],
+      rankChanges: [],
+      closeTargets: [],
+      overtakenUsers: [],
+      displayCards: []
+    };
+  }
+
+  private async loadLegendRewardsEnvelopeFromPostResult(
+    postId: string,
+    viewerId: string
+  ): Promise<(LegendRewardEnvelope & { status: "pending" | "ready" | "none" | "error" }) | null> {
+    const db = getFirestoreSourceClient();
+    if (!db) return null;
+    const snap = await db.collection("legendPostResults").doc(postId).get();
+    if (!snap.exists) return null;
+    const row = (snap.data() ?? {}) as Record<string, unknown>;
+    const rawStatus = String(row.status ?? "pending");
+    if (rawStatus === "pending") return null;
+    if (rawStatus === "error") {
+      return {
+        postId,
+        viewerId,
+        status: "error",
+        hasRewards: false,
+        earnedFirstLegends: [],
+        earnedRankLegends: [],
+        rankChanges: [],
+        closeTargets: [],
+        overtakenUsers: [],
+        displayCards: []
+      };
+    }
+    const rewardsRaw = row.rewards;
+    if (rewardsRaw && typeof rewardsRaw === "object") {
+      const rewards = rewardsRaw as LegendRewardEnvelope;
+      const hasRewards =
+        rewards.hasRewards === true ||
+        (Array.isArray(rewards.displayCards) && rewards.displayCards.length > 0) ||
+        (Array.isArray(rewards.closeTargets) && rewards.closeTargets.length > 0);
+      return {
+        postId: String(rewards.postId ?? postId),
+        viewerId: String(rewards.viewerId ?? viewerId),
+        status: rawStatus === "none" ? "none" : "ready",
+        hasRewards,
+        earnedFirstLegends: Array.isArray(rewards.earnedFirstLegends) ? rewards.earnedFirstLegends : [],
+        earnedRankLegends: Array.isArray(rewards.earnedRankLegends) ? rewards.earnedRankLegends : [],
+        rankChanges: Array.isArray(rewards.rankChanges) ? rewards.rankChanges : [],
+        closeTargets: Array.isArray(rewards.closeTargets) ? rewards.closeTargets : [],
+        overtakenUsers: Array.isArray(rewards.overtakenUsers) ? rewards.overtakenUsers : [],
+        displayCards: Array.isArray(rewards.displayCards) ? rewards.displayCards : []
+      };
+    }
+    return {
+      postId,
+      viewerId,
+      status: rawStatus === "none" ? "none" : "ready",
+      hasRewards: false,
+      earnedFirstLegends: [],
+      earnedRankLegends: [],
+      rankChanges: [],
+      closeTargets: [],
+      overtakenUsers: [],
+      displayCards: []
+    };
+  }
+
+  private getFinalizeLegendsSyncTimeoutMs(): number {
+    if (process.env.POSTING_FINALIZE_ASYNC_LEGENDS === "1") return 0;
+    const raw = process.env.POSTING_FINALIZE_SYNC_LEGENDS_TIMEOUT_MS;
+    if (raw != null && raw.trim() !== "") {
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+    }
+    return 10_000;
+  }
+
+  private async resolveFinalizeLegendRewards(input: {
+    postId: string;
+    userId: string;
+    viewerId: string;
+    stageId?: string;
+    pollAfterMs: number;
+  }): Promise<LegendRewardEnvelope & { status: "pending" | "ready" | "none" | "error"; pollAfterMs: number }> {
+    if (!input.postId || !input.userId) {
+      return this.buildPendingLegendRewardEnvelope(input);
+    }
+    await this.primeLegendPostResult({
+      postId: input.postId,
+      userId: input.userId,
+      stageId: input.stageId?.trim() || null,
+      reason: "finalize_sync"
+    });
+    const syncTimeoutMs = this.getFinalizeLegendsSyncTimeoutMs();
+    if (syncTimeoutMs > 0) {
+      const commitPromise = this.runLegendsCommit({
+        stageId: input.stageId,
+        postId: input.postId,
+        userId: input.userId
+      });
+      const raced = await Promise.race([
+        commitPromise.then(() => "done" as const),
+        new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), syncTimeoutMs))
+      ]);
+      if (raced === "timeout") {
+        console.info("[posting.legends] finalize_sync_timeout", {
           postId: input.postId,
           userId: input.userId,
-          stageId: stageId ?? null,
-          error: error instanceof Error ? error.message : String(error)
+          syncTimeoutMs
         });
-        try {
-          const db = getFirestoreSourceClient();
-          if (!db) return;
-          await db.collection("legendPostResults").doc(input.postId).set(
-            {
-              postId: input.postId,
-              userId: input.userId,
-              status: "error",
-              errorCode: "legends_commit_failed",
-              updatedAt: FieldValue.serverTimestamp()
-            },
-            { merge: true }
-          );
-        } catch {
-          // ignore
-        }
+        this.scheduleLegendsCommit({
+          stageId: input.stageId,
+          postId: input.postId,
+          userId: input.userId
+        });
       }
-    });
+    } else {
+      this.scheduleLegendsCommit({
+        stageId: input.stageId,
+        postId: input.postId,
+        userId: input.userId
+      });
+    }
+    const loaded = await this.loadLegendRewardsEnvelopeFromPostResult(input.postId, input.viewerId);
+    if (loaded) {
+      return { ...loaded, pollAfterMs: input.pollAfterMs };
+    }
+    return this.buildPendingLegendRewardEnvelope(input);
   }
 
   private async primeLegendPostResult(input: {
@@ -1030,6 +1165,8 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
+    assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    claimedRoutePost?: ClaimedRoutePostClientPayload;
     adminPostAsUserId?: string;
   }, effectiveAuthor: ResolvedEffectivePostAuthor): Promise<string> {
     const debugTimings = process.env.POSTING_FINALIZE_DEBUG_TIMINGS === "1";
@@ -1153,7 +1290,9 @@ export class PostingMutationService {
       adminPostOverrideAudit: effectiveAuthor.adminPostOverrideAudit,
       finalizeCarouselFitWidth: input.carouselFitWidth,
       finalizeLetterboxGradients: input.letterboxGradients,
-      finalizeAssetPresentations: input.assetPresentations
+      finalizeAssetPresentations: input.assetPresentations,
+      finalizeAssetLocations: input.assetLocations,
+      claimedRoutePost: input.claimedRoutePost,
     });
     if (debugTimings) {
       console.info("[posting.finalize.timing] publishNativeCanonicalPost", { ms: Date.now() - beforeNative });
@@ -1272,6 +1411,8 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
+    finalizeAssetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    claimedRoutePost?: ClaimedRoutePostClientPayload;
     authorSnapshot?: NativePostUserSnapshot;
     adminPostOverrideAudit?: {
       performedByUid: string;
@@ -1359,7 +1500,7 @@ export class PostingMutationService {
     applyPublishPresentationToAssembledAssets(assets, gradientPick.perAssetPresentation);
 
     const geo = this.resolveFinalizeGeo(lat, lng, input.address ?? "");
-    const postDoc = buildNativePostDocument({
+    let postDoc = buildNativePostDocument({
       postId,
       effectiveUserId: input.effectiveUserId,
       viewerId: input.viewerId,
@@ -1384,6 +1525,43 @@ export class PostingMutationService {
       carouselFitWidth: gradientPick.carouselFitWidth,
       letterboxGradients: gradientPick.letterboxGradients
     });
+
+    const normalizedAssetLocations = normalizePostingFinalizeAssetLocations(
+      input.finalizeAssetLocations,
+      assets.length,
+    );
+    if (normalizedAssetLocations) {
+      postDoc.assetLocations = normalizedAssetLocations;
+    }
+
+    if (input.claimedRoutePost) {
+      const routeFields = await resolveClaimedRouteFieldsForFinalize(input.claimedRoutePost);
+      if (routeFields) {
+        postDoc = mergeClaimedRouteFieldsIntoPostDoc(postDoc, routeFields);
+        console.info(
+          `[route_claim.persist] sourceUnexploredRouteId=${input.claimedRoutePost.undiscoveredRouteId} routeGeometrySaved=true reason=finalize postId=${postId}`,
+        );
+        console.info("[posting.finalize.claimed_route_post]", {
+          postId,
+          undiscoveredRouteId: input.claimedRoutePost.undiscoveredRouteId,
+          routeSaved: true,
+          previewPointCount: Array.isArray(routeFields.routePreviewCoordinates)
+            ? (routeFields.routePreviewCoordinates as unknown[]).length
+            : 0,
+          assetLocationCount: normalizedAssetLocations?.length ?? 0,
+        });
+      } else {
+        console.info(
+          `[route_claim.persist] sourceUnexploredRouteId=${input.claimedRoutePost.undiscoveredRouteId} routeGeometrySaved=false reason=finalize_missing_geometry postId=${postId}`,
+        );
+        console.warn("[posting.finalize.claimed_route_post_skipped]", {
+          postId,
+          undiscoveredRouteId: input.claimedRoutePost.undiscoveredRouteId,
+          routeSaved: false,
+          reason: "missing_route_geometry_client_and_unexplored_doc",
+        });
+      }
+    }
 
     const assetsAfter = Array.isArray(postDoc.assets) ? (postDoc.assets as Record<string, unknown>[]) : [];
     console.info("[PostingFinalizeGradientWrite]", {

@@ -8,7 +8,9 @@ import {
 } from "../../contracts/surfaces/posting-claim-candidate.contract.js";
 import {
   postingClaimFinalizeContract,
-  PostingClaimFinalizeBodySchema
+  PostingClaimFinalizeBodySchema,
+  normalizeClaimFinalizeBody,
+  logClaimFinalizeSchemaVersion
 } from "../../contracts/surfaces/posting-claim-finalize.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
@@ -34,6 +36,8 @@ function parseActivitiesFromQuery(raw?: string): string[] {
  * - users/{userId}/capturedSpots: capturedAt DESC
  */
 export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promise<void> {
+  logClaimFinalizeSchemaVersion();
+
   app.get(postingClaimCandidateGetContract.path, async (request, reply) => {
     const viewer = buildViewerContext(request);
     if (!canUseV2Surface("posting", viewer.roles)) {
@@ -93,20 +97,16 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
     }
 
     setRouteName(postingClaimFinalizeContract.routeName);
-    if (process.env.NODE_ENV !== "production") {
-      const rawBody = request.body;
-      request.log.info(
-        {
-          claimFinalizeBodyType: typeof rawBody,
-          claimFinalizeBodyKeys:
-            rawBody && typeof rawBody === "object" && !Array.isArray(rawBody)
-              ? Object.keys(rawBody as Record<string, unknown>)
-              : []
-        },
-        "claim_finalize_body_inspect"
-      );
-    }
-    const body = PostingClaimFinalizeBodySchema.parse(request.body);
+    const parsedBody = PostingClaimFinalizeBodySchema.parse(request.body);
+    const body = normalizeClaimFinalizeBody(parsedBody, viewer.viewerId);
+
+    console.info(
+      `[claim-finalize.input] postId=${body.postId} candidateItemType=${body.candidateItemType ?? "null"} candidateId=${body.candidateId ?? "null"} unexploredRouteId=${optionalLog(body.unexploredRouteId)} undiscoveredRouteId=${optionalLog(body.undiscoveredRouteId)} undiscoveredSpotId=${optionalLog(body.undiscoveredSpotId)} requestLat=${body.lat} requestLng=${body.lng}`,
+    );
+    console.info(
+      `[claim-finalize.normalized] isRouteClaim=${body.isRouteClaim} routeId=${body.routeId ?? "null"} isSpotClaim=${body.isSpotClaim} spotId=${body.spotId ?? "null"} userId=${body.userId}`,
+    );
+
     if (body.userId !== viewer.viewerId) {
       return reply.status(403).send(failure("forbidden", "Cannot finalize claim for another user"));
     }
@@ -120,9 +120,17 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
       candidateId: body.candidateId,
       sourceCollection: body.sourceCollection,
       itemType: body.itemType,
+      candidateItemType:
+        body.candidateItemType === "unexploredRoute" || body.candidateItemType === "unexploredSpot"
+          ? body.candidateItemType
+          : undefined,
+      undiscoveredSpotId: optionalTrimmed(body.undiscoveredSpotId),
+      undiscoveredRouteId: optionalTrimmed(body.undiscoveredRouteId),
+      unexploredRouteId: optionalTrimmed(body.unexploredRouteId),
       activities: body.activities,
       title: body.title,
-      enforcePostDistanceCheck: body.enforcePostDistanceCheck
+      enforcePostDistanceCheck:
+        body.enforcePostDistanceCheck === null ? undefined : body.enforcePostDistanceCheck
     });
 
     if (process.env.NODE_ENV !== "production" && result.reason === "post_too_far_from_candidate") {
@@ -139,9 +147,24 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
       );
     }
 
+    if (!result.captured) {
+      request.log.info(
+        {
+          postId: body.postId,
+          userId: body.userId,
+          candidateId: body.candidateId,
+          claimed: false,
+          captured: false,
+          reason: result.reason ?? "unknown"
+        },
+        "claim_finalize_not_captured"
+      );
+    }
+
     return success({
       routeName: "posting.claim_finalize.post",
-      ...result
+      ...result,
+      claimed: result.captured
     });
   });
 
@@ -174,4 +197,17 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
       spots
     });
   });
+}
+
+function optionalTrimmed(value: unknown): string | undefined {
+  if (value == null || typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+function optionalLog(value: unknown): string {
+  if (value == null) return "null";
+  if (typeof value !== "string") return String(value);
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "null";
 }

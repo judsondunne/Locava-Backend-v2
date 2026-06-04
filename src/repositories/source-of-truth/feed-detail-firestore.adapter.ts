@@ -3,6 +3,7 @@ import { normalizeCanonicalPostLocation } from "../../lib/location/post-location
 import { readMaybeMillis } from "./post-firestore-projection.js";
 import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
 import { buildSafeDisplayTextBlock } from "../../lib/posts/displayText.js";
+import { mergePersistedRouteFieldsIntoRecord } from "../../lib/posts/claimed-route-post.js";
 
 export type FirestoreFeedDetailBundle = {
   post: {
@@ -410,7 +411,8 @@ function buildFeedDetailBundleFromParts(input: {
   const normalizedGeoData = normalizeGeoData(input.postData);
   const embeddedComments = normalizeEmbeddedComments(input.postData.comments, input.responsePostId);
   const safeText = buildSafeDisplayTextBlock(input.postData as Record<string, unknown>);
-  const postSeed = {
+  const postSeed = mergePersistedRouteFieldsIntoRecord(
+    {
       postId: input.responsePostId,
       userId,
       caption: normalizeCaption(input.postData),
@@ -446,7 +448,9 @@ function buildFeedDetailBundleFromParts(input: {
       commentsPreview: embeddedComments,
       rawPost: input.postData as unknown as Record<string, unknown>,
       sourcePost: input.postData as unknown as Record<string, unknown>,
-    };
+    },
+    input.postData as Record<string, unknown>,
+  );
   return {
     post: postSeed as FirestoreFeedDetailBundle["post"],
     author: {

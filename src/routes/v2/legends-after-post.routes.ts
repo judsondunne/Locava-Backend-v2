@@ -225,6 +225,9 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
     const displayCards = Array.isArray((rewards as { displayCards?: unknown }).displayCards)
       ? ((rewards as { displayCards: Array<Record<string, unknown>> }).displayCards)
       : [];
+    const closeTargets = Array.isArray((rewards as { closeTargets?: unknown }).closeTargets)
+      ? ((rewards as { closeTargets: Array<Record<string, unknown>> }).closeTargets)
+      : [];
     const firstCard = displayCards[0] ?? null;
     const topAward = awards[0] ?? null;
     const parsed = parseScope(topAward?.scopeId ?? "");
@@ -233,7 +236,7 @@ export async function registerV2LegendsAfterPostRoutes(app: FastifyInstance): Pr
     const distanceToLegend = topAward ? Math.max(0, finiteInt(topAward.deltaToLeader, 0)) : null;
     const becameLegend = Boolean(currentRank === 1 && previousRank !== 1);
     const podiumRank = currentRank != null && currentRank <= 3 ? currentRank : null;
-    const eventReturned = awards.length > 0 || displayCards.length > 0;
+    const eventReturned = awards.length > 0 || displayCards.length > 0 || closeTargets.length > 0;
     const reasonIfEmpty = eventReturned
       ? null
       : status === "pending"

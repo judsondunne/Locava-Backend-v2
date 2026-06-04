@@ -32,3 +32,15 @@ describe("isEligiblePostForLegends", () => {
   });
 });
 
+describe("isRecoverableLegendEligibilityFailure", () => {
+  it("treats missing privacy as recoverable", async () => {
+    const { isRecoverableLegendEligibilityFailure } = await import("./legend-post-eligibility.js");
+    expect(
+      isRecoverableLegendEligibilityFailure({ postId: "p1", userId: "u1", finalized: true }, "not_public")
+    ).toBe(true);
+    expect(
+      isRecoverableLegendEligibilityFailure({ postId: "p1", userId: "u1", privacy: "Friends Spot", finalized: true }, "not_public")
+    ).toBe(false);
+  });
+});
+

@@ -7,6 +7,7 @@ import {
 } from "./post-firestore-projection.js";
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { buildSafeDisplayTextBlock } from "../../lib/posts/displayText.js";
+import { mergePersistedRouteFieldsIntoRecord } from "../../lib/posts/claimed-route-post.js";
 import { countPostLikesSubcollection } from "../surfaces/post-likes-subcollection-count.js";
 
 export type FirestoreProfilePostDetail = {
@@ -220,47 +221,52 @@ function mapProfilePostDetail(input: {
   const { letterboxGradientTop, letterboxGradientBottom, letterboxGradients } = normalizeLetterboxHints(postData);
   const location = normalizeLocation(raw);
   const geoData = normalizeGeoData(raw);
-  return {
-    postId: input.postDoc.id,
-    userId: input.userId,
-    caption,
-    title,
-    description,
-    activities: normalizeStringArray(raw.activities),
-    address: location.address,
-    lat: location.lat,
-    lng: location.lng,
-    ...(geoData ? { geoData } : {}),
-    coordinates: {
+  return mergePersistedRouteFieldsIntoRecord(
+    {
+      postId: input.postDoc.id,
+      userId: input.userId,
+      caption,
+      title,
+      description,
+      activities: normalizeStringArray(raw.activities),
+      address: location.address,
       lat: location.lat,
       lng: location.lng,
+      ...(geoData ? { geoData } : {}),
+      coordinates: {
+        lat: location.lat,
+        lng: location.lng,
+      },
+      tags: normalizeStringArray(raw.tags),
+      createdAtMs: normalizePostCreatedMs(raw),
+      carouselFitWidth: typeof postData.carouselFitWidth === "boolean" ? postData.carouselFitWidth : undefined,
+      layoutLetterbox: typeof postData.layoutLetterbox === "boolean" ? postData.layoutLetterbox : undefined,
+      ...(typeof letterboxGradientTop === "string" ? { letterboxGradientTop } : {}),
+      ...(typeof letterboxGradientBottom === "string" ? { letterboxGradientBottom } : {}),
+      ...(letterboxGradients ? { letterboxGradients } : {}),
+      mediaType,
+      thumbUrl: readPostThumbUrl(raw, input.postDoc.id),
+      assetsReady: typeof (raw as { assetsReady?: unknown }).assetsReady === "boolean" ? ((raw as { assetsReady: boolean }).assetsReady) : undefined,
+      playbackLab: asRecord((raw as { playbackLab?: unknown }).playbackLab) ?? undefined,
+      assetLocations: normalizeAssetLocations((raw as { assetLocations?: unknown }).assetLocations),
+      assets: normalizeAssets(raw, input.postDoc.id, mediaType),
+      author: {
+        userId: input.userId,
+        handle: String(userData.handle ?? "").replace(/^@+/, "") || `user_${input.userId.slice(0, 8)}`,
+        name: String(userData.name ?? userData.displayName ?? "").trim() || `User ${input.userId.slice(0, 8)}`,
+        profilePic: pickPic(userData)
+      },
+      social: {
+        likeCount,
+        commentCount: resolveCommentCount(postData),
+        viewerHasLiked: (input.likedDoc.exists || likedViaArray) && input.viewerId.length > 0
+      },
+      sourceRawPost: { ...raw, id: input.postDoc.id, postId: input.postDoc.id },
+      rawPost: { ...raw, id: input.postDoc.id, postId: input.postDoc.id },
+      sourcePost: { ...raw, id: input.postDoc.id, postId: input.postDoc.id },
     },
-    tags: normalizeStringArray(raw.tags),
-    createdAtMs: normalizePostCreatedMs(raw),
-    carouselFitWidth: typeof postData.carouselFitWidth === "boolean" ? postData.carouselFitWidth : undefined,
-    layoutLetterbox: typeof postData.layoutLetterbox === "boolean" ? postData.layoutLetterbox : undefined,
-    ...(typeof letterboxGradientTop === "string" ? { letterboxGradientTop } : {}),
-    ...(typeof letterboxGradientBottom === "string" ? { letterboxGradientBottom } : {}),
-    ...(letterboxGradients ? { letterboxGradients } : {}),
-    mediaType,
-    thumbUrl: readPostThumbUrl(raw, input.postDoc.id),
-    assetsReady: typeof (raw as { assetsReady?: unknown }).assetsReady === "boolean" ? ((raw as { assetsReady: boolean }).assetsReady) : undefined,
-    playbackLab: asRecord((raw as { playbackLab?: unknown }).playbackLab) ?? undefined,
-    assetLocations: normalizeAssetLocations((raw as { assetLocations?: unknown }).assetLocations),
-    assets: normalizeAssets(raw, input.postDoc.id, mediaType),
-    author: {
-      userId: input.userId,
-      handle: String(userData.handle ?? "").replace(/^@+/, "") || `user_${input.userId.slice(0, 8)}`,
-      name: String(userData.name ?? userData.displayName ?? "").trim() || `User ${input.userId.slice(0, 8)}`,
-      profilePic: pickPic(userData)
-    },
-    social: {
-      likeCount,
-      commentCount: resolveCommentCount(postData),
-      viewerHasLiked: (input.likedDoc.exists || likedViaArray) && input.viewerId.length > 0
-    },
-    sourceRawPost: { ...raw, id: input.postDoc.id, postId: input.postDoc.id }
-  };
+    raw,
+  );
 }
 
 function resolveCommentCount(post: {

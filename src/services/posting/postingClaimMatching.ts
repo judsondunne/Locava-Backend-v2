@@ -231,3 +231,85 @@ export function pickBestClaimCandidate(
 export function buildCaptureDocId(sourceCollection: string, itemId: string): string {
   return `${sourceCollection}_${itemId}`;
 }
+
+export function inferClaimCandidateTarget(candidateId: string): {
+  sourceCollection: "unexploredSpots" | "unexploredRoutes";
+  itemType: "unexploredSpot" | "unexploredRoute";
+} {
+  const id = String(candidateId ?? "").trim();
+  if (id.startsWith("unx_route_")) {
+    return { sourceCollection: "unexploredRoutes", itemType: "unexploredRoute" };
+  }
+  return { sourceCollection: "unexploredSpots", itemType: "unexploredSpot" };
+}
+
+/** User explicitly selected this marker — accept without radius rejection. */
+export function buildExplicitClaimCandidate(input: {
+  marker: UnexploredMapMarkerSummary;
+  postLat: number;
+  postLng: number;
+  postActivities: string[];
+  postTitle?: string;
+}): ClaimMatchCandidate {
+  const { distanceMeters, matchedBy: distanceMatchKind } = claimDistanceToMarker({
+    marker: input.marker,
+    postLat: input.postLat,
+    postLng: input.postLng,
+  });
+  const maxRadius = Math.min(
+    input.marker.itemType === "unexploredRoute" ? HARD_MAX_ROUTE_RADIUS_METERS : HARD_MAX_SPOT_RADIUS_METERS,
+    maxRadiusForMarker(input.marker),
+  );
+  const normalizedPostActivities = new Set(input.postActivities.map(normalizeActivityToken).filter(Boolean));
+  const markerActivities = [
+    input.marker.firstActivity,
+    ...(Array.isArray((input.marker as { activities?: string[] }).activities)
+      ? ((input.marker as { activities?: string[] }).activities ?? [])
+      : []),
+  ]
+    .map(normalizeActivityToken)
+    .filter(Boolean);
+  const activityOverlap = markerActivities.some((activity) => normalizedPostActivities.has(activity));
+  const distanceScore = Math.max(0, 1 - distanceMeters / Math.max(maxRadius, 1));
+  const titleScore = titleSimilarity(input.postTitle, input.marker.title);
+  const activityBoost = activityOverlap ? 0.22 : 0;
+  const titleBoost = titleScore * 0.35;
+  const matchScore = Math.max(
+    MIN_ACCEPTABLE_MATCH_SCORE,
+    distanceScore * 0.55 + activityBoost + titleBoost,
+  );
+
+  let matchedBy: ClaimMatchCandidate["matchedBy"] = distanceMatchKind;
+  if (titleScore >= 0.85) matchedBy = "name_distance";
+  else if (activityOverlap && distanceMatchKind === "distance") matchedBy = "distance_activity";
+
+  return {
+    id: input.marker.id,
+    sourceCollection: input.marker.sourceCollection,
+    itemType: input.marker.itemType,
+    title: input.marker.title,
+    lat: input.marker.lat,
+    lng: input.marker.lng,
+    distanceMeters,
+    matchScore,
+    firstActivity: input.marker.firstActivity,
+    activities: markerActivities,
+    emoji: input.marker.emoji,
+    matchedBy,
+  };
+}
+
+export function countRouteGeometryPoints(marker: UnexploredMapMarkerSummary): number {
+  if (marker.itemType !== "unexploredRoute" || !marker.routeSummary) return 0;
+  const summary = marker.routeSummary as Record<string, unknown>;
+  const wirePreview = summary.routePreviewCoordinates;
+  if (Array.isArray(wirePreview) && wirePreview.length >= 2) return wirePreview.length;
+  const line = extractRouteLineCoordinates({
+    encodedPolyline: typeof summary.encodedPolyline === "string" ? summary.encodedPolyline : undefined,
+    coordinatesPreview: undefined,
+    geometry: undefined,
+    geometryType: "LineString",
+    distanceMeters: 0,
+  });
+  return line.length;
+}

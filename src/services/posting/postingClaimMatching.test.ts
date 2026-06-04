@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   bboxAroundPoint,
   buildCaptureDocId,
+  buildExplicitClaimCandidate,
+  inferClaimCandidateTarget,
   maxRadiusForMarker,
   pickBestClaimCandidate,
   scoreClaimCandidate,
@@ -200,4 +202,37 @@ test("route claim uses distance to polyline not anchor", () => {
     postActivities: ["hiking"],
   });
   assert.equal(farFromLineNearAnchor, null);
+});
+
+test("inferClaimCandidateTarget maps unx_route_ ids to unexploredRoutes", () => {
+  const inferred = inferClaimCandidateTarget("unx_route_f48c0ea3fd5d");
+  assert.equal(inferred.sourceCollection, "unexploredRoutes");
+  assert.equal(inferred.itemType, "unexploredRoute");
+});
+
+test("buildExplicitClaimCandidate accepts route far from polyline when explicitly selected", () => {
+  const line = [
+    { lat: 43.44, lng: -72.44 },
+    { lat: 43.45, lng: -72.45 },
+    { lat: 43.46, lng: -72.46 },
+  ];
+  const explicit = buildExplicitClaimCandidate({
+    marker: marker({
+      id: "unx_route_test",
+      lat: 43.44,
+      lng: -72.44,
+      sourceCollection: "unexploredRoutes",
+      itemType: "unexploredRoute",
+      title: "Trail Route",
+      routeSummary: {
+        routePreviewCoordinates: line.map((p) => ({ lat: p.lat, lng: p.lng })),
+      },
+    }),
+    postLat: 43.5,
+    postLng: -72.5,
+    postActivities: ["hiking"],
+  });
+  assert.equal(explicit.id, "unx_route_test");
+  assert.equal(explicit.itemType, "unexploredRoute");
+  assert.ok(explicit.matchScore >= 0.42);
 });

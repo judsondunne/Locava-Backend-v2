@@ -82,4 +82,43 @@ describe("PostingFinalizeOrchestrator", () => {
     expect(out.postContractVersion).toBe(2);
     expect((out as { appPost?: { schema?: { name?: string } } }).appPost?.schema?.name).toBe("locava.appPost");
   });
+
+  it("passes through legendRewards from service when present", async () => {
+    const service = {
+      finalizePosting: vi.fn(async () => ({
+        session: {} as never,
+        operation: {
+          postId: "post_legends",
+          operationId: "op_legends",
+          state: "completed",
+          pollAfterMs: 800,
+        },
+        idempotent: false,
+        canonicalCreated: true,
+        legendRewards: {
+          postId: "post_legends",
+          viewerId: "viewer-1",
+          status: "ready",
+          pollAfterMs: 800,
+          hasRewards: true,
+          earnedFirstLegends: [],
+          earnedRankLegends: [],
+          rankChanges: [],
+          closeTargets: [{ id: "close-1", kind: "activity_rank", postsNeededToPass: 2 }],
+          overtakenUsers: [],
+          displayCards: [{ id: "card-1", title: "First Hike", subtitle: "VT" }],
+        },
+      })),
+    };
+    const orchestrator = new PostingFinalizeOrchestrator(service as never);
+    const out = await orchestrator.run({
+      viewerId: "viewer-1",
+      sessionId: "session-1",
+      idempotencyKey: "idem-legends",
+      mediaCount: 1,
+    });
+    expect(out.legendRewards?.status).toBe("ready");
+    expect(out.legendRewards?.closeTargets).toHaveLength(1);
+    expect(out.legendRewards?.displayCards).toHaveLength(1);
+  });
 });

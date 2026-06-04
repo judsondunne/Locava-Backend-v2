@@ -174,11 +174,21 @@ export type LegendPreviewCard = {
 
 export type LegendPostStageStatus = "staged" | "committed" | "cancelled" | "expired";
 
+export type LegendStageContextSnapshot = {
+  activityIds: string[];
+  state: string | null;
+  country: string | null;
+  geohash: string | null;
+  city: string | null;
+};
+
 export type LegendPostStageDoc = {
   stageId: string;
   userId: string;
   status: LegendPostStageStatus;
   derivedScopes: LegendScopeId[];
+  derivedScopeCount: number;
+  stageContext: LegendStageContextSnapshot | null;
   previewCards: LegendPreviewCard[];
   createdAt: unknown;
   expiresAt: unknown;

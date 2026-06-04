@@ -43,6 +43,15 @@ export class PostingFinalizeOrchestrator {
         resizeMode?: "cover" | "contain";
       };
     }>;
+    assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    claimedRoutePost?: {
+      undiscoveredRouteId: string;
+      routeSource: "undiscovered_claim";
+      routeName?: string;
+      routeActivity?: string;
+      category?: string;
+      routeSummary?: Record<string, unknown>;
+    };
     adminPostAsUserId?: string;
     authorizationHeader?: string;
   }) {
@@ -62,10 +71,10 @@ export class PostingFinalizeOrchestrator {
         pollAfterMs: result.operation.pollAfterMs
       },
       ...(result.achievementDelta ? { achievementDelta: result.achievementDelta } : {}),
-      legendRewards: {
-        postId: result.operation.postId,
+      legendRewards: result.legendRewards ?? {
+        postId: result.operation.postId ?? "",
         viewerId: input.viewerId,
-        status: "pending",
+        status: "pending" as const,
         pollAfterMs: result.operation.pollAfterMs,
         hasRewards: false,
         earnedFirstLegends: [],

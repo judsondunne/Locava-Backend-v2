@@ -52,6 +52,8 @@ export async function registerV2PostingFinalizeRoutes(app: FastifyInstance): Pro
         carouselFitWidth: body.carouselFitWidth,
         letterboxGradients: body.letterboxGradients,
         assetPresentations: body.assetPresentations,
+        assetLocations: body.assetLocations,
+        claimedRoutePost: body.claimedRoutePost,
         adminPostAsUserId: body.adminPostAsUserId,
         authorizationHeader: typeof request.headers.authorization === "string" ? request.headers.authorization : undefined
       });

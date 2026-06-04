@@ -5,7 +5,11 @@ import { getFirestoreSourceClient } from "../../repositories/source-of-truth/fir
 import { LegendAwardService, capTopUsers, findRank } from "./legend-award.service.js";
 import { formatLegendAnchorPreferState, humanizeLegendPlace } from "./legend-place-humanize.js";
 import { LegendScopeDeriver } from "./legend-scope-deriver.js";
-import { isEligiblePostForLegends } from "./legend-post-eligibility.js";
+import { isEligiblePostForLegends, isRecoverableLegendEligibilityFailure } from "./legend-post-eligibility.js";
+import {
+  assertNoSilentScopeLoss,
+  resolveCommitDerivedScopes
+} from "./legend-stage-scopes.js";
 import { LegendRepository, legendRepository } from "./legend.repository.js";
 import {
   type CanonicalLegendKind,
@@ -23,12 +27,9 @@ import {
 } from "./legends.types.js";
 
 type FirestoreMap = Record<string, unknown>;
-function isSupportedLegendScopeId(scopeId: string): boolean {
-  if (scopeId.startsWith("activity:")) return true;
-  if (scopeId.startsWith("place:state:") || scopeId.startsWith("place:country:")) return true;
-  if (scopeId.startsWith("placeActivity:state:") || scopeId.startsWith("placeActivity:country:")) return true;
-  return false;
-}
+
+/** Post-result close cards and close_to_leader awards use this threshold. */
+const CLOSE_TO_LEADER_THRESHOLD = 5;
 
 export function canonicalFromAwardType(
   awardType: string,
@@ -213,7 +214,7 @@ export class LegendService {
       maxActivitiesPerPost: config.maxActivitiesPerPost ?? 3,
       enablePlaceScopes: config.enablePlaceScopes ?? true
     });
-    this.awards = new LegendAwardService({ closeToLeaderThreshold: config.closeToLeaderThreshold ?? 2 });
+    this.awards = new LegendAwardService({ closeToLeaderThreshold: config.closeToLeaderThreshold ?? 5 });
     this.config = {
       topUsersCap: Math.max(3, Math.min(config.topUsersCap ?? 5, 5)),
       stageTtlMs: Math.max(30_000, Math.min(config.stageTtlMs ?? 10 * 60_000, 60 * 60_000))
@@ -315,16 +316,24 @@ export class LegendService {
       userId: input.userId,
       derivedScopes: derived.scopes,
       previewCards: previewCards.slice(0, 8),
-      expiresAtMs: now + this.config.stageTtlMs
+      expiresAtMs: now + this.config.stageTtlMs,
+      stageContext: {
+        activityIds: (input.activityIds ?? []).map((a) => String(a ?? "").trim()).filter(Boolean).slice(0, 6),
+        state: input.state ?? null,
+        country: input.country ?? null,
+        geohash: input.geohash ?? null,
+        city: input.city ?? null
+      }
     });
 
     recordSurfaceTimings({ legendStageMs: Date.now() - startedAt });
     console.info("[legend.stage_post] done", {
+      stageDocPath: this.repo.stageRef(stageId).path,
       stageId,
       userId: input.userId,
       reasons: derived.reasons,
-      scopeCount: derived.scopes.length,
-      scopes: derived.scopes.slice(0, 12)
+      derivedScopeCount: derived.scopes.length,
+      derivedScopes: derived.scopes.slice(0, 12)
     });
     return { stageId, derivedScopes: derived.scopes, previewCards: previewCards.slice(0, 8) };
   }
@@ -394,6 +403,7 @@ export class LegendService {
         throw new Error("legend_stage_not_found");
       }
       const stage = this.repo.readStageDoc(stageSnap.data(), params.stageId);
+      const stageDocPath = stageRef.path;
       if (stage.userId !== params.post.userId) throw new Error("legend_stage_user_mismatch");
       if (stage.status !== "staged") throw new Error(`legend_stage_invalid_status:${stage.status}`);
       const expiresAt = stageSnap.get("expiresAt") as Timestamp | null;
@@ -401,9 +411,53 @@ export class LegendService {
         tx.set(stageRef, { status: "expired", updatedAt: FieldValue.serverTimestamp() }, { merge: true });
         throw new Error("legend_stage_expired");
       }
-      const derivedScopes = (stage.derivedScopes ?? []).filter((scopeId) => scopeId && isSupportedLegendScopeId(scopeId)).slice(0, 8);
+      const scopeResolution = resolveCommitDerivedScopes({
+        stageRaw: stageSnap.data(),
+        legendPost,
+        recompute: (post) =>
+          this.deriver.deriveFromPost({
+            geohash: post.geohash ?? null,
+            activities: post.activities ?? [],
+            city: post.city ?? null,
+            state: post.state ?? null,
+            country: post.country ?? null,
+            region: post.region ?? null
+          }).scopes
+      });
+      assertNoSilentScopeLoss({
+        stageDocPath,
+        stageId: params.stageId,
+        postId: params.post.postId,
+        persistedScopeCount: scopeResolution.persistedScopeCount,
+        commitReadScopeCount: scopeResolution.commitReadScopeCount,
+        fallbackRecomputeScopeCount: scopeResolution.fallbackRecomputeScopeCount,
+        resolvedScopeCount: scopeResolution.derivedScopes.length
+      });
+      const derivedScopes = scopeResolution.derivedScopes;
+      console.info("[legend.commit] scopes_resolved", {
+        stageDocPath,
+        stageId: params.stageId,
+        postId: params.post.postId,
+        persistedScopeCount: scopeResolution.persistedScopeCount,
+        commitReadScopeCount: scopeResolution.commitReadScopeCount,
+        fallbackRecomputeScopeCount: scopeResolution.fallbackRecomputeScopeCount,
+        resolvedScopeCount: derivedScopes.length,
+        scopeSource: scopeResolution.scopeSource,
+        derivedScopes
+      });
       const eligibility = isEligiblePostForLegends(legendPost);
       if (!eligibility.eligible) {
+        if (isRecoverableLegendEligibilityFailure(legendPost, eligibility.reason)) {
+          throw new Error(`legend_post_not_ready:${eligibility.reason ?? "unknown"}`);
+        }
+        console.warn("[legend.commit] not_eligible", {
+          stageDocPath,
+          stageId: params.stageId,
+          postId: params.post.postId,
+          reason: eligibility.reason,
+          resolvedScopeCount: derivedScopes.length,
+          derivedScopes
+        });
         tx.set(
           postResultRef,
           {
@@ -413,6 +467,8 @@ export class LegendService {
             reasonIfEmpty: eligibility.reason,
             awards: [],
             awardIds: [],
+            derivedScopeCount: derivedScopes.length,
+            derivedScopes,
             updatedAt: FieldValue.serverTimestamp()
           },
           { merge: true }
@@ -421,17 +477,25 @@ export class LegendService {
           postId: params.post.postId,
           stageId: params.stageId,
           userId: params.post.userId,
-          scopeCount: 0,
+          scopeCount: derivedScopes.length,
+          ineligibleReason: eligibility.reason,
           processedAt: FieldValue.serverTimestamp()
         });
         tx.set(stageRef, { status: "committed", committedPostId: params.post.postId, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
-        return { committed: true, alreadyProcessed: false, awardsCreated: 0, derivedScopes: [] as LegendScopeId[] };
+        return {
+          committed: true,
+          alreadyProcessed: false,
+          awardsCreated: 0,
+          derivedScopes,
+          ineligibleReason: eligibility.reason
+        };
       }
       const geoAnchorLine = formatLegendAnchorPreferState({
         city: legendPost.city ?? null,
         state: legendPost.state ?? null
       });
       console.info("[legend.commit] derived_scopes_loaded", {
+        stageDocPath,
         stageId: params.stageId,
         postId: params.post.postId,
         derivedScopeCount: derivedScopes.length,
@@ -877,10 +941,48 @@ export class LegendService {
           const challenger = nextTopUsers.find((row) => row.userId !== params.post.userId) ?? null;
           const deltaBehind = challenger ? Math.max(0, nextUserCount - Math.max(0, challenger.count)) : 999;
           if (deltaBehind <= 2) defenseAtRiskScopeIdsThisCommit.push(scopeId);
-        } else if (deltaToLeader > 0 && deltaToLeader <= 2) {
+        } else if (deltaToLeader > 0 && deltaToLeader <= CLOSE_TO_LEADER_THRESHOLD) {
           closeScopeIdsThisCommit.push(scopeId);
         }
+
+        if (
+          !award &&
+          nextScope.leaderUserId !== params.post.userId &&
+          deltaToLeader > 0 &&
+          deltaToLeader <= CLOSE_TO_LEADER_THRESHOLD
+        ) {
+          const viewerRank = findRank(nextTopUsers, params.post.userId);
+          const prevRank = findRank(prevScope.topUsers ?? [], params.post.userId);
+          const closeKind =
+            parsed.scopeType === "placeActivity"
+              ? "combo_rank"
+              : parsed.scopeType === "activity"
+                ? "activity_rank"
+                : "location_rank";
+          rankChanges.push({
+            id: `closetarget:${scopeId}:${params.post.postId}`.slice(0, 240),
+            kind: closeKind,
+            scopeId,
+            scopeType: parsed.scopeType,
+            title,
+            subtitle,
+            activityKey: parsed.activityId ?? null,
+            locationKey: parseLocationFromScopeId(scopeId).locationKey,
+            previousRank: prevRank,
+            newRank: viewerRank,
+            rank: viewerRank,
+            postsNeededToPass: Math.max(1, deltaToLeader + 1),
+            viewerCount: nextUserCount,
+            targetCount: nextScope.leaderCount,
+            becameNumberOne: false
+          });
+        }
       }
+
+      const closeTargetsForResult = rankChanges.filter(
+        (c) => Number(c.postsNeededToPass ?? 0) > 0 && Number(c.postsNeededToPass ?? 0) <= CLOSE_TO_LEADER_THRESHOLD
+      );
+      const hasPostResultRewards = displayCards.length > 0 || closeTargetsForResult.length > 0;
 
       const claimReadsByPath = new Map<string, { exists: boolean; claim: (typeof pendingFirstClaims)[number] }>();
       if (pendingFirstClaims.length > 0) {
@@ -966,17 +1068,17 @@ export class LegendService {
         {
           postId: params.post.postId,
           userId: params.post.userId,
-          status: displayCards.length > 0 ? "ready" : "none",
+          status: hasPostResultRewards ? "ready" : "none",
           awards: awardSummaries,
           awardIds: awardIdsThisCommit,
           rewards: {
             postId: params.post.postId,
             viewerId: params.post.userId,
-            hasRewards: displayCards.length > 0,
+            hasRewards: hasPostResultRewards,
             earnedFirstLegends: sortLegendDisplayCards(earnedFirstLegends),
             earnedRankLegends: sortLegendDisplayCards(earnedRankLegends),
             rankChanges,
-            closeTargets: rankChanges.filter((c) => Number(c.postsNeededToPass ?? 0) > 0 && Number(c.postsNeededToPass ?? 0) <= 3),
+            closeTargets: closeTargetsForResult,
             overtakenUsers: rankChanges.filter((c) => c.passedUserId != null),
             displayCards: sortLegendDisplayCards(displayCards)
           },
@@ -1004,6 +1106,7 @@ export class LegendService {
     incrementDbOps("reads", 3 + 2 * (result.derivedScopes?.length ?? 0));
     incrementDbOps("writes", 3 + 2 * (result.derivedScopes?.length ?? 0) + (result.awardsCreated ?? 0));
     console.info("[legend.commit] done", {
+      stageDocPath: this.repo.stageRef(params.stageId).path,
       stageId: params.stageId,
       postId: params.post.postId,
       userId: params.post.userId,
@@ -1011,6 +1114,8 @@ export class LegendService {
       alreadyProcessed: result.alreadyProcessed,
       awardsCreated: result.awardsCreated,
       derivedScopeCount: result.derivedScopes.length,
+      derivedScopes: result.derivedScopes,
+      ineligibleReason: (result as { ineligibleReason?: string | null }).ineligibleReason ?? null,
       elapsedMs: Date.now() - startedAt
     });
     return result;
@@ -1050,7 +1155,14 @@ export class LegendService {
       userId: post.userId,
       derivedScopes: derived.scopes,
       previewCards: [],
-      expiresAtMs: Date.now() + 5 * 60_000
+      expiresAtMs: Date.now() + 5 * 60_000,
+      stageContext: {
+        activityIds: (post.activities ?? []).map((a) => String(a ?? "").trim()).filter(Boolean).slice(0, 6),
+        state: post.state ?? null,
+        country: post.country ?? null,
+        geohash: post.geohash ?? null,
+        city: post.city ?? null
+      }
     });
     const committed = await this.commitStagedPostLegend({ stageId, post });
     recordSurfaceTimings({ legendProcessMs: Date.now() - startedAt });
@@ -1069,19 +1181,35 @@ export class LegendService {
 
   /** Minimal read so staged commits inherit city/state/geo from the canonical post doc. */
   private async hydrateLegendPostEnvelope(post: LegendPostCreatedInput): Promise<LegendPostCreatedInput> {
-    const cityOk = typeof post.city === "string" && post.city.trim().length > 0;
-    const stateOk = typeof post.state === "string" && post.state.trim().length > 0;
-    if (cityOk && stateOk) {
-      return post;
+    const hasPrivacy = typeof post.privacy === "string" && post.privacy.trim().length > 0;
+    const hasActivities = Array.isArray(post.activities) && post.activities.length > 0;
+    const hasState = typeof post.state === "string" && post.state.trim().length > 0;
+    const hasCountry = typeof post.country === "string" && post.country.trim().length > 0;
+    const needsFirestoreHydration =
+      !hasPrivacy ||
+      !hasActivities ||
+      !hasState ||
+      !hasCountry ||
+      post.finalized == null ||
+      post.isHidden == null ||
+      post.isDeleted == null;
+
+    if (!needsFirestoreHydration) {
+      return { ...post, finalized: post.finalized ?? true };
     }
+
     try {
       const db = getFirestoreSourceClient();
-      if (!db) return post;
+      if (!db) return { ...post, finalized: post.finalized ?? true };
       const snap = await db.collection("posts").doc(post.postId).get();
-      if (!snap.exists) return post;
+      if (!snap.exists) return { ...post, finalized: post.finalized ?? true };
       const data = snap.data() as Record<string, unknown> | undefined;
-      if (!data) return post;
+      if (!data) return { ...post, finalized: post.finalized ?? true };
       const geoData = data.geoData && typeof data.geoData === "object" ? (data.geoData as Record<string, unknown>) : null;
+      const classification =
+        data.classification && typeof data.classification === "object"
+          ? (data.classification as Record<string, unknown>)
+          : null;
       const city =
         typeof post.city === "string" && post.city.trim()
           ? post.city
@@ -1095,9 +1223,11 @@ export class LegendService {
           ? post.state
           : typeof data.state === "string"
             ? data.state
-            : geoData && typeof geoData.state === "string"
-              ? geoData.state
-              : null;
+            : typeof data.stateRegionId === "string"
+              ? data.stateRegionId
+              : geoData && typeof geoData.state === "string"
+                ? geoData.state
+                : null;
       const geohash =
         typeof post.geohash === "string" && post.geohash.trim()
           ? post.geohash
@@ -1109,7 +1239,11 @@ export class LegendService {
           ? post.privacy
           : typeof data.privacy === "string"
             ? data.privacy
-            : null;
+            : classification && typeof classification.privacyLabel === "string"
+              ? classification.privacyLabel
+              : typeof data.visibility === "string"
+                ? data.visibility
+                : null;
       const isHidden =
         typeof post.isHidden === "boolean"
           ? post.isHidden
@@ -1117,7 +1251,7 @@ export class LegendService {
             ? data.hidden
             : typeof data.isHidden === "boolean"
               ? data.isHidden
-              : null;
+              : false;
       const isDeleted =
         typeof post.isDeleted === "boolean"
           ? post.isDeleted
@@ -1125,7 +1259,7 @@ export class LegendService {
             ? data.deleted
             : typeof data.isDeleted === "boolean"
               ? data.isDeleted
-              : null;
+              : false;
       const activities =
         Array.isArray(post.activities) && post.activities.length > 0
           ? post.activities
@@ -1155,7 +1289,7 @@ export class LegendService {
         finalized: true
       };
     } catch {
-      return post;
+      return { ...post, finalized: post.finalized ?? true };
     }
   }
 }

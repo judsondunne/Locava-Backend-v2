@@ -10,6 +10,8 @@ import {
   resolveMapLayerEmoji,
 } from "../../lib/map/mapLayerActivityEmoji.js";
 import {
+  getUnexploredRouteById,
+  getUnexploredSpotById,
   getUnexploredTilesByKeys,
   queryUnexploredRoutesInBbox,
   queryUnexploredSpotsInBbox,
@@ -484,4 +486,39 @@ export async function fetchUnexploredMapMarkerSummaries(input: {
     fromSpotsQuery,
     fromRoutesQuery,
   };
+}
+
+/** Direct Firestore lookup — used when the client passes an explicit candidateId. */
+export async function fetchUnexploredMapMarkerById(input: {
+  id: string;
+  sourceCollection?: "unexploredSpots" | "unexploredRoutes";
+  itemType?: "unexploredSpot" | "unexploredRoute";
+  includeRouteGeometry?: boolean;
+}): Promise<UnexploredMapMarkerSummary | null> {
+  const id = String(input.id ?? "").trim();
+  if (!id) return null;
+
+  let sourceCollection = input.sourceCollection;
+  let itemType = input.itemType;
+  if (!sourceCollection || !itemType) {
+    if (id.startsWith("unx_route_")) {
+      sourceCollection = "unexploredRoutes";
+      itemType = "unexploredRoute";
+    } else {
+      sourceCollection = sourceCollection ?? "unexploredSpots";
+      itemType = itemType ?? "unexploredSpot";
+    }
+  }
+
+  if (itemType === "unexploredRoute" || sourceCollection === "unexploredRoutes") {
+    const doc = await getUnexploredRouteById(id);
+    if (!doc) return null;
+    return routeDocToMarker(doc, {
+      includeRouteGeometry: input.includeRouteGeometry !== false,
+    });
+  }
+
+  const doc = await getUnexploredSpotById(id);
+  if (!doc) return null;
+  return spotDocToMarker(doc);
 }

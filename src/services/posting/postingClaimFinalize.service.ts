@@ -6,17 +6,31 @@ import {
   scoreClaimCandidate,
   claimDistanceToMarker,
   maxRadiusForMarker,
-  bboxAroundPoint,
-  HARD_MAX_SPOT_RADIUS_METERS,
   HARD_MAX_ROUTE_RADIUS_METERS,
+  HARD_MAX_SPOT_RADIUS_METERS,
+  buildExplicitClaimCandidate,
+  countRouteGeometryPoints,
+  inferClaimCandidateTarget,
   type ClaimMatchCandidate
 } from "./postingClaimMatching.js";
 import { resolvePostingClaimCandidate } from "./postingClaimCandidate.service.js";
-import { fetchUnexploredMapMarkerSummaries } from "../map/unexploredMapMarkers.service.js";
+import { fetchUnexploredMapMarkerById } from "../map/unexploredMapMarkers.service.js";
+import {
+  buildClaimedRouteFieldsFromUnexploredDoc,
+  buildClaimedRouteFieldsFromUnexploredDocSync,
+  detectColdOpenRoutePost,
+  resolveSourceUnexploredRouteId,
+} from "../../lib/posts/claimed-route-post.js";
 
 const FIRST_CAPTURE_XP = 25;
 
 type FirestoreMap = Record<string, unknown>;
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
 
 function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -94,24 +108,112 @@ async function resolveVerifiedCandidate(input: {
   candidateId?: string;
   sourceCollection?: "unexploredSpots" | "unexploredRoutes";
   itemType?: "unexploredSpot" | "unexploredRoute";
-}): Promise<ClaimMatchCandidate | null> {
-  if (input.candidateId && input.sourceCollection && input.itemType) {
-    const bbox = bboxAroundPoint(input.lat, input.lng, HARD_MAX_SPOT_RADIUS_METERS);
-    const { markers } = await fetchUnexploredMapMarkerSummaries({ bbox, zoom: 14, limit: 200 });
-    const marker = markers.find(
-      (row) =>
-        row.id === input.candidateId &&
-        row.sourceCollection === input.sourceCollection &&
-        row.itemType === input.itemType
-    );
-    if (!marker) return null;
-    return scoreClaimCandidate({
+  postId?: string;
+}): Promise<{ candidate: ClaimMatchCandidate | null; reason?: string }> {
+  if (input.candidateId) {
+    let sourceCollection = input.sourceCollection;
+    let itemType = input.itemType;
+    if (!sourceCollection || !itemType) {
+      const inferred = inferClaimCandidateTarget(input.candidateId);
+      sourceCollection = sourceCollection ?? inferred.sourceCollection;
+      itemType = itemType ?? inferred.itemType;
+    }
+
+    const marker = await fetchUnexploredMapMarkerById({
+      id: input.candidateId,
+      sourceCollection,
+      itemType,
+      includeRouteGeometry: itemType === "unexploredRoute",
+    });
+
+    if (itemType === "unexploredRoute") {
+      const routeFound = marker != null;
+      const routePointCount = marker ? countRouteGeometryPoints(marker) : 0;
+      let nearestRouteDistanceMeters: number | null = null;
+      let allowedRadiusMeters = HARD_MAX_ROUTE_RADIUS_METERS;
+      if (marker) {
+        const dist = claimDistanceToMarker({
+          marker,
+          postLat: input.lat,
+          postLng: input.lng,
+        });
+        nearestRouteDistanceMeters = dist.distanceMeters;
+        allowedRadiusMeters = Math.min(
+          HARD_MAX_ROUTE_RADIUS_METERS,
+          maxRadiusForMarker(marker),
+        );
+      }
+
+      console.info(
+        `[claim-finalize.route.lookup] routeId=${input.candidateId} routeFound=${routeFound} source=${sourceCollection} postId=${input.postId ?? "null"} routePointCount=${routePointCount}`,
+      );
+
+      if (!marker) {
+        console.info("[claim-finalize.route.validity]", {
+          postId: input.postId ?? null,
+          candidateId: input.candidateId,
+          validCandidate: false,
+          reason: "route_not_found",
+        });
+        return { candidate: null, reason: "route_not_found" };
+      }
+
+      if (routePointCount < 2) {
+        console.info(
+          `[claim-finalize.route.distance] nearestDistanceMeters=null allowedRadiusMeters=${allowedRadiusMeters} valid=false reason=route_geometry_missing routeId=${input.candidateId}`,
+        );
+        return { candidate: null, reason: "route_geometry_missing" };
+      }
+
+      const validDistance =
+        nearestRouteDistanceMeters != null &&
+        nearestRouteDistanceMeters <= allowedRadiusMeters;
+      console.info(
+        `[claim-finalize.route.distance] nearestDistanceMeters=${nearestRouteDistanceMeters ?? "null"} allowedRadiusMeters=${allowedRadiusMeters} valid=${validDistance} routeId=${input.candidateId}`,
+      );
+
+      const candidate = buildExplicitClaimCandidate({
+        marker,
+        postLat: input.lat,
+        postLng: input.lng,
+        postActivities: input.activities ?? [],
+        postTitle: input.title,
+      });
+
+      console.info("[claim-finalize.route.validity]", {
+        postId: input.postId ?? null,
+        candidateId: input.candidateId,
+        validCandidate: true,
+        nearestRouteDistanceMeters: candidate.distanceMeters,
+        allowedRadiusMeters: "explicit_bypass",
+        reason: null,
+      });
+
+      return { candidate };
+    }
+
+    if (!marker) {
+      return { candidate: null, reason: "spot_not_found" };
+    }
+
+    const scored = scoreClaimCandidate({
       marker,
       postLat: input.lat,
       postLng: input.lng,
       postActivities: input.activities ?? [],
-      postTitle: input.title
+      postTitle: input.title,
     });
+    if (scored) return { candidate: scored };
+
+    return {
+      candidate: buildExplicitClaimCandidate({
+        marker,
+        postLat: input.lat,
+        postLng: input.lng,
+        postActivities: input.activities ?? [],
+        postTitle: input.title,
+      }),
+    };
   }
 
   const resolved = await resolvePostingClaimCandidate({
@@ -121,7 +223,129 @@ async function resolveVerifiedCandidate(input: {
     title: input.title,
     allowAlreadyCaptured: true
   });
-  return resolved.candidate;
+  return { candidate: resolved.candidate, reason: resolved.candidate ? undefined : "no_valid_candidate" };
+}
+
+export function normalizeClaimFinalizeCandidateInput(input: {
+  candidateId?: string;
+  sourceCollection?: "unexploredSpots" | "unexploredRoutes";
+  itemType?: "unexploredSpot" | "unexploredRoute";
+  candidateItemType?: "unexploredSpot" | "unexploredRoute";
+  undiscoveredSpotId?: string;
+  undiscoveredRouteId?: string;
+  unexploredRouteId?: string;
+}): {
+  candidateId?: string;
+  sourceCollection?: "unexploredSpots" | "unexploredRoutes";
+  itemType?: "unexploredSpot" | "unexploredRoute";
+} {
+  let candidateId = input.candidateId?.trim() || undefined;
+  let sourceCollection = input.sourceCollection;
+  let itemType = input.itemType ?? input.candidateItemType;
+
+  const routeId =
+    input.unexploredRouteId?.trim() ||
+    input.undiscoveredRouteId?.trim() ||
+    (candidateId?.startsWith("unx_route_") ? candidateId : undefined) ||
+    (input.undiscoveredSpotId?.startsWith("unx_route_") ? input.undiscoveredSpotId.trim() : undefined);
+
+  const isRouteClaim =
+    itemType === "unexploredRoute" ||
+    input.candidateItemType === "unexploredRoute" ||
+    Boolean(routeId) ||
+    candidateId?.startsWith("unx_route_") === true ||
+    input.undiscoveredSpotId?.startsWith("unx_route_") === true;
+
+  if (isRouteClaim) {
+    candidateId = routeId ?? candidateId ?? input.undiscoveredSpotId?.trim();
+    sourceCollection = sourceCollection ?? "unexploredRoutes";
+    itemType = "unexploredRoute";
+  } else if (input.undiscoveredSpotId?.trim() && !candidateId) {
+    candidateId = input.undiscoveredSpotId.trim();
+    sourceCollection = sourceCollection ?? "unexploredSpots";
+    itemType = itemType ?? "unexploredSpot";
+  }
+
+  if (candidateId && (!sourceCollection || !itemType)) {
+    const inferred = inferClaimCandidateTarget(candidateId);
+    sourceCollection = sourceCollection ?? inferred.sourceCollection;
+    itemType = itemType ?? inferred.itemType;
+  }
+
+  return { candidateId, sourceCollection, itemType };
+}
+
+function buildClaimCaptureSummary(input: {
+  candidate: ClaimMatchCandidate;
+  isFirstCapture: boolean;
+}): {
+  status: string;
+  sourceCollection: "unexploredSpots" | "unexploredRoutes";
+  itemType: "unexploredSpot" | "unexploredRoute";
+  itemId: string;
+  title: string;
+  emoji: string | null;
+  distanceMeters: number;
+  matchScore: number;
+  isFirstCapture: boolean;
+} {
+  return {
+    status: "captured",
+    sourceCollection: input.candidate.sourceCollection,
+    itemType: input.candidate.itemType,
+    itemId: input.candidate.id,
+    title: input.candidate.title,
+    emoji: input.candidate.emoji ?? null,
+    distanceMeters: input.candidate.distanceMeters,
+    matchScore: input.candidate.matchScore,
+    isFirstCapture: input.isFirstCapture
+  };
+}
+function logRouteClaimPersist(input: {
+  postId: string;
+  sourceUnexploredRouteId: string | null;
+  routeGeometrySaved: boolean;
+  reason?: string;
+}): void {
+  console.info(
+    `[route_claim.persist] sourceUnexploredRouteId=${input.sourceUnexploredRouteId ?? "null"} routeGeometrySaved=${input.routeGeometrySaved}${input.reason ? ` reason=${input.reason}` : ""} postId=${input.postId}`,
+  );
+}
+
+function resolveClaimRouteFields(input: {
+  candidate: ClaimMatchCandidate;
+  unexploredData: FirestoreMap;
+  postData: FirestoreMap;
+  prefetchedRouteFields: Record<string, unknown> | null;
+  postActivities?: string[];
+}): Record<string, unknown> | null {
+  if (input.candidate.itemType !== "unexploredRoute") return null;
+  const existingIsRoute = input.postData.isRoute === true || input.postData.postType === "route";
+  if (existingIsRoute && detectColdOpenRoutePost(input.postData).routeGeometryPresent) return null;
+
+  const clientSummary =
+    (input.unexploredData.routeSummary as Record<string, unknown> | undefined) ??
+    (input.postData.routeSummary as Record<string, unknown> | undefined) ??
+    null;
+
+  return (
+    input.prefetchedRouteFields ??
+    buildClaimedRouteFieldsFromUnexploredDocSync({
+      undiscoveredRouteId: input.candidate.id,
+      unexploredData: input.unexploredData,
+      routeName: input.candidate.title,
+      routeActivity:
+        input.candidate.firstActivity ??
+        asStringArray(input.postActivities)[0] ??
+        asStringArray(input.unexploredData.activities)[0] ??
+        undefined,
+      category:
+        asString(input.unexploredData.category) ??
+        asStringArray(input.unexploredData.categories)[0] ??
+        undefined,
+      clientRouteSummary: clientSummary,
+    })
+  );
 }
 
 function logClaimDistanceComparison(input: {
@@ -179,6 +403,10 @@ export async function finalizePostingClaim(input: {
   candidateId?: string;
   sourceCollection?: "unexploredSpots" | "unexploredRoutes";
   itemType?: "unexploredSpot" | "unexploredRoute";
+  candidateItemType?: "unexploredSpot" | "unexploredRoute";
+  undiscoveredSpotId?: string;
+  undiscoveredRouteId?: string;
+  unexploredRouteId?: string;
   activities?: string[];
   title?: string;
   enforcePostDistanceCheck?: boolean;
@@ -196,6 +424,17 @@ export async function finalizePostingClaim(input: {
   alreadyCaptured?: boolean;
   xpAward?: number;
   reason?: string;
+  captureSummary?: {
+    status: string;
+    sourceCollection: "unexploredSpots" | "unexploredRoutes";
+    itemType: "unexploredSpot" | "unexploredRoute";
+    itemId: string;
+    title?: string;
+    emoji?: string | null;
+    distanceMeters?: number;
+    matchScore?: number;
+    isFirstCapture?: boolean;
+  };
 }> {
   if (input.viewerId !== input.userId) {
     return { captured: false, reason: "forbidden_user_mismatch" };
@@ -206,9 +445,21 @@ export async function finalizePostingClaim(input: {
     return { captured: false, reason: "firestore_unavailable" };
   }
 
-  const candidate = await resolveVerifiedCandidate(input);
+  const normalizedCandidate = normalizeClaimFinalizeCandidateInput(input);
+
+  const verified = await resolveVerifiedCandidate({
+    lat: input.lat,
+    lng: input.lng,
+    activities: input.activities,
+    title: input.title,
+    candidateId: normalizedCandidate.candidateId,
+    sourceCollection: normalizedCandidate.sourceCollection,
+    itemType: normalizedCandidate.itemType,
+    postId: input.postId,
+  });
+  const candidate = verified.candidate;
   if (!candidate) {
-    return { captured: false, reason: "no_valid_candidate" };
+    return { captured: false, reason: verified.reason ?? "no_valid_candidate" };
   }
 
   const postRef = db.collection("posts").doc(input.postId);
@@ -226,6 +477,40 @@ export async function finalizePostingClaim(input: {
     .doc(`spot_capture_${input.postId}`);
   const achievementsRef = db.collection("users").doc(input.userId).collection("achievements").doc("state");
   const unexploredRef = db.collection(candidate.sourceCollection).doc(candidate.id);
+
+  let prefetchedRouteFields: Record<string, unknown> | null = null;
+  if (candidate.itemType === "unexploredRoute") {
+    const unexploredSnap = await unexploredRef.get();
+    const unexploredPrefetchData = (unexploredSnap.data() as FirestoreMap | undefined) ?? {};
+    prefetchedRouteFields = await buildClaimedRouteFieldsFromUnexploredDoc({
+      undiscoveredRouteId: candidate.id,
+      unexploredData: unexploredPrefetchData,
+      routeName: candidate.title,
+      routeActivity:
+        candidate.firstActivity ?? asStringArray(input.activities)[0] ?? undefined,
+      category:
+        asString(unexploredPrefetchData.category) ??
+        asStringArray(unexploredPrefetchData.categories)[0] ??
+        undefined,
+      clientRouteSummary:
+        (unexploredPrefetchData.routeSummary as Record<string, unknown> | undefined) ?? null
+    });
+    if (!prefetchedRouteFields) {
+      prefetchedRouteFields = buildClaimedRouteFieldsFromUnexploredDocSync({
+        undiscoveredRouteId: candidate.id,
+        unexploredData: unexploredPrefetchData,
+        routeName: candidate.title,
+        routeActivity:
+          candidate.firstActivity ?? asStringArray(input.activities)[0] ?? undefined,
+        category:
+          asString(unexploredPrefetchData.category) ??
+          asStringArray(unexploredPrefetchData.categories)[0] ??
+          undefined,
+        clientRouteSummary:
+          (unexploredPrefetchData.routeSummary as Record<string, unknown> | undefined) ?? null
+      });
+    }
+  }
 
   const txResult = await db.runTransaction(async (tx) => {
     const [postDoc, spotCaptureDoc, userCaptureDoc, awardDoc, achievementsDoc, unexploredDoc] =
@@ -263,6 +548,27 @@ export async function finalizePostingClaim(input: {
       existingSource === candidate.sourceCollection &&
       asString(existingPostCapture?.status) === "captured"
     ) {
+      const idempotentRouteFields = resolveClaimRouteFields({
+        candidate,
+        unexploredData,
+        postData,
+        prefetchedRouteFields,
+        postActivities: input.activities,
+      });
+      if (idempotentRouteFields) {
+        tx.set(
+          postRef,
+          {
+            ...idempotentRouteFields,
+            routeSummary: {
+              ...(asRecord(postData.routeSummary) ?? {}),
+              ...(asRecord(idempotentRouteFields.routeSummary) ?? {}),
+            },
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true },
+        );
+      }
       return {
         captured: true,
         isFirstCapture: existingPostCapture?.isFirstCapture === true,
@@ -276,6 +582,12 @@ export async function finalizePostingClaim(input: {
         distanceMeters: candidate.distanceMeters,
         matchScore: candidate.matchScore,
         xpAward: 0,
+        routeClaimed:
+          candidate.itemType === "unexploredRoute"
+            ? Boolean(idempotentRouteFields) ||
+              postData.isRoute === true ||
+              postData.postType === "route"
+            : undefined,
         reason: "idempotent_existing_post_capture"
       };
     }
@@ -286,7 +598,12 @@ export async function finalizePostingClaim(input: {
       asNumber(postData.lng) ??
       asNumber((postData.location as FirestoreMap | undefined)?.long) ??
       asNumber((postData.location as FirestoreMap | undefined)?.lng);
-    const enforcePostDistanceCheck = input.enforcePostDistanceCheck !== false;
+    const enforcePostDistanceCheck =
+      input.enforcePostDistanceCheck === true
+        ? true
+        : input.enforcePostDistanceCheck === false
+          ? false
+          : !input.candidateId;
     if (postLat != null && postLng != null) {
       const markerForDistance = {
         id: candidate.id,
@@ -404,14 +721,31 @@ export async function finalizePostingClaim(input: {
       isFirstCapture
     };
 
-    tx.set(
-      postRef,
-      {
-        capture: captureSummary,
-        updatedAt: FieldValue.serverTimestamp()
-      },
-      { merge: true }
-    );
+    const postCaptureMerge: Record<string, unknown> = {
+      capture: captureSummary,
+      updatedAt: FieldValue.serverTimestamp()
+    };
+
+    let routeClaimed = postData.isRoute === true || postData.postType === "route";
+    if (candidate.itemType === "unexploredRoute") {
+      const routeFields = resolveClaimRouteFields({
+        candidate,
+        unexploredData,
+        postData,
+        prefetchedRouteFields,
+        postActivities: input.activities,
+      });
+      if (routeFields) {
+        Object.assign(postCaptureMerge, routeFields);
+        postCaptureMerge.routeSummary = {
+          ...(asRecord(postData.routeSummary) ?? {}),
+          ...(asRecord(routeFields.routeSummary) ?? {}),
+        };
+        routeClaimed = true;
+      }
+    }
+
+    tx.set(postRef, postCaptureMerge, { merge: true });
 
     tx.set(
       userCaptureRef,
@@ -526,7 +860,11 @@ export async function finalizePostingClaim(input: {
       firstActivity: candidate.firstActivity,
       distanceMeters: candidate.distanceMeters,
       matchScore: candidate.matchScore,
-      xpAward
+      xpAward,
+      routeClaimed:
+        candidate.itemType === "unexploredRoute"
+          ? routeClaimed || postData.isRoute === true || postData.postType === "route"
+          : undefined
     };
   });
 
@@ -535,14 +873,57 @@ export async function finalizePostingClaim(input: {
       postId: input.postId,
       userId: input.userId,
       itemId: txResult.itemId,
+      itemType: txResult.itemType,
       captured: txResult.captured,
+      routeClaimed: (txResult as { routeClaimed?: boolean }).routeClaimed ?? null,
       reason: txResult.reason,
       isFirstCapture: txResult.isFirstCapture,
       xpAward: txResult.xpAward
     });
   }
+  if (normalizedCandidate.itemType === "unexploredRoute" && txResult.captured) {
+    console.info(
+      `[claim-finalize.route.capture_written] postId=${input.postId} routeId=${normalizedCandidate.candidateId ?? txResult.itemId ?? "null"} captured=true`,
+    );
+  }
 
-  return txResult;
+  if (normalizedCandidate.itemType === "unexploredRoute" && txResult.captured) {
+    try {
+      const persisted = await postRef.get();
+      const persistedData = (persisted.data() as FirestoreMap | undefined) ?? {};
+      const coldOpen = detectColdOpenRoutePost(persistedData);
+      logRouteClaimPersist({
+        postId: input.postId,
+        sourceUnexploredRouteId:
+          coldOpen.sourceUnexploredRouteId ??
+          resolveSourceUnexploredRouteId(persistedData) ??
+          normalizedCandidate.candidateId ??
+          txResult.itemId ??
+          null,
+        routeGeometrySaved: coldOpen.routeGeometryPresent,
+        reason: txResult.reason,
+      });
+    } catch {
+      logRouteClaimPersist({
+        postId: input.postId,
+        sourceUnexploredRouteId: normalizedCandidate.candidateId ?? txResult.itemId ?? null,
+        routeGeometrySaved: (txResult as { routeClaimed?: boolean }).routeClaimed === true,
+        reason: "persist_verify_failed",
+      });
+    }
+  }
+
+  return {
+    ...txResult,
+    ...(txResult.captured && candidate && txResult.isFirstCapture != null
+      ? {
+          captureSummary: buildClaimCaptureSummary({
+            candidate,
+            isFirstCapture: txResult.isFirstCapture === true
+          })
+        }
+      : {})
+  };
 }
 
 export async function listUserCapturedSpots(input: {

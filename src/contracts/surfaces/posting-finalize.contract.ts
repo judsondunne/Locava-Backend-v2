@@ -2,6 +2,7 @@ import { z } from "zod";
 import { defineContract } from "../conventions.js";
 import { AchievementDeltaSchema, LegendRewardEnvelopeSchema } from "../entities/achievement-entities.contract.js";
 import { PostMediaReadinessSchema } from "../entities/post-entities.contract.js";
+import { ClaimedRoutePostClientPayloadSchema } from "../../lib/posts/claimed-route-post.js";
 
 /** Fastify `bodyLimit` for POST /v2/posting/finalize — must exceed worst-case JSON for base64 fields below. */
 const DISPLAY_PHOTO_B64_MAX = 6_000_000;
@@ -70,7 +71,19 @@ export const PostingFinalizeBodySchema = z.object({
   /** Post-level letterbox gradients (top → bottom per slide or broadcast when length is 1). */
   letterboxGradients: z.array(LetterboxGradientBodySchema).max(20).optional(),
   /** Per-asset presentation hints aligned by `index` (same ordering as `stagedItems`). */
-  assetPresentations: z.array(AssetPresentationSlotSchema).max(20).optional()
+  assetPresentations: z.array(AssetPresentationSlotSchema).max(20).optional(),
+  /** Per-asset lat/long from EXIF (same order as staged media). Stored on post as `assetLocations`. */
+  assetLocations: z
+    .array(
+      z.object({
+        lat: z.number().finite().nullable().optional(),
+        long: z.number().finite().nullable().optional()
+      })
+    )
+    .max(20)
+    .optional(),
+  /** When claiming an undiscovered route, attach canonical route geometry from the source trail. */
+  claimedRoutePost: ClaimedRoutePostClientPayloadSchema.optional()
 });
 
 export const PostingFinalizeResponseSchema = z.object({

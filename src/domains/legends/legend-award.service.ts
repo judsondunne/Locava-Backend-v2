@@ -149,7 +149,7 @@ export class LegendAwardService {
     /** Post city/state formatted for hyperlocal legends (cells). */
     geoAnchorLine?: string | null;
   }): { award: LegendAwardDoc | null; kind: LegendAwardType | null; previousRank: number | null; newRank: number | null } {
-    const closeThreshold = Math.max(1, Math.min(this.config.closeToLeaderThreshold ?? 2, 3));
+    const closeThreshold = Math.max(1, Math.min(this.config.closeToLeaderThreshold ?? 5, 5));
 
     const prevTop = params.prevScope.topUsers ?? [];
     const nextTop = params.nextScope.topUsers ?? [];

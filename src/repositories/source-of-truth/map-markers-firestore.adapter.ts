@@ -2,6 +2,7 @@ import { FieldPath, type DocumentSnapshot, type QueryDocumentSnapshot } from "fi
 import { createHash } from "node:crypto";
 import { loadEnv } from "../../config/env.js";
 import { buildPostEnvelope } from "../../lib/posts/post-envelope.js";
+import { extractPersistedRouteFieldsForApi } from "../../lib/posts/claimed-route-post.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
 import { incrementDbOps } from "../../observability/request-context.js";
 import {
@@ -143,7 +144,26 @@ const MAP_MARKER_SELECT_FIELDS = [
   "deleted",
   "isDeleted",
   "archived",
-  "hidden"
+  "hidden",
+  "isRoute",
+  "postType",
+  "routeSource",
+  "undiscoveredRouteId",
+  "sourceUnexploredRouteId",
+  "routeId",
+  "routeName",
+  "routeActivity",
+  "routeKind",
+  "routeType",
+  "routeSummary",
+  "routePreviewCoordinates",
+  "routeCoordinates",
+  "encodedPolyline",
+  "bbox",
+  "distanceMeters",
+  "route",
+  "capture",
+  "title",
 ] as const;
 
 export class MapMarkersFirestoreAdapter {
@@ -619,7 +639,8 @@ function project(
             visibility,
             createdAt,
             updatedAt,
-            hasVideo: media.hasVideo
+            hasVideo: media.hasVideo,
+            postData: data,
           })
         : undefined,
     });
@@ -718,7 +739,9 @@ function buildMarkerOpenPayload(input: {
   createdAt: number | null;
   updatedAt: number | null;
   hasVideo: boolean;
+  postData: Record<string, unknown>;
 }): Record<string, unknown> {
+  const routeFields = extractPersistedRouteFieldsForApi(input.postData);
   return buildPostEnvelope({
     postId: input.postId,
     seed: {
@@ -742,6 +765,9 @@ function buildMarkerOpenPayload(input: {
       commentsCount: 0,
       viewerHasLiked: false,
       viewerHasSaved: false,
+      ...routeFields,
+      rawPost: input.postData,
+      sourcePost: input.postData,
       user: input.ownerId
         ? {
             userId: input.ownerId,
