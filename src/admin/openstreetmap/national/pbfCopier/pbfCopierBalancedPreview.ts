@@ -6,6 +6,11 @@ import {
   shouldStopForDryRunQuotas,
 } from "./pbfCopierDryRunQuotas.js";
 import { isGeoFilterExhaustiveMode } from "./pbfCopierGeoFilter.js";
+import type {
+  PbfCopierConfig,
+  PbfCopierMetrics,
+  PbfCopierRun,
+} from "./pbfCopierTypes.js";
 
 export type BalancedPreviewState = {
   nodeSpotPreviews: number;

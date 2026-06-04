@@ -23,6 +23,7 @@ import type {
   LocavaInventoryRoute,
   LocavaInventorySpot,
   LocavaRejectedItem,
+  LocavaRouteKind,
 } from "../../../../lib/inventory/inventoryLocavaTypes.js";
 import { dedupeLocavaInventory } from "../../../../lib/inventory/inventoryLocavaDedupe.js";
 import {
@@ -484,7 +485,7 @@ export function buildRoutePreviewDoc(input: {
     primaryActivity: input.route.primaryActivity ?? null,
     activities: input.route.activities ?? [],
     primaryCategory:
-      input.route.primaryActivity ?? input.route.activity ?? input.route.category ?? input.route.categories?.[0] ?? "route",
+      input.route.primaryActivity ?? input.route.categories?.[0] ?? "route",
     lat: postAnchor.lat,
     lng: postAnchor.lng,
     center: postAnchor,
@@ -1396,7 +1397,16 @@ async function flushBatchIntoRun(input: {
   }
   for (const route of result.routes) {
     if (isQuotaMode(run.config)) {
-      recordRouteForQuotas(route, run.config.dryRunQuotas, ensureDryRunQuotaProgress(run));
+      recordRouteForQuotas(
+        {
+          categories: route.categories,
+          activities: route.activities,
+          activity: route.primaryActivity ?? route.categories[0] ?? "hiking",
+          routeKind: route.routeKind as LocavaRouteKind,
+        },
+        run.config.dryRunQuotas,
+        ensureDryRunQuotaProgress(run),
+      );
     }
     for (const activity of route.activities ?? []) {
       if (run.acceptedActivitySamples.length >= ACTIVITY_SAMPLE_CAP) break;

@@ -96,13 +96,16 @@ export async function upsertUnexploredRoutesIntoTileDocs(input: {
     const x = parts[1];
     const y = parts[2];
     if (!Number.isFinite(z) || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const tileZ = z as number;
+    const tileX = x as number;
+    const tileY = y as number;
     const current =
       existingByKey.get(tileKey) ??
       ({
         tileKey,
-        z,
-        x,
-        y,
+        z: tileZ,
+        x: tileX,
+        y: tileY,
         version,
         generatedAt,
         runId: input.runId,

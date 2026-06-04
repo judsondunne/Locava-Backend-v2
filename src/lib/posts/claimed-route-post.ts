@@ -110,7 +110,7 @@ export function buildClaimedRouteFieldsFromUnexploredDocSync(input: {
   category?: string;
   clientRouteSummary?: Record<string, unknown> | null;
 }): Record<string, unknown> | null {
-  const data = { ...input.unexploredData, id: input.undiscoveredRouteId };
+  const data: Record<string, unknown> = { ...input.unexploredData, id: input.undiscoveredRouteId };
   let preview = routeMapPreviewFromDoc(data);
   const clientSummary = asRecord(input.clientRouteSummary);
   if (preview.length < 2 && clientSummary && hasRouteGeometryHint(clientSummary)) {
@@ -153,7 +153,7 @@ export async function buildClaimedRouteFieldsFromUnexploredDoc(input: {
   category?: string;
   clientRouteSummary?: Record<string, unknown> | null;
 }): Promise<Record<string, unknown> | null> {
-  const data = { ...input.unexploredData, id: input.undiscoveredRouteId };
+  const data: Record<string, unknown> = { ...input.unexploredData, id: input.undiscoveredRouteId };
   let preview = await resolveRoutePreviewFromDoc(data);
   const clientSummary = asRecord(input.clientRouteSummary);
   if (preview.length < 2 && clientSummary && hasRouteGeometryHint(clientSummary)) {

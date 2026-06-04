@@ -54,7 +54,7 @@ export async function queryUnexploredRoutesByTileKey(
   incrementDbOps("reads", snap.size);
   const out: Record<string, unknown>[] = [];
   for (const doc of snap.docs) {
-    const data = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
+    const data: Record<string, unknown> = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
     if (!isUndiscoveredFirestoreMapEligible(data)) continue;
     out.push(data);
     if (out.length >= cap) break;
@@ -83,7 +83,7 @@ export async function queryUnexploredSpotsByTileKey(
   incrementDbOps("reads", snap.size);
   const out: Record<string, unknown>[] = [];
   for (const doc of snap.docs) {
-    const data = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
+    const data: Record<string, unknown> = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
     if (!isUndiscoveredFirestoreMapEligible(data)) continue;
     out.push(data);
     if (out.length >= cap) break;
@@ -110,7 +110,7 @@ export async function queryUnexploredSpotsInBbox(input: {
   incrementDbOps("reads", snap.size);
   const out: Record<string, unknown>[] = [];
   for (const doc of snap.docs) {
-    const data = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
+    const data: Record<string, unknown> = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
     const lat = Number(data.lat ?? (data.location as { lat?: unknown } | undefined)?.lat);
     const lng = Number(
       data.lng ??
@@ -151,7 +151,7 @@ export async function queryUnexploredRoutesInBbox(input: {
   incrementDbOps("reads", snap.size);
   const out: Record<string, unknown>[] = [];
   for (const doc of snap.docs) {
-    const data = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
+    const data: Record<string, unknown> = { id: doc.id, ...(doc.data() as Record<string, unknown>) };
     const center = data.center as { lat?: unknown; lng?: unknown } | undefined;
     const location = data.location as { lat?: unknown; lng?: unknown } | undefined;
     const lat = Number(center?.lat ?? location?.lat);

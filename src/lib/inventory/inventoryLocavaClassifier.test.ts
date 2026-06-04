@@ -17,7 +17,6 @@ function classify(tags: Record<string, string>, extra: Partial<Parameters<typeof
       lat: 43.54,
       lng: -72.39,
       ...extra,
-      tags,
     },
     cfg
   );

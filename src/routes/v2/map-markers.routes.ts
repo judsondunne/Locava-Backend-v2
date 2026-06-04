@@ -184,8 +184,6 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
             sourceQueryMode: "unexplored_only",
             degradedReason: null,
             invalidCoordinateDrops: 0,
-            hasMore: false,
-            nextCursor: null,
           };
         }
       } else {

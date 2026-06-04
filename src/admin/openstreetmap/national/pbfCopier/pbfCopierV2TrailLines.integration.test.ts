@@ -11,7 +11,16 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../.
 const VERMONT_PBF = path.join(ROOT, "data/osm/vermont-latest.osm.pbf");
 const hasPbf = fs.existsSync(VERMONT_PBF);
 
-function mergedTrail(items: { displayName?: string; warnings?: string[]; routeLineCoordinates?: unknown[]; routeLineSegments?: unknown[][] }[], needle: string) {
+function mergedTrail(
+  items: {
+    displayName?: string;
+    warnings?: string[];
+    routeLineCoordinates?: unknown[];
+    routeLineSegments?: unknown[][];
+    routeLineColor?: string;
+  }[],
+  needle: string,
+) {
   return items.find(
     (d) =>
       d.warnings?.includes("v2_hiking_trail_merged") &&

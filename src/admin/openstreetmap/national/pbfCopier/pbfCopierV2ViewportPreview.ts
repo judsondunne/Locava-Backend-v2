@@ -546,6 +546,13 @@ function enrichRouteDocFromCandidate(
           center: doc.center ?? { lat: line[0]!.lat, lng: line[0]!.lng },
           selectedParking: null,
           selectedTrailhead: null,
+          distanceMeters: doc.distanceMeters ?? 0,
+          geometryType: "LineString",
+          geometry: {
+            pointCount: line.length,
+            geometryChunked: false,
+            previewPoints: line,
+          },
         },
         line
       );

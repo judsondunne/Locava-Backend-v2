@@ -107,6 +107,7 @@ function buildEnv(overrides: Partial<AppEnv> = {}): AppEnv {
     ENABLE_PLACE_CANDIDATE_DEV_PAGE: undefined,
     INVENTORY_IMPORT_ALLOW_PROD_WRITE: false,
     INVENTORY_DRY_RUN_WRITE_RUN_DOC: false,
+    ENABLE_UNDISCOVERED_MAP_LAYER_V1: true,
     ...overrides
   };
 }

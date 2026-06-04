@@ -45,8 +45,10 @@ function downsampleLine(points: RouteLinePoint[], maxPoints: number): RouteLineP
 export function extractRouteLineCoordinates(
   route: Pick<
     UnexploredRoute,
-    "encodedPolyline" | "coordinatesPreview" | "geometry" | "geometryType" | "distanceMeters"
-  >,
+    "encodedPolyline" | "coordinatesPreview" | "geometryType" | "distanceMeters"
+  > & {
+    geometry?: UnexploredRoute["geometry"];
+  },
   maxPoints = PREVIEW_LINE_POINT_CAP
 ): RouteLinePoint[] {
   const polyline = route.encodedPolyline ?? route.geometry?.encodedPolyline;
@@ -62,8 +64,10 @@ export function extractRouteLineCoordinates(
 export function routeHasDisplayableGeometry(
   route: Pick<
     UnexploredRoute,
-    "encodedPolyline" | "coordinatesPreview" | "geometry" | "distanceMeters" | "geometryType"
-  >
+    "encodedPolyline" | "coordinatesPreview" | "distanceMeters" | "geometryType"
+  > & {
+    geometry?: UnexploredRoute["geometry"];
+  }
 ): boolean {
   return extractRouteLineCoordinates(route, 2).length >= 2;
 }
@@ -84,12 +88,13 @@ export function resolveRoutePostAnchor(
     | "center"
     | "encodedPolyline"
     | "coordinatesPreview"
-    | "geometry"
     | "geometryType"
     | "distanceMeters"
     | "selectedTrailhead"
     | "selectedParking"
-  >,
+  > & {
+    geometry?: UnexploredRoute["geometry"];
+  },
   routeLineCoordinates?: RouteLinePoint[]
 ): RouteLinePoint {
   const parking = readAccessPoint(route.selectedParking);

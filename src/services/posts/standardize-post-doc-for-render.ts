@@ -1064,10 +1064,10 @@ export function standardizePostDocForRender(
   if (Object.keys(routeFields).length > 0) {
     Object.assign(doc, routeFields);
     if (routeFields.routeSummary) {
-      doc.routeSummary = {
+      (doc as Record<string, unknown>).routeSummary = {
         ...(asRecord((doc as Record<string, unknown>).routeSummary) ?? {}),
         ...(asRecord(routeFields.routeSummary) ?? {}),
-      } as never;
+      };
     }
   }
 

@@ -194,6 +194,8 @@ export type PbfCopierMetrics = {
   docBuilderInvalid: number;
   /** Way entities that passed the tag filter. */
   wayCandidatesFound: number;
+  /** Relation entities that passed the tag filter. */
+  relationCandidatesFound: number;
   /** Preview docs skipped because geo filter was enabled and doc was outside bbox. */
   geoFilterExcludedPreviewCount: number;
   /** Raw candidates skipped before classification because outside geo filter bbox. */
@@ -412,6 +414,16 @@ export type PbfCopierPreviewDoc = {
       attachReason: string;
     }>;
     waterfalls?: Array<{
+      displayName: string;
+      lat: number;
+      lng: number;
+      osmType: string;
+      osmId: number;
+      distanceMeters: number;
+      tags: Record<string, string>;
+      attachReason: string;
+    }>;
+    connectors?: Array<{
       displayName: string;
       lat: number;
       lng: number;

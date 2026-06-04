@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
-import { applyPbfQualityFilters, DEFAULT_PBF_QUALITY_FILTER_SETTINGS } from "./pbfCopierV2QualityFilters.js";
+import {
+  applyPbfQualityFilters,
+  DEFAULT_PBF_QUALITY_FILTER_SETTINGS,
+  type PbfQualityFilteredPreviewDoc,
+} from "./pbfCopierV2QualityFilters.js";
 import {
   buildOutdoorDestinationGroups,
   computeRouteMarkerCoordinate,
@@ -8,7 +12,7 @@ import {
   routeDestinationGroupId,
 } from "./pbfCopierV2OutdoorDestinationGroups.js";
 
-function mkRoute(name: string, coords: Array<{ lat: number; lng: number }>, osmId = 1): PbfCopierPreviewDoc {
+function mkRoute(name: string, coords: Array<{ lat: number; lng: number }>, osmId = 1): PbfQualityFilteredPreviewDoc {
   return {
     id: `test:route:${osmId}`,
     kind: "unexplored_route",
@@ -49,7 +53,7 @@ function mkSpot(input: {
   lat: number;
   lng: number;
   osmId: number;
-}): PbfCopierPreviewDoc {
+}): PbfQualityFilteredPreviewDoc {
   return {
     id: `test:spot:${input.osmId}`,
     kind: "unexplored_spot",

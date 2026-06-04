@@ -168,7 +168,13 @@ export async function registerVermontOffroadImportRoutes(
       .parse(request.body ?? {});
 
     try {
-      const session = restoreVermontOffroadFromBrowserCache(body);
+      const session = restoreVermontOffroadFromBrowserCache({
+        ...body,
+        run: {
+          ...body.run,
+          routes: body.run.routes as import("../../lib/inventory/inventoryLocavaTypes.js").LocavaInventoryRoute[],
+        },
+      });
       return success({
         routeName: "admin.openstreetmap.vermont_offroad_import.restore_from_browser_cache.post" as const,
         sessionId: session.sessionId,

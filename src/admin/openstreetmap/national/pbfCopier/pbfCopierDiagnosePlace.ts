@@ -112,8 +112,12 @@ function geometrySummary(entity: PbfRawEntity): string {
       ? `node @ ${entity.lat.toFixed(5)}, ${entity.lon.toFixed(5)}`
       : "node (no coords)";
   }
-  const refs = entity.refs?.length ?? entity.nodes?.length ?? 0;
-  return `${entity.type} with ${refs} node refs`;
+  if (entity.type === "way") {
+    const refs = entity.refs?.length ?? 0;
+    return `way with ${refs} node refs`;
+  }
+  const refs = entity.members?.length ?? 0;
+  return `${entity.type} with ${refs} member refs`;
 }
 
 function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -262,7 +266,7 @@ export async function diagnosePlaceInPbf(input: {
             classifierScore = rejected.locavaScore ?? null;
             classifierDecision = "reject";
             rejectionReason = rejected.rejectionReason ?? "below_threshold";
-            primaryCategory = rejected.primaryCategory ?? null;
+            primaryCategory = rejected.rawTypeLabel || null;
           } else {
             const spot = classification.acceptedSpots[0] as LocavaInventorySpot | undefined;
             const route = classification.acceptedRoutes[0] as LocavaInventoryRoute | undefined;

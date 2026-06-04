@@ -3,7 +3,7 @@ import {
   filterRoutesToExplicitOffroadClasses,
   isExplicitOffroadClassRoute,
 } from "./offroadExplicitClassFilter.js";
-import type { LocavaInventoryRoute } from "../inventoryLocavaTypes.js";
+import type { LocavaInventoryRoute, OffroadRouteFields } from "../inventoryLocavaTypes.js";
 
 function stubRoute(partial: Partial<LocavaInventoryRoute> & { source: LocavaInventoryRoute["source"] }): LocavaInventoryRoute {
   return {
@@ -30,7 +30,7 @@ describe("offroadExplicitClassFilter", () => {
       isExplicitOffroadClassRoute(
         stubRoute({
           source: "vtrans_public_highway_system",
-          offroad: { offroadCategory: "class4_road", offroadConfidence: "explicit" },
+          offroad: { offroadCategory: "class4_road", offroadConfidence: "explicit" } as OffroadRouteFields,
         })
       )
     ).toBe(true);
@@ -38,7 +38,7 @@ describe("offroadExplicitClassFilter", () => {
       isExplicitOffroadClassRoute(
         stubRoute({
           source: "vtrans_public_highway_system",
-          offroad: { offroadCategory: "legal_trail", offroadConfidence: "explicit" },
+          offroad: { offroadCategory: "legal_trail", offroadConfidence: "explicit" } as OffroadRouteFields,
         })
       )
     ).toBe(true);
@@ -52,9 +52,9 @@ describe("offroadExplicitClassFilter", () => {
           tags: { _primarySource: "osm_offroad", highway: "track", surface: "gravel" },
           offroad: {
             offroadCategory: "dirt_road",
-            offroadConfidence: "likely",
+            offroadConfidence: "candidate",
             roadClassSignals: {},
-          },
+          } as OffroadRouteFields,
         })
       )
     ).toBe(false);
@@ -70,7 +70,7 @@ describe("offroadExplicitClassFilter", () => {
             offroadCategory: "class4_road",
             offroadConfidence: "explicit",
             roadClassSignals: { vtClass4: true },
-          },
+          } as OffroadRouteFields,
         })
       )
     ).toBe(true);
@@ -80,12 +80,12 @@ describe("offroadExplicitClassFilter", () => {
     const routes = [
       stubRoute({
         source: "vtrans_public_highway_system",
-        offroad: { offroadCategory: "class4_road", offroadConfidence: "explicit" },
+        offroad: { offroadCategory: "class4_road", offroadConfidence: "explicit" } as OffroadRouteFields,
       }),
       stubRoute({
         source: "openstreetmap",
         tags: { _primarySource: "osm_offroad" },
-        offroad: { offroadCategory: "dirt_road", offroadConfidence: "likely", roadClassSignals: {} },
+        offroad: { offroadCategory: "dirt_road", offroadConfidence: "candidate", roadClassSignals: {} } as OffroadRouteFields,
       }),
     ];
     const { routes: kept, filteredOut } = filterRoutesToExplicitOffroadClasses(routes);

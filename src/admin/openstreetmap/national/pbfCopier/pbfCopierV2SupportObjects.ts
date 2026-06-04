@@ -655,7 +655,13 @@ export function applyPbfSupportRelationships(
         doc.attachReason = match.attachReason;
       }
     } else if (isSupportToilet(doc)) {
-      const match = pickBestGenericSupportAttachment(doc, destinations, settings, isToiletFriendlyDestination);
+      const match = pickBestGenericSupportAttachment(
+        doc,
+        destinations,
+        settings,
+        isToiletFriendlyDestination,
+        settings.toiletAttachRadiusMeters,
+      );
       if (match) {
         const dest = enriched[match.destinationIndex]!;
         appendSupportMetadata(dest, "toilets", supportRef(doc, match.distanceMeters, match.attachReason));

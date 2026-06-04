@@ -230,7 +230,7 @@ export const UnexploredImportBlockSchema = z.object({
 });
 
 export const UnexploredAuditBlockSchema = z.object({
-  createdBy: z.literal("national_osm_importer"),
+  createdBy: z.enum(["national_osm_importer", "pbf_copier_v2"]),
   createdAt: z.string(),
   updatedAt: z.string(),
   lastSeenAt: z.string(),
@@ -432,7 +432,7 @@ export const UnexploredRouteSchema = z.object({
   sourceTags: z.record(z.unknown()),
   source: z.object({
     provider: z.enum(["openstreetmap", "geofabrik_pbf", "vtrans", "nhdot", "usfs", "blm"]),
-    osmType: z.enum(["way", "relation"]).optional(),
+    osmType: z.enum(["node", "way", "relation"]).optional(),
     osmId: z.union([z.string(), z.number()]).optional(),
     officialClass: z.enum(["VT_CLASS_4", "VT_LEGAL_TRAIL", "NH_CLASS_6"]).optional(),
     tags: z.record(z.string()).optional(),

@@ -31,9 +31,9 @@ function parseBbox(raw: string): {
   return { minLng, minLat, maxLng, maxLat };
 }
 
-function layerVersionForFeatures(features: { updatedAt?: string | number }[]): string {
+function layerVersionForFeatures(features: unknown[]): string {
   const stamps = features
-    .map((f) => f.updatedAt)
+    .map((f) => (f as { updatedAt?: string | number }).updatedAt)
     .filter((v) => v != null)
     .map((v) => String(v))
     .sort();

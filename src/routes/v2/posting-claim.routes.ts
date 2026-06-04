@@ -117,7 +117,7 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
       userId: body.userId,
       lat: body.lat,
       lng: body.lng,
-      candidateId: body.candidateId,
+      candidateId: optionalTrimmed(body.candidateId),
       sourceCollection: body.sourceCollection,
       itemType: body.itemType,
       candidateItemType:
@@ -140,7 +140,7 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
           userId: body.userId,
           requestLat: body.lat,
           requestLng: body.lng,
-          candidateId: body.candidateId,
+          candidateId: optionalTrimmed(body.candidateId),
           enforcePostDistanceCheck: body.enforcePostDistanceCheck
         },
         "claim_finalize_post_too_far"
@@ -152,7 +152,7 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
         {
           postId: body.postId,
           userId: body.userId,
-          candidateId: body.candidateId,
+          candidateId: optionalTrimmed(body.candidateId),
           claimed: false,
           captured: false,
           reason: result.reason ?? "unknown"

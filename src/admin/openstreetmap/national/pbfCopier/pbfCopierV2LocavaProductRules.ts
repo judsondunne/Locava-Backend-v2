@@ -843,8 +843,8 @@ export function pruneDistantSupportMetadata<T extends PbfCopierPreviewDoc & { su
       pruned += 1;
       return false;
     });
-    if (kept.length) next[key] = kept;
-    else delete next[key];
+    if (kept.length) (next as Record<string, PbfSupportObjectRef[] | undefined>)[key] = kept;
+    else delete (next as Record<string, PbfSupportObjectRef[] | undefined>)[key];
   }
 
   return {

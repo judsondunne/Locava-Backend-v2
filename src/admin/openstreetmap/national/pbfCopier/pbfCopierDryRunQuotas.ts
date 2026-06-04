@@ -197,7 +197,7 @@ export function incrementMatchingQuotaKeys(input: {
 }
 
 export function recordSpotForQuotas(
-  spot: LocavaInventorySpot,
+  spot: Pick<LocavaInventorySpot, "category" | "activities">,
   quotas: DryRunQuotaMap,
   progress: DryRunQuotaMap
 ): void {
@@ -213,7 +213,7 @@ export function recordSpotForQuotas(
 }
 
 export function recordRouteForQuotas(
-  route: LocavaInventoryRoute,
+  route: Pick<LocavaInventoryRoute, "categories" | "activities" | "activity" | "routeKind">,
   quotas: DryRunQuotaMap,
   progress: DryRunQuotaMap
 ): void {

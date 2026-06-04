@@ -19,6 +19,7 @@ import {
   validatePbfV2WritePayload,
 } from "./pbfCopierV2Write.js";
 import { PBF_UNDISCOVERED_SHAPE_CONFIRMATION } from "./pbfCopierGuards.js";
+import type { PbfOutdoorGroupingSummary } from "./pbfCopierV2OutdoorDestinationGroups.js";
 
 const base = "/admin/openstreetmap/api/pbf-copier-v2";
 
@@ -119,7 +120,7 @@ function requireWriteCacheOrItems<T extends z.ZodTypeAny>(schema: T): T {
     (body: { cacheId?: string; scanCacheId?: string | null; items?: unknown[] }) =>
       body.cacheId != null || body.scanCacheId != null || (body.items != null && body.items.length > 0),
     { message: "cacheId required (re-scan if expired)" }
-  ) as T;
+  ) as unknown as T;
 }
 
 const ValidateWriteBodySchema = requireWriteCacheOrItems(WriteBodyObjectSchema);
@@ -142,8 +143,8 @@ const WriteBlankSpotsBodySchema = requireWriteCacheOrItems(
 function resolveWriteItems(body: {
   cacheId?: string;
   scanCacheId?: string | null;
-  items?: PbfCopierPreviewDoc[];
-  rawItems?: PbfCopierPreviewDoc[];
+  items?: PbfCopierPreviewDoc[] | Record<string, unknown>[];
+  rawItems?: PbfCopierPreviewDoc[] | Record<string, unknown>[];
   qualityFilterSettings?: z.infer<typeof QualityFilterSettingsSchema>;
 }): { visibleItems: PbfCopierPreviewDoc[]; rawItems: PbfCopierPreviewDoc[] } | null {
   const cacheKey = body.cacheId ?? body.scanCacheId ?? undefined;
@@ -179,7 +180,7 @@ function buildWritePayloadInput(
       ? { ...DEFAULT_PBF_QUALITY_FILTER_SETTINGS, ...body.qualityFilterSettings }
       : undefined,
     qualityFilterSummary: body.qualityFilterSummary ?? null,
-    groupingSummary: body.groupingSummary ?? null,
+    groupingSummary: (body.groupingSummary ?? null) as PbfOutdoorGroupingSummary | null,
     selectedWriteScope: body.selectedWriteScope ?? "all_visible",
     includeHidden: body.includeHidden,
     includeSupportAsPrimary: body.includeSupportAsPrimary,

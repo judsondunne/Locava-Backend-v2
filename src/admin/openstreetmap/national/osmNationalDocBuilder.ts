@@ -14,7 +14,7 @@ import {
 } from "./osmNationalDeterministicIds.js";
 import { trimDocForFirestore } from "./osmNationalDocSize.js";
 
-function mapRouteKindToClientRouteType(routeKind: string): UnexploredRoute["routeKind"] | "hiking_trail" | "offroad_class4_road" | "offroad_class6_road" | "offroad_legal_trail" | "offroad_candidate" | "walking_route" | "biking_route" {
+function mapRouteKindToClientRouteType(routeKind: string): UnexploredRoute["routeType"] {
   const k = String(routeKind ?? "").toLowerCase();
   if (k.includes("class_4") || k.includes("class4")) return "offroad_class4_road";
   if (k.includes("class_6") || k.includes("class6")) return "offroad_class6_road";
@@ -138,7 +138,7 @@ export function buildUnexploredSpotFromInventory(input: {
     sourceTags: input.spot.tags,
     source: {
       provider: "openstreetmap",
-      osmType: input.spot.sourceType,
+      osmType: input.spot.sourceType as "node" | "way" | "relation",
       osmId: input.spot.sourceId,
       tags: input.spot.tags as Record<string, string>,
       wikidata: (input.spot.tags?.wikidata as string | undefined) ?? undefined,

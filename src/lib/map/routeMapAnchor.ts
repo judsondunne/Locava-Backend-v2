@@ -45,7 +45,15 @@ export function resolveRouteMapAnchorFromDoc(
         center: readLatLng(data.center) ?? readLatLng(data.location) ?? line[0]!,
         encodedPolyline: typeof data.encodedPolyline === "string" ? data.encodedPolyline : undefined,
         coordinatesPreview: line,
-        geometry: data.geometry as { encodedPolyline?: string; previewPoints?: RouteMapLonLat[] } | undefined,
+        geometry: {
+          pointCount: line.length,
+          geometryChunked: false,
+          encodedPolyline:
+            typeof data.encodedPolyline === "string"
+              ? data.encodedPolyline
+              : (data.geometry as { encodedPolyline?: string } | undefined)?.encodedPolyline,
+          previewPoints: line,
+        },
         geometryType: typeof data.geometryType === "string" ? data.geometryType : "LineString",
         distanceMeters: typeof data.distanceMeters === "number" ? data.distanceMeters : 0,
       },

@@ -9,11 +9,12 @@ import {
 } from "./pbfCopierV2RawDisplay.js";
 
 function routeDoc(overrides: Partial<PbfCopierPreviewDoc> & { displayName: string }): PbfCopierPreviewDoc {
+  const { displayName, ...rest } = overrides;
   return {
     id: "way/1",
     kind: "unexplored_route",
     collection: "unexploredRoutes",
-    displayName: overrides.displayName,
+    displayName,
     primaryActivity: "hiking",
     activities: ["hiking"],
     primaryCategory: "path",
@@ -34,13 +35,13 @@ function routeDoc(overrides: Partial<PbfCopierPreviewDoc> & { displayName: strin
     importPipelineVersion: "test",
     pbfFilePath: "/tmp/test.pbf",
     sourceProvider: "pbf",
-    sourceTagSample: { highway: "path", name: overrides.displayName },
+    sourceTagSample: { highway: "path", name: displayName },
     warnings: ["v2_raw_osm_unfiltered"],
-    routeLineCoordinates: overrides.routeLineCoordinates ?? [
+    routeLineCoordinates: rest.routeLineCoordinates ?? [
       { lat: 43.64, lng: -72.41 },
       { lat: 43.641, lng: -72.409 },
     ],
-    ...overrides,
+    ...rest,
   } as PbfCopierPreviewDoc;
 }
 

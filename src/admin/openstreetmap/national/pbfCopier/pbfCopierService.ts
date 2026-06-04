@@ -328,6 +328,7 @@ export function exportPbfCopierRun(runId: string) {
     rejectedSamplesTruncated: run.rejectedSamplesTruncated,
     acceptedActivitySamples: run.acceptedActivitySamples,
     missingMetadataWarnings: run.missingMetadataWarnings,
+    routeTrailDiagnostics: run.routeTrailDiagnostics,
     previewDocs: run.previewDocs,
     previewQuality: run.previewQuality,
     parserId: run.parserId,

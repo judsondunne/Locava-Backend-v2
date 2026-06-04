@@ -39,6 +39,8 @@ export type VtransRoadProperties = {
   TWN_LR?: string | null;
   CERTYEAR?: number | string | null;
   MAPYEAR?: number | string | null;
+  _mergedObjectIds?: string;
+  _mergedSegmentCount?: string;
 };
 
 export type VtransRoadGeometry =

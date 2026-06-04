@@ -13,6 +13,9 @@ function mkDoc(input: {
   kind?: PbfCopierPreviewDoc["kind"];
   warnings?: string[];
   osmId?: number;
+  lat?: number;
+  lng?: number;
+  routeLineCoordinates?: Array<{ lat: number; lng: number }>;
 }): PbfCopierPreviewDoc {
   return {
     id: `test:${input.osmId ?? input.displayName}`,
@@ -22,8 +25,8 @@ function mkDoc(input: {
     primaryActivity: null,
     activities: [],
     primaryCategory: "osm",
-    lat: 44.5,
-    lng: -72.5,
+    lat: input.lat ?? 44.5,
+    lng: input.lng ?? -72.5,
     sourceFamily: "test",
     sourceKeys: [`node/${input.osmId ?? 1}`],
     sourceIds: [String(input.osmId ?? 1)],
@@ -41,6 +44,7 @@ function mkDoc(input: {
     sourceProvider: "test",
     sourceTagSample: input.tags ?? {},
     warnings: input.warnings ?? [],
+    routeLineCoordinates: input.routeLineCoordinates,
   };
 }
 

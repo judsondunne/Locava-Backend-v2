@@ -49,7 +49,7 @@ describe("osmNationalTileWriter", () => {
         },
         stateCode: "VT",
         mapReadiness: "ready",
-      },
+      } as unknown as UnexploredSpot,
       {
         ...({} as UnexploredSpot),
         id: "s2",

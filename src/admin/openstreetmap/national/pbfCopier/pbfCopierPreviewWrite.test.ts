@@ -49,7 +49,7 @@ function spotPayload(id: string): UnexploredSpot {
     publicMapEligible: true,
     mapReadiness: "ready",
     import: { runId: "test", chunkId: "c", pipelineVersion: "1" },
-  } as UnexploredSpot;
+  } as unknown as UnexploredSpot;
 }
 
 function routePayload(id: string): UnexploredRoute {
@@ -143,8 +143,8 @@ function routePreviewDoc(id: string): PbfCopierPreviewDoc {
     writePayload: payload as unknown as Record<string, unknown>,
     warnings: [],
     routeLineCoordinates: [
-      [-72.39, 43.54],
-      [-72.38, 43.55],
+      { lat: 43.54, lng: -72.39 },
+      { lat: 43.55, lng: -72.38 },
     ],
     hasRouteGeometry: true,
   };
