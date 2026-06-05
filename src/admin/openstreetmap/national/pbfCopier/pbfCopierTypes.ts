@@ -291,6 +291,8 @@ export type PbfCopierPreviewDoc = {
   displayName: string;
   primaryActivity: string | null;
   activities: string[];
+  /** Evidence strings for secondary activities added by enrichActivities (debug/preview). */
+  activityEvidence?: Record<string, string>;
   primaryCategory: string;
   lat: number;
   lng: number;

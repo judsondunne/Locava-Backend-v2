@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { ZodError } from "zod";
 import { buildViewerContext } from "../../auth/viewer-context.js";
 import { feedForYouSimpleContract, FeedForYouSimpleQuerySchema } from "../../contracts/surfaces/feed-for-you-simple.contract.js";
 import { failure, success } from "../../lib/response.js";
@@ -32,6 +33,7 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
   const service = new FeedForYouSimpleService(repository);
 
   app.get(feedForYouSimpleContract.path, async (request, reply) => {
+    try {
     const viewer = buildViewerContext(request);
     const query = FeedForYouSimpleQuerySchema.parse(request.query);
     setRouteName(feedForYouSimpleContract.routeName);
@@ -413,6 +415,27 @@ export async function registerV2FeedForYouSimpleRoutes(app: FastifyInstance): Pr
         return reply.status(503).send(failure("source_of_truth_required", "For You simple feed source unavailable"));
       }
       throw error;
+    }
+    } catch (error) {
+      if (error instanceof ZodError) throw error;
+      const ctx = getRequestContext();
+      const requestId = ctx?.requestId ?? request.requestIdValue ?? "unknown";
+      if (error instanceof Error && error.message === "invalid_simple_feed_cursor") {
+        return reply.status(400).type("application/json; charset=utf-8").send(failure("invalid_cursor", "Cursor is invalid"));
+      }
+      request.log.error(
+        {
+          event: "feed_for_you_simple_handler_error",
+          requestId,
+          err: error
+        },
+        "feed for-you simple handler failed"
+      );
+      const message = error instanceof Error ? error.message : "feed_for_you_simple_failed";
+      return reply
+        .status(500)
+        .type("application/json; charset=utf-8")
+        .send(failure("feed_for_you_simple_failed", message, { requestId }));
     }
   });
 }

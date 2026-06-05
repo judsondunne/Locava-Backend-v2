@@ -11,6 +11,12 @@ import {
   type RecreationAreaPoint,
 } from "./pbfCopierV2TrailProximity.js";
 import type { PbfSupportMetadata, PbfSupportObjectRef } from "./pbfCopierV2SupportObjects.js";
+import {
+  getEffectiveOsmTags,
+  isPrimaryHikingRoute,
+  isUnnamedHikingTrailDoc,
+  isWalkingPathJunk,
+} from "./pbfCopierV2DestinationQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
 export type LocavaProductFilterKey =
@@ -776,10 +782,13 @@ export function isGenericFootwayWithoutTrailContext(
   trails: NamedTrailLine[],
   recreationAreas: RecreationAreaPoint[]
 ): boolean {
-  const tags = doc.sourceTagSample ?? {};
+  const tags = getEffectiveOsmTags(doc);
   if (tag(tags, "highway") !== "footway" && tag(tags, "highway") !== "path") return false;
   if (doc.warnings?.includes("v2_hiking_trail_merged")) return false;
-  if (isHikingTrailPreviewDoc(doc)) return false;
+  if (isUnnamedHikingTrailDoc(doc)) return false;
+  if (isPrimaryHikingRoute(doc)) return false;
+  if (doc.primaryActivity === "hiking" || doc.primaryActivity === "trail") return false;
+  if (isHikingTrailPreviewDoc(doc) && !isWalkingPathJunk(doc)) return false;
   if (doc.destinationGroupId) return false;
   if (tag(tags, "footway") === "sidewalk") return true;
   if (hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc)) {
@@ -1328,9 +1337,21 @@ export function matchLocavaMapJunk(doc: PbfCopierPreviewDoc): LocavaProductFilte
   const building = tag(tags, "building");
   if (
     building &&
-    ["apartments", "commercial", "industrial", "residential", "garage", "shed", "barn", "greenhouse", "roof"].includes(
-      building
-    ) &&
+    [
+      "apartments",
+      "commercial",
+      "industrial",
+      "residential",
+      "garage",
+      "shed",
+      "barn",
+      "greenhouse",
+      "roof",
+      "warehouse",
+      "hangar",
+      "factory",
+      "office",
+    ].includes(building) &&
     !hasTag(tags, "historic") &&
     !isLocavaFoodDrinkDestination(doc)
   ) {

@@ -8,6 +8,7 @@ coverage
 logs
 tmp
 artifacts
+data/pbf-copier-v2-runs/
 state
 .analytics-spool
 src/data/geonames-places.json

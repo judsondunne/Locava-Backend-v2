@@ -4,13 +4,39 @@ import { verifyViewerAuthHeader, hasAdminAccess } from "../../../../auth/admin-a
 import type { AppEnv } from "../../../../config/env.js";
 import { failure, success } from "../../../../lib/response.js";
 import { setRouteName } from "../../../../observability/request-context.js";
+import {
+  PBF_COPIER_ALLOWED_COLLECTIONS,
+  PBF_COPIER_FORBIDDEN_COLLECTIONS,
+  PBF_UNDISCOVERED_SHAPE_CONFIRMATION,
+  pbfIsEmulatorActive,
+  pbfIsProductionWriteUnlocked,
+  pbfProductionConfirmationPhrase,
+  pbfProductionEnvVarName,
+} from "./pbfCopierGuards.js";
 import { validatePbfFile } from "./pbfCopierService.js";
+import {
+  getUndiscoveredFirestoreCounts,
+  purgeAllUndiscoveredSpotsAndRoutes,
+  pbfUndiscoveredPurgeHealthFields,
+} from "./pbfCopierUndiscoveredPurge.js";
+import { getUndiscoveredMapPreviewForAdmin, repairPbfV2MapVisibility } from "./pbfCopierUndiscoveredMapPreview.js";
+import { probePbfParserAvailability } from "../../../../lib/openstreetmap/pbf/pbfFeatureReader.js";
 import { scanPbfViewportPreview } from "./pbfCopierV2ViewportPreview.js";
 import {
   applyPbfQualityFilters,
   DEFAULT_PBF_QUALITY_FILTER_SETTINGS,
   type PbfQualityFilterSettings,
 } from "./pbfCopierV2QualityFilters.js";
+import {
+  getPbfV2FullRunStatus,
+  pausePbfV2FullRun,
+  resumePbfV2FullRun,
+  startPbfV2FullRun,
+  stopPbfV2FullRun,
+  writePbfV2FullRunChunks,
+} from "./pbfCopierV2FullRunService.js";
+import { listPbfV2FullRunChunks, listPbfV2FullRuns } from "./pbfCopierV2FullRunStore.js";
+import { runPbfCopierV2Pipeline } from "./pbfCopierV2Pipeline.js";
 import { getPbfCopierV2ScanCache, storePbfCopierV2ScanCache } from "./pbfCopierV2ScanCache.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 import {
@@ -18,7 +44,6 @@ import {
   summarizePbfV2WriteItems,
   validatePbfV2WritePayload,
 } from "./pbfCopierV2Write.js";
-import { PBF_UNDISCOVERED_SHAPE_CONFIRMATION } from "./pbfCopierGuards.js";
 import type { PbfOutdoorGroupingSummary } from "./pbfCopierV2OutdoorDestinationGroups.js";
 
 const base = "/admin/openstreetmap/api/pbf-copier-v2";
@@ -70,6 +95,9 @@ const QualityFilterSettingsSchema = z
     parkingAttachRadiusMeters: z.number().optional(),
     benchNearDestinationRadiusMeters: z.number().optional(),
     benchNearTrailRadiusMeters: z.number().optional(),
+    shelterAttachRadiusMeters: z.number().optional(),
+    toiletAttachRadiusMeters: z.number().optional(),
+    infoMapAttachRadiusMeters: z.number().optional(),
   })
   .strict();
 
@@ -155,6 +183,7 @@ function resolveWriteItems(body: {
   const settings: PbfQualityFilterSettings = {
     ...DEFAULT_PBF_QUALITY_FILTER_SETTINGS,
     ...(body.qualityFilterSettings ?? {}),
+    hideUnnamedPaths: false,
   };
 
   if (fromCache || !body.items) {
@@ -188,8 +217,100 @@ function buildWritePayloadInput(
   };
 }
 
+const PurgeUndiscoveredBodySchema = z
+  .object({
+    writeTarget: z.enum(["emulator", "production"]),
+    confirmProductionWrite: z.string().optional(),
+    confirmPurge: z.string(),
+    dryRun: z.boolean().optional(),
+  })
+  .strict();
+
 export async function registerPbfCopierV2Routes(app: FastifyInstance): Promise<void> {
   const env = app.config as AppEnv;
+
+  app.get(`${base}/health`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.health");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const availability = await probePbfParserAvailability();
+    return success({
+      ok: true,
+      pageUrl: "/admin/openstreetmap/pbf-copier-v2",
+      apiBase: base,
+      parserId: availability.parserId,
+      parserVersion: availability.parserVersion,
+      parserAvailable: availability.parserAvailable,
+      parserAvailabilityReason: availability.reason,
+      productionConfirmationPhrase: pbfProductionConfirmationPhrase(),
+      undiscoveredShapeConfirmationPhrase: PBF_UNDISCOVERED_SHAPE_CONFIRMATION,
+      productionEnvVarName: pbfProductionEnvVarName(),
+      productionWritesUnlocked: pbfIsProductionWriteUnlocked(),
+      emulatorHostPresent: pbfIsEmulatorActive(),
+      forbiddenCollections: PBF_COPIER_FORBIDDEN_COLLECTIONS,
+      allowedCollections: PBF_COPIER_ALLOWED_COLLECTIONS,
+      postsWriteForbidden: true as const,
+      ...pbfUndiscoveredPurgeHealthFields(),
+    });
+  });
+
+  app.get(`${base}/undiscovered-counts`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.undiscovered_counts");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    try {
+      const counts = await getUndiscoveredFirestoreCounts();
+      return success(counts);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.status(503).send(failure("undiscovered_counts_failed", message));
+    }
+  });
+
+  app.get(`${base}/undiscovered-map-preview`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.undiscovered_map_preview");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    try {
+      const preview = await getUndiscoveredMapPreviewForAdmin();
+      return success(preview);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.status(503).send(failure("undiscovered_map_preview_failed", message));
+    }
+  });
+
+  app.post(`${base}/repair-map-visibility`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.repair_map_visibility");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = z.object({ dryRun: z.boolean().optional() }).strict().parse(request.body ?? {});
+    try {
+      const result = await repairPbfV2MapVisibility({ dryRun: body.dryRun });
+      return success(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send(failure("repair_map_visibility_failed", message));
+    }
+  });
+
+  app.post(`${base}/purge-undiscovered`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.purge_undiscovered");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = PurgeUndiscoveredBodySchema.parse(request.body ?? {});
+    try {
+      const summary = await purgeAllUndiscoveredSpotsAndRoutes({
+        writeTarget: body.writeTarget,
+        confirmProductionWrite: body.confirmProductionWrite,
+        confirmPurge: body.confirmPurge,
+        dryRun: body.dryRun,
+      });
+      return success({
+        ...summary,
+        postsWriteForbidden: true as const,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = message.includes(":") ? message.split(":")[0]! : "purge_undiscovered_failed";
+      return reply.status(400).send(failure(code, message));
+    }
+  });
 
   app.post(`${base}/validate-file`, async (request, reply) => {
     setRouteName("admin.osm.pbf_copier_v2.validate_file");
@@ -217,9 +338,10 @@ export async function registerPbfCopierV2Routes(app: FastifyInstance): Promise<v
       const settings: PbfQualityFilterSettings = {
         ...DEFAULT_PBF_QUALITY_FILTER_SETTINGS,
         ...(body.qualityFilterSettings ?? {}),
+        hideUnnamedPaths: false,
       };
       const cacheId = storePbfCopierV2ScanCache(body.pbfPath, result.items);
-      const filtered = applyPbfQualityFilters(result.items, settings);
+      const filtered = runPbfCopierV2Pipeline({ rawItems: result.items, qualitySettings: settings });
       return success({
         ...result,
         items: filtered.items,
@@ -227,6 +349,7 @@ export async function registerPbfCopierV2Routes(app: FastifyInstance): Promise<v
         cacheId,
         summary: filtered.summary,
         groupingSummary: filtered.groupingSummary,
+        destinationQualityCounters: filtered.destinationQualityCounters,
         readOnly: true as const,
         firebaseWrites: false as const,
         postsWriteForbidden: true as const,
@@ -362,5 +485,115 @@ export async function registerPbfCopierV2Routes(app: FastifyInstance): Promise<v
       const message = error instanceof Error ? error.message : String(error);
       return reply.status(400).send(failure("write_blank_spots_failed", message));
     }
+  });
+
+  const FullRunStartSchema = z
+    .object({
+      pbfPath: z.string().min(1),
+      mode: z.enum(["dry_run", "write_test", "write_prod"]).optional(),
+      tileStepDegrees: z.number().min(0.1).max(2).optional(),
+      maxChunks: z.number().int().min(1).max(500).nullable().optional(),
+      maxTotalSpots: z.number().int().min(1).max(500_000).nullable().optional(),
+      qualityFilterSettings: QualityFilterSettingsSchema.optional(),
+    })
+    .strict();
+
+  const FullRunIdSchema = z.object({ runId: z.string().min(1) }).strict();
+
+  const FullRunWriteSchema = FullRunIdSchema.extend({
+    dryRun: z.boolean().optional(),
+    writeTarget: z.enum(["none", "emulator", "production"]).optional(),
+    confirmProductionWrite: z.string().optional(),
+    confirmUndiscoveredShape: z.string().optional(),
+    skipExisting: z.boolean().optional(),
+    chunkIds: z.array(z.string()).optional(),
+  }).strict();
+
+  app.post(`${base}/full-run/start`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_start");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = FullRunStartSchema.parse(request.body ?? {});
+    try {
+      const run = await startPbfV2FullRun({
+        ...body,
+        qualityFilterSettings: body.qualityFilterSettings
+          ? { ...DEFAULT_PBF_QUALITY_FILTER_SETTINGS, ...body.qualityFilterSettings }
+          : undefined,
+      });
+      return success({ run, postsWriteForbidden: true as const });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send(failure("full_run_start_failed", message));
+    }
+  });
+
+  app.post(`${base}/full-run/pause`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_pause");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = FullRunIdSchema.parse(request.body ?? {});
+    const run = await pausePbfV2FullRun(body.runId);
+    if (!run) return reply.status(404).send(failure("run_not_found", "Run not found"));
+    return success({ run });
+  });
+
+  app.post(`${base}/full-run/resume`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_resume");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = FullRunIdSchema.parse(request.body ?? {});
+    const run = await resumePbfV2FullRun(body.runId);
+    if (!run) return reply.status(404).send(failure("run_not_found", "Run not found"));
+    return success({ run });
+  });
+
+  app.post(`${base}/full-run/stop`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_stop");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = FullRunIdSchema.parse(request.body ?? {});
+    const run = await stopPbfV2FullRun(body.runId);
+    if (!run) return reply.status(404).send(failure("run_not_found", "Run not found"));
+    return success({ run });
+  });
+
+  app.post(`${base}/full-run/write-current`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_write_current");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = FullRunWriteSchema.parse(request.body ?? {});
+    try {
+      const result = await writePbfV2FullRunChunks(body);
+      if (!result.run) return reply.status(404).send(failure("run_not_found", "Run not found"));
+      const status = await getPbfV2FullRunStatus(body.runId);
+      return success({
+        ...result,
+        writeReadyCounts: status.writeReadyCounts,
+        postsWriteForbidden: body.dryRun !== false && result.run.mode === "dry_run",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send(failure("full_run_write_failed", message));
+    }
+  });
+
+  app.get(`${base}/full-run/status`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_status");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const runId = z.string().min(1).parse((request.query as { runId?: string }).runId);
+    const status = await getPbfV2FullRunStatus(runId);
+    if (!status.run) return reply.status(404).send(failure("run_not_found", "Run not found"));
+    return success(status);
+  });
+
+  app.get(`${base}/full-run/runs`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_runs");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const runs = await listPbfV2FullRuns(30);
+    return success({ runs });
+  });
+
+  app.get(`${base}/full-run/chunks`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.full_run_chunks");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const runId = z.string().min(1).parse((request.query as { runId?: string }).runId);
+    const chunks = await listPbfV2FullRunChunks(runId);
+    return success({ runId, chunks });
   });
 }

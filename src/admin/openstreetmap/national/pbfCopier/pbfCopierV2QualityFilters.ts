@@ -44,6 +44,20 @@ import {
   applyLocavaPostGroupingFilters,
   emptyLocavaPostFilterSummary,
 } from "./pbfCopierV2LocavaPostFilters.js";
+import { enrichActivities } from "./pbfCopierV2ActivityEnrichment.js";
+import { rescueFinalRenderableDestinations } from "./pbfCopierV2FinalRescue.js";
+import {
+  emptyDestinationQualityCounters,
+  extractRailWaterBridges,
+  finalizeDestinationQuality,
+  isPrimaryHikingRoute,
+  isTrainBridgeCandidate,
+  isTrainBridgeOverWaterDoc,
+  isUnnamedHikingTrailDoc,
+  isWalkingPathJunk,
+  matchResidentialNonDestination,
+  type PbfDestinationQualityCounters,
+} from "./pbfCopierV2DestinationQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
 export type PbfQualityFilterKey =
@@ -83,7 +97,9 @@ export type PbfQualityFilterKey =
   | "professional_office"
   | "age_restricted_retail"
   | "address_only"
-  | "map_junk";
+  | "map_junk"
+  | "residential_land"
+  | "non_destination_residential";
 
 export type PbfQualityFilterSettings = PbfSupportObjectSettings & {
   hideInfrastructure: boolean;
@@ -128,6 +144,7 @@ export type PbfQualityFilterResult = {
   summary: PbfQualityFilterSummary;
   groupingSummary?: PbfOutdoorGroupingSummary;
   locavaProductSummary?: PbfLocavaProductSummary;
+  destinationQualityCounters?: PbfDestinationQualityCounters;
 };
 
 type FilterMatch = { key: PbfQualityFilterKey; reason: string };
@@ -236,6 +253,8 @@ export function isProtectedFromQualityFilter(doc: PbfCopierPreviewDoc): boolean 
   const display = (doc.displayName || "").trim();
 
   if (doc.warnings?.includes("v2_hiking_trail_merged")) return true;
+  if (isTrainBridgeOverWaterDoc(doc)) return true;
+  if (isUnnamedHikingTrailDoc(doc)) return true;
   if (tag(tags, "highway") === "trailhead") return true;
   if (tag(tags, "tourism") === "wilderness_hut" || tag(tags, "tourism") === "alpine_hut") return true;
   if (tag(tags, "tourism") === "viewpoint" || tag(tags, "tourism") === "picnic_site") return true;
@@ -318,10 +337,22 @@ function matchAdministrative(doc: PbfCopierPreviewDoc): FilterMatch | null {
   return null;
 }
 
+function matchResidentialLand(doc: PbfCopierPreviewDoc): FilterMatch | null {
+  const hit = matchResidentialNonDestination(doc);
+  if (!hit) return null;
+  return { key: "residential_land", reason: hit.reason };
+}
+
 function matchRailway(doc: PbfCopierPreviewDoc): FilterMatch | null {
   const tags = doc.sourceTagSample ?? {};
+  if (isTrainBridgeCandidate(tags) || isTrainBridgeOverWaterDoc(doc) || doc.primaryActivity === "train_bridge") {
+    return null;
+  }
   const railway = tag(tags, "railway");
   if (!railway) return null;
+  if (railway === "level_crossing") {
+    return { key: "railway", reason: "railway=level_crossing" };
+  }
   if (["abandoned", "disused", "razed", "proposed", "construction"].includes(railway)) return null;
   if (ACTIVE_RAILWAY.has(railway)) {
     return { key: "railway", reason: `railway=${railway}` };
@@ -362,29 +393,30 @@ function matchUnnamedLand(doc: PbfCopierPreviewDoc): FilterMatch | null {
   return null;
 }
 
-function matchUnnamedPath(doc: PbfCopierPreviewDoc): FilterMatch | null {
+/** Always-on walking-path filter (hideUnnamedPaths UI deprecated — product always hides walking junk). */
+function matchWalkingPathJunk(
+  doc: PbfCopierPreviewDoc,
+  counters?: PbfDestinationQualityCounters
+): FilterMatch | null {
   if (doc.warnings?.includes("v2_hiking_trail_merged")) return null;
+  if (isUnnamedHikingTrailDoc(doc)) return null;
+  if (isPrimaryHikingRoute(doc)) return null;
   const tags = doc.sourceTagSample ?? {};
   if (tag(tags, "tourism") === "information" && tag(tags, "information") === "route_marker" && !hasOsmNameTag(tags)) {
     return { key: "unnamed_path", reason: "unnamed route marker" };
   }
-  if (hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc)) return null;
-  if (!isHikingTrailPreviewDoc(doc)) return null;
-  if (hasTag(tags, "sac_scale") || hasTag(tags, "trail_visibility")) return null;
-
-  const access = tag(tags, "access");
-  if (access && ["private", "customers", "no"].includes(access)) {
-    return { key: "unnamed_path", reason: `unnamed ${access} path` };
+  if (!isWalkingPathJunk(doc)) return null;
+  if (counters) {
+    counters.walkingPathsKeptHidden += 1;
+    counters.unnamedPathsStillFiltered += 1;
   }
-  if (tag(tags, "highway") === "path" || tag(tags, "highway") === "footway" || tag(tags, "highway") === "steps") {
-    return { key: "unnamed_path", reason: "unnamed path segment" };
-  }
-  return null;
+  return { key: "unnamed_path", reason: "walking path / sidewalk / paved connector" };
 }
 
 function evaluateQualityFilters(
   doc: PbfCopierPreviewDoc,
-  settings: PbfQualityFilterSettings
+  settings: PbfQualityFilterSettings,
+  counters?: PbfDestinationQualityCounters
 ): FilterMatch[] {
   if (isProtectedFromQualityFilter(doc)) return [];
 
@@ -395,13 +427,17 @@ function evaluateQualityFilters(
     if (hit) matches.push(hit);
   };
 
+  const residential = matchResidentialLand(doc);
+  if (residential) matches.push(residential);
+
   tryMatch(settings.hideInfrastructure, matchInfrastructure);
   tryMatch(settings.hideServiceRoads, matchServiceRoad);
   tryMatch(settings.hideAdministrative, matchAdministrative);
   tryMatch(settings.hideRailway, matchRailway);
   tryMatch(settings.hideBroadGeography, matchBroadGeography);
   tryMatch(settings.hideUnnamedLand, matchUnnamedLand);
-  tryMatch(settings.hideUnnamedPaths, matchUnnamedPath);
+  const walkingJunk = matchWalkingPathJunk(doc, counters);
+  if (walkingJunk) matches.push(walkingJunk);
   if (settings.hideMountainOutdoorQuality) {
     const mountain = matchMountainOutdoorQuality(doc);
     if (mountain) matches.push(mountain);
@@ -474,22 +510,30 @@ function classifyDoc(doc: PbfCopierPreviewDoc): PbfCopierPreviewDoc {
   return enrichLocavaProductClassification(enrichOutdoorResortClassification(doc));
 }
 
+function normalizeQualityFilterSettings(settings: PbfQualityFilterSettings): PbfQualityFilterSettings {
+  return { ...settings, hideUnnamedPaths: false };
+}
+
 export function applyPbfQualityFilters(
   items: PbfCopierPreviewDoc[],
   settings: PbfQualityFilterSettings = DEFAULT_PBF_QUALITY_FILTER_SETTINGS
 ): PbfQualityFilterResult {
+  settings = normalizeQualityFilterSettings(settings);
   const countsByFilter: Partial<Record<PbfQualityFilterKey, number>> = {};
   const locavaProductSummary = emptyLocavaProductSummary();
+  const destinationQualityCounters = emptyDestinationQualityCounters();
   let hiddenItems = 0;
 
-  const enriched = applyPbfSupportRelationships(items, settings, (doc) => {
-    if (evaluateQualityFilters(doc, settings).length > 0) return false;
+  const withRailBridges = extractRailWaterBridges(items, destinationQualityCounters);
+
+  const enriched = applyPbfSupportRelationships(withRailBridges, settings, (doc) => {
+    if (evaluateQualityFilters(doc, settings, destinationQualityCounters).length > 0) return false;
     return isPrimaryDestination(doc);
   });
 
   const annotated: PbfQualityFilteredPreviewDoc[] = enriched.map((doc) => {
     const classified = classifyDoc(doc);
-    const matches = [...evaluateQualityFilters(classified, settings)];
+    const matches = [...evaluateQualityFilters(classified, settings, destinationQualityCounters)];
 
     if (isSupportObject(classified)) {
       matches.push(...finalizeSupportObjectVisibility(classified, settings));
@@ -532,24 +576,38 @@ export function applyPbfQualityFilters(
 
   const grouped = buildOutdoorDestinationGroups(annotated, {
     showSupportObjectsAsMarkers: settings.showSupportObjectsAsMarkers,
+    destinationQualityCounters,
   });
 
   const postSummary = emptyLocavaPostFilterSummary();
   const postFiltered = applyLocavaPostGroupingFilters(grouped.items, postSummary);
   locavaProductSummary.hiddenGeologicalLabels += postSummary.hiddenGeologicalLabels;
   locavaProductSummary.hiddenGenericFootways += postSummary.hiddenGenericFootways;
+  destinationQualityCounters.unnamedPathsStillFiltered += postSummary.hiddenGenericFootways;
+
+  const withActivities = finalizeDestinationQuality(postFiltered, destinationQualityCounters).map((doc) =>
+    enrichActivities(doc, destinationQualityCounters)
+  );
+
+  const finalized = rescueFinalRenderableDestinations(withActivities, undefined, destinationQualityCounters);
 
   const countsByFilterFinal: Partial<Record<PbfQualityFilterKey, number>> = {};
   let finalVisibleItems = 0;
   let finalHiddenItems = 0;
-  for (const item of postFiltered) {
+  for (const item of finalized) {
     if (item.filteredOut) {
       finalHiddenItems += 1;
       for (const key of item.filteredBy ?? []) {
         countsByFilterFinal[key as PbfQualityFilterKey] = (countsByFilterFinal[key as PbfQualityFilterKey] ?? 0) + 1;
+        if (key === "residential_land" || key === "non_destination_residential") {
+          destinationQualityCounters.residentialNonDestinationsFiltered += 1;
+        }
       }
     } else {
       finalVisibleItems += 1;
+      if (isUnnamedHikingTrailDoc(item)) {
+        destinationQualityCounters.unnamedHikingTrailsIncluded += 1;
+      }
     }
   }
 
@@ -562,12 +620,14 @@ export function applyPbfQualityFilters(
 
   if (items.length > 0) {
     console.info("[pbf-copier-v2] outdoor destination groups", grouped.summary);
+    console.info("[pbf-copier-v2] destination quality counters", destinationQualityCounters);
   }
 
   return {
-    items: postFiltered,
+    items: finalized as PbfQualityFilteredPreviewDoc[],
     summary: finalSummary,
     groupingSummary: grouped.summary,
     locavaProductSummary,
+    destinationQualityCounters,
   };
 }

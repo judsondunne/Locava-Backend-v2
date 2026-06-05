@@ -19,6 +19,19 @@ describe("backend foundation routes", () => {
     expect(res.statusCode).not.toBe(404);
   });
 
+  it("returns JSON for unknown /v2 routes (never HTML)", async () => {
+    const res = await app.inject({ method: "GET", url: "/v2/this-route-does-not-exist" });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers["content-type"]).toContain("application/json");
+    const body = res.json() as { ok?: boolean; error?: { code?: string; message?: string; path?: string } };
+    expect(body.ok).toBe(false);
+    expect(body.error?.code).toBe("not_found");
+    expect(body.error?.message).toBe("Route not found");
+    expect(body.error?.path).toBe("/v2/this-route-does-not-exist");
+    expect(res.body.trim().startsWith("{")).toBe(true);
+    expect(res.body.trim().startsWith("<")).toBe(false);
+  });
+
   it("returns health", async () => {
     const res = await app.inject({ method: "GET", url: "/health" });
     expect(res.statusCode).toBe(200);

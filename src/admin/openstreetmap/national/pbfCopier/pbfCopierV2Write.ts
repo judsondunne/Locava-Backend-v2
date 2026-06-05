@@ -40,6 +40,19 @@ export type PbfV2WriteInput = BuildPbfV2WritePayloadInput & {
   skipExisting?: boolean;
   overwrite?: boolean;
   confirmLargeWrite?: boolean;
+  onWriteProgress?: (progress: PbfV2WriteProgress) => void | Promise<void>;
+};
+
+export type PbfV2WriteProgress = {
+  stage: "building_payload" | "checking_duplicates" | "spots" | "routes" | "done";
+  batchIndex: number;
+  batchCount: number;
+  spotsPlanned: number;
+  routesPlanned: number;
+  spotsWritten: number;
+  routesWritten: number;
+  tilesWritten: number;
+  message?: string;
 };
 
 export type PbfV2WriteResult = {
@@ -53,6 +66,8 @@ export type PbfV2WriteResult = {
   skippedSupportOnly: number;
   routesWritten: number;
   spotsWritten: number;
+  /** Nested unexploredTiles docs upserted — required for native map layer. */
+  tilesWritten: number;
   supportObjectsNested: number;
   spotsPlanned: number;
   routesPlanned: number;
@@ -195,6 +210,7 @@ export async function validatePbfV2WritePayload(
     skippedSupportOnly: plan.skippedSupportOnly,
     routesWritten: 0,
     spotsWritten: 0,
+    tilesWritten: 0,
     supportObjectsNested: plan.supportObjectsNested,
     spotsPlanned: plan.spotsPlanned,
     routesPlanned: plan.routesPlanned,
@@ -227,6 +243,7 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
       skippedSupportOnly: 0,
       routesWritten: 0,
       spotsWritten: 0,
+    tilesWritten: 0,
       supportObjectsNested: 0,
       spotsPlanned: 0,
       routesPlanned: 0,
@@ -245,6 +262,18 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
     writeTarget: dryRun ? "none" : input.writeTarget,
   });
 
+  await input.onWriteProgress?.({
+    stage: "building_payload",
+    batchIndex: 0,
+    batchCount: 0,
+    spotsPlanned: plan.spotsPlanned,
+    routesPlanned: plan.routesPlanned,
+    spotsWritten: 0,
+    routesWritten: 0,
+    tilesWritten: 0,
+    message: `Built write plan: ${plan.spotsPlanned} spots, ${plan.routesPlanned} routes`,
+  });
+
   const totalPlanned = plan.spotsPlanned + plan.routesPlanned;
   if (totalPlanned === 0) {
     return {
@@ -258,6 +287,7 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
       skippedSupportOnly: plan.skippedSupportOnly,
       routesWritten: 0,
       spotsWritten: 0,
+    tilesWritten: 0,
       supportObjectsNested: plan.supportObjectsNested,
       spotsPlanned: 0,
       routesPlanned: 0,
@@ -286,6 +316,7 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
       skippedSupportOnly: plan.skippedSupportOnly,
       routesWritten: 0,
       spotsWritten: 0,
+    tilesWritten: 0,
       supportObjectsNested: plan.supportObjectsNested,
       spotsPlanned: plan.spotsPlanned,
       routesPlanned: plan.routesPlanned,
@@ -298,6 +329,18 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
       requiresLargeWriteConfirmation: true,
     };
   }
+
+  await input.onWriteProgress?.({
+    stage: "checking_duplicates",
+    batchIndex: 0,
+    batchCount: 0,
+    spotsPlanned: plan.spotsPlanned,
+    routesPlanned: plan.routesPlanned,
+    spotsWritten: 0,
+    routesWritten: 0,
+    tilesWritten: 0,
+    message: `Checking Firestore for ${plan.spotsPlanned + plan.routesPlanned} existing doc ids…`,
+  });
 
   const deduped = await filterDuplicates(plan, skipExisting);
 
@@ -313,6 +356,7 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
       skippedSupportOnly: plan.skippedSupportOnly,
       routesWritten: 0,
       spotsWritten: 0,
+    tilesWritten: 0,
       supportObjectsNested: plan.supportObjectsNested,
       spotsPlanned: deduped.spots.length,
       routesPlanned: deduped.routes.length,
@@ -337,9 +381,27 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
   let routesWritten = 0;
   let tilesWritten = 0;
   const errors: string[] = [];
+  const spotBatchCount = Math.ceil(deduped.spots.length / PREVIEW_WRITE_BATCH_SIZE) || 0;
+  const routeBatchCount = Math.ceil(deduped.routes.length / PREVIEW_WRITE_BATCH_SIZE) || 0;
+
+  const emitProgress = async (stage: PbfV2WriteProgress["stage"], batchIndex: number, batchCount: number, message?: string): Promise<void> => {
+    if (!input.onWriteProgress) return;
+    await input.onWriteProgress({
+      stage,
+      batchIndex,
+      batchCount,
+      spotsPlanned: deduped.spots.length,
+      routesPlanned: deduped.routes.length,
+      spotsWritten,
+      routesWritten,
+      tilesWritten,
+      message,
+    });
+  };
 
   try {
     assertPbfCopierCollectionTarget("unexploredSpots");
+    await emitProgress("spots", 0, spotBatchCount, `Writing ${deduped.spots.length} spots in ${spotBatchCount} batch(es)…`);
     for (let i = 0; i < deduped.spots.length; i += PREVIEW_WRITE_BATCH_SIZE) {
       const batch = deduped.spots.slice(i, i + PREVIEW_WRITE_BATCH_SIZE);
       if (batch.length === 0) continue;
@@ -350,9 +412,16 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
       });
       spotsWritten += result.spotsWritten;
       tilesWritten += result.tilesWritten;
+      await emitProgress(
+        "spots",
+        Math.floor(i / PREVIEW_WRITE_BATCH_SIZE) + 1,
+        spotBatchCount,
+        `Spot batch ${Math.floor(i / PREVIEW_WRITE_BATCH_SIZE) + 1}/${spotBatchCount}: +${result.spotsWritten} docs, +${result.tilesWritten} tiles`
+      );
     }
 
     assertPbfCopierCollectionTarget("unexploredRoutes");
+    await emitProgress("routes", 0, routeBatchCount, `Writing ${deduped.routes.length} routes in ${routeBatchCount} batch(es)…`);
     for (let i = 0; i < deduped.routes.length; i += PREVIEW_WRITE_BATCH_SIZE) {
       const batch = deduped.routes.slice(i, i + PREVIEW_WRITE_BATCH_SIZE);
       if (batch.length === 0) continue;
@@ -363,6 +432,12 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
       });
       routesWritten += result.routesWritten;
       tilesWritten += result.tilesWritten;
+      await emitProgress(
+        "routes",
+        Math.floor(i / PREVIEW_WRITE_BATCH_SIZE) + 1,
+        routeBatchCount,
+        `Route batch ${Math.floor(i / PREVIEW_WRITE_BATCH_SIZE) + 1}/${routeBatchCount}: +${result.routesWritten} docs, +${result.tilesWritten} tiles`
+      );
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -382,6 +457,7 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
     skippedSupportOnly: plan.skippedSupportOnly,
     routesWritten,
     spotsWritten,
+    tilesWritten,
     supportObjectsNested: plan.supportObjectsNested,
     spotsPlanned: deduped.spots.length,
     routesPlanned: deduped.routes.length,

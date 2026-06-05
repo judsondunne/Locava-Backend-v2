@@ -75,6 +75,35 @@ export function renderOpenStreetMapPbfCopierV2Page(): string {
     .helper-box{border:1px dashed #334155;border-radius:8px;padding:10px 12px;margin:8px 0;font-size:12px;color:#cbd5e1;line-height:1.5}
     .helper-box code{display:block;margin-top:6px;white-space:pre-wrap;color:#93c5fd}
     code{background:#020617;padding:1px 4px;border-radius:3px;color:#93c5fd}
+    .write-ready-banner{margin:14px 0;padding:16px 18px;border-radius:12px;border:2px solid #166534;background:linear-gradient(180deg,#052e16 0%,#111827 100%)}
+    .write-ready-banner h3{margin:0 0 12px;font-size:15px;color:#86efac;text-transform:none;letter-spacing:0}
+    .write-ready-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+    .write-ready-box{background:#020617;border:1px solid #1f2937;border-radius:10px;padding:14px 16px}
+    .write-ready-box.spots{border-color:#166534}
+    .write-ready-box.routes{border-color:#0369a1}
+    .write-ready-box.total{border-color:#854d0e}
+    .write-ready-label{font-size:11px;color:#94a3b8;text-transform:uppercase;letter-spacing:.04em}
+    .write-ready-value{font-size:32px;font-weight:800;margin-top:6px;line-height:1.1}
+    .write-ready-box.spots .write-ready-value{color:#4ade80}
+    .write-ready-box.routes .write-ready-value{color:#38bdf8}
+    .write-ready-box.total .write-ready-value{color:#fcd34d}
+    .undiscovered-live-banner{margin:14px 0;padding:18px 20px;border-radius:12px;border:2px solid #0369a1;background:linear-gradient(180deg,#0c4a6e33 0%,#111827 100%)}
+    .undiscovered-live-banner h2{margin:0 0 12px;font-size:14px;color:#7dd3fc;text-transform:uppercase;letter-spacing:.05em}
+    .undiscovered-live-banner .live-count-total .write-ready-value{color:#fcd34d;font-size:40px}
+    .write-status-panel summary{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;list-style:none}
+    .write-status-panel summary::-webkit-details-marker{display:none}
+    .write-status-panel[open] summary h2{color:#86efac}
+    .write-status-panel summary h2{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#cbd5e1}
+    .write-console{margin-top:12px;background:#020617;border:1px solid #1f2937;border-radius:8px;padding:10px 12px;max-height:220px;overflow:auto;font-family:ui-monospace,Menlo,monospace;font-size:11px;line-height:1.45;color:#cbd5e1;white-space:pre-wrap}
+    .write-console .line-err{color:#fca5a5}
+    .write-console .line-ok{color:#86efac}
+    .purge-danger-panel{border:2px solid #b91c1c;background:linear-gradient(180deg,#450a0a33 0%,#111827 100%)}
+    .purge-danger-panel h2{color:#fecaca;text-transform:none;letter-spacing:0}
+    .scary{color:#fca5a5}
+    #purgeUndiscoveredModal{position:fixed;inset:0;background:rgba(2,6,23,.85);display:none;align-items:center;justify-content:center;z-index:10000;padding:16px}
+    #purgeUndiscoveredModal.open{display:flex}
+    .purge-modal-inner{background:#111827;border:3px solid #b91c1c;border-radius:14px;padding:22px 24px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+    .purge-modal-inner input[type=text],.purge-modal-inner input[type=password]{width:100%;margin:8px 0 12px;padding:10px 12px;font-size:14px}
   </style>
 </head>
 <body>
@@ -90,7 +119,95 @@ export function renderOpenStreetMapPbfCopierV2Page(): string {
     Raw OSM dump for the current map viewport — every tagged node/way/relation in the PBF with geometry here. No Locava filter by default. Write blank spots to <code>unexploredSpots</code> / <code>unexploredRoutes</code> after validation.
   </p>
 
+  <div class="undiscovered-live-banner" id="undiscoveredLiveBanner">
+    <h2>Live Firestore — undiscovered map layer</h2>
+    <div class="write-ready-grid">
+      <div class="write-ready-box spots">
+        <div class="write-ready-label">unexploredSpots</div>
+        <div class="write-ready-value" id="liveUndiscoveredSpots">—</div>
+      </div>
+      <div class="write-ready-box routes">
+        <div class="write-ready-label">unexploredRoutes</div>
+        <div class="write-ready-value" id="liveUndiscoveredRoutes">—</div>
+      </div>
+      <div class="write-ready-box total live-count-total">
+        <div class="write-ready-label">Total spots + routes</div>
+        <div class="write-ready-value" id="liveUndiscoveredTotal">—</div>
+      </div>
+      <div class="write-ready-box routes">
+        <div class="write-ready-label">unexploredTiles (native map cache)</div>
+        <div class="write-ready-value" id="liveUndiscoveredTiles" style="font-size:28px">—</div>
+      </div>
+    </div>
+    <p class="muted" id="undiscoveredLiveMeta" style="margin:10px 0 0">Loading live counts from Firestore…</p>
+    <div class="row" style="margin-top:10px">
+      <button type="button" class="secondary" id="btnRepairMapVisibility">Fix map visibility (existing PBF V2 writes)</button>
+    </div>
+  </div>
+
+  <details class="panel write-status-panel" id="writeStatusPanel">
+    <summary><h2>Write status</h2> <span id="writeStatusBadge" class="pill">idle</span></summary>
+    <p class="muted" style="margin-top:0">
+      Every write upserts <code>unexploredSpots</code>, <code>unexploredRoutes</code>, and nested
+      <code>unexploredTiles</code> tile docs (z/x/y paths) — same as the native app map layer expects.
+      Never writes <code>/posts</code>.
+    </p>
+    <p id="writeStatusLine" class="muted">No write in progress.</p>
+    <div class="stat-grid" id="writeStatusGrid"></div>
+    <p id="writeStatusErrors" class="muted" style="color:#fca5a5;margin-top:8px"></p>
+    <h3 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;color:#94a3b8">Write console</h3>
+    <div class="write-console" id="writeConsoleLog">No write activity yet.</div>
+  </details>
+
   <div id="statusBar" class="muted">Ready — validate a PBF file, pan/zoom the map, then scan the current viewport.</div>
+
+  <div class="panel purge-danger-panel" id="purgeUndiscoveredPanel">
+    <h2>Remove all undiscovered map data</h2>
+    <p class="muted">
+      Permanently deletes <code>unexploredSpots</code>, <code>unexploredRoutes</code> (plus route
+      <code>geometryChunks</code>), and the nested <code>unexploredTiles</code> map cache
+      (embedded copies the app reads first — required or markers linger after spot/route delete).
+      <strong class="scary">Never touches <code>/posts</code> or any other collection.</strong>
+    </p>
+    <p class="muted">
+      Disabled unless <code id="purgeEnvVarName">OSM_PBF_COPIER_ALLOW_PURGE_UNDISCOVERED</code>=<code>true</code>
+      in backend <code>.env</code> and the server was restarted.
+    </p>
+    <div class="row">
+      <button type="button" class="secondary" id="btnPurgeUndiscoveredDryRun">Count docs (dry-run)</button>
+      <button type="button" class="danger" id="btnPurgeUndiscovered">Remove ALL undiscovered (spots + routes + tiles)</button>
+    </div>
+    <div class="purge-inline-creds" style="margin-top:12px">
+      <p class="muted" style="margin:0 0 8px">
+        Count or delete requires password <strong>Cooper</strong> and the confirmation phrase below (copy/paste OK).
+      </p>
+      <label style="display:block;margin:6px 0">Confirmation phrase
+        <input id="purgePanelPhrase" type="text" placeholder="DELETE_ALL_UNDISCOVERED_SPOTS_AND_ROUTES" autocomplete="off" style="width:100%;max-width:640px;margin-top:4px"/>
+      </label>
+      <label style="display:block;margin:6px 0">Production password
+        <input id="purgePanelPassword" type="password" placeholder="Cooper" autocomplete="off" style="width:100%;max-width:240px;margin-top:4px"/>
+      </label>
+    </div>
+    <p class="muted" id="purgeUndiscoveredMeta"></p>
+  </div>
+
+  <div id="purgeUndiscoveredModal" aria-hidden="true" style="display:none">
+    <div class="purge-modal-inner">
+      <h3 class="scary">Confirm permanent delete</h3>
+      <p class="muted">
+        This removes <strong>all</strong> undiscovered spots, routes, and nested map tile cache from Firestore.
+        User posts are not affected.
+      </p>
+      <p class="muted">Type exactly: <code id="purgeConfirmPhraseHint">DELETE_ALL_UNDISCOVERED_SPOTS_AND_ROUTES</code></p>
+      <input id="purgeConfirmPhrase" type="text" placeholder="Confirmation phrase" autocomplete="off" style="width:100%;margin:8px 0"/>
+      <input id="purgePassword" type="password" placeholder="Production password (Cooper)" autocomplete="off" style="width:100%;margin:8px 0"/>
+      <div class="row">
+        <button type="button" class="secondary" id="btnConfirmPurgeDryRun">Count only (dry-run)</button>
+        <button type="button" class="danger" id="btnConfirmPurgeUndiscovered">Delete all now</button>
+        <button type="button" class="secondary" id="btnCancelPurgeUndiscovered">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <div class="panel">
     <h2>Source PBF</h2>
@@ -109,11 +226,75 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
   </div>
 
   <div class="panel">
+    <h2>Run mode</h2>
+    <div class="row">
+      <label><input type="radio" name="runMode" id="modeBbox" value="bbox" checked/> BBox Preview Mode (map)</label>
+      <label><input type="radio" name="runMode" id="modeFullVermont" value="full_vermont"/> Full Vermont File Mode</label>
+    </div>
+    <p class="muted" id="runModeHelp">Scan the current map viewport only — same algorithm as before.</p>
+  </div>
+
+  <div class="panel" id="fullRunPanel" style="display:none">
+    <h2>Full Vermont Run</h2>
+    <p class="muted">Processes the whole Vermont PBF in geographic tiles with checkpoint/resume. Each tile re-reads the entire PBF (slow). Enable <strong>Limit total spots</strong> for a quick test run — default 100, then auto-stops.</p>
+    <div class="row">
+      <label>Write mode
+        <select id="fullRunMode">
+          <option value="dry_run" selected>Dry run (no DB writes)</option>
+          <option value="write_test">Write test (emulator)</option>
+          <option value="write_prod">Write prod (explicit)</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="fullRunLimitSpots"/> Limit total spots (stop when reached)</label>
+      <label>Max spots
+        <input id="fullRunMaxSpots" type="number" min="1" value="100" disabled style="width:80px"/>
+      </label>
+      <label>Tile step °
+        <input id="fullRunTileStep" type="number" min="0.2" max="1" step="0.1" value="0.4" style="width:64px"/>
+      </label>
+    </div>
+    <div class="row">
+      <button type="button" id="btnFullRunStart">Start</button>
+      <button type="button" class="secondary" id="btnFullRunPause">Pause</button>
+      <button type="button" class="secondary" id="btnFullRunResume">Resume</button>
+      <button type="button" class="secondary" id="btnFullRunStop">Stop</button>
+      <button type="button" class="success" id="btnFullRunWriteCurrent">Write Current Chunks</button>
+      <button type="button" class="secondary" id="btnFullRunDryWrite">Dry Run Write</button>
+      <button type="button" class="secondary" id="btnFullRunTestWrite">Write Test</button>
+      <button type="button" class="danger" id="btnFullRunProdWrite">Write to DB</button>
+    </div>
+    <div class="write-ready-banner" id="fullRunWriteReadyBanner" style="display:none">
+      <h3>Ready to write (deduped across processed chunks)</h3>
+      <div class="write-ready-grid">
+        <div class="write-ready-box spots">
+          <div class="write-ready-label">Spots → unexploredSpots</div>
+          <div class="write-ready-value" id="fullRunWriteReadySpots">—</div>
+        </div>
+        <div class="write-ready-box routes">
+          <div class="write-ready-label">Routes → unexploredRoutes</div>
+          <div class="write-ready-value" id="fullRunWriteReadyRoutes">—</div>
+        </div>
+        <div class="write-ready-box total">
+          <div class="write-ready-label">Total Firestore documents</div>
+          <div class="write-ready-value" id="fullRunWriteReadyTotal">—</div>
+        </div>
+      </div>
+      <p class="muted" id="fullRunWriteReadyMeta" style="margin:10px 0 0"></p>
+    </div>
+    <p id="fullRunStatusLine" class="muted">No full run started.</p>
+    <div class="stat-grid" id="fullRunStatsGrid"></div>
+    <p id="fullRunValidation" class="muted" style="margin-top:8px"></p>
+    <p id="fullRunRunId" class="muted"></p>
+  </div>
+
+  <div class="panel" id="mapPanel">
     <h2>Map</h2>
-    <p class="muted">Pan/zoom to your area, then scan. Shows <strong>all</strong> OSM features in view (trails, roads, shops, buildings, etc.) from the PBF file — not just Locava-approved places.</p>
+    <p class="muted">Scan the PBF viewport, or load what is already in Firestore and fit the map to all undiscovered spots/routes (same data the native app uses).</p>
     <div class="row">
       <button type="button" id="btnShowAllPosts">Scan viewport (raw OSM)</button>
-      <button type="button" class="secondary" id="btnFitPreview">Fit results</button>
+      <button type="button" class="secondary" id="btnLoadDbUndiscovered">Load Firestore undiscovered</button>
+      <button type="button" class="secondary" id="btnFitDbUndiscovered">Fit all in DB</button>
+      <button type="button" class="secondary" id="btnFitPreview">Fit scan results</button>
       <button type="button" class="secondary" id="btnClearMap">Clear map</button>
       <button type="button" class="secondary" id="btnGoHowland">Lake Pinneo / Howland Dam</button>
       <button type="button" class="secondary" id="btnGoMarshBillings">Marsh-Billings (Barrette platform)</button>
@@ -139,7 +320,6 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
     <div class="row">
       <label><input type="checkbox" id="qfHideBroadGeography" checked/> Hide broad linear geography</label>
       <label><input type="checkbox" id="qfHideUnnamedLand" checked/> Hide generic unnamed land blobs</label>
-      <label><input type="checkbox" id="qfHideUnnamedPaths" checked/> Hide generic unnamed paths</label>
       <label><input type="checkbox" id="qfShowHidden"/> Show hidden filtered items</label>
     </div>
     <h3 style="margin-top:12px">Support objects</h3>
@@ -263,9 +443,19 @@ const TRAIL_FALLBACK_COLORS = ["#ef4444","#f97316","#eab308","#22c55e","#14b8a6"
 let previewDocs = [];
 let previewDocsRaw = [];
 let scanCacheId = null;
+let fullRunId = null;
+let fullRunPollTimer = null;
+let fullRunWritePollTimer = null;
+let undiscoveredCountsPollTimer = null;
+let clientWriteConsoleLines = [];
+let uiRunMode = "bbox";
+let purgeUndiscoveredConfirmation = "DELETE_ALL_UNDISCOVERED_SPOTS_AND_ROUTES";
+let purgeRequestInFlight = false;
+let lastWriteReadyCounts = null;
 let rawItemCount = 0;
 let previewMap = null;
 let previewMapReady = false;
+let autoLoadedDbUndiscoveredMap = false;
 let previewMarkers = [];
 let previewMarkerByDocId = {};
 let previewDocBySelectKey = {};
@@ -355,6 +545,209 @@ function renderWriteResult(result) {
     return "<tr><td>" + escapeHtml(ex.kind) + "</td><td>" + escapeHtml(ex.displayName) + "</td><td>" + escapeHtml(ex.reason) + "</td></tr>";
   }).join("") || '<tr><td colspan="4" class="muted">None</td></tr>';
   $("writeErrors").textContent = (result.errors && result.errors.length) ? ("Errors: " + result.errors.join("; ")) : "";
+  renderWriteStatusFromResult(result, { source: "viewport", dryRun: !!result.dryRun });
+}
+
+function openWriteStatusPanel() {
+  const panel = $("writeStatusPanel");
+  if (panel) panel.open = true;
+}
+
+function renderWriteStatusBadge(status) {
+  const badge = $("writeStatusBadge");
+  if (!badge) return;
+  badge.textContent = status || "idle";
+  badge.className = "pill" + (status === "writing" ? " ok" : status === "error" ? " err" : status === "complete" ? " ok" : "");
+}
+
+function renderWriteStatusGrid(rows) {
+  $("writeStatusGrid").innerHTML = (rows || []).map(function (r) {
+    return '<div class="stat-box"><div class="stat-label">' + r[0] + '</div><div class="stat-value">' + r[1] + '</div></div>';
+  }).join("");
+}
+
+function renderWriteStatusFromResult(result, meta) {
+  if (!result) return;
+  openWriteStatusPanel();
+  const dryRun = meta && meta.dryRun;
+  const status = dryRun ? "dry-run" : (result.errors && result.errors.length ? "error" : "complete");
+  renderWriteStatusBadge(status);
+  const rows = [
+    ["Source", (meta && meta.source) || "—"],
+    ["Target", result.writeTarget || "—"],
+    ["Spots planned", (result.spotsPlanned || 0).toLocaleString()],
+    ["Routes planned", (result.routesPlanned || 0).toLocaleString()],
+    ["Spots written", dryRun ? "—" : (result.spotsWritten || 0).toLocaleString()],
+    ["Routes written", dryRun ? "—" : (result.routesWritten || 0).toLocaleString()],
+    ["Tiles upserted", dryRun ? "—" : (result.tilesWritten || 0).toLocaleString()],
+    ["Total docs written", dryRun ? (result.written || 0).toLocaleString() + " (simulated)" : (result.written || 0).toLocaleString()],
+    ["Dup skipped", (result.skippedDuplicates || 0).toLocaleString()],
+    ["Invalid skipped", (result.skippedInvalid || 0).toLocaleString()],
+  ];
+  renderWriteStatusGrid(rows);
+  $("writeStatusLine").textContent = dryRun
+    ? "Dry run complete — zero Firestore writes. Tile upserts would run on a real write."
+    : "Write complete — spots/routes + nested unexploredTiles updated for native map.";
+  $("writeStatusErrors").textContent = (result.errors && result.errors.length) ? ("Errors: " + result.errors.join("; ")) : "";
+  if (!dryRun && status === "complete") void pollUndiscoveredCounts(true);
+}
+
+function appendWriteConsole(line, kind) {
+  const ts = new Date().toLocaleTimeString();
+  clientWriteConsoleLines.push({ ts: ts, line: line, kind: kind || "info" });
+  if (clientWriteConsoleLines.length > 150) clientWriteConsoleLines = clientWriteConsoleLines.slice(-150);
+  renderWriteConsole(clientWriteConsoleLines, null);
+}
+
+function renderWriteConsole(clientLines, serverLines) {
+  const el = $("writeConsoleLog");
+  if (!el) return;
+  const rows = [];
+  if (Array.isArray(serverLines)) {
+    for (let i = 0; i < serverLines.length; i++) {
+      const raw = String(serverLines[i] || "");
+      const cls = raw.toLowerCase().includes("error") ? "line-err" : raw.toLowerCase().includes("complete") ? "line-ok" : "";
+      rows.push('<div class="' + cls + '">' + escapeHtml(raw) + '</div>');
+    }
+  }
+  if (Array.isArray(clientLines)) {
+    for (let j = 0; j < clientLines.length; j++) {
+      const row = clientLines[j];
+      const cls = row.kind === "err" ? "line-err" : row.kind === "ok" ? "line-ok" : "";
+      rows.push('<div class="' + cls + '">[' + escapeHtml(row.ts) + '] ' + escapeHtml(row.line) + '</div>');
+    }
+  }
+  el.innerHTML = rows.length ? rows.join("") : "No write activity yet.";
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderWriteStatusFromRun(run) {
+  if (!run) return;
+  renderWriteConsole(clientWriteConsoleLines, run.writeLog || null);
+  const hb = run.writeHeartbeat;
+  const ws = run.writeStats || {};
+  if (run.phase === "writing" || (hb && hb.status === "writing")) {
+    openWriteStatusPanel();
+    renderWriteStatusBadge("writing");
+    const p = hb || {};
+    const stageLabels = {
+      loading: "loading chunk artifacts",
+      building_payload: "building write payloads",
+      checking_duplicates: "checking existing Firestore ids",
+      spots: "writing spots + spot tiles",
+      routes: "writing routes + route tiles",
+      done: "finishing",
+    };
+    const stageLabel = stageLabels[p.stage] || p.stage || "preparing";
+    const batchLabel = p.batchCount ? ("batch " + (p.batchIndex || 0) + " / " + p.batchCount) : (p.message || "starting");
+    const targetLabel = p.dryRun ? "DRY RUN (no Firestore writes)" : ("→ " + (p.writeTarget || "production"));
+    $("writeStatusLine").textContent = "Writing · " + stageLabel + " · " + batchLabel + " · " + targetLabel;
+    renderWriteStatusGrid([
+      ["Run phase", run.phase || "—"],
+      ["Write target", p.dryRun ? "dry run" : (p.writeTarget || "—")],
+      ["Stage", stageLabel],
+      ["Spots planned", (p.spotsPlanned || 0).toLocaleString()],
+      ["Routes planned", (p.routesPlanned || 0).toLocaleString()],
+      ["Spots written", (p.spotsWritten || 0).toLocaleString()],
+      ["Routes written", (p.routesWritten || 0).toLocaleString()],
+      ["Tiles upserted", (p.tilesWritten || 0).toLocaleString()],
+      ["Run total written", (ws.written || 0).toLocaleString()],
+      ["Run total tiles", (ws.tilesWritten || 0).toLocaleString()],
+      ["Dup skipped (run)", (ws.skippedDuplicates || 0).toLocaleString()],
+    ]);
+    $("writeStatusErrors").textContent = (p.errors && p.errors.length) ? ("Errors: " + p.errors.join("; ")) : (p.message && p.stage !== "spots" && p.stage !== "routes" ? p.message : "");
+    return;
+  }
+  if (hb && (hb.status === "complete" || hb.status === "error")) {
+    renderWriteStatusFromResult({
+      dryRun: hb.dryRun,
+      writeTarget: hb.writeTarget,
+      spotsPlanned: hb.spotsPlanned,
+      routesPlanned: hb.routesPlanned,
+      spotsWritten: hb.spotsWritten,
+      routesWritten: hb.routesWritten,
+      tilesWritten: hb.tilesWritten,
+      written: hb.spotsWritten + hb.routesWritten,
+      skippedDuplicates: hb.skippedDuplicates,
+      skippedInvalid: 0,
+      errors: hb.errors || [],
+    }, { source: "full Vermont run", dryRun: hb.dryRun });
+  }
+}
+
+async function repairMapVisibility() {
+  if (!window.confirm("Set publicMapEligible=true and mapReadiness=ready on existing PBF Copier V2 writes in Vermont?")) return;
+  setStatus("loading", "Patching map visibility fields on existing writes…");
+  try {
+    const res = await fetch(apiBase + "/repair-map-visibility", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dryRun: false }),
+    });
+    const json = await res.json();
+    if (!json.ok) { setStatus("error", json.error?.message || "Repair failed"); return; }
+    const d = json.data || json;
+    setStatus("ok", "Map visibility fixed: " + (d.spotsUpdated || 0) + " spots, " + (d.routesUpdated || 0) + " routes");
+    void pollUndiscoveredCounts(true);
+  } catch (err) {
+    setStatus("error", "Repair failed: " + (err && err.message ? err.message : String(err)));
+  }
+}
+
+async function pollUndiscoveredCounts(force) {
+  try {
+    if (!force) $("undiscoveredLiveMeta").textContent = "Refreshing Firestore counts…";
+    const res = await fetch(apiBase + "/undiscovered-counts", {
+      signal: typeof AbortSignal !== "undefined" && AbortSignal.timeout
+        ? AbortSignal.timeout(15000)
+        : undefined,
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      $("undiscoveredLiveMeta").textContent = "Count failed: " + (json.error?.message || "unknown");
+      return;
+    }
+    const c = json.data || json;
+    const spots = Number(c.spots ?? 0);
+    const routes = Number(c.routes ?? 0);
+    const total = Number(c.total ?? spots + routes) || 0;
+    const tiles = c.tiles == null ? null : Number(c.tiles);
+    $("liveUndiscoveredSpots").textContent = spots.toLocaleString();
+    $("liveUndiscoveredRoutes").textContent = routes.toLocaleString();
+    $("liveUndiscoveredTotal").textContent = total.toLocaleString();
+    $("liveUndiscoveredTiles").textContent = tiles == null ? "nested" : tiles.toLocaleString();
+    const when = c.countedAt ? new Date(c.countedAt).toLocaleString() : "now";
+    $("undiscoveredLiveMeta").textContent =
+      "Project " + (c.projectId || "—") + " · " + (c.source || "Firestore live count") + " · updated " + when;
+    if (!autoLoadedDbUndiscoveredMap && total > 0) {
+      autoLoadedDbUndiscoveredMap = true;
+      void loadDbUndiscoveredOnMap({ fit: true });
+    }
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    const timedOut = msg.indexOf("abort") >= 0 || msg.indexOf("timeout") >= 0;
+    $("undiscoveredLiveMeta").textContent = timedOut
+      ? "Count timed out — retrying. If this persists, restart the backend (npm run build && npm run start)."
+      : "Count error — is the backend running on port 8080? " + msg;
+  }
+}
+
+function startUndiscoveredCountsPolling() {
+  void pollUndiscoveredCounts(true);
+  if (undiscoveredCountsPollTimer) clearInterval(undiscoveredCountsPollTimer);
+  undiscoveredCountsPollTimer = setInterval(function () { void pollUndiscoveredCounts(false); }, 20000);
+}
+
+function startFullRunWritePolling() {
+  if (fullRunWritePollTimer) clearInterval(fullRunWritePollTimer);
+  fullRunWritePollTimer = setInterval(function () { void pollFullRunStatus(); }, 1000);
+}
+
+function stopFullRunWritePolling() {
+  if (fullRunWritePollTimer) {
+    clearInterval(fullRunWritePollTimer);
+    fullRunWritePollTimer = null;
+  }
 }
 
 function updateWriteButtons() {
@@ -372,6 +765,9 @@ function resetWriteState() {
 
 async function validateWritePayload() {
   try {
+    openWriteStatusPanel();
+    renderWriteStatusBadge("validating");
+    $("writeStatusLine").textContent = "Validating write payload…";
     const json = await api("/validate-write-payload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -399,6 +795,9 @@ async function validateWritePayload() {
 
 async function dryRunWrite() {
   try {
+    openWriteStatusPanel();
+    renderWriteStatusBadge("writing");
+    $("writeStatusLine").textContent = "Dry run — simulating write plan (no Firestore writes)…";
     const json = await api("/dry-run-write", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -434,6 +833,14 @@ async function writeBlankSpots() {
   }
   $("btnWriteBlankSpots").disabled = true;
   setStatus("loading", "Writing blank spots/routes…");
+  openWriteStatusPanel();
+  renderWriteStatusBadge("writing");
+  $("writeStatusLine").textContent = "Writing spots, routes, and unexploredTiles to Firestore…";
+  renderWriteStatusGrid([
+    ["Source", "viewport scan"],
+    ["Target", $("writeTarget").value],
+    ["Status", "in progress…"],
+  ]);
   try {
     const json = await api("/write-blank-spots", {
       method: "POST",
@@ -450,6 +857,10 @@ async function writeBlankSpots() {
     renderWriteResult(data);
     setStatus(data.errors && data.errors.length ? "warn" : "ok",
       "Write complete: " + (data.written || 0) + " written, " + (data.skippedDuplicates || 0) + " duplicates skipped.");
+    if (!(data.errors && data.errors.length) && !data.dryRun) {
+      void pollUndiscoveredCounts(true);
+      void loadDbUndiscoveredOnMap({ fit: true });
+    }
   } catch (err) {
     setStatus("error", "Write failed: " + (err.message || String(err)));
   } finally {
@@ -583,7 +994,7 @@ function readQualityFilterSettings() {
     hideRailway: $("qfHideRailway").checked,
     hideBroadGeography: $("qfHideBroadGeography").checked,
     hideUnnamedLand: $("qfHideUnnamedLand").checked,
-    hideUnnamedPaths: $("qfHideUnnamedPaths").checked,
+    hideUnnamedPaths: false,
     hideNonDestinationAmenities: true,
     hideUnattachedBenches: $("qfHideUnattachedBenches").checked,
     hideUnattachedParking: $("qfHideUnattachedParking").checked,
@@ -1009,6 +1420,28 @@ function initPreviewMap() {
     if (previewDocs.length) scheduleMapRenderUpdate();
   });
   previewMap.on("moveend", scheduleMapRenderUpdate);
+}
+
+function ensurePreviewMapReady() {
+  initPreviewMap();
+  if (previewMapReady) return Promise.resolve();
+  return new Promise(function (resolve) {
+    if (!previewMap) {
+      resolve();
+      return;
+    }
+    if (typeof previewMap.loaded === "function" && previewMap.loaded()) {
+      previewMapReady = true;
+      ensurePreviewRouteLayers();
+      resolve();
+      return;
+    }
+    previewMap.once("load", function () {
+      previewMapReady = true;
+      ensurePreviewRouteLayers();
+      resolve();
+    });
+  });
 }
 
 function hikingTrailColor(name) {
@@ -1598,10 +2031,471 @@ async function scanViewport() {
   }
 }
 
+async function api(path, options) {
+  const res = await fetch(apiBase + path, options);
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(json?.error?.message || json?.error || res.statusText);
+  }
+  return json;
+}
+
+function formatPurgeSummaryMeta(data, dryRun) {
+  return (
+    (dryRun ? "Would delete: " : "Deleted: ")
+    + (data.spotsDeleted || 0).toLocaleString() + " spot(s), "
+    + (data.routesDeleted || 0).toLocaleString() + " route(s), "
+    + (data.tilesDeleted || 0).toLocaleString() + " nested map tile doc(s)"
+    + (dryRun
+      ? " (includes unexploredTiles cache scan — may take 1–2 min; geometryChunks not counted)."
+      : ", " + (data.geometryChunksDeleted || 0).toLocaleString() + " geometry chunk(s).")
+  );
+}
+
+function syncPurgePanelFromHealth(data) {
+  const enabled = Boolean(data && data.purgeUndiscoveredEnabled);
+  const panel = $("purgeUndiscoveredPanel");
+  if (panel) panel.style.display = "block";
+  if (data && data.purgeUndiscoveredEnvVar && $("purgeEnvVarName")) {
+    $("purgeEnvVarName").textContent = data.purgeUndiscoveredEnvVar;
+  }
+  if (data && data.purgeUndiscoveredConfirmation) {
+    purgeUndiscoveredConfirmation = data.purgeUndiscoveredConfirmation;
+    if ($("purgeConfirmPhraseHint")) $("purgeConfirmPhraseHint").textContent = purgeUndiscoveredConfirmation;
+  }
+  ["btnPurgeUndiscoveredDryRun", "btnPurgeUndiscovered"].forEach(function (id) {
+    const el = $(id);
+    if (el) el.disabled = !enabled;
+  });
+  if ($("purgeUndiscoveredMeta")) {
+    $("purgeUndiscoveredMeta").textContent = enabled
+      ? "Purge enabled — deletes spots, routes, and nested unexploredTiles (map cache). Cooper + confirmation phrase required."
+      : "Purge disabled — set OSM_PBF_COPIER_ALLOW_PURGE_UNDISCOVERED=true in .env (or shell) and restart backend.";
+  }
+}
+
+function readPurgeCredentials() {
+  const panelPhrase = ($("purgePanelPhrase") && $("purgePanelPhrase").value || "").trim();
+  const panelPassword = ($("purgePanelPassword") && $("purgePanelPassword").value || "").trim();
+  const modalPhrase = ($("purgeConfirmPhrase") && $("purgeConfirmPhrase").value || "").trim();
+  const modalPassword = ($("purgePassword") && $("purgePassword").value || "").trim();
+  return {
+    phrase: panelPhrase || modalPhrase,
+    password: panelPassword || modalPassword,
+  };
+}
+
+function setPurgeControlsBusy(busy) {
+  purgeRequestInFlight = busy;
+  ["btnPurgeUndiscoveredDryRun", "btnPurgeUndiscovered", "btnConfirmPurgeDryRun", "btnConfirmPurgeUndiscovered"].forEach(function (id) {
+    const el = $(id);
+    if (el) el.disabled = busy;
+  });
+}
+
+async function runPurgeUndiscovered(dryRun) {
+  if (purgeRequestInFlight) return;
+  const creds = readPurgeCredentials();
+  if (creds.phrase !== purgeUndiscoveredConfirmation) {
+    setStatus("warn", "Paste the confirmation phrase exactly: " + purgeUndiscoveredConfirmation);
+    return;
+  }
+  if (!creds.password) {
+    setStatus("warn", "Enter production password Cooper.");
+    return;
+  }
+  setPurgeControlsBusy(true);
+  setStatus(
+    "loading",
+    dryRun
+      ? "Counting spots, routes, and nested map tiles (unexploredTiles scan can take 1–2 min)…"
+      : "Deleting spots, routes, and nested map tiles — may take several minutes…"
+  );
+  if ($("purgeUndiscoveredMeta")) {
+    $("purgeUndiscoveredMeta").textContent = dryRun
+      ? "Count in progress (includes nested unexploredTiles)…"
+      : "Delete in progress: spots/routes in small batches + recursive unexploredTiles purge…";
+  }
+  try {
+    const json = await api("/purge-undiscovered", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        writeTarget: "production",
+        confirmProductionWrite: creds.password,
+        confirmPurge: creds.phrase,
+        dryRun: dryRun,
+      }),
+    });
+    const data = json.data || json;
+    const meta = formatPurgeSummaryMeta(data, dryRun);
+    if ($("purgeUndiscoveredMeta")) $("purgeUndiscoveredMeta").textContent = meta;
+    if (!dryRun) closePurgeUndiscoveredModal();
+    setStatus("ok", dryRun ? "Dry-run count complete (zero deletes)." : "Purge complete — spots, routes, and map tiles cleared. Posts were not touched.");
+    void pollUndiscoveredCounts(true);
+  } catch (err) {
+    setStatus("error", "Purge failed: " + err.message);
+    if ($("purgeUndiscoveredMeta")) $("purgeUndiscoveredMeta").textContent = "Error: " + err.message;
+  } finally {
+    setPurgeControlsBusy(false);
+    void loadHealth();
+  }
+}
+
+function openPurgeUndiscoveredModal() {
+  const creds = readPurgeCredentials();
+  if ($("purgeConfirmPhrase")) $("purgeConfirmPhrase").value = creds.phrase;
+  if ($("purgePassword")) $("purgePassword").value = creds.password;
+  const modal = $("purgeUndiscoveredModal");
+  if (!modal) return;
+  modal.style.display = "flex";
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden", "false");
+  setStatus("warn", "Confirm delete — posts are never touched.");
+}
+
+function closePurgeUndiscoveredModal() {
+  const modal = $("purgeUndiscoveredModal");
+  if (!modal) return;
+  modal.style.display = "none";
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden", "true");
+}
+
+async function loadHealth() {
+  try {
+    const json = await api("/health");
+    syncPurgePanelFromHealth(json.data || json);
+  } catch (err) {
+    if ($("purgeUndiscoveredMeta")) {
+      $("purgeUndiscoveredMeta").textContent = "Health check failed: " + err.message;
+    }
+  }
+}
+
+function renderWriteReadyBanner(counts) {
+  const banner = $("fullRunWriteReadyBanner");
+  if (!banner) return;
+  if (!counts || !(counts.chunksIncluded > 0)) {
+    banner.style.display = "none";
+    return;
+  }
+  banner.style.display = "block";
+  $("fullRunWriteReadySpots").textContent = (counts.spots || 0).toLocaleString();
+  $("fullRunWriteReadyRoutes").textContent = (counts.routes || 0).toLocaleString();
+  $("fullRunWriteReadyTotal").textContent = (counts.total || 0).toLocaleString();
+  const meta = [];
+  meta.push(counts.chunksIncluded + " chunk(s) processed");
+  if (counts.chunksPending > 0) meta.push(counts.chunksPending + " chunk(s) still pending");
+  if (counts.tileOverlapDuplicatesExcluded > 0) {
+    meta.push(counts.tileOverlapDuplicatesExcluded.toLocaleString() + " tile-overlap dupes excluded");
+  }
+  if (counts.skippedSupportOnly > 0) meta.push(counts.skippedSupportOnly + " support-only skipped");
+  if (counts.skippedInvalid > 0) meta.push(counts.skippedInvalid + " invalid skipped");
+  meta.push("Counts match dry-run write validation; DB skipExisting not applied");
+  $("fullRunWriteReadyMeta").textContent = meta.join(" · ");
+}
+
+function setUiRunMode(mode) {
+  uiRunMode = mode;
+  const full = mode === "full_vermont";
+  $("fullRunPanel").style.display = full ? "block" : "none";
+  $("qualityFiltersPanel").style.display = full ? "none" : ($("qualityFiltersPanel").dataset.hadResults === "1" ? "block" : "none");
+  $("resultsPanel").style.display = full ? "none" : ($("resultsPanel").style.display === "block" ? "block" : "none");
+  $("runModeHelp").textContent = full
+    ? "Full-file mode: tile checkpoints on disk. Map stays visible — use Load Firestore undiscovered / Fit all in DB after writing."
+    : "Scan the current map viewport only — same algorithm as before.";
+}
+
+function dbMarkerToPreviewDoc(item, kind) {
+  const isRoute = kind === "route";
+  return {
+    id: item.id,
+    kind: isRoute ? "unexplored_route" : "unexplored_spot",
+    lat: item.lat,
+    lng: item.lng,
+    displayName: item.displayName || item.id,
+    primaryActivity: item.primaryActivity || (isRoute ? "hiking" : "place"),
+    primaryCategory: item.primaryActivity || (isRoute ? "hiking" : "place"),
+    activities: item.primaryActivity ? [item.primaryActivity] : [],
+    filteredOut: false,
+    sourceTagSample: {},
+    warnings: ["loaded_from_firestore"],
+    routeLineCoordinates: isRoute ? (item.routeLineCoordinates || []) : undefined,
+    geometryPointCount: isRoute ? (item.routeLineCoordinates || []).length : 0,
+    publicMapEligible: item.publicMapEligible === true,
+    mapReadiness: item.mapReadiness || "ready",
+  };
+}
+
+async function loadDbUndiscoveredOnMap(opts) {
+  const fit = !opts || opts.fit !== false;
+  setStatus("loading", "Loading undiscovered spots/routes from Firestore…");
+  try {
+    const res = await fetch(apiBase + "/undiscovered-map-preview");
+    const json = await res.json();
+    if (!json.ok) {
+      setStatus("error", json.error?.message || "Failed to load Firestore map preview");
+      return null;
+    }
+    const data = json.data || json;
+    const docs = [];
+    (data.spots || []).forEach(function (s) { docs.push(dbMarkerToPreviewDoc(s, "spot")); });
+    (data.routes || []).forEach(function (r) { docs.push(dbMarkerToPreviewDoc(r, "route")); });
+    previewDocs = docs;
+    previewDocsRaw = docs.slice();
+    await ensurePreviewMapReady();
+    clearPreviewMapMarkers();
+    if (fit && data.bounds && previewMap) {
+      previewMap.fitBounds(
+        [[data.bounds.westLng, data.bounds.southLat], [data.bounds.eastLng, data.bounds.northLat]],
+        { padding: 48, duration: 600, maxZoom: 12 }
+      );
+    } else if (fit && data.center && previewMap) {
+      previewMap.flyTo({ center: [data.center.lng, data.center.lat], zoom: 9, duration: 600 });
+    }
+    drawAllPreviewOnMap();
+    $("viewportCount").textContent = docs.length.toLocaleString() + " from Firestore ("
+      + (data.counts?.spots || 0).toLocaleString() + " spots, "
+      + (data.counts?.routes || 0).toLocaleString() + " routes)";
+    $("mapSidebar").textContent = "Loaded live Firestore undiscovered layer for Vermont bbox. Native app shows the same docs when you pan here.";
+    setStatus("ok", "Loaded " + docs.length.toLocaleString() + " undiscovered item(s) from Firestore onto the map.");
+    return data;
+  } catch (err) {
+    setStatus("error", "Load Firestore map failed: " + (err && err.message ? err.message : String(err)));
+    return null;
+  }
+}
+
+async function fitDbUndiscoveredOnMap() {
+  const data = await loadDbUndiscoveredOnMap({ fit: true });
+  if (!data) return;
+}
+
+function renderFullRunStats(run, writeReadyCounts) {
+  if (!run) return;
+  const wr = writeReadyCounts || lastWriteReadyCounts;
+  if (writeReadyCounts) lastWriteReadyCounts = writeReadyCounts;
+  renderWriteReadyBanner(wr);
+  const s = run.stats || {};
+  const dq = s.destinationQuality || {};
+  const chunksDone = (run.completedChunkIds || []).length;
+  const chunksTotal = run.totalChunks || 0;
+  const hb = run.scanHeartbeat;
+  const wrApprox = wr && wr.approximate ? " (approx)" : "";
+  const spotLimit = run.maxTotalSpots != null ? run.maxTotalSpots : null;
+  const rows = [
+    ["Spots ready", wr && wr.chunksIncluded > 0 ? (wr.spots || 0).toLocaleString() + wrApprox : "—"],
+    ["Spot limit", spotLimit != null ? spotLimit.toLocaleString() + " (stop when reached)" : "off"],
+    ["Routes ready", wr && wr.chunksIncluded > 0 ? (wr.routes || 0).toLocaleString() + wrApprox : "—"],
+    ["Total write-ready", wr && wr.chunksIncluded > 0 ? (wr.total || 0).toLocaleString() + wrApprox : "—"],
+    ["Progress", (run.percentComplete || 0) + "%" + (run.percentEstimated ? " (est)" : "")],
+    ["Phase", run.phase || "—"],
+    ["Status", run.status || "—"],
+    ["Chunks done", chunksDone + " / " + chunksTotal],
+    ["Scanning tile", hb ? "tile " + (hb.tileIndex + 1) + "/" + chunksTotal + " · " + (hb.objectsScannedThisTile || 0).toLocaleString() + " objs" : (run.status === "running" ? "starting…" : "—")],
+    ["Raw scanned", (s.rawObjectsScanned || 0).toLocaleString()],
+    ["Nodes", (s.nodesScanned || 0).toLocaleString()],
+    ["Ways", (s.waysScanned || 0).toLocaleString()],
+    ["Relations", (s.relationsScanned || 0).toLocaleString()],
+    ["Visible", (s.visibleItems || 0).toLocaleString()],
+    ["Hidden", (s.hiddenItems || 0).toLocaleString()],
+    ["Chunks written", s.chunksWritten || 0],
+    ["Written items", run.writeStats?.written || 0],
+    ["Dup skipped", run.writeStats?.skippedDuplicates || 0],
+    ["Errors", run.errorCount || 0],
+    ["obj/s", (run.avgObjectsPerSec || 0).toFixed(1)],
+    ["ETA", run.etaMs != null ? Math.round(run.etaMs / 1000) + "s" : "—"],
+    ["Train bridges rescued", dq.finalRescuedTrainBridges || 0],
+    ["Hiking rescued", dq.finalRescuedUnmarkedHikingTrails || 0],
+  ];
+  $("fullRunStatsGrid").innerHTML = rows.map(function (r) {
+    return '<div class="stat-box"><div class="stat-label">' + r[0] + '</div><div class="stat-value">' + r[1] + '</div></div>';
+  }).join("");
+  const elapsedSec = Math.round((run.elapsedMs || 0) / 1000);
+  let statusLine = "Run " + run.status + " · phase " + run.phase + " · elapsed " + elapsedSec + "s";
+  if (hb && run.status === "running") {
+    statusLine += " · reading PBF tile " + (hb.tileIndex + 1) + "/" + chunksTotal
+      + " (" + (hb.objectsScannedThisTile || 0).toLocaleString() + " objects this pass)";
+  } else if (run.status === "running" && run.phase === "scanning_ways") {
+    statusLine += " · each tile re-reads the full Vermont PBF (5–15 min/tile is normal)";
+  }
+  if (spotLimit != null && run.status === "running") {
+    const found = wr && wr.chunksIncluded > 0 ? (wr.spots || 0) : 0;
+    statusLine += " · spot limit " + found.toLocaleString() + " / " + spotLimit.toLocaleString();
+  }
+  $("fullRunStatusLine").textContent = statusLine;
+  $("fullRunRunId").textContent = "runId: " + run.runId;
+  $("fullRunValidation").textContent = (run.validationWarnings || []).length
+    ? "Warnings: " + run.validationWarnings.join(" · ")
+    : "";
+}
+
+async function pollFullRunStatus() {
+  if (!fullRunId) return;
+  try {
+    const res = await fetch(apiBase + "/full-run/status?runId=" + encodeURIComponent(fullRunId));
+    const json = await res.json();
+    if (!json.ok) {
+      $("fullRunStatusLine").textContent = "Status poll failed: " + (json.error?.message || "unknown error");
+      return;
+    }
+    renderFullRunStats(json.data.run, json.data.writeReadyCounts);
+    renderWriteStatusFromRun(json.data.run);
+    if (json.data.run && json.data.run.phase !== "writing") {
+      stopFullRunWritePolling();
+    }
+    if (json.data.run && (json.data.run.status === "complete" || json.data.run.status === "error" || json.data.run.status === "stopped")) {
+      if (fullRunPollTimer) { clearInterval(fullRunPollTimer); fullRunPollTimer = null; }
+    }
+  } catch (err) {
+    $("fullRunStatusLine").textContent = "Status poll error — is the backend running? " + (err && err.message ? err.message : String(err));
+  }
+}
+
+async function startFullVermontRun() {
+  const limitSpots = $("fullRunLimitSpots").checked;
+  const maxSpotsRaw = $("fullRunMaxSpots").value.trim();
+  const body = {
+    pbfPath: $("filePath").value.trim(),
+    mode: $("fullRunMode").value,
+    tileStepDegrees: Number($("fullRunTileStep").value) || 0.4,
+    maxTotalSpots: limitSpots ? (Number(maxSpotsRaw) || 100) : null,
+    qualityFilterSettings: readQualityFilterSettings(),
+  };
+  setStatus("loading", "Starting full Vermont run…");
+  const res = await fetch(apiBase + "/full-run/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const json = await res.json();
+  if (!json.ok) { setStatus("error", json.error?.message || "Start failed"); return; }
+  fullRunId = json.data.run.runId;
+  renderFullRunStats(json.data.run, json.data.writeReadyCounts || null);
+  const limitMsg = body.maxTotalSpots
+    ? " — stops after ~" + body.maxTotalSpots.toLocaleString() + " visible spots"
+    : " — runs all tiles (slow)";
+  setStatus("ok", "Full Vermont run started" + limitMsg);
+  if (fullRunPollTimer) clearInterval(fullRunPollTimer);
+  void pollFullRunStatus();
+  fullRunPollTimer = setInterval(function () { void pollFullRunStatus(); }, 3000);
+}
+
+async function fullRunAction(path) {
+  if (!fullRunId) { setStatus("warn", "Start a full run first"); return null; }
+  const res = await fetch(apiBase + "/full-run/" + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runId: fullRunId }),
+  });
+  const json = await res.json();
+  if (!json.ok) { setStatus("error", json.error?.message || path + " failed"); return null; }
+  renderFullRunStats(json.data.run);
+  return json.data;
+}
+
+async function fullRunWrite(opts) {
+  if (!fullRunId) { setStatus("warn", "Start a full run first"); return; }
+  const options = Object.assign({}, opts || {});
+  if (options.dryRun !== true) {
+    const target = options.writeTarget || ($("fullRunMode").value === "write_prod" ? "production" : "emulator");
+    options.writeTarget = target;
+    options.dryRun = false;
+    if (target === "production" && !options.confirmProductionWrite) {
+      const pw = window.prompt("Production write password (Cooper):");
+      if (!pw) { setStatus("warn", "Production write cancelled — password required"); return; }
+      options.confirmProductionWrite = pw;
+    }
+  }
+  const body = Object.assign({ runId: fullRunId, confirmUndiscoveredShape: UNDISCOVERED_SHAPE_PHRASE }, options);
+  appendWriteConsole("POST /full-run/write-current " + JSON.stringify({ dryRun: body.dryRun, writeTarget: body.writeTarget }), "info");
+  setStatus("loading", body.dryRun ? "Dry run write…" : "Writing to Firestore (spots + routes + tiles)…");
+  openWriteStatusPanel();
+  renderWriteStatusBadge("writing");
+  $("writeStatusLine").textContent = body.dryRun ? "Dry run started…" : ("Production write → " + body.writeTarget);
+  startFullRunWritePolling();
+  try {
+    const res = await fetch(apiBase + "/full-run/write-current", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const json = await res.json();
+    if (!json.ok) {
+      appendWriteConsole("Write failed: " + (json.error?.message || "unknown"), "err");
+      setStatus("error", json.error?.message || "Write failed");
+      return;
+    }
+    renderFullRunStats(json.data.run, json.data.writeReadyCounts || lastWriteReadyCounts);
+    renderWriteStatusFromRun(json.data.run);
+    const wr = json.data.writeResult;
+    if (wr) {
+      if (wr.errors && wr.errors.length) {
+        appendWriteConsole(wr.errors.join(" · "), "err");
+      } else {
+        appendWriteConsole(
+          (wr.dryRun ? "Dry run OK: " : "Written: ")
+            + (wr.spotsWritten || wr.spotsPlanned || 0) + " spots, "
+            + (wr.routesWritten || wr.routesPlanned || 0) + " routes, "
+            + (wr.tilesWritten || 0) + " tiles",
+          wr.dryRun ? "info" : "ok"
+        );
+      }
+      renderWriteStatusFromResult(wr, { source: "full Vermont run", dryRun: !!wr.dryRun });
+      setStatus(wr.errors && wr.errors.length ? "error" : "ok",
+        wr.errors && wr.errors.length
+          ? ("Write failed: " + wr.errors[0])
+          : ((wr.dryRun ? "Dry run: " : "Written: ")
+            + (wr.spotsWritten || wr.spotsPlanned || 0).toLocaleString() + " spots, "
+            + (wr.routesWritten || wr.routesPlanned || 0).toLocaleString() + " routes, "
+            + (wr.tilesWritten || 0).toLocaleString() + " tiles"
+            + (wr.dryRun ? " (simulated)" : "")));
+      if (!wr.dryRun && !wr.errors.length) {
+        void pollUndiscoveredCounts(true);
+        void loadDbUndiscoveredOnMap({ fit: true });
+      }
+    } else {
+      appendWriteConsole("Write returned no result payload", "err");
+      setStatus("warn", "Write finished but no result returned");
+    }
+    void pollFullRunStatus();
+  } catch (err) {
+    appendWriteConsole("Network error: " + (err && err.message ? err.message : String(err)), "err");
+    setStatus("error", "Write failed: " + (err && err.message ? err.message : String(err)));
+  } finally {
+    stopFullRunWritePolling();
+  }
+}
+
 function bindControls() {
+  $("modeBbox").addEventListener("change", function () { if ($("modeBbox").checked) setUiRunMode("bbox"); });
+  $("modeFullVermont").addEventListener("change", function () { if ($("modeFullVermont").checked) setUiRunMode("full_vermont"); });
+  $("btnRepairMapVisibility").addEventListener("click", function () { void repairMapVisibility(); });
+  $("btnFullRunStart").addEventListener("click", function () { void startFullVermontRun(); });
+  $("fullRunLimitSpots").addEventListener("change", function () {
+    $("fullRunMaxSpots").disabled = !$("fullRunLimitSpots").checked;
+  });
+  $("btnFullRunPause").addEventListener("click", function () { void fullRunAction("pause"); });
+  $("btnFullRunResume").addEventListener("click", function () { void fullRunAction("resume"); });
+  $("btnFullRunStop").addEventListener("click", function () { void fullRunAction("stop"); });
+  $("btnFullRunWriteCurrent").addEventListener("click", function () {
+    void fullRunWrite({
+      dryRun: false,
+      writeTarget: $("fullRunMode").value === "write_prod" ? "production" : "emulator",
+    });
+  });
+  $("btnFullRunDryWrite").addEventListener("click", function () { void fullRunWrite({ dryRun: true }); });
+  $("btnFullRunTestWrite").addEventListener("click", function () { void fullRunWrite({ dryRun: false, writeTarget: "emulator" }); });
+  $("btnFullRunProdWrite").addEventListener("click", function () {
+    void fullRunWrite({ dryRun: false, writeTarget: "production" });
+  });
+  $("btnPurgeUndiscovered").addEventListener("click", function () { openPurgeUndiscoveredModal(); });
+  $("btnPurgeUndiscoveredDryRun").addEventListener("click", function () { void runPurgeUndiscovered(true); });
+  $("btnConfirmPurgeDryRun").addEventListener("click", function () { void runPurgeUndiscovered(true); });
+  $("btnConfirmPurgeUndiscovered").addEventListener("click", function () { void runPurgeUndiscovered(false); });
+  $("btnCancelPurgeUndiscovered").addEventListener("click", function () { closePurgeUndiscoveredModal(); });
   $("btnValidateFile").addEventListener("click", function () { void validateFile(); });
   $("btnShowAllPosts").addEventListener("click", function () { void scanViewport(); });
   $("btnFitPreview").addEventListener("click", function () { fitPreviewDocs(getFilteredPreviewDocs()); });
+  $("btnLoadDbUndiscovered").addEventListener("click", function () { void loadDbUndiscoveredOnMap({ fit: true }); });
+  $("btnFitDbUndiscovered").addEventListener("click", function () { void fitDbUndiscoveredOnMap(); });
   $("btnClearMap").addEventListener("click", function () {
     previewDocs = [];
     previewDocsRaw = [];
@@ -1662,7 +2556,6 @@ function bindControls() {
     "qfHideRailway",
     "qfHideBroadGeography",
     "qfHideUnnamedLand",
-    "qfHideUnnamedPaths",
     "qfHideUnattachedBenches",
     "qfHideUnattachedParking",
     "qfAttachSupport",
@@ -1693,6 +2586,8 @@ function bindControls() {
 try {
   initPreviewMap();
   bindControls();
+  void loadHealth();
+  startUndiscoveredCountsPolling();
 } catch (err) {
   setStatus("error", "Page init failed: " + (err && err.message ? err.message : String(err)));
 }

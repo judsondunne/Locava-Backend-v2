@@ -9,6 +9,11 @@ import { stitchSegments, type TrailPoint } from "../../../../lib/inventory/trail
 import { normalizePreviewDisplayName } from "./pbfCopierPreviewQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 import { enrichRoutePreviewDoc } from "./pbfCopierV2RouteEnrichment.js";
+import {
+  buildUnnamedHikingTrailContext,
+  isUnnamedRealHikingTrailDoc,
+  promoteUnnamedHikingTrailDoc,
+} from "./pbfCopierV2DestinationQuality.js";
 
 const ROUTE_LINE_POINT_CAP = 8000;
 
@@ -78,6 +83,11 @@ function tag(tags: Record<string, string>, key: string): string | undefined {
   return tags[key]?.trim().toLowerCase();
 }
 
+function hasOsmNameTag(tags: Record<string, string>): boolean {
+  const name = tags.name?.trim() || tags["name:en"]?.trim();
+  return Boolean(name && name.length >= 1);
+}
+
 function downsampleLine(points: TrailPoint[], maxPoints: number): TrailPoint[] {
   if (points.length <= maxPoints) return points;
   const step = Math.ceil(points.length / maxPoints);
@@ -137,10 +147,14 @@ export function isHikingTrailPreviewDoc(doc: PbfCopierPreviewDoc): boolean {
 }
 
 function isNamedTrailDoc(doc: PbfCopierPreviewDoc): boolean {
+  const raw = (doc.displayName || "").trim().toLowerCase();
+  if (!raw || raw.startsWith("highway=") || raw.startsWith("osm way/") || raw.startsWith("osm node/")) {
+    return false;
+  }
   const key = normalizePreviewDisplayName(doc.displayName);
   if (!key) return false;
-  if (key.startsWith("highway=")) return false;
-  if (key.startsWith("osm ")) return false;
+  if (key.startsWith("highway ") || key.startsWith("osm ")) return false;
+  if (!hasOsmNameTag(doc.sourceTagSample ?? {})) return false;
   return true;
 }
 
@@ -214,14 +228,19 @@ export type RawOsmDisplayPostProcessResult = {
   residentialHomesFiltered: number;
   hikingTrailGroupsMerged: number;
   hikingTrailSegmentsCollapsed: number;
+  unnamedHikingTrailsIncluded: number;
 };
 
 export function postProcessRawOsmPreviewDocs(docs: PbfCopierPreviewDoc[]): RawOsmDisplayPostProcessResult {
   const spots: PbfCopierPreviewDoc[] = [];
   const hikingByName = new Map<string, PbfCopierPreviewDoc[]>();
+  const unnamedHikingRoutes: PbfCopierPreviewDoc[] = [];
   const lineOnlyRoutes: PbfCopierPreviewDoc[] = [];
   let residentialHomesFiltered = 0;
   let hikingTrailSegmentsCollapsed = 0;
+  let unnamedHikingTrailsIncluded = 0;
+
+  const trailContext = buildUnnamedHikingTrailContext(docs);
 
   for (const doc of docs) {
     if (doc.kind === "unexplored_spot") {
@@ -242,10 +261,15 @@ export function postProcessRawOsmPreviewDocs(docs: PbfCopierPreviewDoc[]): RawOs
     }
 
     if (!isNamedTrailDoc(doc)) {
-      lineOnlyRoutes.push({
-        ...doc,
-        warnings: [...(doc.warnings ?? []), "v2_line_no_marker"],
-      });
+      if (isUnnamedRealHikingTrailDoc(doc, trailContext)) {
+        unnamedHikingRoutes.push(promoteUnnamedHikingTrailDoc(doc, trailContext));
+        unnamedHikingTrailsIncluded += 1;
+      } else {
+        lineOnlyRoutes.push({
+          ...doc,
+          warnings: [...(doc.warnings ?? []), "v2_line_no_marker"],
+        });
+      }
       continue;
     }
 
@@ -266,12 +290,16 @@ export function postProcessRawOsmPreviewDocs(docs: PbfCopierPreviewDoc[]): RawOs
   );
 
   const mergedEnriched = mergedHiking.map(enrichRoutePreviewDoc);
+  const unnamedEnriched = unnamedHikingRoutes.map((doc) =>
+    enrichRoutePreviewDoc(enrichHikingTrailLineRoute(doc))
+  );
 
   return {
-    items: [...spots, ...mergedEnriched, ...enrichedLineOnly],
+    items: [...spots, ...mergedEnriched, ...unnamedEnriched, ...enrichedLineOnly],
     residentialHomesFiltered,
     hikingTrailGroupsMerged: mergedHiking.length,
     hikingTrailSegmentsCollapsed,
+    unnamedHikingTrailsIncluded,
   };
 }
 

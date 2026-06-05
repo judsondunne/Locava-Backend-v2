@@ -84,4 +84,38 @@ describe("pbfCopierV2BlankDocBuilder", () => {
     expect(route!.encodedPolyline).toBeTruthy();
     expect(route!.distanceMeters).toBeGreaterThan(0);
   });
+
+  it("sets map-ready fields on production writes", () => {
+    const doc: PbfCopierPreviewDoc = {
+      id: "raw:node/3",
+      kind: "unexplored_spot",
+      collection: "unexploredSpots",
+      displayName: "Test Peak",
+      primaryActivity: "hiking",
+      activities: ["hiking"],
+      primaryCategory: "peak",
+      lat: 43.54,
+      lng: -72.39,
+      sourceFamily: "openstreetmap_pbf_v2_raw",
+      sourceKeys: ["node/3"],
+      sourceIds: ["3"],
+      osmType: "node",
+      osmId: 3,
+      origin: "generated_osm",
+      mapReadiness: "review",
+      publicMapEligible: false,
+      undiscovered: true,
+      needsCapture: true,
+      hasUserMedia: false,
+      importRunId: "v2",
+      importPipelineVersion: "v2",
+      pbfFilePath: "./data/osm/vermont-latest.osm.pbf",
+      sourceProvider: "geofabrik",
+      sourceTagSample: {},
+      warnings: [],
+    };
+    const spot = buildBlankSpotFromV2Preview(doc, { ...baseInput, writeTarget: "production" });
+    expect(spot?.publicMapEligible).toBe(true);
+    expect(spot?.mapReadiness).toBe("ready");
+  });
 });

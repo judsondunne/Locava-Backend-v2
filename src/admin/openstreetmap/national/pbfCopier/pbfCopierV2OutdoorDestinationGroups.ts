@@ -17,6 +17,13 @@ import {
   isSupportShelter,
   isSupportToilet,
 } from "./pbfCopierV2SupportObjects.js";
+import {
+  isPrimaryHikingRoute,
+  isSameOsmItem,
+  isSyntheticRouteDisplayName,
+  isUnnamedHikingTrailDoc,
+  type PbfDestinationQualityCounters,
+} from "./pbfCopierV2DestinationQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
 export type PbfOutdoorGroupingSummary = {
@@ -31,6 +38,7 @@ export type PbfOutdoorGroupingSummary = {
 
 export type PbfOutdoorGroupingSettings = {
   showSupportObjectsAsMarkers: boolean;
+  destinationQualityCounters?: PbfDestinationQualityCounters;
 };
 
 export type PbfOutdoorGroupedPreviewDoc = PbfQualityFilteredPreviewDoc & {
@@ -93,6 +101,7 @@ export function routeDestinationGroupId(doc: PbfCopierPreviewDoc): string {
 export function isNamedOutdoorRoute(doc: PbfCopierPreviewDoc): boolean {
   if (doc.kind !== "unexplored_route") return false;
   if (doc.warnings?.includes("v2_hiking_trail_merged")) return true;
+  if (isUnnamedHikingTrailDoc(doc)) return true;
   if (isNamedSkiRun(doc)) return true;
   const tags = doc.sourceTagSample ?? {};
   if (hasOsmNameTag(tags)) return true;
@@ -171,6 +180,21 @@ function markAttachedToRoute(
   reason: string,
   settings: PbfOutdoorGroupingSettings
 ): void {
+  const counters = settings.destinationQualityCounters;
+
+  if (isPrimaryHikingRoute(item)) {
+    if (
+      isSameOsmItem(item, route) ||
+      (item.destinationGroupId && item.destinationGroupId === route.destinationGroupId) ||
+      (item.attachedToRouteId && item.attachedToRouteId === item.destinationGroupId)
+    ) {
+      if (counters) counters.selfAttachedRoutesFixed += 1;
+      return;
+    }
+    if (counters) counters.supportAttachedRoutesSkippedBecausePrimaryRoute += 1;
+    return;
+  }
+
   item.attachedTo = {
     osmType: route.osmType,
     osmId: route.osmId,
@@ -261,7 +285,11 @@ function isViewpointDoc(doc: PbfCopierPreviewDoc): boolean {
 
 function isUnnamedConnectorPath(doc: PbfCopierPreviewDoc): boolean {
   if (doc.kind !== "unexplored_route") return false;
+  if (isUnnamedHikingTrailDoc(doc) || isPrimaryHikingRoute(doc)) return false;
   const tags = doc.sourceTagSample ?? {};
+  if (tag(tags, "footway") === "sidewalk" || tag(tags, "footway") === "crossing" || tag(tags, "footway") === "access_aisle") {
+    return false;
+  }
   if (hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc)) return false;
   const highway = tag(tags, "highway");
   return highway === "path" || highway === "footway";
@@ -332,15 +360,60 @@ function computeRouteCenterCoordinate(route: PbfCopierPreviewDoc): { lat: number
 
 function findNearestRoute(
   item: PbfCopierPreviewDoc,
-  routes: RouteCandidate[]
+  routes: RouteCandidate[],
+  excludeSelf = true
 ): { route: PbfOutdoorGroupedPreviewDoc; distanceMeters: number } | null {
   if (item.lat == null || item.lng == null) return null;
   let best: { route: PbfOutdoorGroupedPreviewDoc; distanceMeters: number } | null = null;
   for (const r of routes) {
+    if (excludeSelf && isSameOsmItem(item, r.doc)) continue;
     const d = minDistanceToRouteMeters(item.lat, item.lng, r.doc);
     if (!best || d < best.distanceMeters) best = { route: r.doc, distanceMeters: d };
   }
   return best;
+}
+
+function sanitizeHikingRouteDisplayName(doc: PbfOutdoorGroupedPreviewDoc): void {
+  const name = doc.displayName || "";
+  if (!isSyntheticRouteDisplayName(name)) return;
+  doc.displayName = "Connector Trail";
+  doc.derivedName = true;
+  doc.nameSource = doc.nameSource ?? "trail_context";
+  doc.nameConfidence = doc.nameConfidence ?? "low";
+}
+
+function restoreVisiblePrimaryHikingRoute(
+  item: PbfOutdoorGroupedPreviewDoc,
+  counters?: PbfDestinationQualityCounters
+): void {
+  if (!isPrimaryHikingRoute(item)) return;
+  sanitizeHikingRouteDisplayName(item);
+
+  const wasSupportHidden =
+    item.filteredOut && (item.filteredBy ?? []).includes("support_attached");
+  const selfAttached =
+    (item.attachedToRouteId && item.attachedToRouteId === item.destinationGroupId) ||
+    (item.attachedTo && isSameOsmItem(item, { osmType: item.attachedTo.osmType as PbfCopierPreviewDoc["osmType"], osmId: item.attachedTo.osmId } as PbfCopierPreviewDoc));
+
+  if (!wasSupportHidden && !selfAttached) return;
+
+  if (selfAttached && counters) counters.selfAttachedRoutesFixed += 1;
+  if (wasSupportHidden && counters) counters.unnamedHikingRoutesForcedVisible += 1;
+
+  item.filteredOut = false;
+  item.filteredBy = (item.filteredBy ?? []).filter((k) => k !== "support_attached") as typeof item.filteredBy;
+  item.filterReason = item.filteredBy?.length ? (item.filterReason ?? "") : "";
+  if (selfAttached) {
+    item.attachedToRouteId = undefined;
+    item.attachedTo = undefined;
+    item.attachReason = undefined;
+  }
+  sanitizeHikingRouteDisplayName(item);
+  if (!item.primaryActivity || item.primaryActivity === "osm") {
+    item.primaryActivity = "hiking";
+    item.primaryCategory = "hiking";
+    item.activities = item.activities?.length ? item.activities : ["hiking"];
+  }
 }
 
 export function buildOutdoorDestinationGroups(
@@ -469,21 +542,27 @@ export function buildOutdoorDestinationGroups(
     }
 
     if (isUnnamedConnectorPath(item) && nearestRoute && nearestRouteMatch) {
-      const derived = deriveDisplayName(item, {
-        nearestRoute,
-        routeDistanceMeters: nearestRouteMatch.distanceMeters,
-      });
-      if (nearestRouteMatch.distanceMeters <= 80) {
-        item.displayName = derived.displayName;
-        item.derivedName = true;
-        item.nameSource = derived.nameSource;
-        item.nameConfidence = derived.nameConfidence;
-        summary.derivedNamesCreated += 1;
-        if (derived.nameConfidence === "low") summary.lowConfidenceNames += 1;
-        markAttachedToRoute(item, nearestRoute, "connector path attached to route", settings);
-        summary.supportObjectsAttached += 1;
+      if (!isSameOsmItem(item, nearestRoute)) {
+        const derived = deriveDisplayName(item, {
+          nearestRoute,
+          routeDistanceMeters: nearestRouteMatch.distanceMeters,
+        });
+        if (nearestRouteMatch.distanceMeters <= 80) {
+          item.displayName = isSyntheticRouteDisplayName(derived.displayName)
+            ? "Connector Trail"
+            : derived.displayName;
+          item.derivedName = true;
+          item.nameSource = derived.nameSource;
+          item.nameConfidence = derived.nameConfidence;
+          summary.derivedNamesCreated += 1;
+          if (derived.nameConfidence === "low") summary.lowConfidenceNames += 1;
+          markAttachedToRoute(item, nearestRoute, "connector path attached to route", settings);
+          summary.supportObjectsAttached += 1;
+        }
       }
     }
+
+    restoreVisiblePrimaryHikingRoute(item, settings.destinationQualityCounters);
   }
 
   for (const r of routes) {

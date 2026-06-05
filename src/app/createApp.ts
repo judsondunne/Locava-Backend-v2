@@ -656,6 +656,29 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     }
   });
 
+  app.setNotFoundHandler((request, reply) => {
+    const path = request.url.split("?")[0] ?? request.url;
+    request.log.warn(
+      {
+        event: "route_not_found",
+        method: request.method,
+        path
+      },
+      "route not found"
+    );
+    return reply
+      .status(404)
+      .type("application/json; charset=utf-8")
+      .send({
+        ok: false,
+        error: {
+          code: "not_found",
+          message: "Route not found",
+          path
+        }
+      });
+  });
+
   app.setErrorHandler((error, request, reply) => {
     const classification = classifyError(error);
     request.analyticsErrorCode = classification.code;
@@ -685,7 +708,10 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
     }
 
     const message = error instanceof Error ? error.message : "Unexpected error";
-    return reply.status(classification.statusCode).send(failure(classification.code, message, classification.details));
+    return reply
+      .status(classification.statusCode)
+      .type("application/json; charset=utf-8")
+      .send(failure(classification.code, message, classification.details));
   });
 
   app.register(registerSystemRoutes);

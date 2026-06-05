@@ -71,6 +71,7 @@ import type { UnexploredRoute, UnexploredSpot } from "../../../../contracts/enti
 import {
   finalizePreviewDocsQuality,
   normalizePreviewDisplayName,
+  samplePreviewTags,
 } from "./pbfCopierPreviewQuality.js";
 import { resolveRoutePostAnchor } from "./pbfCopierRouteGeometry.js";
 import {
@@ -295,15 +296,7 @@ function downsampleLine(
 }
 
 function trimTags(tags: Record<string, string> | undefined): Record<string, string> {
-  if (!tags) return {};
-  const out: Record<string, string> = {};
-  let i = 0;
-  for (const [k, v] of Object.entries(tags)) {
-    if (i >= PREVIEW_TAG_SAMPLE_FIELDS) break;
-    out[k] = v;
-    i += 1;
-  }
-  return out;
+  return samplePreviewTags(tags, PREVIEW_TAG_SAMPLE_FIELDS);
 }
 
 function isRawRouteCandidateTags(tags: Record<string, string> | undefined): boolean {
@@ -848,6 +841,12 @@ function appendPreviewDocsFromBatch(input: {
 async function scanPbfViewportPreviewRaw(input: {
   pbfPath: string;
   bbox: PbfCopierV2ViewportBbox;
+  onScanProgress?: (progress: {
+    rawObjectsScanned: number;
+    nodesScanned: number;
+    waysScanned: number;
+    relationsScanned: number;
+  }) => void | Promise<void>;
 }): Promise<PbfCopierV2ViewportPreviewResult> {
   validateViewportBbox(input.bbox);
   const inventoryBbox = viewportBboxToInventoryBbox(input.bbox);
@@ -892,10 +891,27 @@ async function scanPbfViewportPreviewRaw(input: {
     sourceTimestamp: opened.sourceTimestamp,
   });
 
+  let lastProgressMs = 0;
+  const emitScanProgress = async (): Promise<void> => {
+    if (!input.onScanProgress) return;
+    const now = Date.now();
+    if (now - lastProgressMs < 8000) return;
+    lastProgressMs = now;
+    await input.onScanProgress({
+      rawObjectsScanned: stats.rawObjectsScanned,
+      nodesScanned: stats.nodesScanned,
+      waysScanned: stats.waysScanned,
+      relationsScanned: stats.relationsScanned,
+    });
+  };
+
   try {
     for await (const chunk of reader.read()) {
       for (const entity of chunk.entities) {
         stats.rawObjectsScanned += 1;
+        if (stats.rawObjectsScanned % 15000 === 0) {
+          await emitScanProgress();
+        }
         if (entity.type === "node") stats.nodesScanned += 1;
         else if (entity.type === "way") stats.waysScanned += 1;
         else if (entity.type === "relation") stats.relationsScanned += 1;
@@ -961,6 +977,12 @@ export async function scanPbfViewportPreview(input: {
   pbfPath: string;
   bbox: PbfCopierV2ViewportBbox;
   mode?: PbfCopierV2ViewportPreviewMode;
+  onScanProgress?: (progress: {
+    rawObjectsScanned: number;
+    nodesScanned: number;
+    waysScanned: number;
+    relationsScanned: number;
+  }) => void | Promise<void>;
 }): Promise<PbfCopierV2ViewportPreviewResult> {
   if (input.mode !== "locava_filtered") {
     return scanPbfViewportPreviewRaw(input);

@@ -12,6 +12,52 @@ import { evaluateOsmVisitability } from "../../../../lib/inventory/inventoryVisi
 
 const CANONICAL_SET = new Set<string>(LOCAVA_ACTIVITIES);
 
+const PREVIEW_TAG_PRIORITY_KEYS = [
+  "name",
+  "name:en",
+  "highway",
+  "railway",
+  "bridge",
+  "footway",
+  "surface",
+  "service",
+  "access",
+  "natural",
+  "tourism",
+  "leisure",
+  "amenity",
+  "shop",
+  "waterway",
+  "route",
+  "sac_scale",
+  "trail_visibility",
+  "foot",
+  "bicycle",
+  "horse",
+  "operator",
+  "layer",
+] as const;
+
+/** Keep destination-critical OSM tags even when the full tag set is large. */
+export function samplePreviewTags(
+  tags: Record<string, string> | undefined,
+  maxFields = 12
+): Record<string, string> {
+  if (!tags) return {};
+  const out: Record<string, string> = {};
+  for (const key of PREVIEW_TAG_PRIORITY_KEYS) {
+    const value = tags[key]?.trim();
+    if (value) out[key] = value;
+  }
+  for (const [key, value] of Object.entries(tags)) {
+    if (Object.keys(out).length >= maxFields) break;
+    const trimmed = value?.trim();
+    if (!trimmed || out[key]) continue;
+    out[key] = trimmed;
+  }
+  return out;
+}
+
 /** Conservative normalized display name for duplicate detection. */
 export function normalizePreviewDisplayName(name: string | null | undefined): string {
   if (!name?.trim()) return "";

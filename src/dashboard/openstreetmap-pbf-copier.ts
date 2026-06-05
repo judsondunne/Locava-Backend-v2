@@ -178,8 +178,9 @@ export function renderOpenStreetMapPbfCopierPage(): string {
   <div class="panel purge-danger-panel" id="purgeUndiscoveredPanel" style="display:none">
     <h2>Remove all undiscovered map data</h2>
     <p class="muted">
-      Permanently deletes every document in <code>unexploredSpots</code> and <code>unexploredRoutes</code>
-      (including route <code>geometryChunks</code> subcollections).
+      Permanently deletes <code>unexploredSpots</code>, <code>unexploredRoutes</code> (plus route
+      <code>geometryChunks</code>), and nested <code>unexploredTiles</code> map cache
+      (embedded copies the app reads first).
       <strong class="scary">Never touches <code>/posts</code> or any other collection.</strong>
     </p>
     <p class="muted">
@@ -188,7 +189,7 @@ export function renderOpenStreetMapPbfCopierPage(): string {
     </p>
     <div class="row">
       <button type="button" class="secondary" id="btnPurgeUndiscoveredDryRun">Count docs (dry-run)</button>
-      <button type="button" class="danger" id="btnPurgeUndiscovered">Remove ALL undiscovered spots &amp; routes</button>
+      <button type="button" class="danger" id="btnPurgeUndiscovered">Remove ALL undiscovered (spots + routes + tiles)</button>
     </div>
     <div class="purge-inline-creds" style="margin-top:12px">
       <p class="muted" style="margin:0 0 8px">
@@ -767,6 +768,18 @@ function setPurgeControlsBusy(busy) {
   });
 }
 
+function formatPurgeSummaryMeta(data, dryRun) {
+  return (
+    (dryRun ? "Would delete: " : "Deleted: ")
+    + (data.spotsDeleted || 0).toLocaleString() + " spot(s), "
+    + (data.routesDeleted || 0).toLocaleString() + " route(s), "
+    + (data.tilesDeleted || 0).toLocaleString() + " nested map tile doc(s)"
+    + (dryRun
+      ? " (includes unexploredTiles cache scan — may take 1–2 min; geometryChunks not counted)."
+      : ", " + (data.geometryChunksDeleted || 0).toLocaleString() + " geometry chunk(s).")
+  );
+}
+
 async function runPurgeUndiscovered(dryRun) {
   if (purgeRequestInFlight) return;
   const creds = readPurgeCredentials();
@@ -782,9 +795,9 @@ async function runPurgeUndiscovered(dryRun) {
     return;
   }
   setPurgeControlsBusy(true);
-  setStatus("loading", dryRun ? "Counting undiscovered docs (fast aggregate query)…" : "Deleting undiscovered spots and routes…");
+  setStatus("loading", dryRun ? "Counting spots, routes, and nested map tiles…" : "Deleting spots, routes, and nested map tiles…");
   if ($("purgeUndiscoveredMeta")) {
-    $("purgeUndiscoveredMeta").textContent = dryRun ? "Count in progress…" : "Delete in progress…";
+    $("purgeUndiscoveredMeta").textContent = dryRun ? "Count in progress (includes unexploredTiles)…" : "Delete in progress…";
   }
   try {
     const json = await api("/purge-undiscovered", {
@@ -798,21 +811,16 @@ async function runPurgeUndiscovered(dryRun) {
       }),
     });
     const data = json.data || json;
-    const meta =
-      (dryRun ? "Would delete: " : "Deleted: ")
-      + (data.spotsDeleted || 0).toLocaleString() + " spot(s), "
-      + (data.routesDeleted || 0).toLocaleString() + " route(s)"
-      + (dryRun ? " (geometryChunks not counted in fast dry-run)." : ", "
-      + (data.geometryChunksDeleted || 0).toLocaleString() + " geometry chunk(s). ")
-      + (data.scope || "");
+    const meta = formatPurgeSummaryMeta(data, dryRun);
     if ($("purgeUndiscoveredMeta")) $("purgeUndiscoveredMeta").textContent = meta;
     if (!dryRun) closePurgeUndiscoveredModal();
-    setStatus("ok", dryRun ? "Dry-run count complete (zero deletes)." : "Purge complete. Posts were not touched.");
+    setStatus("ok", dryRun ? "Dry-run count complete (zero deletes)." : "Purge complete — spots, routes, and map tiles cleared. Posts were not touched.");
   } catch (err) {
     setStatus("error", "Purge failed: " + err.message);
     if ($("purgeUndiscoveredMeta")) $("purgeUndiscoveredMeta").textContent = "Error: " + err.message;
   } finally {
     setPurgeControlsBusy(false);
+    void loadHealth();
   }
 }
 

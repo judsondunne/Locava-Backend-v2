@@ -29,9 +29,10 @@ describe("pbfCopierUndiscoveredPurge guards", () => {
     expect(isPbfUndiscoveredPurgeEnabled()).toBe(true);
   });
 
-  it("allows only unexploredSpots and unexploredRoutes", () => {
+  it("allows only unexploredSpots, unexploredRoutes, and unexploredTiles", () => {
     expect(() => assertPbfPurgeCollectionTarget("unexploredSpots")).not.toThrow();
     expect(() => assertPbfPurgeCollectionTarget("unexploredRoutes")).not.toThrow();
+    expect(() => assertPbfPurgeCollectionTarget("unexploredTiles")).not.toThrow();
     expect(() => assertPbfPurgeCollectionTarget("posts")).toThrow(/POSTS_FORBIDDEN/);
     expect(() => assertPbfPurgeCollectionTarget("users")).toThrow(/COLLECTION_FORBIDDEN/);
   });

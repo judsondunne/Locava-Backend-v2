@@ -84,6 +84,20 @@ export type BuildV2BlankDocInput = {
   stateCode?: string;
 };
 
+function resolveMapPublishFields(
+  doc: PbfCopierPreviewDoc,
+  writeTarget: OsmNationalWriteTarget
+): { mapReadiness: "ready" | "review" | "hidden"; publicMapEligible: boolean } {
+  const publishing = writeTarget === "production" || writeTarget === "emulator";
+  if (publishing) {
+    return { mapReadiness: "ready", publicMapEligible: true };
+  }
+  return {
+    mapReadiness: (doc.mapReadiness as "ready" | "review" | "hidden" | undefined) ?? "review",
+    publicMapEligible: doc.publicMapEligible ?? false,
+  };
+}
+
 export function buildBlankSpotFromV2Preview(
   doc: PbfCopierPreviewDoc,
   input: BuildV2BlankDocInput
@@ -99,6 +113,7 @@ export function buildBlankSpotFromV2Preview(
   const category = normalizedCategory(doc);
   const activities = normalizedActivities(doc);
   const now = new Date().toISOString();
+  const mapFields = resolveMapPublishFields(doc, input.writeTarget);
 
   const id = buildUnexploredSpotId({
     sourceFamily: "openstreetmap",
@@ -132,8 +147,8 @@ export function buildBlankSpotFromV2Preview(
     location: { lat: doc.lat, lng: doc.lng },
     displayCenter: doc.center ?? { lat: doc.lat, lng: doc.lng },
     bbox: doc.bbox,
-    mapReadiness: doc.mapReadiness ?? "review",
-    publicMapEligible: doc.publicMapEligible ?? false,
+    mapReadiness: mapFields.mapReadiness,
+    publicMapEligible: mapFields.publicMapEligible,
     undiscovered: true,
     needsCapture: true,
     hasUserMedia: false,
@@ -154,8 +169,8 @@ export function buildBlankSpotFromV2Preview(
       undiscovered: true,
       needsCapture: true,
       hasUserMedia: false,
-      publicMapEligible: doc.publicMapEligible ?? false,
-      mapReadiness: doc.mapReadiness ?? "review",
+      publicMapEligible: mapFields.publicMapEligible,
+      mapReadiness: mapFields.mapReadiness,
     },
     social: { saveCount: 0, shareCount: 0, viewCount: 0 },
     rawProperties: { tags: doc.sourceTagSample ?? {} },
@@ -231,6 +246,7 @@ export function buildBlankRouteFromV2Preview(
   const distanceMeters = doc.distanceMeters ?? (coords.length >= 2 ? distanceMetersForCoords(coords) : 0);
   const distanceMiles = doc.distanceMiles ?? distanceMilesFromMeters(distanceMeters);
   const routeKind = routeKindForDoc(doc);
+  const mapFields = resolveMapPublishFields(doc, input.writeTarget);
 
   const id = buildUnexploredRouteId({
     sourceFamily: "openstreetmap",
@@ -290,8 +306,8 @@ export function buildBlankRouteFromV2Preview(
       segmentCount: doc.routeLineSegments?.length ?? 1,
       geometryHash,
     },
-    mapReadiness: doc.mapReadiness ?? "review",
-    publicMapEligible: doc.publicMapEligible ?? false,
+    mapReadiness: mapFields.mapReadiness,
+    publicMapEligible: mapFields.publicMapEligible,
     undiscovered: true,
     needsCapture: true,
     hasUserMedia: false,
@@ -306,8 +322,8 @@ export function buildBlankRouteFromV2Preview(
       undiscovered: true,
       needsCapture: true,
       hasUserMedia: false,
-      publicMapEligible: doc.publicMapEligible ?? false,
-      mapReadiness: doc.mapReadiness ?? "review",
+      publicMapEligible: mapFields.publicMapEligible,
+      mapReadiness: mapFields.mapReadiness,
     },
     social: { saveCount: 0, shareCount: 0, viewCount: 0 },
     rawProperties: { tags: doc.sourceTagSample ?? {} },

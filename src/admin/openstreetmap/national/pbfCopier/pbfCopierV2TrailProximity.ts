@@ -42,8 +42,8 @@ export function collectNamedTrailLines(items: PbfCopierPreviewDoc[]): NamedTrail
     const tags = doc.sourceTagSample ?? {};
     const named =
       hasOsmName(tags) ||
-      Boolean(doc.displayName?.trim()) ||
-      doc.warnings?.includes("v2_hiking_trail_merged");
+      doc.warnings?.includes("v2_hiking_trail_merged") ||
+      doc.warnings?.includes("v2_unnamed_hiking_trail");
     if (!named) continue;
 
     const isTrail =

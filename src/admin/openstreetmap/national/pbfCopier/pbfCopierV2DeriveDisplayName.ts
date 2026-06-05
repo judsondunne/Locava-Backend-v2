@@ -1,6 +1,7 @@
 /**
  * Smart display-name derivation for unnamed/nearby outdoor features (PBF Copier V2).
  */
+import { isSyntheticRouteDisplayName } from "./pbfCopierV2DestinationQuality.js";
 import { isSyntheticPreviewLabel } from "./pbfCopierV2MountainQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
@@ -90,7 +91,7 @@ export function deriveDisplayName(
     tag(tags, "tourism") === "viewpoint" || tag(tags, "scenic") === "yes" || /\bviewpoint\b/i.test(item.displayName || "");
 
   if (isWaterfall) {
-    if (route && routeDist <= 150 && route.displayName) {
+    if (route && routeDist <= 150 && route.displayName && !isSyntheticRouteDisplayName(route.displayName)) {
       return {
         displayName: composeName(route.displayName, "Waterfall"),
         derivedName: true,
@@ -119,7 +120,7 @@ export function deriveDisplayName(
         nameConfidence: destDist <= 150 ? "high" : "medium",
       };
     }
-    if (route && routeDist <= 200 && route.displayName) {
+    if (route && routeDist <= 200 && route.displayName && !isSyntheticRouteDisplayName(route.displayName)) {
       return {
         displayName: composeName(route.displayName, label),
         derivedName: true,
@@ -130,7 +131,13 @@ export function deriveDisplayName(
     return { displayName: label, derivedName: true, nameSource: "fallback", nameConfidence: "low" };
   }
 
-  if (route && routeDist <= 100 && route.displayName && featureLabel === "Connector Trail") {
+  if (
+    route &&
+    routeDist <= 100 &&
+    route.displayName &&
+    !isSyntheticRouteDisplayName(route.displayName) &&
+    featureLabel === "Connector Trail"
+  ) {
     return {
       displayName: composeName(route.displayName, "Connector Trail"),
       derivedName: true,
@@ -139,7 +146,7 @@ export function deriveDisplayName(
     };
   }
 
-  if (route && routeDist <= 150 && route.displayName) {
+  if (route && routeDist <= 150 && route.displayName && !isSyntheticRouteDisplayName(route.displayName)) {
     return {
       displayName: composeName(route.displayName, featureLabel),
       derivedName: true,
