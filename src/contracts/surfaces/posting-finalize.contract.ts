@@ -77,7 +77,12 @@ export const PostingFinalizeBodySchema = z.object({
     .array(
       z.object({
         lat: z.number().finite().nullable().optional(),
-        long: z.number().finite().nullable().optional()
+        long: z.number().finite().nullable().optional(),
+        source: z
+          .enum(["asset_exif", "asset_media_library", "camera_device", "post_fallback", "unknown"])
+          .optional(),
+        accuracy: z.number().finite().nullable().optional(),
+        capturedAt: z.union([z.number(), z.string()]).nullable().optional(),
       })
     )
     .max(20)

@@ -3,6 +3,24 @@ export type MasterPostMediaKindV2 = "image" | "video" | "mixed" | "text" | "unkn
 export type MasterPostMediaStatusV2 = "ready" | "processing" | "partial" | "failed" | "none";
 export type MasterPostMediaCompletenessV2 = "complete" | "partial" | "legacy_recovered" | "missing";
 export type MasterPostAssetTypeV2 = "image" | "video";
+
+export type MasterPostAssetLocationSourceV2 =
+  | "asset_exif"
+  | "asset_media_library"
+  | "camera_device"
+  | "post_fallback"
+  | "unknown";
+
+export type MasterPostAssetLocationV2 = {
+  coordinates: {
+    lat: number;
+    lng: number;
+    geohash?: string | null;
+  };
+  source: MasterPostAssetLocationSourceV2;
+  accuracy?: number | null;
+  capturedAt?: number | string | null;
+};
 export type MasterPostLocationSourceV2 =
   | "geoData"
   | "coordinates"
@@ -99,6 +117,10 @@ export type MasterPostAssetV2 = {
     carouselFitWidth?: boolean | null;
     resizeMode?: string | null;
   };
+  location?: MasterPostAssetLocationV2 | null;
+  /** Compatibility mirrors for legacy readers. */
+  lat?: number | null;
+  lng?: number | null;
 };
 
 export type MasterPostLifecycleV2 = {

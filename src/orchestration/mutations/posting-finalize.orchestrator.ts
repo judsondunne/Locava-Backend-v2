@@ -43,7 +43,13 @@ export class PostingFinalizeOrchestrator {
         resizeMode?: "cover" | "contain";
       };
     }>;
-    assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    assetLocations?: Array<{
+      lat?: number | null;
+      long?: number | null;
+      source?: string | null;
+      accuracy?: number | null;
+      capturedAt?: number | string | null;
+    }>;
     claimedRoutePost?: {
       undiscoveredRouteId: string;
       routeSource: "undiscovered_claim";

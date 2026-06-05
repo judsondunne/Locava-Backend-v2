@@ -127,6 +127,7 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
       undiscoveredSpotId: optionalTrimmed(body.undiscoveredSpotId),
       undiscoveredRouteId: optionalTrimmed(body.undiscoveredRouteId),
       unexploredRouteId: optionalTrimmed(body.unexploredRouteId),
+      unexploredSpotId: optionalTrimmed(body.unexploredSpotId),
       activities: body.activities,
       title: body.title,
       enforcePostDistanceCheck:
@@ -159,6 +160,28 @@ export async function registerV2PostingClaimRoutes(app: FastifyInstance): Promis
         },
         "claim_finalize_not_captured"
       );
+
+      const explicitClaim =
+        Boolean(optionalTrimmed(body.candidateId)) ||
+        Boolean(optionalTrimmed(body.undiscoveredSpotId)) ||
+        Boolean(optionalTrimmed(body.unexploredSpotId)) ||
+        Boolean(optionalTrimmed(body.unexploredRouteId)) ||
+        Boolean(optionalTrimmed(body.undiscoveredRouteId));
+
+      if (explicitClaim) {
+        return reply.status(422).send(
+          failure(
+            result.reason ?? "claim_not_captured",
+            "Claim finalize did not capture the undiscovered item",
+            {
+              postId: body.postId,
+              captured: false,
+              claimed: false,
+              reason: result.reason ?? "unknown",
+            },
+          ),
+        );
+      }
     }
 
     return success({

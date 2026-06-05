@@ -385,7 +385,7 @@ function buildClaimedRouteFirestoreFields(input: {
     ...(routeActivity ? { routeActivity, routeKind: routeActivity, routeType: routeActivity } : {}),
     ...(input.category ? { category: input.category } : {}),
     classification: {
-      visibility: normalizePostVisibilityForWrite("public"),
+      visibility: normalizePostVisibilityForWrite("public", routePrivacyLabel, "public"),
       privacyLabel: routePrivacyLabel,
       settingType: "outdoor",
     },

@@ -148,6 +148,17 @@ export const StandardizedAssetPresentationSchema = z.object({
   resizeMode: z.literal("contain")
 });
 
+export const StandardizedAssetLocationSchema = z.object({
+  coordinates: z.object({
+    lat: z.number(),
+    lng: z.number(),
+    geohash: z.string().optional(),
+  }),
+  source: z.string(),
+  accuracy: z.number().nullable().optional(),
+  capturedAt: z.union([z.number(), z.string()]).nullable().optional(),
+});
+
 export const StandardizedAssetSourceSchema = z.object({
   kind: z.string(),
   legacySourcesConsidered: z.array(z.unknown()),
@@ -171,7 +182,10 @@ export const StandardizedImageAssetSchema = z.object({
     width: z.number()
   }),
   presentation: StandardizedAssetPresentationSchema,
-  source: StandardizedAssetSourceSchema
+  source: StandardizedAssetSourceSchema,
+  location: StandardizedAssetLocationSchema.optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
 });
 
 export const StandardizedVideoPlaybackSchema = z.object({
@@ -248,7 +262,10 @@ export const StandardizedVideoAssetSchema = z.object({
     technical: StandardizedVideoTechnicalSchema
   }),
   presentation: StandardizedAssetPresentationSchema,
-  source: StandardizedAssetSourceSchema
+  source: StandardizedAssetSourceSchema,
+  location: StandardizedAssetLocationSchema.optional(),
+  lat: z.number().optional(),
+  lng: z.number().optional(),
 });
 
 export const StandardizedMediaAssetSchema = z.discriminatedUnion("type", [
@@ -314,6 +331,14 @@ export const StandardizedTextSchema = z.object({
   title: z.string()
 });
 
+/** Parallel per-asset GPS from EXIF / picker (same order as `media.assets`). */
+export const StandardizedParallelAssetLocationSchema = z.object({
+  lat: z.number().optional().nullable(),
+  long: z.number().optional().nullable(),
+  lng: z.number().optional().nullable(),
+  source: z.string().optional(),
+});
+
 export const StandardizedPostDocSchema = z.object({
   id: z.string(),
   postId: z.string(),
@@ -349,7 +374,8 @@ export const StandardizedPostDocSchema = z.object({
   media: StandardizedMediaSchema,
   ranking: StandardizedRankingSchema,
   schema: StandardizedSchemaSchema,
-  text: StandardizedTextSchema
+  text: StandardizedTextSchema,
+  assetLocations: z.array(StandardizedParallelAssetLocationSchema).optional(),
 });
 
 export type StandardizedPostDoc = z.infer<typeof StandardizedPostDocSchema>;

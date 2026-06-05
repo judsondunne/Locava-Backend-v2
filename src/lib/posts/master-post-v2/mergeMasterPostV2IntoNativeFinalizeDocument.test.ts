@@ -153,6 +153,59 @@ describe("mergeMasterPostV2IntoNativeFinalizeDocument", () => {
     expect(pres.letterboxGradient?.top).toBe("#aaaaaa");
   });
 
+  it("persists per-asset location on media.assets during finalize merge", () => {
+    const postId = "post_merge_asset_loc";
+    const assembled = assemblePostAssetsFromStagedItems(postId, [
+      { index: 0, assetType: "photo", assetId: "a0", originalUrl: "https://cdn.example.com/a0.jpg" },
+      { index: 1, assetType: "video", assetId: "a1", originalUrl: "https://cdn.example.com/a1.mp4", posterUrl: "https://cdn.example.com/p.jpg" },
+    ]);
+    const assets = assembled.assets.map((row, index) => ({
+      ...row,
+      location: {
+        coordinates: {
+          lat: index === 0 ? 43.5 : 43.51,
+          lng: index === 0 ? -72.4 : -72.39,
+        },
+        source: index === 0 ? "asset_exif" : "asset_media_library",
+      },
+      lat: index === 0 ? 43.5 : 43.51,
+      lng: index === 0 ? -72.4 : -72.39,
+    }));
+    const assembledWithLoc = { ...assembled, assets };
+    const postDoc = buildNativePostDocument({
+      postId,
+      effectiveUserId: "user_1",
+      viewerId: "user_1",
+      sessionId: "ups_1",
+      stagedSessionId: "ps_1",
+      idempotencyKey: "idem_asset_loc",
+      nowMs,
+      nowTs,
+      user: { handle: "h", name: "N", profilePic: "https://cdn.example.com/p.jpg" },
+      title: "T",
+      content: "C",
+      activities: ["hike"],
+      lat: 40.7,
+      lng: -75.2,
+      address: "Claim spot",
+      privacy: "Public Spot",
+      tags: [],
+      texts: [],
+      recordings: [],
+      assembled: assembledWithLoc,
+      geo,
+    });
+    postDoc.assetLocations = [
+      { lat: 43.5, long: -72.4 },
+      { lat: 43.51, long: -72.39 },
+    ];
+    validateNativePostDocumentForWrite(postDoc);
+    const { firestoreWrite } = mergeMasterPostV2IntoNativeFinalizeDocument(postDoc, { now: new Date(nowMs) });
+    const mediaAssets = (firestoreWrite.media as { assets: Array<{ location?: { coordinates?: { lat?: number; lng?: number }; source?: string } }> }).assets;
+    expect(mediaAssets[0]?.location?.coordinates?.lat).toBe(43.5);
+    expect(mediaAssets[1]?.location?.source).toBe("asset_media_library");
+  });
+
   it("adds audit warning when finalize used placeholder gradients", () => {
     const postId = "post_merge_ph";
     const assembled = assemblePostAssetsFromStagedItems(postId, [

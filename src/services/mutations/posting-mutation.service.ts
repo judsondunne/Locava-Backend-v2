@@ -37,6 +37,11 @@ import {
   normalizePostingFinalizeAssetLocations,
   type ClaimedRoutePostClientPayload,
 } from "../../lib/posts/claimed-route-post.js";
+import {
+  applyPostingFinalizeAssetLocationsToAssets,
+  normalizePostingFinalizeAssetLocationRows,
+} from "../../lib/posts/applyPostingFinalizeAssetLocations.js";
+import { mergeAssetLocationsIntoPostRecord } from "../../lib/posts/mergeAssetLocationsIntoPostRecord.js";
 import { PostingAudioService } from "../posting/posting-audio.service.js";
 import {
   enqueueVideoProcessingCloudTask,
@@ -183,7 +188,13 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
-    assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    assetLocations?: Array<{
+      lat?: number | null;
+      long?: number | null;
+      source?: string | null;
+      accuracy?: number | null;
+      capturedAt?: number | string | null;
+    }>;
     claimedRoutePost?: ClaimedRoutePostClientPayload;
     adminPostAsUserId?: string;
     authorizationHeader?: string;
@@ -1165,7 +1176,13 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
-    assetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    assetLocations?: Array<{
+      lat?: number | null;
+      long?: number | null;
+      source?: string | null;
+      accuracy?: number | null;
+      capturedAt?: number | string | null;
+    }>;
     claimedRoutePost?: ClaimedRoutePostClientPayload;
     adminPostAsUserId?: string;
   }, effectiveAuthor: ResolvedEffectivePostAuthor): Promise<string> {
@@ -1411,7 +1428,13 @@ export class PostingMutationService {
         resizeMode?: "cover" | "contain";
       };
     }>;
-    finalizeAssetLocations?: Array<{ lat?: number | null; long?: number | null }>;
+    finalizeAssetLocations?: Array<{
+      lat?: number | null;
+      long?: number | null;
+      source?: string | null;
+      accuracy?: number | null;
+      capturedAt?: number | string | null;
+    }>;
     claimedRoutePost?: ClaimedRoutePostClientPayload;
     authorSnapshot?: NativePostUserSnapshot;
     adminPostOverrideAudit?: {
@@ -1499,6 +1522,20 @@ export class PostingMutationService {
 
     applyPublishPresentationToAssembledAssets(assets, gradientPick.perAssetPresentation);
 
+    const normalizedAssetLocationRows = normalizePostingFinalizeAssetLocationRows(
+      input.finalizeAssetLocations,
+      assets.length,
+    );
+    const assetLocationWriteStats = applyPostingFinalizeAssetLocationsToAssets(
+      assets as Record<string, unknown>[],
+      normalizedAssetLocationRows,
+    );
+    console.info("[posting.finalize.asset_locations]", {
+      postId,
+      assetCount: assetLocationWriteStats.assetCount,
+      assetsWithCoordinates: assetLocationWriteStats.assetsWithCoordinates,
+    });
+
     const geo = this.resolveFinalizeGeo(lat, lng, input.address ?? "");
     let postDoc = buildNativePostDocument({
       postId,
@@ -1527,7 +1564,7 @@ export class PostingMutationService {
     });
 
     const normalizedAssetLocations = normalizePostingFinalizeAssetLocations(
-      input.finalizeAssetLocations,
+      normalizedAssetLocationRows?.map(({ lat, long }) => ({ lat, long })),
       assets.length,
     );
     if (normalizedAssetLocations) {
@@ -1577,13 +1614,20 @@ export class PostingMutationService {
       placeholderReason: gradientPick.placeholderReason
     });
     validateNativePostDocumentForWrite(postDoc);
-    const firestoreWrite = mergeMasterPostV2IntoNativeFinalizeDocument(postDoc, {
+    const { firestoreWrite: mergedFirestoreWrite } = mergeMasterPostV2IntoNativeFinalizeDocument(postDoc, {
       now: new Date(now),
       finalizeMeta: {
         usedPlaceholderGradient: gradientPick.usedPlaceholderGradient,
         placeholderReason: gradientPick.placeholderReason
       }
-    }).firestoreWrite;
+    });
+    const firestoreWrite = mergedFirestoreWrite;
+    const canonicalAssetLocationStats = mergeAssetLocationsIntoPostRecord(firestoreWrite);
+    console.info("[posting.finalize.canonicalize.asset_locations]", {
+      postId,
+      assetCount: canonicalAssetLocationStats.assetCount,
+      assetsWithCoordinates: canonicalAssetLocationStats.assetsWithCoordinates,
+    });
 
     if (assembled.hasVideo) {
       const audit = firestoreWrite.audit as Record<string, unknown> | undefined;

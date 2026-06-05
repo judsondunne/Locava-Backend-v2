@@ -36,6 +36,7 @@ import {
   type PostDocLike,
 } from "../../lib/posts/displayText.js";
 import { extractPersistedRouteFieldsForApi } from "../../lib/posts/claimed-route-post.js";
+import { mergeAssetLocationsIntoPostRecord } from "../../lib/posts/mergeAssetLocationsIntoPostRecord.js";
 import {
   coerceStandardizedVisibility,
   ensureStandardizedClassificationVisibility,
@@ -89,6 +90,11 @@ class FieldSanitizer {
     if (!this.sanitizedFields.includes(path)) {
       this.sanitizedFields.push(path);
     }
+  }
+
+  /** Record a non-fatal coercion (e.g. invalid enum remapped). */
+  noteSanitized(path: string): void {
+    this.mark(path);
   }
 
   /**
@@ -223,6 +229,8 @@ function mergeRouteFieldsOntoStandardizedDoc(
   const coercedVisibility = coerceStandardizedVisibility(cls.visibility, {
     postId: ctx.postId,
     logCoercion: true,
+    privacyLabel: cls.privacyLabel,
+    privacy: (doc as UnknownRecord).privacy,
   });
   doc.classification = {
     ...doc.classification,
@@ -236,7 +244,10 @@ function mergeRouteFieldsOntoStandardizedDoc(
         ? cls.settingType.trim()
         : doc.classification.settingType,
   };
-  if (asRecord(doc.routeSummary) && asRecord(routeFields.routeSummary)) {
+  if (
+    asRecord((doc as UnknownRecord).routeSummary) &&
+    asRecord(routeFields.routeSummary)
+  ) {
     (doc as UnknownRecord).routeSummary = {
       ...(asRecord((doc as UnknownRecord).routeSummary) ?? {}),
       ...(asRecord(routeFields.routeSummary) ?? {}),
@@ -251,10 +262,22 @@ function buildClassification(
   postId: string,
 ): StandardizedPostDoc["classification"] {
   const cls = asRecord(raw.classification) ?? {};
-  const visibility = coerceStandardizedVisibility(cls.visibility ?? raw.visibility ?? raw.privacy, {
+  const rawVisibility = cls.visibility ?? raw.visibility ?? raw.privacy;
+  const visibility = coerceStandardizedVisibility(rawVisibility, {
     postId,
     logCoercion: true,
+    privacyLabel: cls.privacyLabel ?? raw.privacy,
+    privacy: raw.privacy,
   });
+  const rawVisNorm =
+    typeof rawVisibility === "string" ? rawVisibility.trim().toLowerCase() : "";
+  if (
+    rawVisNorm &&
+    !(STANDARDIZED_VISIBILITY_VALUES as readonly string[]).includes(rawVisNorm) &&
+    visibility !== rawVisNorm
+  ) {
+    sanitizer.noteSanitized("classification.visibility.invalid_coerced");
+  }
   return {
     activities: sanitizer.stringArray(
       cls.activities ?? raw.activities,
@@ -542,6 +565,59 @@ function buildAssetPresentation(
   };
 }
 
+function readOptionalAssetLocationFields(
+  raw: UnknownRecord,
+  sanitizer: FieldSanitizer,
+  pathPrefix: string,
+): {
+  location?: {
+    coordinates: { lat: number; lng: number; geohash?: string };
+    source: string;
+    accuracy?: number | null;
+    capturedAt?: number | string | null;
+  };
+  lat?: number;
+  lng?: number;
+} {
+  const location = asRecord(raw.location);
+  const coords = asRecord(location?.coordinates);
+  const lat = sanitizer.number(
+    coords?.lat ?? location?.lat ?? raw.lat,
+    Number.NaN,
+    `${pathPrefix}.location.coordinates.lat`,
+  );
+  const lng = sanitizer.number(
+    coords?.lng ?? coords?.long ?? location?.lng ?? location?.long ?? raw.lng ?? raw.long,
+    Number.NaN,
+    `${pathPrefix}.location.coordinates.lng`,
+  );
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) {
+    return {};
+  }
+  const geohashRaw = coords?.geohash;
+  const geohash =
+    typeof geohashRaw === "string" && geohashRaw.trim() ? geohashRaw.trim() : undefined;
+  const source = sanitizer.string(location?.source, "asset_exif_or_picker", `${pathPrefix}.location.source`);
+  const accuracy = sanitizer.nullableNumber(location?.accuracy, `${pathPrefix}.location.accuracy`);
+  const capturedAtRaw = location?.capturedAt;
+  const capturedAt =
+    typeof capturedAtRaw === "number" || typeof capturedAtRaw === "string" ? capturedAtRaw : null;
+  return {
+    location: {
+      coordinates: {
+        lat,
+        lng,
+        ...(geohash ? { geohash } : {}),
+      },
+      source,
+      ...(accuracy != null ? { accuracy } : {}),
+      ...(capturedAt != null ? { capturedAt } : {}),
+    },
+    lat,
+    lng,
+  };
+}
+
 function buildAssetSource(
   raw: UnknownRecord,
   sanitizer: FieldSanitizer,
@@ -612,6 +688,7 @@ function sanitizeImageAsset(
     },
     presentation: buildAssetPresentation(raw, sanitizer, pathPrefix),
     source: buildAssetSource(raw, sanitizer, pathPrefix, id),
+    ...readOptionalAssetLocationFields(raw, sanitizer, pathPrefix),
   };
 }
 
@@ -763,6 +840,7 @@ function sanitizeVideoAsset(
     },
     presentation: buildAssetPresentation(raw, sanitizer, pathPrefix),
     source: buildAssetSource(raw, sanitizer, pathPrefix, id),
+    ...readOptionalAssetLocationFields(raw, sanitizer, pathPrefix),
   };
 }
 
@@ -1036,6 +1114,8 @@ export function standardizePostDocForRender(
     }
   }
 
+  mergeAssetLocationsIntoPostRecord(workingDoc as Record<string, unknown>);
+
   const mediaResult = buildMedia(workingDoc, sanitizer);
   if (!mediaResult.ok) {
     return { ok: false, reason: mediaResult.reason };
@@ -1109,6 +1189,18 @@ export function standardizePostDocForRender(
   if (Object.keys(routeFields).length > 0) {
     mergeRouteFieldsOntoStandardizedDoc(doc, routeFields as UnknownRecord, { postId });
   }
+
+  const parallelAssetLocations = Array.isArray(workingDoc.assetLocations)
+    ? (workingDoc.assetLocations as Array<{ lat?: number | null; long?: number | null; lng?: number | null }>)
+    : undefined;
+  if (parallelAssetLocations && parallelAssetLocations.length > 0) {
+    (doc as Record<string, unknown>).assetLocations = parallelAssetLocations;
+  }
+
+  ensureStandardizedClassificationVisibility(doc.classification, {
+    postId,
+    privacy: workingDoc.privacy,
+  });
 
   return { ok: true, doc, sanitizedFields: sanitizer.sanitizedFields };
 }

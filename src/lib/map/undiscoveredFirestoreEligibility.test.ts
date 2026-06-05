@@ -32,6 +32,19 @@ describe("isUndiscoveredFirestoreMapEligible", () => {
     ).toBe(false);
   });
 
+  it("drops captured/claimed unexplored spots", () => {
+    expect(
+      isUndiscoveredFirestoreMapEligible({
+        id: "dev_hartland_vt_charles_dimmick_park",
+        publicMapEligible: true,
+        mapReadiness: "ready",
+        captureStatus: "captured",
+        claimedPostId: "post_997f806d5ab66298",
+        claimedBy: "user_1",
+      }),
+    ).toBe(false);
+  });
+
   it("drops undiscovered docs without public or v2 markers", () => {
     expect(
       isUndiscoveredFirestoreMapEligible({

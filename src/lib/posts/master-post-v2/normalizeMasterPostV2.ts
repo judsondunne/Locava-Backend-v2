@@ -13,6 +13,11 @@ import type {
   PostEngagementSourceAuditV2
 } from "../../../contracts/master-post-v2.types.js";
 import { classifyMediaUrl, isPendingOrStagingImageUrl, isVideoUrl } from "./mediaUrlClassifier.js";
+import {
+  buildCanonicalAssetLocationBlock,
+  normalizePostingAssetLocationSource,
+  type PostingAssetLocationSource,
+} from "../applyPostingFinalizeAssetLocations.js";
 
 type RawPost = Record<string, any>;
 
@@ -72,6 +77,68 @@ const toNum = (...values: unknown[]): number | null => {
 
 const toBool = (value: unknown, fallback = false): boolean => (typeof value === "boolean" ? value : fallback);
 const isFiniteNumber = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
+
+function resolveNormalizedAssetLocation(
+  row: Record<string, any>,
+  index: number,
+  parallelAssetLocations: Array<{ lat?: unknown; long?: unknown; lng?: unknown; source?: unknown }> | null,
+): {
+  location: Record<string, unknown> | null;
+  lat: number | null;
+  lng: number | null;
+} {
+  const rowLocation = toObject(row.location);
+  const rowCoords = toObject(rowLocation?.coordinates);
+  let lat = toNum(rowCoords?.lat, rowCoords?.latitude, row.lat, rowLocation?.lat);
+  let lng = toNum(
+    rowCoords?.lng,
+    rowCoords?.long,
+    rowCoords?.longitude,
+    row.lng,
+    row.long,
+    rowLocation?.lng,
+    rowLocation?.long,
+  );
+  let source =
+    normalizePostingAssetLocationSource(rowLocation?.source) ??
+    normalizePostingAssetLocationSource(row.source);
+
+  if ((lat == null || lng == null) && parallelAssetLocations?.[index]) {
+    const parallel = parallelAssetLocations[index];
+    lat = toNum(parallel.lat);
+    lng = toNum(parallel.long, parallel.lng);
+    source = source ?? normalizePostingAssetLocationSource(parallel.source);
+  }
+
+  if (lat == null || lng == null) {
+    return { location: null, lat: null, lng: null };
+  }
+  if (lat === 0 && lng === 0) {
+    return { location: null, lat: null, lng: null };
+  }
+
+  const resolvedSource: PostingAssetLocationSource = source ?? "unknown";
+  const existingBlock =
+    rowLocation &&
+    toNum(toObject(rowLocation.coordinates)?.lat) != null &&
+    toNum(toObject(rowLocation.coordinates)?.lng) != null
+      ? rowLocation
+      : null;
+  const location =
+    existingBlock ??
+    buildCanonicalAssetLocationBlock({
+      lat,
+      lng,
+      source: resolvedSource,
+      accuracy: toNum(rowLocation?.accuracy),
+      capturedAt:
+        typeof rowLocation?.capturedAt === "number" || typeof rowLocation?.capturedAt === "string"
+          ? rowLocation.capturedAt
+          : null,
+    });
+
+  return { location, lat, lng };
+}
 
 const toIso = (value: unknown): string | null => {
   if (!value) return null;
@@ -610,6 +677,9 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
     : rawAssets.length > 0
       ? [...rawAssets]
       : [...mediaAssets];
+  const parallelAssetLocations = Array.isArray(rawPost.assetLocations)
+    ? (rawPost.assetLocations as Array<{ lat?: unknown; long?: unknown; lng?: unknown; source?: unknown }>)
+    : null;
 
   const posterFiles = toObject(rawPost.posterFiles) ?? {};
   const labAssets = toObject(playbackLab.assets) ?? {};
@@ -962,6 +1032,7 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
           : carouselFitWidthAsset === false
             ? "cover"
             : null;
+    const assetLocation = resolveNormalizedAssetLocation(row, index, parallelAssetLocations);
     return {
       id: toTrimmed(row.id) ?? generatedId,
       index,
@@ -1053,7 +1124,10 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
         letterboxGradient: gradient ?? null,
         ...(carouselFitWidthAsset !== null ? { carouselFitWidth: carouselFitWidthAsset } : {}),
         ...(resizeModeAsset ? { resizeMode: resizeModeAsset } : {})
-      }
+      },
+      ...(assetLocation.location ? { location: assetLocation.location } : {}),
+      ...(assetLocation.lat != null ? { lat: assetLocation.lat } : {}),
+      ...(assetLocation.lng != null ? { lng: assetLocation.lng } : {})
     };
   });
 
@@ -1457,6 +1531,11 @@ export function normalizeMasterPostV2(rawPost: RawPost, options: NormalizeOption
           rawPost.privacy,
           rawPost.visibility,
         ),
+        toTrimmed(
+          (rawPost.classification as { privacyLabel?: unknown } | undefined)?.privacyLabel,
+          rawPost.privacy,
+        ),
+        rawPost.privacy,
       ),
       isBoosted: toBool(rawPost.isBoosted, false),
       reel: toBool(rawPost.reel, false),

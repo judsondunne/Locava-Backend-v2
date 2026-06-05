@@ -279,6 +279,7 @@ export async function handleRenderStandardizedBatch(
     ensureStandardizedClassificationVisibility(sanitizeResult.doc.classification, {
       postId: candidate.postId,
       surface,
+      privacy: candidate.data.privacy,
     });
     const parsed = StandardizedPostDocSchema.safeParse(sanitizeResult.doc);
     if (!parsed.success) {

@@ -56,7 +56,7 @@ function buildAwardDisplay(params: {
     if (params.scopeType === "placeActivity") {
       return {
         title: activity ? `First ${activity} explorer in ${place}` : `First explorer in ${place}`,
-        subtitle: "Original activity + place claim — nobody posted this combo before you."
+        subtitle: "Original activity + place claim. Nobody posted this combo before you."
       };
     }
     if (params.scopeType === "cell") {

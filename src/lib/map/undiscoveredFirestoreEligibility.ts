@@ -17,6 +17,15 @@ export function readMapReadiness(data: Record<string, unknown>): string | null {
 
 /** True when doc is allowed on `/v2/map/layers/undiscovered` and native undiscovered rendering. */
 export function isUndiscoveredFirestoreMapEligible(data: Record<string, unknown>): boolean {
+  const captureStatus =
+    typeof data.captureStatus === "string" ? data.captureStatus.trim().toLowerCase() : "";
+  if (captureStatus === "captured" || captureStatus === "claimed" || captureStatus === "converted") {
+    return false;
+  }
+  if (typeof data.claimedPostId === "string" && data.claimedPostId.trim()) return false;
+  if (typeof data.capturedPostId === "string" && data.capturedPostId.trim()) return false;
+  if (data.isClaimable === false) return false;
+
   const readiness = readMapReadiness(data);
   if (readiness === "hidden") return false;
 

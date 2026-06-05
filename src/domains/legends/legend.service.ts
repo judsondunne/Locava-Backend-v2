@@ -139,7 +139,7 @@ function buildScopeTitles(
     const act = parsed.activityId ? titleCaseActivity(parsed.activityId) : "Activity";
     return {
       title: `${act} Legend`,
-      subtitle: `Whoever has the most ${act}-tagged posts wins — counted across all of Locava.`
+      subtitle: `Whoever has the most ${act}-tagged posts wins, counted across all of Locava.`
     };
   }
   if (parsed.scopeType === "cellActivity") {
@@ -800,6 +800,8 @@ export class LegendService {
 
           const canonicalCard = {
             id: awardId,
+            scopeId,
+            scopeType: parsed.scopeType,
             kind: canonical.kind,
             family: canonical.family,
             dimension: canonical.dimension,
@@ -816,6 +818,14 @@ export class LegendService {
             locationLabel: locationHumanLabel,
             comboKey,
             rank: newRank ?? null,
+            previousRank: previousRank ?? null,
+            newRank: newRank ?? null,
+            userCount: nextUserCount,
+            leaderCount: nextScope.leaderCount,
+            deltaToLeader: Math.max(0, nextScope.leaderCount - nextUserCount),
+            viewerCount: nextUserCount,
+            targetCount: nextScope.leaderCount,
+            postsNeededToPass: Math.max(0, nextScope.leaderCount - nextUserCount + 1),
             isPermanent: canonical.family === "first",
             claimedAt: Timestamp.fromMillis(Date.now()),
             updatedAt: Timestamp.fromMillis(Date.now()),

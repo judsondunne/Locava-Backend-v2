@@ -36,6 +36,7 @@ const PostingClaimFinalizeBodyCoreSchema = z
     undiscoveredSpotId: nullableString,
     undiscoveredRouteId: nullableString,
     unexploredRouteId: nullableString,
+    unexploredSpotId: nullableString,
     candidateItemType: z
       .union([z.enum(["unexploredSpot", "unexploredRoute"]), z.string(), z.null()])
       .optional(),
@@ -99,6 +100,7 @@ export function normalizeClaimFinalizeBody(
     optionalTrimmedString(body.unexploredRouteId) ||
     optionalTrimmedString(body.undiscoveredRouteId) ||
     optionalTrimmedString(body.candidateId) ||
+    optionalTrimmedString(body.unexploredSpotId) ||
     optionalTrimmedString(body.undiscoveredSpotId);
 
   const isRouteClaim =
@@ -118,7 +120,9 @@ export function normalizeClaimFinalizeBody(
     : undefined;
 
   const spotId = isSpotClaim
-    ? optionalTrimmedString(body.undiscoveredSpotId) || optionalTrimmedString(body.candidateId)
+    ? optionalTrimmedString(body.unexploredSpotId) ||
+      optionalTrimmedString(body.undiscoveredSpotId) ||
+      optionalTrimmedString(body.candidateId)
     : undefined;
 
   return {

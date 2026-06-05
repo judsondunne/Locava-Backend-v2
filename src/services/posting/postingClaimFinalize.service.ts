@@ -16,6 +16,10 @@ import {
 import { resolvePostingClaimCandidate } from "./postingClaimCandidate.service.js";
 import { fetchUnexploredMapMarkerById } from "../map/unexploredMapMarkers.service.js";
 import {
+  buildMaterializedUnexploredDoc,
+  resolveUnexploredItemById,
+} from "../map/unexploredMapMarkerByIdResolver.js";
+import {
   buildClaimedRouteFieldsFromUnexploredDoc,
   buildClaimedRouteFieldsFromUnexploredDocSync,
   detectColdOpenRoutePost,
@@ -124,6 +128,8 @@ async function resolveVerifiedCandidate(input: {
       sourceCollection,
       itemType,
       includeRouteGeometry: itemType === "unexploredRoute",
+      lat: input.lat,
+      lng: input.lng,
     });
 
     if (itemType === "unexploredRoute") {
@@ -234,6 +240,7 @@ export function normalizeClaimFinalizeCandidateInput(input: {
   undiscoveredSpotId?: string;
   undiscoveredRouteId?: string;
   unexploredRouteId?: string;
+  unexploredSpotId?: string;
 }): {
   candidateId?: string;
   sourceCollection?: "unexploredSpots" | "unexploredRoutes";
@@ -247,23 +254,43 @@ export function normalizeClaimFinalizeCandidateInput(input: {
     input.unexploredRouteId?.trim() ||
     input.undiscoveredRouteId?.trim() ||
     (candidateId?.startsWith("unx_route_") ? candidateId : undefined) ||
-    (input.undiscoveredSpotId?.startsWith("unx_route_") ? input.undiscoveredSpotId.trim() : undefined);
+    (input.undiscoveredSpotId?.startsWith("unx_route_") ? input.undiscoveredSpotId.trim() : undefined) ||
+    (input.unexploredSpotId?.startsWith("unx_route_") ? input.unexploredSpotId.trim() : undefined);
 
   const isRouteClaim =
     itemType === "unexploredRoute" ||
     input.candidateItemType === "unexploredRoute" ||
     Boolean(routeId) ||
     candidateId?.startsWith("unx_route_") === true ||
-    input.undiscoveredSpotId?.startsWith("unx_route_") === true;
+    input.undiscoveredSpotId?.startsWith("unx_route_") === true ||
+    input.unexploredSpotId?.startsWith("unx_route_") === true;
 
   if (isRouteClaim) {
-    candidateId = routeId ?? candidateId ?? input.undiscoveredSpotId?.trim();
+    candidateId =
+      routeId ??
+      candidateId ??
+      input.undiscoveredSpotId?.trim() ??
+      input.unexploredSpotId?.trim();
     sourceCollection = sourceCollection ?? "unexploredRoutes";
     itemType = "unexploredRoute";
-  } else if (input.undiscoveredSpotId?.trim() && !candidateId) {
-    candidateId = input.undiscoveredSpotId.trim();
-    sourceCollection = sourceCollection ?? "unexploredSpots";
-    itemType = itemType ?? "unexploredSpot";
+  } else {
+    const spotId =
+      input.unexploredSpotId?.trim() ||
+      input.undiscoveredSpotId?.trim() ||
+      candidateId;
+    if (spotId && !candidateId) {
+      candidateId = spotId;
+      sourceCollection = sourceCollection ?? "unexploredSpots";
+      itemType = itemType ?? "unexploredSpot";
+    } else if (input.unexploredSpotId?.trim() && !candidateId) {
+      candidateId = input.unexploredSpotId.trim();
+      sourceCollection = sourceCollection ?? "unexploredSpots";
+      itemType = itemType ?? "unexploredSpot";
+    } else if (input.undiscoveredSpotId?.trim() && !candidateId) {
+      candidateId = input.undiscoveredSpotId.trim();
+      sourceCollection = sourceCollection ?? "unexploredSpots";
+      itemType = itemType ?? "unexploredSpot";
+    }
   }
 
   if (candidateId && (!sourceCollection || !itemType)) {
@@ -407,6 +434,7 @@ export async function finalizePostingClaim(input: {
   undiscoveredSpotId?: string;
   undiscoveredRouteId?: string;
   unexploredRouteId?: string;
+  unexploredSpotId?: string;
   activities?: string[];
   title?: string;
   enforcePostDistanceCheck?: boolean;
@@ -462,6 +490,14 @@ export async function finalizePostingClaim(input: {
     return { captured: false, reason: verified.reason ?? "no_valid_candidate" };
   }
 
+  const resolvedItem = await resolveUnexploredItemById({
+    id: candidate.id,
+    lat: input.lat,
+    lng: input.lng,
+    sourceCollection: candidate.sourceCollection,
+    itemType: candidate.itemType,
+  });
+
   const postRef = db.collection("posts").doc(input.postId);
   const captureDocId = buildCaptureDocId(candidate.sourceCollection, candidate.id);
   const spotCaptureRef = db.collection("spotCaptures").doc(captureDocId);
@@ -477,6 +513,24 @@ export async function finalizePostingClaim(input: {
     .doc(`spot_capture_${input.postId}`);
   const achievementsRef = db.collection("users").doc(input.userId).collection("achievements").doc("state");
   const unexploredRef = db.collection(candidate.sourceCollection).doc(candidate.id);
+
+  if (resolvedItem && resolvedItem.resolvedFrom !== "firestore_doc") {
+    const materialized = buildMaterializedUnexploredDoc(resolvedItem);
+    await unexploredRef.set(
+      {
+        ...materialized,
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    console.info("[claim-finalize.materialize]", {
+      postId: input.postId,
+      itemId: candidate.id,
+      sourceCollection: candidate.sourceCollection,
+      resolvedFrom: resolvedItem.resolvedFrom,
+    });
+  }
 
   let prefetchedRouteFields: Record<string, unknown> | null = null;
   if (candidate.itemType === "unexploredRoute") {
@@ -718,13 +772,31 @@ export async function finalizePostingClaim(input: {
       capturedAt: FieldValue.serverTimestamp(),
       distanceMeters: candidate.distanceMeters,
       matchScore: candidate.matchScore,
-      isFirstCapture
+      isFirstCapture,
+      capturedBy: input.userId,
+      capturedPostId: input.postId,
+      claimedBy: input.userId,
+      claimedPostId: input.postId,
     };
 
     const postCaptureMerge: Record<string, unknown> = {
       capture: captureSummary,
-      updatedAt: FieldValue.serverTimestamp()
+      isUndiscoveredClaim: true,
+      updatedAt: FieldValue.serverTimestamp(),
     };
+    if (candidate.itemType === "unexploredSpot") {
+      postCaptureMerge.undiscoveredSpotId = candidate.id;
+      postCaptureMerge.claim = {
+        sourceSpotId: candidate.id,
+        sourceCollection: candidate.sourceCollection,
+        itemType: candidate.itemType,
+        claimedAt: FieldValue.serverTimestamp(),
+        claimedBy: input.userId,
+        claimedPostId: input.postId,
+      };
+    } else if (candidate.itemType === "unexploredRoute") {
+      postCaptureMerge.undiscoveredRouteId = candidate.id;
+    }
 
     let routeClaimed = postData.isRoute === true || postData.postType === "route";
     if (candidate.itemType === "unexploredRoute") {
@@ -804,17 +876,30 @@ export async function finalizePostingClaim(input: {
       unexploredRef,
       {
         captureStatus: "captured",
+        mapReadiness: "hidden",
+        isClaimable: false,
+        claimedBy: input.userId,
+        claimedPostId: input.postId,
+        claimedAt: FieldValue.serverTimestamp(),
+        capturedBy: input.userId,
+        capturedPostId: input.postId,
+        capturedAt: FieldValue.serverTimestamp(),
+        status: {
+          ...(asRecord(unexploredData.status) ?? {}),
+          mapReadiness: "hidden",
+          claimStatus: "claimed",
+        },
         ...(isFirstCapture
           ? {
               firstCapturedByUserId: input.userId,
               firstCapturedByPostId: input.postId,
-              firstCapturedAt: FieldValue.serverTimestamp()
+              firstCapturedAt: FieldValue.serverTimestamp(),
             }
           : {}),
         capturedCount: FieldValue.increment(1),
-        updatedAt: FieldValue.serverTimestamp()
+        updatedAt: FieldValue.serverTimestamp(),
       },
-      { merge: true }
+      { merge: true },
     );
 
     let xpAward = 0;
@@ -878,7 +963,10 @@ export async function finalizePostingClaim(input: {
       routeClaimed: (txResult as { routeClaimed?: boolean }).routeClaimed ?? null,
       reason: txResult.reason,
       isFirstCapture: txResult.isFirstCapture,
-      xpAward: txResult.xpAward
+      xpAward: txResult.xpAward,
+      markedSpotClaimed: txResult.captured === true && normalizedCandidate.itemType === "unexploredSpot",
+      claimedPostId: txResult.captured ? input.postId : null,
+      claimedBy: txResult.captured ? input.userId : null,
     });
   }
   if (normalizedCandidate.itemType === "unexploredRoute" && txResult.captured) {

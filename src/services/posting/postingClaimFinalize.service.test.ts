@@ -47,3 +47,22 @@ test("normalizeClaimFinalizeCandidateInput prefers candidateId with unx_route_ p
   assert.equal(normalized.candidateId, "unx_route_from_candidate");
   assert.equal(normalized.itemType, "unexploredRoute");
 });
+
+test("normalizeClaimFinalizeCandidateInput accepts unexploredSpotId alias", () => {
+  const normalized = normalizeClaimFinalizeCandidateInput({
+    unexploredSpotId: "dev_hartland_vt_hawk_mountain_overlook",
+    candidateItemType: "unexploredSpot",
+  });
+  assert.equal(normalized.candidateId, "dev_hartland_vt_hawk_mountain_overlook");
+  assert.equal(normalized.itemType, "unexploredSpot");
+  assert.equal(normalized.sourceCollection, "unexploredSpots");
+});
+
+test("normalizeClaimFinalizeCandidateInput prefers candidateId over spot aliases", () => {
+  const normalized = normalizeClaimFinalizeCandidateInput({
+    candidateId: "unx_spot_primary",
+    undiscoveredSpotId: "unx_spot_secondary",
+    unexploredSpotId: "unx_spot_tertiary",
+  });
+  assert.equal(normalized.candidateId, "unx_spot_primary");
+});

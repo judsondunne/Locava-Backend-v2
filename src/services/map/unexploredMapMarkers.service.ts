@@ -10,12 +10,11 @@ import {
   resolveMapLayerEmoji,
 } from "../../lib/map/mapLayerActivityEmoji.js";
 import {
-  getUnexploredRouteById,
-  getUnexploredSpotById,
   getUnexploredTilesByKeys,
   queryUnexploredRoutesInBbox,
   queryUnexploredSpotsInBbox,
 } from "../../repositories/source-of-truth/unexplored-read-firestore.adapter.js";
+import { resolveUnexploredItemById } from "./unexploredMapMarkerByIdResolver.js";
 
 export type UnexploredMapMarkerSummary = {
   id: string;
@@ -488,37 +487,42 @@ export async function fetchUnexploredMapMarkerSummaries(input: {
   };
 }
 
-/** Direct Firestore lookup — used when the client passes an explicit candidateId. */
+/** Resolve by id — Firestore doc, tile docs, or tile-index (same sources as map markers). */
 export async function fetchUnexploredMapMarkerById(input: {
   id: string;
   sourceCollection?: "unexploredSpots" | "unexploredRoutes";
   itemType?: "unexploredSpot" | "unexploredRoute";
   includeRouteGeometry?: boolean;
+  lat?: number;
+  lng?: number;
 }): Promise<UnexploredMapMarkerSummary | null> {
   const id = String(input.id ?? "").trim();
   if (!id) return null;
 
-  let sourceCollection = input.sourceCollection;
-  let itemType = input.itemType;
-  if (!sourceCollection || !itemType) {
-    if (id.startsWith("unx_route_")) {
-      sourceCollection = "unexploredRoutes";
-      itemType = "unexploredRoute";
-    } else {
-      sourceCollection = sourceCollection ?? "unexploredSpots";
-      itemType = itemType ?? "unexploredSpot";
-    }
+  const resolved = await resolveUnexploredItemById({
+    id,
+    lat: input.lat,
+    lng: input.lng,
+    sourceCollection: input.sourceCollection,
+    itemType: input.itemType,
+  });
+  if (!resolved) return null;
+
+  if (process.env.NODE_ENV !== "production" && resolved.resolvedFrom !== "firestore_doc") {
+    console.info("[unexplored.marker_by_id]", {
+      id,
+      resolvedFrom: resolved.resolvedFrom,
+      itemType: resolved.itemType,
+      lat: input.lat ?? null,
+      lng: input.lng ?? null,
+    });
   }
 
-  if (itemType === "unexploredRoute" || sourceCollection === "unexploredRoutes") {
-    const doc = await getUnexploredRouteById(id);
-    if (!doc) return null;
-    return routeDocToMarker(doc, {
+  if (resolved.itemType === "unexploredRoute") {
+    return routeDocToMarker(resolved.doc, {
       includeRouteGeometry: input.includeRouteGeometry !== false,
     });
   }
 
-  const doc = await getUnexploredSpotById(id);
-  if (!doc) return null;
-  return spotDocToMarker(doc);
+  return spotDocToMarker(resolved.doc);
 }
