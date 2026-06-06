@@ -57,15 +57,19 @@ describe("pbfCopierV2LocavaProductRules", () => {
       mkDoc({ displayName: "Rutland High School", tags: { amenity: "school", name: "Rutland High School" }, osmId: 4 }),
       mkDoc({ displayName: "Hampton Inn", tags: { tourism: "hotel", name: "Hampton Inn" }, osmId: 5 }),
       mkDoc({ displayName: "St Mary Church", tags: { amenity: "place_of_worship", name: "St Mary Church" }, osmId: 6 }),
+      mkDoc({ displayName: "Middlebury College", tags: { amenity: "university", name: "Middlebury College" }, osmId: 7 }),
+      mkDoc({ displayName: "Woodstock Inn", tags: { tourism: "hotel", name: "Woodstock Inn" }, osmId: 8 }),
     ];
     const result = applyPbfQualityFilters(items, DEFAULT_PBF_QUALITY_FILTER_SETTINGS);
-    for (const osmId of [1, 2, 3, 4, 5, 6]) {
+    for (const osmId of [1, 2, 3, 4, 6]) {
       expect(result.items.find((d) => d.osmId === osmId)?.filteredOut).toBe(true);
     }
+    expect(result.items.find((d) => d.osmId === 5)?.filteredOut).toBe(false);
+    expect(result.items.find((d) => d.osmId === 7)?.filteredOut).toBe(false);
+    expect(result.items.find((d) => d.osmId === 8)?.filteredOut).toBe(false);
     expect(result.locavaProductSummary?.hiddenPlaceLabels).toBeGreaterThanOrEqual(2);
     expect(result.locavaProductSummary?.hiddenLiftInfrastructure).toBeGreaterThanOrEqual(1);
     expect(result.locavaProductSummary?.hiddenSchools).toBeGreaterThanOrEqual(1);
-    expect(result.locavaProductSummary?.hiddenGenericLodging).toBeGreaterThanOrEqual(1);
     expect(result.locavaProductSummary?.hiddenChurches).toBeGreaterThanOrEqual(1);
   });
 

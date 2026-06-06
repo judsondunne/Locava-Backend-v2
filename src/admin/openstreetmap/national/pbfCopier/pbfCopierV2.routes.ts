@@ -36,6 +36,7 @@ import {
   writePbfV2FullRunChunks,
 } from "./pbfCopierV2FullRunService.js";
 import { listPbfV2FullRunChunks, listPbfV2FullRuns } from "./pbfCopierV2FullRunStore.js";
+import { runPbfCopierV2Audit } from "./pbfCopierV2Audit.js";
 import { runPbfCopierV2Pipeline } from "./pbfCopierV2Pipeline.js";
 import { getPbfCopierV2ScanCache, storePbfCopierV2ScanCache } from "./pbfCopierV2ScanCache.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
@@ -106,6 +107,24 @@ const ViewportPreviewBodySchema = z
     pbfPath: z.string().min(1),
     bbox: ViewportBboxSchema,
     mode: z.enum(["raw_osm", "locava_filtered"]).optional(),
+    qualityFilterSettings: QualityFilterSettingsSchema.optional(),
+  })
+  .strict();
+
+const AuditBodySchema = z
+  .object({
+    pbfPath: z.string().min(1),
+    bbox: ViewportBboxSchema,
+    limit: z.number().int().positive().max(5000).optional(),
+    includeRejected: z.boolean().optional(),
+    includeRawTags: z.boolean().optional(),
+    includeGeometry: z.boolean().optional(),
+    includeWritePreview: z.boolean().optional(),
+    dryRun: z.boolean().optional(),
+    sampleMode: z.enum(["raw_osm", "locava_filtered"]).optional(),
+    categoryFilter: z.string().optional(),
+    osmIdFilter: z.string().optional(),
+    maxRawObjectsScanned: z.number().int().positive().optional(),
     qualityFilterSettings: QualityFilterSettingsSchema.optional(),
   })
   .strict();
@@ -323,6 +342,44 @@ export async function registerPbfCopierV2Routes(app: FastifyInstance): Promise<v
       firebaseWrites: false as const,
       postsWriteForbidden: true as const,
     });
+  });
+
+  app.post(`${base}/audit`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.audit");
+    if (env.NODE_ENV === "production") {
+      return reply.status(404).send(failure("not_found", "PBF audit is disabled in production"));
+    }
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = AuditBodySchema.parse(request.body ?? {});
+    try {
+      const result = await runPbfCopierV2Audit({
+        pbfPath: body.pbfPath,
+        bbox: body.bbox,
+        limit: body.limit,
+        includeRejected: body.includeRejected,
+        includeRawTags: body.includeRawTags,
+        includeGeometry: body.includeGeometry,
+        includeWritePreview: body.includeWritePreview,
+        dryRun: body.dryRun ?? true,
+        sampleMode: body.sampleMode,
+        categoryFilter: body.categoryFilter,
+        osmIdFilter: body.osmIdFilter,
+        maxRawObjectsScanned: body.maxRawObjectsScanned,
+        qualitySettings: body.qualityFilterSettings
+          ? { ...DEFAULT_PBF_QUALITY_FILTER_SETTINGS, ...body.qualityFilterSettings }
+          : undefined,
+      });
+      return success({
+        ...result,
+        readOnly: true as const,
+        firebaseWrites: false as const,
+        postsWriteForbidden: true as const,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = message.includes(":") ? message.split(":")[0]! : "pbf_audit_failed";
+      return reply.status(400).send(failure(code, message));
+    }
   });
 
   app.post(`${base}/viewport-preview`, async (request, reply) => {

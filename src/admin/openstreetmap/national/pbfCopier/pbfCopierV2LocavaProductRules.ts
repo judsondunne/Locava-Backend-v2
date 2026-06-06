@@ -17,6 +17,10 @@ import {
   isUnnamedHikingTrailDoc,
   isWalkingPathJunk,
 } from "./pbfCopierV2DestinationQuality.js";
+import {
+  hasStrongUnnamedOutdoorCategory,
+  shouldRejectUnnamedBusinessOrBuilding,
+} from "./pbfCopierV2GeneratedDisplayNames.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
 export type LocavaProductFilterKey =
@@ -208,10 +212,42 @@ const FOOD_AMENITIES = new Set([
   "food_court",
   "biergarten",
   "brewery",
+  "winery",
+  "cider",
 ]);
 
 const FOOD_SHOPS = new Set(["bakery", "farm", "coffee", "deli", "pastry", "confectionery", "cheese", "wine"]);
 
+const VISITOR_BUSINESS_AMENITIES = new Set([
+  "spa",
+  "hairdresser",
+  "beauty_salon",
+  "cinema",
+  "theatre",
+  "theater",
+  "nightclub",
+  "bowling_alley",
+  "casino",
+  "arts_centre",
+  "community_centre",
+  "library",
+  "planetarium",
+  "exhibition_centre",
+  "events_venue",
+  "conference_centre",
+  "marina",
+  "boat_rental",
+  "ferry_terminal",
+  "slipway",
+  "gym",
+  "fitness_centre",
+  "dojo",
+  "dance",
+  "escape_game",
+  "amusement_arcade",
+]);
+
+/** Named shops in this set are always Locava-worthy; other named shops use blocklist-only acceptance. */
 const LOCAL_RETAIL_SHOPS = new Set([
   "bicycle",
   "bike",
@@ -242,6 +278,32 @@ const LOCAL_RETAIL_SHOPS = new Set([
   "general",
   "antiques",
   "variety",
+  "hairdresser",
+  "beauty",
+  "jewelry",
+  "shoes",
+  "musical_instrument",
+  "photo",
+  "video",
+  "stationery",
+  "newsagent",
+  "fishing",
+  "hunting",
+  "motorcycle",
+  "bicycle_repair",
+  "outdoor_repair",
+  "hardware",
+  "interior_decoration",
+  "cosmetics",
+  "pet",
+  "baby_goods",
+  "fabric",
+  "tailor",
+  "music",
+  "electronics",
+  "furniture",
+  "mall",
+  "department_store",
 ]);
 
 const HEALTHCARE_AMENITIES = new Set([
@@ -349,20 +411,11 @@ const HIDE_RETAIL_SHOPS = new Set([
   "tyres",
   "tires",
   "storage_rental",
-  "mobile_phone",
   "vacant",
-  "mall",
-  "department_store",
-  "hardware",
   "paint",
   "electrical",
-  "electronics",
-  "furniture",
   "carpet",
   "houseware",
-  "pet",
-  "beauty",
-  "hairdresser",
   "dry_cleaning",
   "laundry",
   "funeral_directors",
@@ -371,6 +424,7 @@ const HIDE_RETAIL_SHOPS = new Set([
   "ticket",
   "money_lender",
   "pawnbroker",
+  "mobile_phone",
 ]);
 
 const SCHOOL_PUBLIC_ATTRACTION_AMENITIES = new Set([
@@ -427,6 +481,9 @@ function tagsArePrimarilyAddressOrRef(tags: Record<string, string>): boolean {
 /** Stronger address-only detection for leaks like "35A" with addr:* tags. */
 export function isAddressOnlyLeak(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
+  if (hasStrongUnnamedOutdoorCategory(tags)) return false;
+  if (doc.warnings?.includes("v2_generated_outdoor_name")) return false;
+
   const name = displayName(doc);
 
   if (isHouseNumberOnlyName(name)) {
@@ -914,13 +971,21 @@ export function isPublicServiceBuilding(doc: PbfCopierPreviewDoc): boolean {
   if (hasTourismHistoricLandmarkException(tags)) return false;
 
   const amenity = tag(tags, "amenity");
-  if (amenity === "fire_station" || amenity === "police") return true;
+  if (
+    amenity === "fire_station" ||
+    amenity === "police" ||
+    amenity === "post_office" ||
+    amenity === "townhall" ||
+    amenity === "courthouse"
+  ) {
+    return true;
+  }
 
   const office = tag(tags, "office");
   if (office === "government") return true;
 
   const n = displayName(doc).toLowerCase();
-  if (/\b(dmv|department of motor|town hall|municipal office)\b/.test(n) && !hasTag(tags, "historic")) {
+  if (/\b(dmv|department of motor|town hall|municipal office|post office)\b/.test(n) && !hasTag(tags, "historic")) {
     return true;
   }
   if (/\btown hall\b/.test(n) && !hasTourismHistoricLandmarkException(tags)) return true;
@@ -974,6 +1039,32 @@ export function isLocavaCemeteryDestination(doc: PbfCopierPreviewDoc): boolean {
   return false;
 }
 
+export function isLocavaVisitorBusinessDestination(doc: PbfCopierPreviewDoc): boolean {
+  const tags = doc.sourceTagSample ?? {};
+  const named = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
+  if (!named || isSyntheticPreviewLabel(doc)) return false;
+
+  const amenity = tag(tags, "amenity");
+  if (amenity && VISITOR_BUSINESS_AMENITIES.has(amenity)) {
+    if (amenity === "gym" || amenity === "fitness_centre") {
+      return !isChainFitnessCenter(doc);
+    }
+    return true;
+  }
+
+  const tourism = tag(tags, "tourism");
+  if (tourism && ["hotel", "motel", "guest_house", "hostel", "chalet", "alpine_hut", "wilderness_hut"].includes(tourism)) {
+    return true;
+  }
+
+  const leisure = tag(tags, "leisure");
+  if (leisure && ["marina", "fitness_centre", "sports_centre", "stadium", "water_park", "amusement_arcade"].includes(leisure)) {
+    return true;
+  }
+
+  return false;
+}
+
 export function isLocavaLocalRetailDestination(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
   const named = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
@@ -982,9 +1073,8 @@ export function isLocavaLocalRetailDestination(doc: PbfCopierPreviewDoc): boolea
   const shop = tag(tags, "shop");
   if (!shop) return false;
   if (HIDE_RETAIL_SHOPS.has(shop)) return false;
-  if (!LOCAL_RETAIL_SHOPS.has(shop)) return false;
-  if (looksLikeChainBrand(displayName(doc))) return false;
   if (shop === "convenience" && looksLikeChainBrand(displayName(doc))) return false;
+  if (shop === "gas" || shop === "fuel") return false;
   return true;
 }
 
@@ -1023,13 +1113,16 @@ export function isSchoolCampus(doc: PbfCopierPreviewDoc): boolean {
   if (hasSchoolPublicAttractionException(tags)) return false;
 
   const amenity = tag(tags, "amenity");
-  if (amenity === "school" || amenity === "college" || amenity === "university") return true;
+  if (amenity === "university" || amenity === "college") return false;
+  if (amenity === "school") return true;
 
   const building = tag(tags, "building");
-  if (building === "school" || building === "university" || building === "college") return true;
+  if (building === "university" || building === "college") return false;
+  if (building === "school") return true;
 
   const n = displayName(doc);
-  if (/\b(high school|elementary school|middle school|academy|campus)\b/i.test(n) && !hasTag(tags, "historic")) {
+  if (/\b(university|college campus)\b/i.test(n)) return false;
+  if (/\b(high school|elementary school|middle school|primary school)\b/i.test(n) && !hasTag(tags, "historic")) {
     return true;
   }
   return false;
@@ -1044,17 +1137,19 @@ export function isGenericLodging(doc: PbfCopierPreviewDoc): boolean {
 
   if (
     tourism &&
-    ["hotel", "motel", "guest_house", "apartment", "chalet", "hostel"].includes(tourism)
+    ["hotel", "motel", "guest_house", "apartment", "chalet", "hostel", "alpine_hut", "wilderness_hut"].includes(
+      tourism
+    )
   ) {
+    const named = hasMeaningfulPreviewName(doc) || hasOsmNameTag(tags);
     const n = displayName(doc);
-    if (/\b(inn|historic|landmark)\b/i.test(n) && (hasTag(tags, "historic") || hasTag(tags, "heritage"))) {
-      return false;
-    }
-    if (looksLikeChainBrand(n)) return true;
-    return true;
+    if (/\b(inn|lodge|resort|hotel|hostel)\b/i.test(n) && named) return false;
+    if (tourism === "motel" && looksLikeChainBrand(n)) return true;
+    if (!named) return true;
+    return false;
   }
 
-  if (tag(tags, "building") === "hotel") return true;
+  if (tag(tags, "building") === "hotel" && !hasMeaningfulPreviewName(doc) && !hasOsmNameTag(tags)) return true;
   if (tag(tags, "amenity") === "love_hotel") return true;
 
   return false;
@@ -1063,14 +1158,14 @@ export function isGenericLodging(doc: PbfCopierPreviewDoc): boolean {
 export function isGenericResortLodge(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
   if (hasTag(tags, "historic") || tag(tags, "tourism") === "attraction") return false;
+  if (hasMeaningfulPreviewName(doc) || hasOsmNameTag(tags)) return false;
 
   const tourism = tag(tags, "tourism");
   if (tourism === "hotel" && /\b(lodge|resort)\b/i.test(displayName(doc))) {
-    if (!hasTag(tags, "historic") && !hasTag(tags, "heritage")) return true;
+    return true;
   }
   if (tourism === "alpine_hut" || tourism === "wilderness_hut") {
-    const n = displayName(doc).toLowerCase();
-    if (/\b(ski|resort|base lodge|mountain lodge)\b/.test(n) && !hasTag(tags, "historic")) return true;
+    return true;
   }
   return false;
 }
@@ -1120,6 +1215,13 @@ export function enrichLocavaProductClassification(doc: PbfCopierPreviewDoc): Pbf
     const shop = tag(doc.sourceTagSample ?? {}, "shop") || "shop";
     return { ...doc, primaryActivity: "shopping", primaryCategory: shop, activities: ["shopping"] };
   }
+  if (isLocavaVisitorBusinessDestination(doc)) {
+    const tags = doc.sourceTagSample ?? {};
+    const amenity = tag(tags, "amenity");
+    const tourism = tag(tags, "tourism");
+    const category = amenity ?? tourism ?? tag(tags, "leisure") ?? "destination";
+    return { ...doc, primaryActivity: category, primaryCategory: category, activities: [category] };
+  }
   return doc;
 }
 
@@ -1128,7 +1230,10 @@ export function isProtectedLocavaDestination(doc: PbfCopierPreviewDoc): boolean 
   if (isLocavaFoodDrinkDestination(doc)) return true;
   if (isLocavaCemeteryDestination(doc)) return true;
   if (isLocavaLocalRetailDestination(doc)) return true;
+  if (isLocavaVisitorBusinessDestination(doc)) return true;
   if (isNamedSkiRun(doc)) return true;
+  if (doc.warnings?.includes("v2_generated_outdoor_name")) return true;
+  if (hasStrongUnnamedOutdoorCategory(doc.sourceTagSample ?? {})) return true;
 
   const tags = doc.sourceTagSample ?? {};
   if (doc.warnings?.includes("v2_hiking_trail_merged")) return true;
@@ -1136,7 +1241,7 @@ export function isProtectedLocavaDestination(doc: PbfCopierPreviewDoc): boolean 
   if (tag(tags, "tourism") === "viewpoint" || tag(tags, "tourism") === "picnic_site") return true;
   if (tag(tags, "tourism") === "museum" || tag(tags, "tourism") === "gallery") return true;
   if (tag(tags, "tourism") === "camp_site" && (hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc))) return true;
-  if (tag(tags, "amenity") === "theatre" || tag(tags, "amenity") === "library") return true;
+  if (tag(tags, "amenity") === "theatre" || tag(tags, "amenity") === "library" || tag(tags, "amenity") === "college" || tag(tags, "amenity") === "university") return true;
   if (tag(tags, "amenity") === "arts_centre" && hasMeaningfulPreviewName(doc)) return true;
   if (tag(tags, "leisure") === "park" && hasMeaningfulPreviewName(doc)) return true;
   if (tag(tags, "leisure") === "nature_reserve" && hasMeaningfulPreviewName(doc)) return true;
@@ -1253,19 +1358,25 @@ export function matchLocavaProductRules(doc: PbfCopierPreviewDoc): LocavaProduct
   if (shop === "cannabis") {
     return { key: "age_restricted_retail", reason: "age-restricted retail, not default Locava spot" };
   }
+  if (isLocavaLocalRetailDestination(doc) || isLocavaVisitorBusinessDestination(doc)) return null;
+
   if (shop && HIDE_RETAIL_SHOPS.has(shop)) {
     return { key: "generic_retail", reason: "generic/chain utility retail, not Locava destination" };
   }
   if (tag(tags, "amenity") === "fuel") {
-    return { key: "generic_retail", reason: "gas station, not Locava destination" };
+    const n = displayName(doc).toLowerCase();
+    const hasVisitorStore =
+      tag(tags, "shop") ||
+      /\b(country store|general store|market|deli|bakery|travel plaza|rest area)\b/.test(n);
+    if (!hasVisitorStore) {
+      return { key: "generic_retail", reason: "gas station, not Locava destination" };
+    }
   }
   if (shop === "convenience" && looksLikeChainBrand(displayName(doc))) {
     return { key: "generic_retail", reason: "chain convenience store, not Locava destination" };
   }
-  if (shop && !LOCAL_RETAIL_SHOPS.has(shop) && hasMeaningfulPreviewName(doc) && !isLocavaFoodDrinkDestination(doc)) {
-    if (["mall", "department_store", "hardware", "electronics", "furniture", "car", "tyres"].includes(shop)) {
-      return { key: "generic_retail", reason: "generic commercial retail, not Locava destination" };
-    }
+  if (!hasOsmNameTag(tags) && !hasMeaningfulPreviewName(doc) && shouldRejectUnnamedBusinessOrBuilding(tags)) {
+    return { key: "address_only", reason: "unnamed business/building without visitor category" };
   }
 
   return null;

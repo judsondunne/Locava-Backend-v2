@@ -5,7 +5,11 @@
  * - Merge named hiking trail segments into one stitched line + one trailhead pin.
  * - Other line geometry stays on map as lines without route markers.
  */
-import { stitchSegments, type TrailPoint } from "../../../../lib/inventory/trails/inventoryTrailGraph.js";
+import {
+  stitchSegments,
+  TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
+  type TrailPoint,
+} from "../../../../lib/inventory/trails/inventoryTrailGraph.js";
 import { normalizePreviewDisplayName } from "./pbfCopierPreviewQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 import { enrichRoutePreviewDoc } from "./pbfCopierV2RouteEnrichment.js";
@@ -172,7 +176,9 @@ export function mergeHikingTrailPreviewDocs(segments: PbfCopierPreviewDoc[]): Pb
   const lines = segments
     .map((s) => s.routeLineCoordinates ?? [])
     .filter((line) => line.length >= 2) as TrailPoint[][];
-  const stitched = stitchSegments(lines);
+  const stitched = stitchSegments(lines, {
+    endpointToleranceMeters: TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
+  });
   const base = segments[0]!;
   const displayName = base.displayName;
   const color = hikingTrailColorForName(displayName);

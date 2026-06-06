@@ -7,6 +7,7 @@ import {
   type PbfQualityFilterResult,
   type PbfQualityFilterSettings,
 } from "./pbfCopierV2QualityFilters.js";
+import { enrichUnnamedOutdoorDisplayNames } from "./pbfCopierV2GeneratedDisplayNames.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
 export type RunPbfCopierV2PipelineInput = {
@@ -23,5 +24,6 @@ export function runPbfCopierV2Pipeline(
     ...(input.qualitySettings ?? {}),
     hideUnnamedPaths: false,
   };
-  return applyPbfQualityFilters(input.rawItems, settings);
+  const withGeneratedNames = enrichUnnamedOutdoorDisplayNames(input.rawItems);
+  return applyPbfQualityFilters(withGeneratedNames, settings);
 }

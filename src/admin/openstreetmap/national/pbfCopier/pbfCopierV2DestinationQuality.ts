@@ -484,8 +484,9 @@ export function isWalkingPathJunk(doc: PbfCopierPreviewDoc): boolean {
   if (highway !== "path" && highway !== "footway" && highway !== "steps") return false;
   if (hasOsmNameTag(tags) && hasStrongTrailSignal(tags)) return false;
   if (tag(tags, "sac_scale") || tag(tags, "trail_visibility")) return false;
+  if (tag(tags, "route") === "hiking" || tag(tags, "route") === "foot") return false;
   const surface = tag(tags, "surface");
-  if (surface && PAVED_SURFACES.has(surface)) return true;
+  if (surface && PAVED_SURFACES.has(surface) && !tag(tags, "leisure") && !tag(tags, "tourism")) return true;
   const coords = doc.routeLineCoordinates ?? doc.routeLineSegments?.find((s) => s.length >= 2);
   const lengthMeters = polylineLengthMeters(coords);
   if (lengthMeters < MIN_UNNAMED_TRAIL_METERS && !hasStrongTrailSignal(tags)) return true;

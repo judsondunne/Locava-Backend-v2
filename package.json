@@ -72,6 +72,8 @@
     "inventory:tiles:dry-run": "tsx scripts/inventory/buildInventoryTilesDryRun.ts",
     "inventory:tiles:commit:emulator": "tsx scripts/inventory/buildInventoryTilesDryRun.ts",
     "pbf:review:vt": "tsx scripts/pbf-review-vt.mts",
+    "pbf:audit": "tsx scripts/pbf-v2-audit.mts",
+    "pbf:evaluate-vermont": "tsx scripts/pbf-evaluate-vermont.mts",
     "verify:pbf-copier-v2-trails": "vitest run src/admin/openstreetmap/national/pbfCopier/pbfCopierV2TrailLines.integration.test.ts",
     "typecheck": "tsc --noEmit",
     "check:logging": "node scripts/check-logging-cleanup.js",

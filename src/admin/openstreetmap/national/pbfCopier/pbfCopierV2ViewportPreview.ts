@@ -841,6 +841,7 @@ function appendPreviewDocsFromBatch(input: {
 async function scanPbfViewportPreviewRaw(input: {
   pbfPath: string;
   bbox: PbfCopierV2ViewportBbox;
+  maxRawObjectsScanned?: number;
   onScanProgress?: (progress: {
     rawObjectsScanned: number;
     nodesScanned: number;
@@ -905,6 +906,9 @@ async function scanPbfViewportPreviewRaw(input: {
     });
   };
 
+  const maxRawObjectsScanned = input.maxRawObjectsScanned;
+  let scanStoppedEarly = false;
+
   try {
     for await (const chunk of reader.read()) {
       for (const entity of chunk.entities) {
@@ -915,6 +919,15 @@ async function scanPbfViewportPreviewRaw(input: {
         if (entity.type === "node") stats.nodesScanned += 1;
         else if (entity.type === "way") stats.waysScanned += 1;
         else if (entity.type === "relation") stats.relationsScanned += 1;
+
+        if (
+          maxRawObjectsScanned != null &&
+          maxRawObjectsScanned > 0 &&
+          stats.rawObjectsScanned >= maxRawObjectsScanned
+        ) {
+          scanStoppedEarly = true;
+          break;
+        }
 
         const resolvedEntity = withFullWayGeometry(entity, nodeCache);
         if (!isPbfEntitySupportedForCopier(resolvedEntity)) continue;
@@ -947,6 +960,7 @@ async function scanPbfViewportPreviewRaw(input: {
         if (!previewDocWithinViewportBbox(doc, inventoryBbox)) continue;
         items.push(doc);
       }
+      if (scanStoppedEarly) break;
     }
   } finally {
     await reader.close();
@@ -977,6 +991,7 @@ export async function scanPbfViewportPreview(input: {
   pbfPath: string;
   bbox: PbfCopierV2ViewportBbox;
   mode?: PbfCopierV2ViewportPreviewMode;
+  maxRawObjectsScanned?: number;
   onScanProgress?: (progress: {
     rawObjectsScanned: number;
     nodesScanned: number;
@@ -1037,6 +1052,8 @@ export async function scanPbfViewportPreview(input: {
   });
 
   const batch: CandidateFeature[] = [];
+  const maxRawObjectsScanned = input.maxRawObjectsScanned;
+  let scanStoppedEarly = false;
 
   async function flushBatch(): Promise<void> {
     if (batch.length === 0) return;
@@ -1077,6 +1094,15 @@ export async function scanPbfViewportPreview(input: {
         if (entity.type === "node") stats.nodesScanned += 1;
         else if (entity.type === "way") stats.waysScanned += 1;
         else if (entity.type === "relation") stats.relationsScanned += 1;
+
+        if (
+          maxRawObjectsScanned != null &&
+          maxRawObjectsScanned > 0 &&
+          stats.rawObjectsScanned >= maxRawObjectsScanned
+        ) {
+          scanStoppedEarly = true;
+          break;
+        }
 
         if (!isPbfEntitySupportedForCopier(entity)) continue;
         if (!tagFilter.isCandidate(entity.tags)) {
@@ -1131,13 +1157,14 @@ export async function scanPbfViewportPreview(input: {
           await flushBatch();
         }
       }
+      if (scanStoppedEarly) break;
     }
 
     if (batch.length > 0) {
       await flushBatch();
     }
 
-    if (pendingBareHillPeaks.length > 0) {
+    if (!scanStoppedEarly && pendingBareHillPeaks.length > 0) {
       const hillPeakBatch: CandidateFeature[] = [];
       for (const candidate of pendingBareHillPeaks) {
         const gate = evaluateHillPeakSpatialGate(

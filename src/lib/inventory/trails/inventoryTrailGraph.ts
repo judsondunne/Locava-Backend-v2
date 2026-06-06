@@ -3,6 +3,8 @@ import { haversineMeters } from "../inventoryTileGrid.js";
 export type TrailPoint = { lat: number; lng: number };
 
 const ENDPOINT_TOLERANCE_METERS = 8;
+/** Looser tolerance when merging same-name hiking trail OSM way segments (junction gaps). */
+export const TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS = 22;
 
 export function distanceMetersForCoords(coords: TrailPoint[]): number {
   if (coords.length < 2) return 0;
@@ -45,7 +47,12 @@ export function endpointsMatch(a: TrailPoint, b: TrailPoint, toleranceMeters = E
   return haversineMeters(a, b) <= toleranceMeters;
 }
 
-export function stitchSegments(segments: TrailPoint[][]): { coordinates: TrailPoint[]; segments: TrailPoint[][]; stitched: boolean } {
+export function stitchSegments(
+  segments: TrailPoint[][],
+  options?: { endpointToleranceMeters?: number }
+): { coordinates: TrailPoint[]; segments: TrailPoint[][]; stitched: boolean } {
+  const tolerance = options?.endpointToleranceMeters ?? ENDPOINT_TOLERANCE_METERS;
+  const maxJoinDist = tolerance * 4;
   if (segments.length === 0) return { coordinates: [], segments: [], stitched: true };
   if (segments.length === 1) return { coordinates: segments[0]!, segments, stitched: true };
 
@@ -79,7 +86,7 @@ export function stitchSegments(segments: TrailPoint[][]): { coordinates: TrailPo
       }
     }
 
-    if (bestIdx < 0 || bestDist > ENDPOINT_TOLERANCE_METERS * 4) {
+    if (bestIdx < 0 || bestDist > maxJoinDist) {
       stitched = false;
       break;
     }
