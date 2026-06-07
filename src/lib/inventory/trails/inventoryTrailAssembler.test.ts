@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { stitchSegments, distanceMetersForCoords, trailStartPoint } from "./inventoryTrailGraph.js";
+import {
+  clusterTrailSegmentsByEndpoints,
+  stitchSegments,
+  distanceMetersForCoords,
+  trailStartPoint,
+  TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
+} from "./inventoryTrailGraph.js";
 import { assembleInventoryTrails } from "./inventoryTrailAssembler.js";
 import type { OsmFeatureListItem } from "../../openstreetmap/osmFeatureParse.js";
 
@@ -10,6 +16,28 @@ describe("inventoryTrailGraph", () => {
       { lat: 43.541, lng: -72.389 },
     ]);
     expect(d).toBeGreaterThan(0);
+  });
+
+  it("clusters same-name segments with modest endpoint gaps", () => {
+    const a = [
+      { lat: 43.54, lng: -72.39 },
+      { lat: 43.541, lng: -72.389 },
+    ];
+    const b = [
+      { lat: 43.54105, lng: -72.38895 },
+      { lat: 43.542, lng: -72.388 },
+    ];
+    const clusters = clusterTrailSegmentsByEndpoints(
+      [a, b],
+      TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS * 10
+    );
+    expect(clusters).toHaveLength(1);
+    const out = stitchSegments(clusters[0]!, {
+      endpointToleranceMeters: TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
+      maxJoinDistanceMultiplier: 10,
+    });
+    expect(out.stitched).toBe(true);
+    expect(out.coordinates.length).toBeGreaterThanOrEqual(3);
   });
 
   it("stitches adjacent segments", () => {

@@ -14,9 +14,9 @@ describe("pbfVermontEvalRegions", () => {
     expect(slugs.size).toBe(10);
   });
 
-  it("computes 30-mile radius bboxes with valid west/east/south/north", () => {
-    expect(VERMONT_EVAL_RADIUS_MILES).toBe(30);
-    expect(VERMONT_EVAL_RADIUS_KM).toBeCloseTo(48.28, 1);
+  it("computes eval radius bboxes with valid west/east/south/north", () => {
+    expect(VERMONT_EVAL_RADIUS_MILES).toBeGreaterThanOrEqual(5);
+    expect(VERMONT_EVAL_RADIUS_KM).toBeGreaterThanOrEqual(8);
 
     const region = VERMONT_EVAL_REGIONS[0]!;
     const bbox = bboxForVermontEvalRegion(region);
@@ -28,8 +28,8 @@ describe("pbfVermontEvalRegions", () => {
     expect(bbox.northLat).toBeGreaterThan(region.center.lat);
 
     const approxLatSpan = bbox.northLat - bbox.southLat;
-    expect(approxLatSpan).toBeGreaterThan(0.7);
-    expect(approxLatSpan).toBeLessThan(1.0);
+    expect(approxLatSpan).toBeGreaterThan(0.12);
+    expect(approxLatSpan).toBeLessThan(1.2);
   });
 
   it("viewportBboxFromCenterRadius is symmetric around center", () => {

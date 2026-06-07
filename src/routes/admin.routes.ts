@@ -9,6 +9,7 @@ import { renderOpenStreetMapNationalImportPage } from "../dashboard/openstreetma
 import { renderOpenStreetMapNationalCopierPage } from "../dashboard/openstreetmap-national-copier.js";
 import { renderOpenStreetMapPbfCopierPage } from "../dashboard/openstreetmap-pbf-copier.js";
 import { renderOpenStreetMapPbfCopierV2Page } from "../dashboard/openstreetmap-pbf-copier-v2.js";
+import { renderPbfPhotoAssetPreviewPage } from "../dashboard/pbf-photo-asset-preview.js";
 import { renderOpenStreetMapVermontOffroadImportPage } from "../dashboard/openstreetmap-vermont-offroad-import.js";
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
@@ -66,6 +67,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get("/admin/openstreetmap/pbf-copier-v2", async (_request, reply) => {
     reply.type("text/html; charset=utf-8");
     return reply.send(renderOpenStreetMapPbfCopierV2Page());
+  });
+
+  app.get("/admin/openstreetmap/pbf-photo-preview", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return reply.send(renderPbfPhotoAssetPreviewPage());
   });
 
   app.get("/admin/openstreetmap/vermont-offroad-import", async (_request, reply) => {

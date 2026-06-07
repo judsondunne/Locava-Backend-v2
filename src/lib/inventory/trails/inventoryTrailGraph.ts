@@ -4,7 +4,7 @@ export type TrailPoint = { lat: number; lng: number };
 
 const ENDPOINT_TOLERANCE_METERS = 8;
 /** Looser tolerance when merging same-name hiking trail OSM way segments (junction gaps). */
-export const TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS = 22;
+export const TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS = 35;
 
 export function distanceMetersForCoords(coords: TrailPoint[]): number {
   if (coords.length < 2) return 0;
@@ -47,12 +47,57 @@ export function endpointsMatch(a: TrailPoint, b: TrailPoint, toleranceMeters = E
   return haversineMeters(a, b) <= toleranceMeters;
 }
 
+export function clusterTrailSegmentsByEndpoints(
+  segments: TrailPoint[][],
+  maxEndpointGapMeters: number
+): TrailPoint[][][] {
+  if (segments.length <= 1) return [segments];
+
+  const parent = segments.map((_, i) => i);
+  const find = (i: number): number => {
+    if (parent[i] !== i) parent[i] = find(parent[i]!);
+    return parent[i]!;
+  };
+  const unite = (a: number, b: number) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra !== rb) parent[rb] = ra;
+  };
+
+  for (let i = 0; i < segments.length; i += 1) {
+    const a = segments[i]!;
+    const aHead = a[0]!;
+    const aTail = a[a.length - 1]!;
+    for (let j = i + 1; j < segments.length; j += 1) {
+      const b = segments[j]!;
+      const bHead = b[0]!;
+      const bTail = b[b.length - 1]!;
+      const pairs: Array<[TrailPoint, TrailPoint]> = [
+        [aHead, bHead],
+        [aHead, bTail],
+        [aTail, bHead],
+        [aTail, bTail],
+      ];
+      if (pairs.some(([p, q]) => haversineMeters(p, q) <= maxEndpointGapMeters)) unite(i, j);
+    }
+  }
+
+  const groups = new Map<number, TrailPoint[][]>();
+  for (let i = 0; i < segments.length; i += 1) {
+    const root = find(i);
+    const bucket = groups.get(root) ?? [];
+    bucket.push(segments[i]!);
+    groups.set(root, bucket);
+  }
+  return [...groups.values()];
+}
+
 export function stitchSegments(
   segments: TrailPoint[][],
-  options?: { endpointToleranceMeters?: number }
+  options?: { endpointToleranceMeters?: number; maxJoinDistanceMultiplier?: number }
 ): { coordinates: TrailPoint[]; segments: TrailPoint[][]; stitched: boolean } {
   const tolerance = options?.endpointToleranceMeters ?? ENDPOINT_TOLERANCE_METERS;
-  const maxJoinDist = tolerance * 4;
+  const maxJoinDist = tolerance * (options?.maxJoinDistanceMultiplier ?? 4);
   if (segments.length === 0) return { coordinates: [], segments: [], stitched: true };
   if (segments.length === 1) return { coordinates: segments[0]!, segments, stitched: true };
 

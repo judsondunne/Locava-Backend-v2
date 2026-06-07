@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   assertPreviewDocsQuality,
+  dedupeNearVisiblePreviewItems,
   dedupePreviewDocsByDisplayName,
   finalizePreviewDocsQuality,
   normalizePreviewDisplayName,
@@ -62,6 +63,26 @@ describe("pbfCopierPreviewQuality", () => {
     expect(kept[0]?.id).toBe("2");
     expect(removed).toHaveLength(1);
     expect(removed[0]?.removedId).toBe("1");
+  });
+
+  it("hides near-duplicate visible spots with same normalized name", () => {
+    const docs = [
+      mockDoc({ id: "1", displayName: "Skirack", lat: 44.48, lng: -73.21, sourceTagSample: { shop: "ski" } }),
+      mockDoc({
+        id: "2",
+        displayName: "Skirack",
+        lat: 44.48001,
+        lng: -73.21001,
+        osmType: "way",
+        sourceTagSample: { shop: "ski", building: "retail" },
+        mapReadiness: "review",
+      }),
+    ];
+    const { items, duplicatesHidden } = dedupeNearVisiblePreviewItems(docs);
+    expect(duplicatesHidden).toBe(1);
+    const visible = items.filter((d) => !d.filteredOut);
+    expect(visible).toHaveLength(1);
+    expect(visible[0]?.displayName).toBe("Skirack");
   });
 
   it("sanitizes fake activities and prefers specific primary over nature", () => {

@@ -9,6 +9,7 @@ import {
 } from "../../../../lib/inventory/activities/locavaActivities.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 import { evaluateOsmVisitability } from "../../../../lib/inventory/inventoryVisitability.js";
+import { haversineMeters } from "../../../../lib/inventory/inventoryTileGrid.js";
 
 const CANONICAL_SET = new Set<string>(LOCAVA_ACTIVITIES);
 
@@ -235,6 +236,94 @@ export function dedupePreviewDocsByDisplayName(docs: PbfCopierPreviewDoc[]): {
   }
 
   return { kept, removed };
+}
+
+const NEAR_DUPLICATE_SPOT_METERS = 75;
+
+/** Generic generated outdoor labels must not collapse across a whole bbox. */
+const GENERIC_OUTDOOR_DEDUPE_NAMES = new Set([
+  "beach",
+  "park",
+  "nature reserve",
+  "trail",
+  "trailhead",
+  "trailhead parking",
+  "shelter",
+  "picnic shelter",
+  "pavilion",
+  "playground",
+  "viewpoint",
+  "picnic area",
+  "water access",
+  "swimming area",
+  "campground",
+  "summit",
+  "sports court",
+  "sports field",
+  "skate park",
+  "boat launch",
+  "waterfall",
+  "spring",
+  "tennis court",
+  "basketball court",
+  "pickleball court",
+]);
+
+function isGenericOutdoorDedupeName(key: string): boolean {
+  return GENERIC_OUTDOOR_DEDUPE_NAMES.has(key);
+}
+
+/** Hide weaker visible spots/routes that duplicate a stronger item with the same normalized name nearby. */
+export function dedupeNearVisiblePreviewItems<T extends PbfCopierPreviewDoc & { filteredOut?: boolean }>(
+  items: T[]
+): { items: T[]; duplicatesHidden: number } {
+  const suppressIds = new Set<string>();
+
+  const visibleSpots = items.filter((d) => !d.filteredOut && d.kind === "unexplored_spot");
+  const keptSpots = [...visibleSpots].sort((a, b) => scorePreviewDocForDedup(b) - scorePreviewDocForDedup(a));
+  const winners: typeof visibleSpots = [];
+
+  for (const spot of keptSpots) {
+    const key = normalizePreviewDisplayName(spot.displayName);
+    if (!key || isGenericOutdoorDedupeName(key) || spot.warnings?.includes("v2_generated_outdoor_name")) {
+      winners.push(spot);
+      continue;
+    }
+    const dup = winners.find((existing) => {
+      if (normalizePreviewDisplayName(existing.displayName) !== key) return false;
+      if (
+        spot.lat == null ||
+        spot.lng == null ||
+        existing.lat == null ||
+        existing.lng == null
+      ) {
+        return false;
+      }
+      return (
+        haversineMeters({ lat: existing.lat, lng: existing.lng }, { lat: spot.lat, lng: spot.lng }) <=
+        NEAR_DUPLICATE_SPOT_METERS
+      );
+    });
+    if (dup) {
+      suppressIds.add(spot.id);
+      continue;
+    }
+    winners.push(spot);
+  }
+
+  if (suppressIds.size === 0) return { items, duplicatesHidden: 0 };
+
+  const next = items.map((item) => {
+    if (!suppressIds.has(item.id) || item.filteredOut) return item;
+    return {
+      ...item,
+      filteredOut: true,
+      filteredBy: [...new Set([...(item.filteredBy ?? []), "address_only"])],
+      filterReason: [item.filterReason, "near_duplicate_preview"].filter(Boolean).join("; "),
+    };
+  });
+
+  return { items: next, duplicatesHidden: suppressIds.size };
 }
 
 export function partitionInvalidActivities(doc: PbfCopierPreviewDoc): {

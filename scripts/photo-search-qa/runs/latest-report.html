@@ -1,0 +1,519 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Locava Photo Search QA — local-batch1-final</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #0b1220; color: #e5e7eb; }
+    header.page { padding: 20px; background: #111827; border-bottom: 1px solid #374151; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+    .place { padding: 20px; border-bottom: 1px solid #1f2937; }
+    .card { background: #111827; border: 1px solid #374151; border-radius: 12px; overflow: hidden; }
+    .card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: #000; }
+    .meta { padding: 12px; font-size: 13px; line-height: 1.45; word-break: break-word; }
+    .fail { color: #fca5a5; margin-top: 8px; }
+    .review-buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    button { background: #1d4ed8; color: white; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    button[data-verdict="wrong"] { background: #b91c1c; }
+    button[data-verdict="unsure"] { background: #a16207; }
+    .summary { padding: 20px; }
+    code { background: #1f2937; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header class="page">
+    <h1>Locava Photo Search QA</h1>
+    <p>Run <code>local-batch1-final</code> | Target <code>local</code> | Vision <code>off</code></p>
+    <p><strong>Verdict:</strong> NOT PRODUCTION READY</p>
+    <p>Hit rates — ≥4 valid images: 100% | all load: 100% | high-confidence match: 0%</p>
+  </header>
+  <div class="summary">
+    <p>Estimated provider calls: 5 | Estimated credits: 5 (exact cost unknown unless provider headers captured)</p>
+  </div>
+  
+      <section class="place" id="bingham-falls-stowe">
+        <header>
+          <h2>Bingham Falls — Stowe, VT</h2>
+          <p><strong>Query:</strong> Stowe VT, Bingham Falls</p>
+          <p><strong>Search query used:</strong> Bingham Falls Stowe Vermont</p>
+          <p><strong>Provider:</strong> serper | <strong>Status:</strong> manual_review</p>
+          <p><strong>Failures:</strong> vision_unavailable_manual_review</p>
+        </header>
+        <div class="grid">
+    <article class="card" data-place="bingham-falls-stowe" data-image="0">
+      <img src="https://assets.simpleviewinc.com/simpleview/image/upload/crm/vermont/Bingham-Falls_58765AA5-5056-A36A-08D8C75B423C0C82-587658b95056a36_587664ee-5056-a36a-08d15a42e2557c24.jpg" alt="Bingham Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (69ms)</div>
+        <div><strong>Caption:</strong> Bingham Falls</div>
+        <div><strong>Source page:</strong> <a href="https://www.helloburlingtonvt.com/listing/bingham-falls/651/">Hello Burlington</a></div>
+        <div><strong>Domain:</strong> helloburlingtonvt.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="bingham-falls-stowe" data-image="1">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/2a/d1/57/e0/caption.jpg?w=900&amp;h=500&amp;s=1" alt="Bingham Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (55ms)</div>
+        <div><strong>Caption:</strong> Bingham Falls - All You SHOULD Know Before Going (2026 Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57415-d4587878-Reviews-Bingham_Falls-Stowe_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable</div>
+      </div>
+    </article>
+
+    <article class="card" data-place="bingham-falls-stowe" data-image="2">
+      <img src="https://www.worldwaterfalldatabase.com/pictures/1401775649-Bingham2.jpg" alt="Bingham Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (47ms)</div>
+        <div><strong>Caption:</strong> Bingham Falls, Vermont, United States - World Waterfall Database</div>
+        <div><strong>Source page:</strong> <a href="https://www.worldwaterfalldatabase.com/waterfall/Bingham-Falls-11312">World Waterfall Database</a></div>
+        <div><strong>Domain:</strong> worldwaterfalldatabase.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="bingham-falls-stowe" data-image="3">
+      <img src="http://lh3.ggpht.com/_-rpMcGsgiFQ/TIMANqWtvlI/AAAAAAAAK58/Ac9FjkdU4OE/s512/Bingham%20Falls%20%2832%29.JPG" alt="Bingham Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (153ms)</div>
+        <div><strong>Caption:</strong> Bingham Falls, Vermont – Waterfall Record</div>
+        <div><strong>Source page:</strong> <a href="https://waterfallrecord.com/2010/09/05/bingham-falls-vermont/">Waterfall Record</a></div>
+        <div><strong>Domain:</strong> waterfallrecord.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article></div>
+      </section>
+
+      <section class="place" id="moss-glen-falls-granville">
+        <header>
+          <h2>Moss Glen Falls — Granville, VT</h2>
+          <p><strong>Query:</strong> Granville VT, Moss Glen Falls</p>
+          <p><strong>Search query used:</strong> Moss Glen Falls Granville Vermont</p>
+          <p><strong>Provider:</strong> serper | <strong>Status:</strong> manual_review</p>
+          <p><strong>Failures:</strong> vision_unavailable_manual_review</p>
+        </header>
+        <div class="grid">
+    <article class="card" data-place="moss-glen-falls-granville" data-image="0">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/0d/ab/ea/2f/moss-glenn-falls-well.jpg?w=1200&amp;h=-1&amp;s=1" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (21ms)</div>
+        <div><strong>Caption:</strong> Moss Glen Falls - All You SHOULD Know Before Going (2026 Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57415-d126607-Reviews-Moss_Glen_Falls-Stowe_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable</div>
+      </div>
+    </article>
+
+    <article class="card" data-place="moss-glen-falls-granville" data-image="1">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/19/88/0f/bd/photo0jpg.jpg?w=900&amp;h=500&amp;s=1" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (19ms)</div>
+        <div><strong>Caption:</strong> Moss Glen Falls - All You SHOULD Know Before Going (2026 Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57415-d126607-Reviews-Moss_Glen_Falls-Stowe_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable</div>
+      </div>
+    </article>
+
+    <article class="card" data-place="moss-glen-falls-granville" data-image="2">
+      <img src="https://nohomejustroam.com/wp-content/uploads/2019/06/Moss-Glen-Falls-in-Granville-Vermont-1.jpg" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (49ms)</div>
+        <div><strong>Caption:</strong> Visiting Moss Glen Falls In Granville, Vermont - No Home Just Roam</div>
+        <div><strong>Source page:</strong> <a href="https://nohomejustroam.com/visiting-moss-glen-falls-in-granville-vermont/">No Home Just Roam</a></div>
+        <div><strong>Domain:</strong> nohomejustroam.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="moss-glen-falls-granville" data-image="3">
+      <img src="https://admin.onlyinyourstate.com/wp-content/uploads/sites/2/2018/09/20160381972_3d32d7486e_k.jpg" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (53ms)</div>
+        <div><strong>Caption:</strong> Moss Glen Falls in Granville, VT Is A Gorgeous Roadside Attraction</div>
+        <div><strong>Source page:</strong> <a href="https://www.onlyinyourstate.com/nature/vermont/moss-glen-falls-vt">Only In Your State</a></div>
+        <div><strong>Domain:</strong> onlyinyourstate.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article></div>
+      </section>
+
+      <section class="place" id="moss-glen-falls-stowe">
+        <header>
+          <h2>Moss Glen Falls — Stowe, VT</h2>
+          <p><strong>Query:</strong> Stowe VT, Moss Glen Falls</p>
+          <p><strong>Search query used:</strong> Moss Glen Falls Stowe Vermont</p>
+          <p><strong>Provider:</strong> serper | <strong>Status:</strong> manual_review</p>
+          <p><strong>Failures:</strong> vision_unavailable_manual_review</p>
+        </header>
+        <div class="grid">
+    <article class="card" data-place="moss-glen-falls-stowe" data-image="0">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/0d/ab/ea/2f/moss-glenn-falls-well.jpg?w=1200&amp;h=1200&amp;s=1" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (56ms)</div>
+        <div><strong>Caption:</strong> Moss Glen Falls - All You SHOULD Know Before Going (2026 Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57415-d126607-Reviews-Moss_Glen_Falls-Stowe_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable</div>
+      </div>
+    </article>
+
+    <article class="card" data-place="moss-glen-falls-stowe" data-image="1">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/19/88/0f/bd/photo0jpg.jpg?w=900&amp;h=500&amp;s=1" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (24ms)</div>
+        <div><strong>Caption:</strong> Moss Glen Falls - All You SHOULD Know Before Going (2026 Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57415-d126607-Reviews-Moss_Glen_Falls-Stowe_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable</div>
+      </div>
+    </article>
+
+    <article class="card" data-place="moss-glen-falls-stowe" data-image="2">
+      <img src="https://images.world-of-waterfalls.com/Moss_Glen_Falls_Stowe_024_09302013.jpg" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (353ms)</div>
+        <div><strong>Caption:</strong> Moss Glen Falls - Hike to a Tall Falls in Vermont by Stowe</div>
+        <div><strong>Source page:</strong> <a href="https://www.world-of-waterfalls.com/waterfalls/eastern-us-moss-glen-falls-stowe/">World of Waterfalls</a></div>
+        <div><strong>Domain:</strong> world-of-waterfalls.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="moss-glen-falls-stowe" data-image="3">
+      <img src="https://ghosty-production.s3.amazonaws.com/fotospot_spots/Moss-Glen-Falls-Fotospot_eeb30eb5002a05b717e8e25e9205f6c9/large.jpg" alt="Moss Glen Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (216ms)</div>
+        <div><strong>Caption:</strong> Moss Glen Falls in Stowe, VT (4 Photos)</div>
+        <div><strong>Source page:</strong> <a href="https://fotospot.com/attractions/vermont/moss-glen-falls">Fotospot.com</a></div>
+        <div><strong>Domain:</strong> fotospot.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article></div>
+      </section>
+
+      <section class="place" id="texas-falls-hancock">
+        <header>
+          <h2>Texas Falls — Hancock, VT</h2>
+          <p><strong>Query:</strong> Hancock VT, Texas Falls</p>
+          <p><strong>Search query used:</strong> Texas Falls Hancock Vermont</p>
+          <p><strong>Provider:</strong> serper | <strong>Status:</strong> manual_review</p>
+          <p><strong>Failures:</strong> vision_unavailable_manual_review</p>
+        </header>
+        <div class="grid">
+    <article class="card" data-place="texas-falls-hancock" data-image="0">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/15/6f/8a/b3/lovely-in-the-fall.jpg?w=1200&amp;h=1200&amp;s=1" alt="Texas Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (16ms)</div>
+        <div><strong>Caption:</strong> Texas Falls - All You SHOULD Know Before Going 2026 (with Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57279-d12978284-Reviews-Texas_Falls-Hancock_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable</div>
+      </div>
+    </article>
+
+    <article class="card" data-place="texas-falls-hancock" data-image="1">
+      <img src="https://www.worldwaterfalldatabase.com/pictures/1580007121-Texas%20Falls%20VT.jpg" alt="Texas Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (49ms)</div>
+        <div><strong>Caption:</strong> Texas Falls, Vermont, United States - World Waterfall Database</div>
+        <div><strong>Source page:</strong> <a href="https://www.worldwaterfalldatabase.com/waterfall/Texas-Falls-11597">World Waterfall Database</a></div>
+        <div><strong>Domain:</strong> worldwaterfalldatabase.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="texas-falls-hancock" data-image="2">
+      <img src="https://vermontexplored.com/wp-content/uploads/2022/06/texas-falls-vermont-3-684x1024.jpg" alt="Texas Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (310ms)</div>
+        <div><strong>Caption:</strong> Explore Beautiful Texas Falls in Hancock, Vermont</div>
+        <div><strong>Source page:</strong> <a href="https://vermontexplored.com/texas-falls-hancock-vermont/">Vermont Explored</a></div>
+        <div><strong>Domain:</strong> vermontexplored.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="texas-falls-hancock" data-image="3">
+      <img src="https://vermontexplored.com/wp-content/uploads/2022/06/texas-falls-vermont.jpeg" alt="Texas Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (78ms)</div>
+        <div><strong>Caption:</strong> Explore Beautiful Texas Falls in Hancock, Vermont</div>
+        <div><strong>Source page:</strong> <a href="https://vermontexplored.com/texas-falls-hancock-vermont/">Vermont Explored</a></div>
+        <div><strong>Domain:</strong> vermontexplored.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article></div>
+      </section>
+
+      <section class="place" id="warren-falls-warren">
+        <header>
+          <h2>Warren Falls — Warren, VT</h2>
+          <p><strong>Query:</strong> Warren VT, Warren Falls</p>
+          <p><strong>Search query used:</strong> Warren Falls Warren Vermont</p>
+          <p><strong>Provider:</strong> serper | <strong>Status:</strong> manual_review</p>
+          <p><strong>Failures:</strong> vision_unavailable_manual_review</p>
+        </header>
+        <div class="grid">
+    <article class="card" data-place="warren-falls-warren" data-image="0">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/0c/e6/b5/88/photo0jpg.jpg?w=1200&amp;h=-1&amp;s=1" alt="Warren Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (17ms)</div>
+        <div><strong>Caption:</strong> Warren Falls - All You SHOULD Know Before Going (2026 Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57436-d6881507-Reviews-Warren_Falls-Warren_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable</div>
+      </div>
+    </article>
+
+    <article class="card" data-place="warren-falls-warren" data-image="1">
+      <img src="https://anationofmoms.com/wp-content/uploads/2018/10/WarrenFalls4.jpg" alt="Warren Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (89ms)</div>
+        <div><strong>Caption:</strong> Warren Falls, Vermont - A Nation of Moms</div>
+        <div><strong>Source page:</strong> <a href="https://anationofmoms.com/2018/10/warren-falls-vermont.html">A Nation of Moms -</a></div>
+        <div><strong>Domain:</strong> anationofmoms.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="warren-falls-warren" data-image="2">
+      <img src="https://nohomejustroam.com/wp-content/uploads/2019/06/Warren-Falls-Vermont-7-680x510.jpg" alt="Warren Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (56ms)</div>
+        <div><strong>Caption:</strong> Going Cliff Jumping At Warren Falls In Vermont - No Home Just Roam</div>
+        <div><strong>Source page:</strong> <a href="https://nohomejustroam.com/going-cliff-jumping-at-warren-falls-in-vermont/">No Home Just Roam</a></div>
+        <div><strong>Domain:</strong> nohomejustroam.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        
+      </div>
+    </article>
+
+    <article class="card" data-place="warren-falls-warren" data-image="3">
+      <img src="https://dynamic-media-cdn.tripadvisor.com/media/photo-o/0c/e6/b5/88/photo0jpg.jpg?w=900&amp;h=500&amp;s=1" alt="Warren Falls" loading="lazy" />
+      <div class="meta">
+        <div><strong>Load:</strong> OK (62ms)</div>
+        <div><strong>Caption:</strong> Warren Falls - All You SHOULD Know Before Going (2026 Reviews)</div>
+        <div><strong>Source page:</strong> <a href="https://www.tripadvisor.com/Attraction_Review-g57436-d6881507-Reviews-Warren_Falls-Warren_Vermont.html">Tripadvisor</a></div>
+        <div><strong>Domain:</strong> tripadvisor.com</div>
+        <div><strong>Provider:</strong> serper</div>
+        <div><strong>License:</strong> Images indexed via Google Image Search (Serper). License and reuse terms vary by the linked source page.</div>
+        <div><strong>Disclaimer:</strong> Image rights belong to the listed source site and photographer. Locava shows thumbnails with attribution links only; verify usage rights on the source page before reuse or republication.</div>
+        <div><strong>Label:</strong> not_judged</div>
+        <div><em>Vision not automated — use buttons below.</em></div>
+        <div class="review-buttons">
+          <button type="button" data-verdict="likely_correct">Likely correct</button>
+          <button type="button" data-verdict="unsure">Unsure</button>
+          <button type="button" data-verdict="wrong">Wrong</button>
+        </div>
+        <div class="fail">source_page_unreachable, duplicate</div>
+      </div>
+    </article></div>
+      </section>
+  <script>
+    document.querySelectorAll('.review-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const card = btn.closest('.card');
+        if (!card) return;
+        const label = card.querySelector('.meta');
+        const existing = label.querySelector('.manual-verdict');
+        if (existing) existing.remove();
+        const div = document.createElement('div');
+        div.className = 'manual-verdict';
+        div.innerHTML = '<strong>Manual verdict:</strong> ' + btn.dataset.verdict;
+        label.appendChild(div);
+      });
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Locava Photo Search QA — 2026-06-06T17-35-04-286Z</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; background: #0b1220; color: #e5e7eb; }
+    header.page { padding: 20px; background: #111827; border-bottom: 1px solid #374151; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+    .place { padding: 20px; border-bottom: 1px solid #1f2937; }
+    .card { background: #111827; border: 1px solid #374151; border-radius: 12px; overflow: hidden; }
+    .card img { width: 100%; aspect-ratio: 4/3; object-fit: cover; background: #000; }
+    .meta { padding: 12px; font-size: 13px; line-height: 1.45; word-break: break-word; }
+    .fail { color: #fca5a5; margin-top: 8px; }
+    .review-buttons { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+    button { background: #1d4ed8; color: white; border: 0; border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+    button[data-verdict="wrong"] { background: #b91c1c; }
+    button[data-verdict="unsure"] { background: #a16207; }
+    .summary { padding: 20px; }
+    code { background: #1f2937; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <header class="page">
+    <h1>Locava Photo Search QA</h1>
+    <p>Run <code>2026-06-06T17-35-04-286Z</code> | Target <code>production</code> | Vision <code>on</code></p>
+    <p><strong>Verdict:</strong> NOT PRODUCTION READY</p>
+    <p>Hit rates — ≥4 valid images: 0% | all load: 0% | high-confidence match: 0%</p>
+  </header>
+  <div class="summary">
+    <p>Estimated provider calls: 0 | Estimated credits: 0 (exact cost unknown unless provider headers captured)</p>
+  </div>
+  
+      <section class="place" id="bingham-falls-stowe">
+        <header>
+          <h2>Bingham Falls — Stowe, VT</h2>
+          <p><strong>Query:</strong> Stowe VT, Bingham Falls</p>
+          <p><strong>Search query used:</strong> Stowe VT, Bingham Falls</p>
+          <p><strong>Provider:</strong> none | <strong>Status:</strong> fail</p>
+          <p><strong>Failures:</strong> api_error:HTTP 404, no_results, insufficient_valid_images:0&lt;4</p>
+        </header>
+        <div class="grid"><p>No images returned.</p></div>
+      </section>
+
+      <section class="place" id="moss-glen-falls-granville">
+        <header>
+          <h2>Moss Glen Falls — Granville, VT</h2>
+          <p><strong>Query:</strong> Granville VT, Moss Glen Falls</p>
+          <p><strong>Search query used:</strong> Granville VT, Moss Glen Falls</p>
+          <p><strong>Provider:</strong> none | <strong>Status:</strong> fail</p>
+          <p><strong>Failures:</strong> api_error:HTTP 404, no_results, insufficient_valid_images:0&lt;4</p>
+        </header>
+        <div class="grid"><p>No images returned.</p></div>
+      </section>
+
+      <section class="place" id="moss-glen-falls-stowe">
+        <header>
+          <h2>Moss Glen Falls — Stowe, VT</h2>
+          <p><strong>Query:</strong> Stowe VT, Moss Glen Falls</p>
+          <p><strong>Search query used:</strong> Stowe VT, Moss Glen Falls</p>
+          <p><strong>Provider:</strong> none | <strong>Status:</strong> fail</p>
+          <p><strong>Failures:</strong> api_error:HTTP 404, no_results, insufficient_valid_images:0&lt;4</p>
+        </header>
+        <div class="grid"><p>No images returned.</p></div>
+      </section>
+
+      <section class="place" id="texas-falls-hancock">
+        <header>
+          <h2>Texas Falls — Hancock, VT</h2>
+          <p><strong>Query:</strong> Hancock VT, Texas Falls</p>
+          <p><strong>Search query used:</strong> Hancock VT, Texas Falls</p>
+          <p><strong>Provider:</strong> none | <strong>Status:</strong> fail</p>
+          <p><strong>Failures:</strong> api_error:HTTP 404, no_results, insufficient_valid_images:0&lt;4</p>
+        </header>
+        <div class="grid"><p>No images returned.</p></div>
+      </section>
+
+      <section class="place" id="warren-falls-warren">
+        <header>
+          <h2>Warren Falls — Warren, VT</h2>
+          <p><strong>Query:</strong> Warren VT, Warren Falls</p>
+          <p><strong>Search query used:</strong> Warren VT, Warren Falls</p>
+          <p><strong>Provider:</strong> none | <strong>Status:</strong> fail</p>
+          <p><strong>Failures:</strong> api_error:HTTP 404, no_results, insufficient_valid_images:0&lt;4</p>
+        </header>
+        <div class="grid"><p>No images returned.</p></div>
+      </section>
+  <script>
+    document.querySelectorAll('.review-buttons button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const card = btn.closest('.card');
+        if (!card) return;
+        const label = card.querySelector('.meta');
+        const existing = label.querySelector('.manual-verdict');
+        if (existing) existing.remove();
+        const div = document.createElement('div');
+        div.className = 'manual-verdict';
+        div.innerHTML = '<strong>Manual verdict:</strong> ' + btn.dataset.verdict;
+        label.appendChild(div);
+      });
+    });
+  </script>
+</body>
+</html>

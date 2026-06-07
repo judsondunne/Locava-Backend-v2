@@ -564,7 +564,13 @@ export function isGenericSportsPitch(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
   const leisure = tag(tags, "leisure");
   if (leisure === "sports_centre" || leisure === "stadium") {
-    return !hasMeaningfulPreviewName(doc) && !hasOsmNameTag(tags);
+    if (hasMeaningfulPreviewName(doc) || hasOsmNameTag(tags)) return false;
+    return true;
+  }
+  if (leisure === "pitch" || leisure === "track") {
+    if (hasTag(tags, "sport") && (doc.warnings?.includes("v2_generated_outdoor_name") || hasStrongUnnamedOutdoorCategory(tags))) {
+      return false;
+    }
   }
   if (leisure !== "pitch" && leisure !== "track") return false;
   if (hasTourismHistoricLandmarkException(tags)) return false;
@@ -616,7 +622,90 @@ export function isPrivateOrGenericPool(doc: PbfCopierPreviewDoc): boolean {
   return false;
 }
 
+function looksLikeBroadcastCallSign(name: string): boolean {
+  return /\b[A-Z]{2,5}-(?:AM|FM|TV)\b/.test(name) || /\btransmission tower\b/i.test(name);
+}
+
+export function isInstitutionalOrNonPublicLibrary(doc: PbfCopierPreviewDoc): boolean {
+  const n = displayName(doc).toLowerCase();
+  if (/\blittle free library\b/.test(n) || /\blittle library\b/.test(n)) return true;
+  if (
+    /\b(hospital|medical center|medical centre|veterans home|veterans affairs|correctional|prison|genealogical|health science|medical library|museum library|fly fishing library)\b/.test(
+      n
+    )
+  ) {
+    return true;
+  }
+  if (/\bstate library\b/.test(n) && !/\bpublic\b/.test(n)) return true;
+  if (/\b(senior activity center|senior center|justice center|justice centre|youth service bureau)\b/.test(n)) {
+    return true;
+  }
+  if (/\bregional library\b/.test(n) && /\b(state|southwest|southeast)\b/.test(n)) return true;
+  return false;
+}
+
+/** Senior/justice/waste/utility civic facilities — not Locava visit destinations. */
+export function isCivicInstitutionalNoise(doc: PbfCopierPreviewDoc): boolean {
+  const tags = doc.sourceTagSample ?? {};
+  if (hasTourismHistoricLandmarkException(tags) || hasTag(tags, "historic")) return false;
+
+  const n = displayName(doc).toLowerCase();
+  const amenity = tag(tags, "amenity");
+
+  if (amenity === "community_centre" || amenity === "social_facility") {
+    if (
+      /\b(senior center|senior centre|senior activity|community justice|justice center|justice centre|probation|parole|youth service)\b/.test(
+        n
+      )
+    ) {
+      return true;
+    }
+    if (tag(tags, "social_facility") === "outreach" && /\bjustice\b/.test(n)) return true;
+  }
+
+  if (/\b(transfer station|waste transfer|landfill|substation|propane supplier|amerigas)\b/.test(n)) {
+    return true;
+  }
+  if (tag(tags, "power") === "substation") return true;
+  if (tag(tags, "man_made") === "monitoring_station" || hasTag(tags, "monitoring:water_level")) return true;
+  if (tag(tags, "operator:type") === "government" && tag(tags, "man_made") === "monitoring_station") return true;
+
+  if (amenity === "post_office" && /\bups store\b/.test(n)) return true;
+
+  return false;
+}
+
+export function isTelecomOrUtilityTower(doc: PbfCopierPreviewDoc): boolean {
+  const tags = doc.sourceTagSample ?? {};
+  if (hasTourismHistoricLandmarkException(tags) || hasTag(tags, "historic")) return false;
+
+  const n = displayName(doc);
+  if (looksLikeBroadcastCallSign(n)) return true;
+  if (/\b(cell tower|radio tower|broadcast tower|transmission tower|transmission line|kv transmission)\b/i.test(n)) {
+    return true;
+  }
+
+  const manMade = tag(tags, "man_made");
+  if (manMade === "lighthouse") return false;
+  if (manMade === "tower" && (tag(tags, "tower:type") === "observation" || tag(tags, "tourism") === "viewpoint")) {
+    return false;
+  }
+  if (
+    manMade &&
+    ["tower", "mast", "communications_tower", "antenna", "monitoring_station", "utility_pole", "surveillance"].includes(
+      manMade
+    )
+  ) {
+    return true;
+  }
+
+  if (tag(tags, "tower:type") === "communication" || hasTag(tags, "communication:mobile_phone")) return true;
+  return false;
+}
+
 export function isUtilityInfrastructure(doc: PbfCopierPreviewDoc): boolean {
+  if (isTelecomOrUtilityTower(doc)) return true;
+
   const tags = doc.sourceTagSample ?? {};
   if (tag(tags, "emergency") === "fire_hydrant") return true;
   if (tag(tags, "man_made") === "manhole") return true;
@@ -800,6 +889,11 @@ export function isGeologicalLabelWithoutVisitorContext(
     natural === "cape" ||
     tag(tags, "place") === "peak";
   if (!isGeo) return false;
+
+  const named = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
+  if (natural === "peak" && named && (hasTag(tags, "ele") || hasTag(tags, "wikidata"))) {
+    return false;
+  }
 
   if (doc.destinationGroupId || doc.attachedToRouteId) return false;
   if (tag(tags, "tourism") === "viewpoint") return false;
@@ -1046,6 +1140,8 @@ export function isLocavaVisitorBusinessDestination(doc: PbfCopierPreviewDoc): bo
 
   const amenity = tag(tags, "amenity");
   if (amenity && VISITOR_BUSINESS_AMENITIES.has(amenity)) {
+    if (isCivicInstitutionalNoise(doc)) return false;
+    if (amenity === "library" && isInstitutionalOrNonPublicLibrary(doc)) return false;
     if (amenity === "gym" || amenity === "fitness_centre") {
       return !isChainFitnessCenter(doc);
     }
@@ -1069,6 +1165,7 @@ export function isLocavaLocalRetailDestination(doc: PbfCopierPreviewDoc): boolea
   const tags = doc.sourceTagSample ?? {};
   const named = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
   if (!named || isSyntheticPreviewLabel(doc)) return false;
+  if (tag(tags, "amenity") === "post_office") return false;
 
   const shop = tag(tags, "shop");
   if (!shop) return false;
@@ -1241,7 +1338,10 @@ export function isProtectedLocavaDestination(doc: PbfCopierPreviewDoc): boolean 
   if (tag(tags, "tourism") === "viewpoint" || tag(tags, "tourism") === "picnic_site") return true;
   if (tag(tags, "tourism") === "museum" || tag(tags, "tourism") === "gallery") return true;
   if (tag(tags, "tourism") === "camp_site" && (hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc))) return true;
-  if (tag(tags, "amenity") === "theatre" || tag(tags, "amenity") === "library" || tag(tags, "amenity") === "college" || tag(tags, "amenity") === "university") return true;
+  if (tag(tags, "amenity") === "theatre" || tag(tags, "amenity") === "college" || tag(tags, "amenity") === "university") {
+    return true;
+  }
+  if (tag(tags, "amenity") === "library" && !isInstitutionalOrNonPublicLibrary(doc)) return true;
   if (tag(tags, "amenity") === "arts_centre" && hasMeaningfulPreviewName(doc)) return true;
   if (tag(tags, "leisure") === "park" && hasMeaningfulPreviewName(doc)) return true;
   if (tag(tags, "leisure") === "nature_reserve" && hasMeaningfulPreviewName(doc)) return true;
@@ -1269,9 +1369,14 @@ function namedOutdoorFeature(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
   const named = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
   if (!named) return false;
+  if (isTelecomOrUtilityTower(doc) || isCivicInstitutionalNoise(doc)) return false;
+  if (tag(tags, "man_made") === "monitoring_station" || hasTag(tags, "monitoring:water_level")) return false;
   if (isHikingTrailPreviewDoc(doc) || doc.warnings?.includes("v2_hiking_trail_merged")) return true;
   const n = displayName(doc);
-  if (/\b(notch|pond|lake|spring|mount|mountain|head|falls|waterfall)\b/i.test(n)) return true;
+  if (/\b(notch|pond|spring|mount|mountain|head|falls|waterfall|summit|peak)\b/i.test(n)) return true;
+  if (/\b(hill|lake)\b/i.test(n) && (tag(tags, "natural") === "peak" || tag(tags, "natural") === "water")) {
+    return true;
+  }
   if (tag(tags, "natural") === "spring" || tag(tags, "natural") === "water") return true;
   if (named && tag(tags, "place") === "island" && tag(tags, "tourism")) return true;
   return false;
@@ -1279,6 +1384,14 @@ function namedOutdoorFeature(doc: PbfCopierPreviewDoc): boolean {
 
 export function matchLocavaProductRules(doc: PbfCopierPreviewDoc): LocavaProductFilterMatch | null {
   if (isProtectedLocavaDestination(doc)) return null;
+
+  const tags = doc.sourceTagSample ?? {};
+  if (tag(tags, "amenity") === "library" && isInstitutionalOrNonPublicLibrary(doc)) {
+    return { key: "public_service", reason: "institutional library, not public discovery spot" };
+  }
+  if (isCivicInstitutionalNoise(doc)) {
+    return { key: "public_service", reason: "civic/institutional facility, not Locava discovery spot" };
+  }
 
   if (isAddressOnlyLeak(doc)) {
     return { key: "address_only", reason: "address-only record" };
@@ -1353,7 +1466,6 @@ export function matchLocavaProductRules(doc: PbfCopierPreviewDoc): LocavaProduct
     return { key: "age_restricted_retail", reason: "age-restricted retail, not default Locava spot" };
   }
 
-  const tags = doc.sourceTagSample ?? {};
   const shop = tag(tags, "shop");
   if (shop === "cannabis") {
     return { key: "age_restricted_retail", reason: "age-restricted retail, not default Locava spot" };

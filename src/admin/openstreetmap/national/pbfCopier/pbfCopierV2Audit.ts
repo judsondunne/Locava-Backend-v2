@@ -458,6 +458,7 @@ export async function runPbfCopierV2Audit(
   const filtered = runPbfCopierV2Pipeline({
     rawItems: scan.items,
     qualitySettings,
+    skipHeavyGrouping: scan.items.length > 8_000,
   });
 
   const visibleById = new Map<string, PbfQualityFilteredPreviewDoc>();
@@ -467,9 +468,10 @@ export async function runPbfCopierV2Audit(
     else visibleById.set(item.id, item);
   }
 
-  const routesByName = buildRouteIndex(filtered.items.filter((d) => d.kind === "unexplored_route"));
   const allRoutes = filtered.items.filter((d) => d.kind === "unexplored_route");
+  const routesByName = buildRouteIndex(allRoutes);
 
+  const detailCap = options.limit ?? 200;
   const acceptedSpots: PbfAuditSpotRecord[] = [];
   const rejectedSpots: PbfAuditRejectedSpotRecord[] = [];
   const acceptedRoutes: PbfAuditRouteRecord[] = [];
@@ -501,6 +503,7 @@ export async function runPbfCopierV2Audit(
         totalAcceptedRoutes += 1;
         bumpTagFamily(byTagFamily, tagFamily, true);
         if (acceptedRoutes.length < detailCap) {
+        const includeFrag = acceptedRoutes.length < Math.min(detailCap, 40);
         acceptedRoutes.push({
           osmType: doc.osmType as "way" | "relation",
           osmId: doc.osmId,
@@ -509,7 +512,17 @@ export async function runPbfCopierV2Audit(
           tagFamily,
           sourceTags: trimTags(tags, includeRawTags),
           geometryStats: buildGeometryStats(doc),
-          fragmentationHints: buildFragmentationHints(doc, allRoutes, routesByName),
+          fragmentationHints: includeFrag
+            ? buildFragmentationHints(doc, allRoutes, routesByName)
+            : {
+                mayBeFragmented: Boolean(doc.warnings?.includes("v2_hiking_trail_merged") === false && (doc.routeLineSegments?.length ?? 0) > 1),
+                splitByIntersectionGrouping: false,
+                mergedFromSegments: Boolean(doc.warnings?.includes("v2_hiking_trail_merged")),
+                segmentSourceCount: doc.sourceKeys?.length ?? 1,
+                touchesOtherWays: [],
+                sameNameNearbyWays: [],
+                relationParentIds: doc.osmType === "relation" ? [doc.osmId] : [],
+              },
           acceptReasons: inferAcceptReasonCodes(doc),
           filteredBy: doc.filteredBy,
           filterReason: doc.filterReason,
@@ -538,7 +551,10 @@ export async function runPbfCopierV2Audit(
           sourceTags: trimTags(tags, includeRawTags),
           rejectReasons: mapQualityFilterToRejectCodes(doc.filteredBy, doc.filterReason),
           rejectStage: "quality_filter",
-          fragmentationHints: buildFragmentationHints(doc, allRoutes, routesByName),
+          fragmentationHints: {
+            mergedFromSegments: Boolean(doc.warnings?.includes("v2_hiking_trail_merged")),
+            segmentSourceCount: doc.sourceKeys?.length ?? 1,
+          },
           filteredBy: doc.filteredBy,
           filterReason: doc.filterReason,
         });
@@ -645,8 +661,6 @@ export async function runPbfCopierV2Audit(
   };
   const tileKeys = tilesForViewport(inventoryBbox, 14);
 
-  const perKindLimit = options.limit;
-  const detailCap = perKindLimit ?? 200;
   const limitations: string[] = [
     "Audit uses the same raw_osm scan + runPbfCopierV2Pipeline path as production full-run tiles.",
     "Classifier rejection detail is only available when sampleMode=locava_filtered.",
@@ -654,6 +668,9 @@ export async function runPbfCopierV2Audit(
     "Firestore writes are disabled; writePreview uses writeTarget=none.",
     "Trail merge/split diagnostics are inferred from sourceKeys, warnings, and endpoint proximity — not from internal graph state.",
   ];
+  if (scan.items.length > 8_000) {
+    limitations.push("Large bbox: skipped heavy outdoor grouping pass for audit speed (accept/reject counts are pre-grouping).");
+  }
   if (scan.stats.rawObjectsScanned >= (options.maxRawObjectsScanned ?? Infinity)) {
     limitations.push("PBF scan stopped early due to maxRawObjectsScanned cap.");
   }

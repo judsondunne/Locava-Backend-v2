@@ -255,6 +255,27 @@ export function looksPotentiallyInteresting(tags: Record<string, string>): boole
 }
 
 export function looksPotentiallyBoring(tags: Record<string, string>): boolean {
+  const amenity = tag(tags, "amenity");
+  const name = tags.name?.trim() || tags["name:en"]?.trim() || "";
+  if (
+    amenity === "library" &&
+    (tag(tags, "library:type") === "public" || /\bpublic library\b/i.test(name))
+  ) {
+    return false;
+  }
+  if (amenity === "community_centre" && tag(tags, "community_centre") === "cultural_centre") {
+    return false;
+  }
+
   const family = inferOsmTagFamily(tags);
-  return ["government_civic", "industrial_warehouse"].includes(family);
+  if (["government_civic", "industrial_warehouse"].includes(family)) return true;
+
+  if (/\b[A-Z]{2,5}-(?:AM|FM|TV)\b/.test(name) || /\btransmission tower\b/i.test(name)) return true;
+
+  const manMade = tag(tags, "man_made");
+  if (manMade && ["tower", "mast", "communications_tower", "antenna", "utility_pole"].includes(manMade)) {
+    return true;
+  }
+
+  return false;
 }

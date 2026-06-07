@@ -27,6 +27,7 @@ import { searchPlacesIndexService } from "../services/surfaces/search-places-ind
 import { attachErrorBufferToLogger } from "../observability/error-ring-buffer.js";
 import { cacheMetricsCollector } from "../observability/cache-metrics.collector.js";
 import { registerAdminRoutes } from "../routes/admin.routes.js";
+import { registerPlacesVisualizerRoutes } from "../routes/dashboard/places-visualizer.routes.js";
 import { registerInternalHealthDashboardRoutes } from "../routes/internal/health-dashboard.routes.js";
 import { registerInternalOpsRoutes } from "../routes/internal/internal-ops.routes.js";
 import { registerUserChatsCollectionsPurgeRoutes } from "../routes/internal/user-chats-collections-purge.routes.js";
@@ -865,6 +866,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerInventoryAdminRoutes);
   app.register(registerOpenStreetMapAdminRoutes);
   app.register(registerInternalHealthDashboardRoutes);
+  app.register(registerPlacesVisualizerRoutes);
   app.register(registerAdminRoutes);
   app.register(registerPublicExpoPushRoutes);
   app.register(registerPublicPbfCopierRoutes);

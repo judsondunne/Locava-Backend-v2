@@ -217,6 +217,10 @@ const EnvSchema = z.object({
   ENABLE_PLACE_CANDIDATE_DEV_PAGE: z.string().optional(),
   /** Dev-only Locava State Content Factory dashboard at GET /dev/state-content-factory. */
   ENABLE_STATE_CONTENT_FACTORY_DEV_PAGE: z.string().optional(),
+  /** Optional Serper API key for places visualizer image search. */
+  SERPER_API_KEY: z.string().optional(),
+  /** Optional Bing Image Search API key for places visualizer image search. */
+  BING_SEARCH_API_KEY: z.string().optional(),
   /** Separate guard for staging-only Firestore writes from State Content Factory. */
   STATE_CONTENT_FACTORY_ALLOW_STAGING_WRITES: z.string().optional(),
   /** When true, allows production inventory writes with explicit confirmation phrase. */
@@ -353,6 +357,16 @@ export function backendV2RepoGeminiApiKeyMeta(cwd: string = process.cwd()): {
     return { configured: true, source: "GOOGLE_GEMINI_API_KEY", keyLength: gg.length, bothGeminiVarsSet: both };
   }
   return { configured: false, source: null, keyLength: 0, bothGeminiVarsSet: false };
+}
+
+/** Resolved Gemini API key from Backendv2 `./.env` → `./.env.local` (no `process.env` shell override). */
+export function backendV2RepoGeminiApiKey(cwd: string = process.cwd()): string | null {
+  const meta = backendV2RepoGeminiApiKeyMeta(cwd);
+  if (!meta.configured || !meta.source) return null;
+  const m = mergeBackendV2RootEnvFilesOnly(cwd);
+  const raw = m[meta.source];
+  const k = stripWrappingQuotes(raw)?.trim() || "";
+  return k || null;
 }
 
 /** Same precedence as `wikiSpotCurationGeminiApiKeyMeta()` but from full monorepo layered files (see `mergeCandidateEnvFiles`). */

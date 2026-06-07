@@ -3,7 +3,7 @@
  */
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 import { isSyntheticPreviewLabel } from "./pbfCopierV2MountainQuality.js";
-import { hasOsmNameTag, hasMeaningfulPreviewName } from "./pbfCopierV2QualityFilters.js";
+import { hasMeaningfulPreviewName, hasOsmNameTag } from "./pbfCopierV2PreviewName.js";
 
 function tag(tags: Record<string, string>, key: string): string | undefined {
   return tags[key]?.trim().toLowerCase();
@@ -20,9 +20,25 @@ export type GeneratedOutdoorName = {
   reason: string;
 };
 
+function sportCourtLabel(sport: string | undefined): string | null {
+  if (!sport) return null;
+  const map: Record<string, string> = {
+    tennis: "Tennis Court",
+    basketball: "Basketball Court",
+    pickleball: "Pickleball Court",
+    soccer: "Soccer Field",
+    baseball: "Baseball Field",
+    softball: "Softball Field",
+    volleyball: "Volleyball Court",
+    skateboard: "Skate Park",
+    multi: "Sports Court",
+  };
+  return map[sport] ?? null;
+}
+
 const GENERATED_NAME_BY_TAG: Array<{
   match: (tags: Record<string, string>) => boolean;
-  displayName: string;
+  displayName: string | ((tags: Record<string, string>) => string);
   category: string;
   activity: string;
   reason: string;
@@ -63,21 +79,53 @@ const GENERATED_NAME_BY_TAG: Array<{
     reason: "unnamed_playground",
   },
   {
-    match: (t) =>
-      tag(t, "leisure") === "pitch" ||
-      tag(t, "leisure") === "sports_centre" ||
-      Boolean(tag(t, "sport")),
-    displayName: "Sports Court",
-    category: "sports",
-    activity: "sports",
-    reason: "unnamed_sports_court",
-  },
-  {
     match: (t) => tag(t, "leisure") === "slipway" || tag(t, "harbour") === "yes",
     displayName: "Boat Launch",
     category: "boating",
     activity: "boating",
     reason: "unnamed_boat_launch",
+  },
+  {
+    match: (t) => tag(t, "amenity") === "boat_ramp",
+    displayName: "Boat Launch",
+    category: "boating",
+    activity: "boating",
+    reason: "unnamed_boat_ramp",
+  },
+  {
+    match: (t) => tag(t, "leisure") === "pitch" || tag(t, "leisure") === "track",
+    displayName: (t) => sportCourtLabel(tag(t, "sport")) ?? "Sports Field",
+    category: "sports",
+    activity: "sports",
+    reason: "unnamed_sports_field",
+  },
+  {
+    match: (t) => tag(t, "leisure") === "sports_centre" || Boolean(tag(t, "sport")),
+    displayName: (t) => sportCourtLabel(tag(t, "sport")) ?? "Sports Court",
+    category: "sports",
+    activity: "sports",
+    reason: "unnamed_sports_court",
+  },
+  {
+    match: (t) => tag(t, "leisure") === "skate_park",
+    displayName: "Skate Park",
+    category: "skate_park",
+    activity: "skateboarding",
+    reason: "unnamed_skate_park",
+  },
+  {
+    match: (t) => tag(t, "amenity") === "shelter" || tag(t, "amenity") === "picnic_shelter",
+    displayName: (t) => (tag(t, "amenity") === "picnic_shelter" ? "Picnic Shelter" : "Shelter"),
+    category: "shelter",
+    activity: "hiking",
+    reason: "unnamed_shelter",
+  },
+  {
+    match: (t) => tag(t, "building") === "pavilion",
+    displayName: "Pavilion",
+    category: "pavilion",
+    activity: "picnic",
+    reason: "unnamed_pavilion",
   },
   {
     match: (t) => tag(t, "waterway") === "waterfall" || tag(t, "natural") === "waterfall",
@@ -92,6 +140,13 @@ const GENERATED_NAME_BY_TAG: Array<{
     category: "spring",
     activity: "hiking",
     reason: "unnamed_spring",
+  },
+  {
+    match: (t) => tag(t, "natural") === "peak" || tag(t, "place") === "peak",
+    displayName: "Summit",
+    category: "peak",
+    activity: "hiking",
+    reason: "unnamed_peak",
   },
   {
     match: (t) => tag(t, "highway") === "trailhead",
@@ -127,7 +182,7 @@ const GENERATED_NAME_BY_TAG: Array<{
   },
   {
     match: (t) => tag(t, "leisure") === "park" || tag(t, "leisure") === "nature_reserve",
-    displayName: "Park",
+    displayName: (t) => (tag(t, "leisure") === "nature_reserve" ? "Nature Reserve" : "Park"),
     category: "park",
     activity: "park",
     reason: "unnamed_park",
@@ -136,7 +191,14 @@ const GENERATED_NAME_BY_TAG: Array<{
 
 export function inferGeneratedOutdoorName(tags: Record<string, string>): GeneratedOutdoorName | null {
   for (const rule of GENERATED_NAME_BY_TAG) {
-    if (rule.match(tags)) return rule;
+    if (!rule.match(tags)) continue;
+    const displayName = typeof rule.displayName === "function" ? rule.displayName(tags) : rule.displayName;
+    return {
+      displayName,
+      category: rule.category,
+      activity: rule.activity,
+      reason: rule.reason,
+    };
   }
   return null;
 }
@@ -149,11 +211,13 @@ export function shouldRejectUnnamedBusinessOrBuilding(tags: Record<string, strin
   if (hasStrongUnnamedOutdoorCategory(tags)) return false;
   if (tag(tags, "shop") || tag(tags, "office") || tag(tags, "craft")) return true;
   const building = tag(tags, "building");
-  if (building && !["yes", "roof"].includes(building)) return true;
+  if (building && !["yes", "roof", "pavilion"].includes(building)) return true;
   const amenity = tag(tags, "amenity");
   if (
     amenity &&
-    !["parking", "bench", "waste_basket", "drinking_water", "toilets", "shelter"].includes(amenity)
+    !["parking", "bench", "waste_basket", "drinking_water", "toilets", "shelter", "picnic_shelter", "boat_ramp"].includes(
+      amenity
+    )
   ) {
     return true;
   }

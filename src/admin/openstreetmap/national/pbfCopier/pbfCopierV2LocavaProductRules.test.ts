@@ -123,7 +123,7 @@ describe("pbfCopierV2LocavaProductRules", () => {
     expect(result.locavaProductSummary?.keptLocalRetail).toBeGreaterThanOrEqual(1);
   });
 
-  it("hides random peaks and utility leaks; keeps trail-linked peaks", () => {
+  it("keeps named peaks with elevation; hides utility leaks and private pools", () => {
     const items = [
       mkDoc({
         displayName: "Bald Hill",
@@ -138,9 +138,19 @@ describe("pbfCopierV2LocavaProductRules", () => {
         lng: -72.81,
       }),
       mkDoc({
+        displayName: "Unnamed Bump",
+        tags: { natural: "peak" },
+        osmId: 36,
+      }),
+      mkDoc({
         displayName: "Hydrant",
         tags: { emergency: "fire_hydrant" },
         osmId: 32,
+      }),
+      mkDoc({
+        displayName: "WRUV-FM (Burlington)",
+        tags: { man_made: "tower", name: "WRUV-FM (Burlington)" },
+        osmId: 37,
       }),
       mkDoc({
         displayName: "Backyard Pool",
@@ -153,27 +163,80 @@ describe("pbfCopierV2LocavaProductRules", () => {
         osmId: 34,
       }),
       mkDoc({
-        displayName: "Appalachian Trail",
-        kind: "unexplored_route",
-        warnings: ["v2_hiking_trail_merged"],
-        tags: { name: "Appalachian Trail", route: "hiking" },
-        osmId: 35,
-        lat: 44.54,
-        lng: -72.81,
-        routeLineCoordinates: [
-          { lat: 44.54, lng: -72.81 },
-          { lat: 44.541, lng: -72.809 },
-        ],
+        displayName: "Fanny Allen Hospital Library",
+        tags: { amenity: "library", name: "Fanny Allen Hospital Library" },
+        osmId: 38,
+      }),
+      mkDoc({
+        displayName: "Norman Williams Public Library",
+        tags: { amenity: "library", name: "Norman Williams Public Library" },
+        osmId: 39,
       }),
     ];
     const result = applyPbfQualityFilters(items, DEFAULT_PBF_QUALITY_FILTER_SETTINGS);
-    expect(result.items.find((d) => d.osmId === 30)?.filteredOut).toBe(true);
+    expect(result.items.find((d) => d.osmId === 30)?.filteredOut).toBe(false);
+    expect(result.items.find((d) => d.osmId === 31)?.filteredOut).toBe(false);
+    expect(result.items.find((d) => d.osmId === 36)?.filteredOut).toBe(true);
     expect(result.items.find((d) => d.osmId === 32)?.filteredOut).toBe(true);
+    expect(result.items.find((d) => d.osmId === 37)?.filteredOut).toBe(true);
     expect(result.items.find((d) => d.osmId === 33)?.filteredOut).toBe(true);
     expect(result.items.find((d) => d.osmId === 34)?.filteredOut).toBe(false);
+    expect(result.items.find((d) => d.osmId === 38)?.filteredOut).toBe(true);
+    expect(result.items.find((d) => d.osmId === 39)?.filteredOut).toBe(false);
     expect(result.locavaProductSummary?.hiddenGeologicalLabels).toBeGreaterThanOrEqual(1);
-    expect(result.locavaProductSummary?.hiddenUtilityLeaks).toBeGreaterThanOrEqual(1);
+    expect(result.locavaProductSummary?.hiddenUtilityLeaks).toBeGreaterThanOrEqual(2);
     expect(result.locavaProductSummary?.hiddenPrivatePools).toBeGreaterThanOrEqual(1);
+  });
+
+  it("hides civic institutional noise but keeps public libraries and businesses", () => {
+    const items = [
+      mkDoc({
+        displayName: "Champlain Senior Center",
+        tags: { amenity: "community_centre", name: "Champlain Senior Center" },
+        osmId: 50,
+      }),
+      mkDoc({
+        displayName: "Essex Community Justice Center",
+        tags: { amenity: "community_centre", name: "Essex Community Justice Center" },
+        osmId: 51,
+      }),
+      mkDoc({
+        displayName: "Lake Champlain at Burlington",
+        tags: {
+          name: "Lake Champlain at Burlington",
+          man_made: "monitoring_station",
+          "monitoring:water_level": "yes",
+          "operator:type": "government",
+        },
+        osmId: 52,
+      }),
+      mkDoc({
+        displayName: "The UPS Store",
+        tags: { amenity: "post_office", shop: "copyshop", name: "The UPS Store" },
+        osmId: 53,
+      }),
+      mkDoc({
+        displayName: "Little Free Library",
+        tags: { amenity: "library", name: "Little Free Library" },
+        osmId: 54,
+      }),
+      mkDoc({
+        displayName: "Norman Williams Public Library",
+        tags: { amenity: "library", name: "Norman Williams Public Library", "library:type": "public" },
+        osmId: 55,
+      }),
+      mkDoc({
+        displayName: "Worthy Burger",
+        tags: { amenity: "restaurant", name: "Worthy Burger" },
+        osmId: 56,
+      }),
+    ];
+    const result = applyPbfQualityFilters(items, DEFAULT_PBF_QUALITY_FILTER_SETTINGS);
+    for (const osmId of [50, 51, 52, 53, 54]) {
+      expect(result.items.find((d) => d.osmId === osmId)?.filteredOut).toBe(true);
+    }
+    expect(result.items.find((d) => d.osmId === 55)?.filteredOut).toBe(false);
+    expect(result.items.find((d) => d.osmId === 56)?.filteredOut).toBe(false);
   });
 
   it("classifies named restaurants as food", () => {

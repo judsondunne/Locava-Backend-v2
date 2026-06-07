@@ -104,6 +104,25 @@ export function renderOpenStreetMapPbfCopierV2Page(): string {
     #purgeUndiscoveredModal.open{display:flex}
     .purge-modal-inner{background:#111827;border:3px solid #b91c1c;border-radius:14px;padding:22px 24px;max-width:520px;width:100%;box-shadow:0 20px 50px rgba(0,0,0,.5)}
     .purge-modal-inner input[type=text],.purge-modal-inner input[type=password]{width:100%;margin:8px 0 12px;padding:10px 12px;font-size:14px}
+    .asset-preview-panel{border-color:#166534;background:linear-gradient(180deg,#052e1633 0%,#111827 100%)}
+    .asset-preview-panel h2{color:#86efac;text-transform:none;letter-spacing:0;font-size:15px}
+    .asset-photo-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:10px}
+    .asset-photo-card{border:1px solid #334155;border-radius:10px;background:#020617;overflow:hidden}
+    .asset-photo-thumb{aspect-ratio:4/3;background:#1e293b;position:relative;overflow:hidden}
+    .asset-photo-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .asset-photo-body{padding:8px 10px 10px;font-size:11px;line-height:1.4}
+    .asset-photo-rank{position:absolute;top:6px;left:6px;background:rgba(2,6,23,.85);border:1px solid #334155;border-radius:999px;padding:2px 7px;font-size:10px;font-weight:700}
+    .asset-spot-card{border:1px solid #334155;border-radius:12px;background:#0b1220;padding:12px 14px;margin:12px 0}
+    .asset-spot-head{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+    .asset-spot-head h3{margin:0;font-size:14px;color:#e2e8f0;text-transform:none;letter-spacing:0}
+    .asset-conf{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase}
+    .asset-conf.high{border:1px solid #166534;color:#86efac;background:#052e16}
+    .asset-conf.medium{border:1px solid #854d0e;color:#fcd34d;background:#422006}
+    .asset-conf.low{border:1px solid #b91c1c;color:#fca5a5;background:#450a0a}
+    .asset-conf.skipped{border:1px solid #475569;color:#cbd5e1;background:#1e293b}
+    .asset-warn{border:1px solid #854d0e;background:#422006;color:#fcd34d;border-radius:8px;padding:8px 10px;font-size:11px;margin:8px 0}
+    .asset-empty{border:1px dashed #334155;border-radius:10px;padding:20px;text-align:center;color:#94a3b8;font-size:12px}
+    button.tab.disabled{opacity:.45;cursor:not-allowed}
   </style>
 </head>
 <body>
@@ -228,26 +247,26 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
   <div class="panel">
     <h2>Run mode</h2>
     <div class="row">
-      <label><input type="radio" name="runMode" id="modeBbox" value="bbox" checked/> BBox Preview Mode (map)</label>
-      <label><input type="radio" name="runMode" id="modeFullVermont" value="full_vermont"/> Full Vermont File Mode</label>
+      <label><input type="radio" name="runMode" id="modeBbox" value="bbox"/> BBox Preview Mode (map)</label>
+      <label><input type="radio" name="runMode" id="modeFullVermont" value="full_vermont" checked/> Full Vermont File Mode</label>
     </div>
     <p class="muted" id="runModeHelp">Scan the current map viewport only — same algorithm as before.</p>
   </div>
 
-  <div class="panel" id="fullRunPanel" style="display:none">
+  <div class="panel" id="fullRunPanel">
     <h2>Full Vermont Run</h2>
     <p class="muted">Processes the whole Vermont PBF in geographic tiles with checkpoint/resume. Each tile re-reads the entire PBF (slow). Enable <strong>Limit total spots</strong> for a quick test run — default 100, then auto-stops.</p>
     <div class="row">
       <label>Write mode
         <select id="fullRunMode">
-          <option value="dry_run" selected>Dry run (no DB writes)</option>
-          <option value="write_test">Write test (emulator)</option>
+          <option value="dry_run">Dry run (no DB writes)</option>
+          <option value="write_test" selected>Write test (emulator)</option>
           <option value="write_prod">Write prod (explicit)</option>
         </select>
       </label>
-      <label><input type="checkbox" id="fullRunLimitSpots"/> Limit total spots (stop when reached)</label>
+      <label><input type="checkbox" id="fullRunLimitSpots" checked/> Limit total spots (stop when reached)</label>
       <label>Max spots
-        <input id="fullRunMaxSpots" type="number" min="1" value="100" disabled style="width:80px"/>
+        <input id="fullRunMaxSpots" type="number" min="1" value="100" style="width:80px"/>
       </label>
       <label>Tile step °
         <input id="fullRunTileStep" type="number" min="0.2" max="1" step="0.1" value="0.4" style="width:64px"/>
@@ -285,6 +304,17 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
     <div class="stat-grid" id="fullRunStatsGrid"></div>
     <p id="fullRunValidation" class="muted" style="margin-top:8px"></p>
     <p id="fullRunRunId" class="muted"></p>
+  </div>
+
+  <div class="panel asset-preview-panel" id="assetPreviewPanel" style="border-width:3px;padding:22px 24px;text-align:center">
+    <h2 style="font-size:22px;margin:0 0 8px;color:#86efac">📷 Photo preview moved to its own page</h2>
+    <p class="muted" style="max-width:560px;margin:0 auto 18px;font-size:14px;line-height:1.5">
+      Scans <strong>vermont-latest.osm.pbf</strong> live (tile-by-tile, same V2 pipeline) and curates photos per spot —
+      no saved run or dry-run artifacts needed.
+    </p>
+    <a href="/admin/openstreetmap/pbf-photo-preview" style="display:inline-block;background:#16a34a;color:#fff;font-weight:800;font-size:17px;padding:14px 28px;border-radius:12px;text-decoration:none;box-shadow:0 4px 18px rgba(22,163,74,.4)">
+      Open PBF Photo Preview →
+    </a>
   </div>
 
   <div class="panel" id="mapPanel">
@@ -445,6 +475,7 @@ let previewDocsRaw = [];
 let scanCacheId = null;
 let fullRunId = null;
 let fullRunPollTimer = null;
+let lastAssetPreviewChunkCount = 0;
 let fullRunWritePollTimer = null;
 let undiscoveredCountsPollTimer = null;
 let clientWriteConsoleLines = [];
@@ -2342,6 +2373,10 @@ async function pollFullRunStatus() {
     }
     renderFullRunStats(json.data.run, json.data.writeReadyCounts);
     renderWriteStatusFromRun(json.data.run);
+    const chunksDone = (json.data.run.completedChunkIds || []).length;
+    if (chunksDone !== lastAssetPreviewChunkCount) {
+      lastAssetPreviewChunkCount = chunksDone;
+    }
     if (json.data.run && json.data.run.phase !== "writing") {
       stopFullRunWritePolling();
     }
@@ -2368,6 +2403,8 @@ async function startFullVermontRun() {
   const json = await res.json();
   if (!json.ok) { setStatus("error", json.error?.message || "Start failed"); return; }
   fullRunId = json.data.run.runId;
+  try { sessionStorage.setItem("pbfFullRunId", fullRunId); } catch (_e) { /* ignore */ }
+  syncAssetPreviewRunSelect();
   renderFullRunStats(json.data.run, json.data.writeReadyCounts || null);
   const limitMsg = body.maxTotalSpots
     ? " — stops after ~" + body.maxTotalSpots.toLocaleString() + " visible spots"
@@ -2461,6 +2498,299 @@ async function fullRunWrite(opts) {
     setStatus("error", "Write failed: " + (err && err.message ? err.message : String(err)));
   } finally {
     stopFullRunWritePolling();
+  }
+}
+
+let assetPreviewAbort = null;
+let assetPreviewLoading = false;
+
+function assetConfClass(status, confidence) {
+  if (status === "found" || status === "ready") return "high";
+  if (status === "skipped" || status === "error" || status === "lookup_failed") return "skipped";
+  if (status === "low_confidence" || status === "no_good_match" || status === "not_found") return "low";
+  if (confidence === "high") return "high";
+  if (confidence === "medium") return "medium";
+  return "low";
+}
+
+function renderAssetPreviewPhotoCard(asset) {
+  const caption = escapeHtml(asset.caption || asset.title || "Image result");
+  const sourceName = escapeHtml(asset.sourceName || asset.sourceDomain || "source");
+  const sourceUrl = escapeHtml(asset.backlinkUrl || asset.sourceUrl || "#");
+  const imageUrl = escapeHtml(asset.imageUrl || "");
+  const conf = escapeHtml(asset.assetMatchConfidence || "low");
+  const domain = escapeHtml(asset.sourceDomain || asset.sourceName || "");
+  const vision = asset.visionJudgment;
+  const visionLine = vision && vision.automated
+    ? '<div class="muted" style="margin-top:6px;font-size:10px">Gemini: ' +
+      escapeHtml(vision.assetType) + " · place " + vision.placeMatchScore + "/5 · quality " +
+      vision.visualQualityScore + "/5 · " + escapeHtml(vision.shortReason) + "</div>"
+    : "";
+  return '<article class="asset-photo-card">' +
+    '<div class="asset-photo-thumb">' +
+      '<span class="asset-photo-rank">#' + asset.rank + " · " + conf + "</span>" +
+      '<img src="' + imageUrl + '" alt="' + caption + '" loading="lazy" onerror="this.parentElement.innerHTML=\\'<div style=padding:24px;text-align:center;color:#64748b;font-size:11px>Preview unavailable</div>\\'"/>' +
+    "</div>" +
+    '<div class="asset-photo-body">' +
+      "<div>" + caption + "</div>" +
+      '<div class="muted" style="margin-top:4px">' + domain + '</div>' +
+      visionLine +
+      '<a href="' + sourceUrl + '" target="_blank" rel="noopener noreferrer" style="color:#93c5fd">↗ ' + sourceName + "</a>" +
+    "</div>" +
+  "</article>";
+}
+
+function renderAssetPreviewSpot(item) {
+  const preview = item.assetPreview || {};
+  const payload = item.writePayload && item.writePayload.location ? item.writePayload.location : {};
+  const town = payload.city || (item.sourceTagSample && item.sourceTagSample["addr:city"]) || "—";
+  const state = payload.state || (item.sourceTagSample && item.sourceTagSample["addr:state"]) || "—";
+  const address = payload.address || "—";
+  const lat = item.lat != null ? item.lat : (item.routeMarkerCoordinate && item.routeMarkerCoordinate.lat);
+  const lng = item.lng != null ? item.lng : (item.routeMarkerCoordinate && item.routeMarkerCoordinate.lng);
+  const status = preview.assetStatus || "no_good_match";
+  const topConf = preview.externalAssets && preview.externalAssets[0] ? preview.externalAssets[0].assetMatchConfidence : "low";
+  const warnings = (preview.warnings || []).map(function (w) {
+    return '<div class="asset-warn">⚠ ' + escapeHtml(w) + "</div>";
+  }).join("");
+  const photos = (preview.externalAssets || []).slice(0, 8).map(renderAssetPreviewPhotoCard).join("");
+  const activities = (item.activities || []).join(", ") || "—";
+  return '<section class="asset-spot-card">' +
+    '<div class="asset-spot-head">' +
+      "<h3>" + escapeHtml(item.displayName) + "</h3>" +
+      '<span class="asset-conf ' + assetConfClass(status, topConf) + '">' +
+        escapeHtml(status) + (preview.assetsReady ? " · assetsReady" : "") +
+      "</span>" +
+    "</div>" +
+    '<p class="muted" style="margin:6px 0">' +
+      escapeHtml(item.primaryActivity || "—") + " · " + escapeHtml(item.primaryCategory || "—") + " · " + escapeHtml(activities) +
+      "<br/>" + escapeHtml(item.osmType) + "/" + escapeHtml(String(item.osmId)) +
+      " · " + escapeHtml(String(lat)) + ", " + escapeHtml(String(lng)) +
+      "<br/>" + escapeHtml(address) + " · " + escapeHtml(town) + ", " + escapeHtml(state) +
+    "</p>" +
+    '<p class="muted" style="margin:6px 0"><strong>Query:</strong> <code>' + escapeHtml(preview.query || "—") + "</code>" +
+      (preview.querySpecificityScore != null ? " · specificity " + preview.querySpecificityScore : "") +
+      (preview.provider && preview.provider !== "none" ? " · via " + escapeHtml(preview.provider) : "") +
+    "</p>" +
+    warnings +
+    (preview.skipReason ? '<div class="asset-warn">Skipped: ' + escapeHtml(preview.skipReason) + "</div>" : "") +
+    (preview.lookupError ? '<div class="asset-warn">' + escapeHtml(preview.lookupError) + "</div>" : "") +
+    '<div class="asset-photo-grid">' + (photos || '<div class="asset-empty" style="grid-column:1/-1">No photo cards for this spot.</div>') + "</div>" +
+  "</section>";
+}
+
+function renderAssetPreviewProgress(progress, partial) {
+  partial = partial || {};
+  const rows = [
+    ["Spots loaded", partial.completed != null ? partial.completed + " / " + (progress.spotsLoaded || partial.total || 0) : (progress.spotsLoaded || 0)],
+    ["Query-ready pool", progress.photoQueryReady != null ? progress.photoQueryReady : "—"],
+    ["Lookups OK", progress.photoLookupsCompleted || 0],
+    ["Gemini", progress.geminiEnabled ? "on" : "off"],
+    ["Gemini judged", progress.geminiJudged != null ? progress.geminiJudged : "—"],
+    ["Gemini rejected", progress.geminiRejected != null ? progress.geminiRejected : "—"],
+    ["Lookups failed", progress.photoLookupsFailed || 0],
+    ["Low confidence", progress.lowConfidenceCount || 0],
+    ["Elapsed", ((progress.elapsedMs || 0) / 1000).toFixed(1) + "s"],
+    ["Avg lookup", progress.avgLookupSpeedMs != null ? progress.avgLookupSpeedMs + "ms" : "—"],
+  ];
+  $("assetPreviewProgress").innerHTML = rows.map(function (r) {
+    return '<div class="stat-box"><div class="stat-label">' + escapeHtml(r[0]) + '</div><div class="stat-value">' + escapeHtml(String(r[1])) + "</div></div>";
+  }).join("");
+  $("assetPreviewProgress").style.display = "grid";
+}
+
+function hasAssetPreviewUi() {
+  return Boolean($("btnAssetPreviewFetch"));
+}
+
+function setAssetPreviewLoading(on, message) {
+  if (!hasAssetPreviewUi()) return;
+  assetPreviewLoading = on;
+  $("btnAssetPreviewFetch").disabled = on;
+  $("btnAssetPreviewClear").disabled = on;
+  $("assetPreviewRunSelect").disabled = on;
+  $("assetPreviewChunkSelect").disabled = on;
+  $("assetPreviewMaxSpots").disabled = on;
+  $("assetPreviewGeminiKey").disabled = on;
+  $("btnAssetPreviewStop").style.display = on ? "inline-block" : "none";
+  if (message) $("assetPreviewStatus").textContent = message;
+}
+
+function syncAssetPreviewMaxSpotsFromFullRun() {
+  if (!$("fullRunLimitSpots").checked) return;
+  const cap = Math.max(1, Math.min(100, Number($("fullRunMaxSpots").value || 100)));
+  $("assetPreviewMaxSpots").value = String(Math.min(cap, 25));
+}
+
+async function loadAssetPreviewSources(runId) {
+  if (!hasAssetPreviewUi()) return;
+  const params = [];
+  if (runId) params.push("runId=" + encodeURIComponent(runId));
+  if (fullRunId) params.push("activeRunId=" + encodeURIComponent(fullRunId));
+  const qs = params.length ? ("?" + params.join("&")) : "";
+  const json = await api("/asset-preview/sources" + qs);
+  const data = json.data || {};
+  const selected = fullRunId || runId || data.defaultRunId || "";
+  $("assetPreviewRunSelect").innerHTML = (data.runs || []).map(function (run) {
+    return '<option value="' + escapeHtml(run.runId) + '"' + (run.runId === selected ? " selected" : "") + ">" + escapeHtml(run.label) + "</option>";
+  }).join("") || '<option value="">No Vermont runs found</option>';
+  $("assetPreviewChunkSelect").innerHTML = '<option value="">All processed chunks</option>' +
+    (data.chunks || []).map(function (chunk) {
+      return '<option value="' + escapeHtml(chunk.chunkId) + '">' + escapeHtml(chunk.label) + "</option>";
+    }).join("");
+  if (selected) $("assetPreviewRunSelect").value = selected;
+  const activeRun = (data.runs || []).find(function (r) { return r.runId === selected; });
+  if (activeRun && activeRun.maxTotalSpots != null && $("fullRunLimitSpots").checked) {
+    $("assetPreviewMaxSpots").value = String(Math.min(activeRun.maxTotalSpots, 25));
+  }
+  if (!data.prefersWriteRuns) {
+    $("assetPreviewStatus").textContent =
+      "No write-test/write-prod Full Vermont Run yet — start one above (defaults to write-test + 100 spot cap).";
+  } else if (fullRunId && selected === fullRunId) {
+    $("assetPreviewStatus").textContent = "Synced to active Full Vermont Run " + fullRunId.slice(0, 20) + "…";
+  }
+}
+
+async function consumeAssetPreviewSseStream(res, onEvent) {
+  if (!res.body) throw new Error("No response stream from server");
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, { stream: true });
+    var splitAt;
+    while ((splitAt = buffer.indexOf("\\n\\n")) >= 0) {
+      const block = buffer.slice(0, splitAt);
+      buffer = buffer.slice(splitAt + 2);
+      block.split("\\n").forEach(function (line) {
+        if (!line.startsWith("data: ")) return;
+        var msg;
+        try { msg = JSON.parse(line.slice(6)); } catch (_e) { return; }
+        onEvent(msg);
+      });
+    }
+  }
+}
+
+async function runAssetPreviewFetch() {
+  if (assetPreviewLoading) return;
+  const maxSpots = Math.max(1, Math.min(100, Number($("assetPreviewMaxSpots").value || 10)));
+  const runId = fullRunId || $("assetPreviewRunSelect").value || undefined;
+  const chunkId = $("assetPreviewChunkSelect").value || undefined;
+  $("assetPreviewEmpty").style.display = "none";
+  $("assetPreviewResults").innerHTML = "";
+  $("assetPreviewResults").style.display = "block";
+  $("assetPreviewProgress").style.display = "grid";
+  setAssetPreviewLoading(true, "Streaming spots — first results appear in a few seconds…");
+  assetPreviewAbort = new AbortController();
+  const geminiKey = ($("assetPreviewGeminiKey").value || "").trim();
+  if (geminiKey) {
+    try { localStorage.setItem("pbfAssetPreviewGeminiKey", geminiKey); } catch (_e) { /* ignore */ }
+  }
+  var streamMeta = { totalSpots: maxSpots, runId: runId, photoQueryReady: null };
+  var completedSpots = 0;
+  var partialProgress = { geminiJudged: 0, geminiRejected: 0, photoLookupsCompleted: 0, geminiEnabled: false };
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (geminiKey) headers["x-pbf-asset-gemini-api-key"] = geminiKey;
+    const res = await fetch(apiBase + "/asset-preview/fetch-stream", {
+      method: "POST",
+      headers: headers,
+      body: JSON.stringify({
+        runId: runId,
+        activeRunId: fullRunId || undefined,
+        chunkId: chunkId,
+        maxSpots: maxSpots,
+        concurrency: 6,
+        geminiApiKey: geminiKey || undefined,
+      }),
+      signal: assetPreviewAbort.signal,
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      var errJson = null;
+      try { errJson = JSON.parse(errText); } catch (_e2) {}
+      throw new Error((errJson && errJson.error && errJson.error.message) || errText || "Asset preview stream failed");
+    }
+    await consumeAssetPreviewSseStream(res, function (msg) {
+      if (msg.type === "meta") {
+        streamMeta.totalSpots = msg.totalSpots || maxSpots;
+        streamMeta.runId = msg.runId || runId;
+        streamMeta.photoQueryReady = msg.photoQueryReady;
+        $("assetPreviewStatus").textContent = "Loading 0/" + streamMeta.totalSpots + " spots…";
+        renderAssetPreviewProgress({ spotsLoaded: streamMeta.totalSpots, photoQueryReady: streamMeta.photoQueryReady }, { completed: 0, total: streamMeta.totalSpots });
+      } else if (msg.type === "spot" && msg.item) {
+        completedSpots += 1;
+        $("assetPreviewResults").insertAdjacentHTML("beforeend", renderAssetPreviewSpot(msg.item));
+        const preview = msg.item.assetPreview || {};
+        if (preview.provider && preview.provider !== "none") partialProgress.photoLookupsCompleted += 1;
+        (preview.externalAssets || []).forEach(function (a) {
+          if (a.visionJudgment && a.visionJudgment.automated) partialProgress.geminiJudged += 1;
+        });
+        if (preview.warnings && preview.warnings.some(function (w) { return w.indexOf("Gemini filtered") >= 0; })) {
+          partialProgress.geminiRejected += 1;
+        }
+        partialProgress.geminiEnabled = true;
+        $("assetPreviewStatus").textContent =
+          "Loaded " + completedSpots + "/" + (msg.total || streamMeta.totalSpots) + " spots — " + escapeHtml(msg.item.displayName || "spot");
+        renderAssetPreviewProgress({
+          spotsLoaded: streamMeta.totalSpots,
+          photoQueryReady: streamMeta.photoQueryReady,
+          photoLookupsCompleted: partialProgress.photoLookupsCompleted,
+          geminiEnabled: partialProgress.geminiEnabled,
+          geminiJudged: partialProgress.geminiJudged,
+          geminiRejected: partialProgress.geminiRejected,
+          elapsedMs: 0,
+        }, { completed: completedSpots, total: streamMeta.totalSpots });
+      } else if (msg.type === "done") {
+        renderAssetPreviewProgress(msg.progress || {});
+        const prog = msg.progress || {};
+        $("assetPreviewStatus").textContent =
+          "Loaded " + (msg.items || []).length + " spots from run " + (streamMeta.runId || "—") +
+          (prog.photoQueryReady != null ? " · " + prog.photoQueryReady + " query-ready in pool" : "") +
+          " · " + ((prog.elapsedMs || 0) / 1000).toFixed(1) + "s total.";
+        setStatus("ok", "PBF photo asset preview ready (" + (msg.items || []).length + " spots, " + ((prog.elapsedMs || 0) / 1000).toFixed(1) + "s).");
+      } else if (msg.type === "error") {
+        throw new Error(msg.message || "Asset preview stream error");
+      }
+    });
+  } catch (err) {
+    if (err && err.name === "AbortError") {
+      $("assetPreviewStatus").textContent = "Fetch stopped.";
+      setStatus("warn", "Asset preview fetch stopped.");
+    } else {
+      const msg = err && err.message ? err.message : String(err);
+      $("assetPreviewStatus").textContent = msg;
+      setStatus("error", msg);
+    }
+    $("assetPreviewEmpty").style.display = "block";
+  } finally {
+    assetPreviewAbort = null;
+    setAssetPreviewLoading(false);
+  }
+}
+
+function clearAssetPreview() {
+  if (assetPreviewAbort) assetPreviewAbort.abort();
+  $("assetPreviewProgress").style.display = "none";
+  $("assetPreviewResults").style.display = "none";
+  $("assetPreviewResults").innerHTML = "";
+  $("assetPreviewEmpty").style.display = "block";
+  $("assetPreviewStatus").textContent = "Cleared preview results.";
+}
+
+function syncAssetPreviewRunSelect() {
+  if (!fullRunId) return;
+  const sel = $("assetPreviewRunSelect");
+  if (!sel) return;
+  for (let i = 0; i < sel.options.length; i += 1) {
+    if (sel.options[i].value === fullRunId) {
+      sel.selectedIndex = i;
+      void loadAssetPreviewSources(fullRunId);
+      return;
+    }
   }
 }
 
@@ -2581,12 +2911,41 @@ function bindControls() {
   $("btnDryRunWrite").addEventListener("click", function () { void dryRunWrite(); });
   $("btnWriteBlankSpots").addEventListener("click", function () { void writeBlankSpots(); });
   $("btnResetWrite").addEventListener("click", resetWriteState);
+  if (hasAssetPreviewUi()) {
+    $("btnAssetPreviewFetch").addEventListener("click", function () { void runAssetPreviewFetch(); });
+    $("btnAssetPreviewClear").addEventListener("click", clearAssetPreview);
+    $("btnAssetPreviewStop").addEventListener("click", function () { if (assetPreviewAbort) assetPreviewAbort.abort(); });
+    $("assetPreviewRunSelect").addEventListener("change", function () {
+      void loadAssetPreviewSources($("assetPreviewRunSelect").value).catch(function (err) {
+        setStatus("error", err && err.message ? err.message : "Failed to refresh asset preview chunks");
+      });
+    });
+  }
 }
 
 try {
   initPreviewMap();
+  setUiRunMode("full_vermont");
   bindControls();
+  try {
+    const savedFullRunId = sessionStorage.getItem("pbfFullRunId");
+    if (savedFullRunId) fullRunId = savedFullRunId;
+  } catch (_e) { /* ignore */ }
   void loadHealth();
+  if (fullRunId) {
+    void pollFullRunStatus();
+    if (!fullRunPollTimer) fullRunPollTimer = setInterval(function () { void pollFullRunStatus(); }, 3000);
+  }
+  if (hasAssetPreviewUi()) {
+    try {
+      const savedGeminiKey = localStorage.getItem("pbfAssetPreviewGeminiKey");
+      if (savedGeminiKey) $("assetPreviewGeminiKey").value = savedGeminiKey;
+    } catch (_e2) { /* ignore */ }
+    void loadAssetPreviewSources(fullRunId || undefined).catch(function (err) {
+      $("assetPreviewRunSelect").innerHTML = '<option value="">No runs available</option>';
+      $("assetPreviewStatus").textContent = err && err.message ? err.message : "Could not load PBF runs for asset preview";
+    });
+  }
   startUndiscoveredCountsPolling();
 } catch (err) {
   setStatus("error", "Page init failed: " + (err && err.message ? err.message : String(err)));

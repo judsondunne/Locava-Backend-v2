@@ -13,6 +13,7 @@ import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 export type RunPbfCopierV2PipelineInput = {
   rawItems: PbfCopierPreviewDoc[];
   qualitySettings?: PbfQualityFilterSettings;
+  skipHeavyGrouping?: boolean;
 };
 
 /** Classify/filter/group/rescue — same path as bbox preview after raw scan. */
@@ -25,5 +26,7 @@ export function runPbfCopierV2Pipeline(
     hideUnnamedPaths: false,
   };
   const withGeneratedNames = enrichUnnamedOutdoorDisplayNames(input.rawItems);
-  return applyPbfQualityFilters(withGeneratedNames, settings);
+  return applyPbfQualityFilters(withGeneratedNames, settings, {
+    skipHeavyGrouping: input.skipHeavyGrouping,
+  });
 }

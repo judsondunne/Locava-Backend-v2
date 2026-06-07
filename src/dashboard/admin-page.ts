@@ -25,6 +25,8 @@ export function renderAdminPage(): string {
       ·
       <a href="/admin/search-autofill-lab" style="color:#93c5fd; text-decoration:none;">Search autofill lab</a>
       ·
+      <a href="/dashboard/places-visualizer" style="color:#93c5fd; text-decoration:none;">Places visualizer</a>
+      ·
       <a href="/admin/inventory" style="color:#93c5fd; text-decoration:none;">Inventory MVP (Hartland VT)</a>
       ·
       <a href="/admin/openstreetmap" style="color:#93c5fd; text-decoration:none;">OSM Locava Classifier (Hartland VT)</a>
@@ -38,6 +40,8 @@ export function renderAdminPage(): string {
       <a href="/admin/openstreetmap/pbf-copier" style="color:#93c5fd; text-decoration:none;">Master PBF OSM Copier</a>
       ·
       <a href="/admin/openstreetmap/pbf-copier-v2" style="color:#93c5fd; text-decoration:none;">PBF Copier V2</a>
+      ·
+      <a href="/admin/openstreetmap/pbf-photo-preview" style="color:#86efac; text-decoration:none; font-weight:600;">📷 PBF Photo Preview</a>
     </p>
 
     <div class="grid">

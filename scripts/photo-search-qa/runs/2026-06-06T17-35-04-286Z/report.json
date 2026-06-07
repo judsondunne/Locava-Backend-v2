@@ -1,0 +1,277 @@
+{
+  "state": {
+    "runId": "2026-06-06T17-35-04-286Z",
+    "startedAt": "2026-06-06T17:35:04.287Z",
+    "updatedAt": "2026-06-06T17:35:05.075Z",
+    "target": "production",
+    "baseUrl": "https://locava-backend-v2-nboawyiasq-uc.a.run.app",
+    "batchSize": 5,
+    "minImages": 4,
+    "maxCredits": 50,
+    "completedPlaceIds": [
+      "bingham-falls-stowe",
+      "moss-glen-falls-granville",
+      "moss-glen-falls-stowe",
+      "texas-falls-hancock",
+      "warren-falls-warren"
+    ],
+    "currentBatchNumber": 1,
+    "estimatedProviderCalls": 0,
+    "estimatedCredits": 0,
+    "exactCostKnown": false,
+    "places": [
+      {
+        "seedId": "bingham-falls-stowe",
+        "placeName": "Bingham Falls",
+        "town": "Stowe",
+        "state": "VT",
+        "apiPlaceQuery": "Stowe VT, Bingham Falls",
+        "searchQueryUsed": "Stowe VT, Bingham Falls",
+        "provider": "none",
+        "totalResults": 0,
+        "validImageCount": 0,
+        "brokenImageCount": 0,
+        "missingMetadataCount": 0,
+        "duplicateCount": 0,
+        "avgPlaceMatchScore": null,
+        "avgVisualQualityScore": null,
+        "avgCoolnessScore": null,
+        "highWrongPlaceRiskCount": 0,
+        "responseMs": 304,
+        "ttfbMs": 304,
+        "imageValidationMs": 0,
+        "estimatedProviderCalls": 0,
+        "estimatedCredits": 0,
+        "exactCostKnown": false,
+        "passFail": "fail",
+        "failureReasons": [
+          "api_error:HTTP 404",
+          "no_results",
+          "insufficient_valid_images:0<4"
+        ],
+        "images": [],
+        "apiError": "HTTP 404"
+      },
+      {
+        "seedId": "moss-glen-falls-granville",
+        "placeName": "Moss Glen Falls",
+        "town": "Granville",
+        "state": "VT",
+        "apiPlaceQuery": "Granville VT, Moss Glen Falls",
+        "searchQueryUsed": "Granville VT, Moss Glen Falls",
+        "provider": "none",
+        "totalResults": 0,
+        "validImageCount": 0,
+        "brokenImageCount": 0,
+        "missingMetadataCount": 0,
+        "duplicateCount": 0,
+        "avgPlaceMatchScore": null,
+        "avgVisualQualityScore": null,
+        "avgCoolnessScore": null,
+        "highWrongPlaceRiskCount": 0,
+        "responseMs": 196,
+        "ttfbMs": 196,
+        "imageValidationMs": 0,
+        "estimatedProviderCalls": 0,
+        "estimatedCredits": 0,
+        "exactCostKnown": false,
+        "passFail": "fail",
+        "failureReasons": [
+          "api_error:HTTP 404",
+          "no_results",
+          "insufficient_valid_images:0<4"
+        ],
+        "images": [],
+        "apiError": "HTTP 404"
+      },
+      {
+        "seedId": "moss-glen-falls-stowe",
+        "placeName": "Moss Glen Falls",
+        "town": "Stowe",
+        "state": "VT",
+        "apiPlaceQuery": "Stowe VT, Moss Glen Falls",
+        "searchQueryUsed": "Stowe VT, Moss Glen Falls",
+        "provider": "none",
+        "totalResults": 0,
+        "validImageCount": 0,
+        "brokenImageCount": 0,
+        "missingMetadataCount": 0,
+        "duplicateCount": 0,
+        "avgPlaceMatchScore": null,
+        "avgVisualQualityScore": null,
+        "avgCoolnessScore": null,
+        "highWrongPlaceRiskCount": 0,
+        "responseMs": 96,
+        "ttfbMs": 96,
+        "imageValidationMs": 0,
+        "estimatedProviderCalls": 0,
+        "estimatedCredits": 0,
+        "exactCostKnown": false,
+        "passFail": "fail",
+        "failureReasons": [
+          "api_error:HTTP 404",
+          "no_results",
+          "insufficient_valid_images:0<4"
+        ],
+        "images": [],
+        "apiError": "HTTP 404"
+      },
+      {
+        "seedId": "texas-falls-hancock",
+        "placeName": "Texas Falls",
+        "town": "Hancock",
+        "state": "VT",
+        "apiPlaceQuery": "Hancock VT, Texas Falls",
+        "searchQueryUsed": "Hancock VT, Texas Falls",
+        "provider": "none",
+        "totalResults": 0,
+        "validImageCount": 0,
+        "brokenImageCount": 0,
+        "missingMetadataCount": 0,
+        "duplicateCount": 0,
+        "avgPlaceMatchScore": null,
+        "avgVisualQualityScore": null,
+        "avgCoolnessScore": null,
+        "highWrongPlaceRiskCount": 0,
+        "responseMs": 84,
+        "ttfbMs": 84,
+        "imageValidationMs": 0,
+        "estimatedProviderCalls": 0,
+        "estimatedCredits": 0,
+        "exactCostKnown": false,
+        "passFail": "fail",
+        "failureReasons": [
+          "api_error:HTTP 404",
+          "no_results",
+          "insufficient_valid_images:0<4"
+        ],
+        "images": [],
+        "apiError": "HTTP 404"
+      },
+      {
+        "seedId": "warren-falls-warren",
+        "placeName": "Warren Falls",
+        "town": "Warren",
+        "state": "VT",
+        "apiPlaceQuery": "Warren VT, Warren Falls",
+        "searchQueryUsed": "Warren VT, Warren Falls",
+        "provider": "none",
+        "totalResults": 0,
+        "validImageCount": 0,
+        "brokenImageCount": 0,
+        "missingMetadataCount": 0,
+        "duplicateCount": 0,
+        "avgPlaceMatchScore": null,
+        "avgVisualQualityScore": null,
+        "avgCoolnessScore": null,
+        "highWrongPlaceRiskCount": 0,
+        "responseMs": 91,
+        "ttfbMs": 91,
+        "imageValidationMs": 0,
+        "estimatedProviderCalls": 0,
+        "estimatedCredits": 0,
+        "exactCostKnown": false,
+        "passFail": "fail",
+        "failureReasons": [
+          "api_error:HTTP 404",
+          "no_results",
+          "insufficient_valid_images:0<4"
+        ],
+        "images": [],
+        "apiError": "HTTP 404"
+      }
+    ],
+    "batches": [
+      {
+        "batchNumber": 1,
+        "placeIds": [
+          "bingham-falls-stowe",
+          "moss-glen-falls-granville",
+          "moss-glen-falls-stowe",
+          "texas-falls-hancock",
+          "warren-falls-warren"
+        ],
+        "placesTested": 5,
+        "passed": 0,
+        "manualReview": 0,
+        "failed": 5,
+        "totalImagesReturned": 0,
+        "validImages": 0,
+        "brokenImages": 0,
+        "missingMetadata": 0,
+        "duplicateRate": 0,
+        "avgResponseMs": 154,
+        "p50ResponseMs": 96,
+        "p95ResponseMs": 304,
+        "estimatedProviderCalls": 0,
+        "estimatedCredits": 0,
+        "exactCostKnown": false,
+        "topFailureReasons": [
+          "api_error (5)",
+          "no_results (5)",
+          "insufficient_valid_images (5)"
+        ],
+        "worstPlaces": [
+          "Bingham Falls (Stowe)",
+          "Moss Glen Falls (Granville)",
+          "Moss Glen Falls (Stowe)"
+        ],
+        "bestPlaces": [
+          "Bingham Falls (Stowe)",
+          "Moss Glen Falls (Granville)",
+          "Moss Glen Falls (Stowe)"
+        ],
+        "catastrophic": true,
+        "catastrophicReasons": [
+          "zero_image_places:5"
+        ]
+      }
+    ],
+    "visionMode": "on",
+    "visionModel": "gemini-2.5-flash"
+  },
+  "batch": {
+    "batchNumber": 1,
+    "placeIds": [
+      "bingham-falls-stowe",
+      "moss-glen-falls-granville",
+      "moss-glen-falls-stowe",
+      "texas-falls-hancock",
+      "warren-falls-warren"
+    ],
+    "placesTested": 5,
+    "passed": 0,
+    "manualReview": 0,
+    "failed": 5,
+    "totalImagesReturned": 0,
+    "validImages": 0,
+    "brokenImages": 0,
+    "missingMetadata": 0,
+    "duplicateRate": 0,
+    "avgResponseMs": 154,
+    "p50ResponseMs": 96,
+    "p95ResponseMs": 304,
+    "estimatedProviderCalls": 0,
+    "estimatedCredits": 0,
+    "exactCostKnown": false,
+    "topFailureReasons": [
+      "api_error (5)",
+      "no_results (5)",
+      "insufficient_valid_images (5)"
+    ],
+    "worstPlaces": [
+      "Bingham Falls (Stowe)",
+      "Moss Glen Falls (Granville)",
+      "Moss Glen Falls (Stowe)"
+    ],
+    "bestPlaces": [
+      "Bingham Falls (Stowe)",
+      "Moss Glen Falls (Granville)",
+      "Moss Glen Falls (Stowe)"
+    ],
+    "catastrophic": true,
+    "catastrophicReasons": [
+      "zero_image_places:5"
+    ]
+  }
+}

@@ -2,8 +2,9 @@
  * PBF Copier V2 — post-fetch quality filters (runs after raw OSM + trail merge).
  * Annotates items with filteredOut / filteredBy / filterReason without mutating source geometry.
  */
-import { normalizePreviewDisplayName } from "./pbfCopierPreviewQuality.js";
 import { isHikingTrailPreviewDoc } from "./pbfCopierV2RawDisplay.js";
+import { hasMeaningfulPreviewName, hasOsmNameTag } from "./pbfCopierV2PreviewName.js";
+export { hasMeaningfulPreviewName, hasOsmNameTag } from "./pbfCopierV2PreviewName.js";
 import {
   applyPbfSupportRelationships,
   DEFAULT_PBF_SUPPORT_OBJECT_SETTINGS,
@@ -22,6 +23,8 @@ import {
 import {
   enrichLocavaProductClassification,
   isLocavaCemeteryDestination,
+  isCivicInstitutionalNoise,
+  isInstitutionalOrNonPublicLibrary,
   isLocavaFoodDrinkDestination,
   isLocavaLocalRetailDestination,
   isProtectedLocavaDestination,
@@ -58,6 +61,7 @@ import {
   matchResidentialNonDestination,
   type PbfDestinationQualityCounters,
 } from "./pbfCopierV2DestinationQuality.js";
+import { dedupeNearVisiblePreviewItems } from "./pbfCopierPreviewQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
 export type PbfQualityFilterKey =
@@ -186,24 +190,6 @@ function tag(tags: Record<string, string>, key: string): string | undefined {
 
 function hasTag(tags: Record<string, string>, key: string): boolean {
   return Boolean(tags[key]?.trim());
-}
-
-export function hasOsmNameTag(tags: Record<string, string>): boolean {
-  const name = tags.name?.trim() || tags["name:en"]?.trim();
-  return Boolean(name && name.length >= 1);
-}
-
-export function hasMeaningfulPreviewName(doc: PbfCopierPreviewDoc): boolean {
-  const raw = (doc.displayName || "").trim().toLowerCase();
-  if (!raw) return false;
-  if (raw.startsWith("highway=") || raw.startsWith("osm way/") || raw.startsWith("osm node/")) return false;
-
-  const key = normalizePreviewDisplayName(doc.displayName);
-  if (!key) return false;
-  if (/^(highway|amenity|natural|landuse|man made|shop|tourism|building|waterway|railway) /.test(key)) {
-    return false;
-  }
-  return true;
 }
 
 function isTrailLikeTags(tags: Record<string, string>): boolean {
@@ -418,6 +404,14 @@ function evaluateQualityFilters(
   settings: PbfQualityFilterSettings,
   counters?: PbfDestinationQualityCounters
 ): FilterMatch[] {
+  const tags = doc.sourceTagSample ?? {};
+  if (isCivicInstitutionalNoise(doc)) {
+    return [{ key: "public_service", reason: "civic/institutional facility, not Locava discovery spot" }];
+  }
+  if (tag(tags, "amenity") === "library" && isInstitutionalOrNonPublicLibrary(doc)) {
+    return [{ key: "public_service", reason: "institutional library, not public discovery spot" }];
+  }
+
   if (isProtectedFromQualityFilter(doc)) return [];
 
   const matches: FilterMatch[] = [];
@@ -482,10 +476,12 @@ function finalizeSupportObjectVisibility(
   }
 
   if (isSupportShelter(doc) && settings.hideUnattachedBenches) {
-    matches.push({
-      key: "tiny_non_destination_amenity",
-      reason: "shelter not attached to park/trail/viewpoint",
-    });
+    if (!doc.warnings?.includes("v2_generated_outdoor_name") && !isProtectedLocavaDestination(doc)) {
+      matches.push({
+        key: "tiny_non_destination_amenity",
+        reason: "shelter not attached to park/trail/viewpoint",
+      });
+    }
   }
 
   if ((isSupportToilet(doc) || isSupportInfoMap(doc)) && settings.hideUnattachedBenches) {
@@ -514,9 +510,15 @@ function normalizeQualityFilterSettings(settings: PbfQualityFilterSettings): Pbf
   return { ...settings, hideUnnamedPaths: false };
 }
 
+export type ApplyPbfQualityFiltersOptions = {
+  /** Audit/eval only — skip O(n²) outdoor grouping when item count is large. */
+  skipHeavyGrouping?: boolean;
+};
+
 export function applyPbfQualityFilters(
   items: PbfCopierPreviewDoc[],
-  settings: PbfQualityFilterSettings = DEFAULT_PBF_QUALITY_FILTER_SETTINGS
+  settings: PbfQualityFilterSettings = DEFAULT_PBF_QUALITY_FILTER_SETTINGS,
+  options?: ApplyPbfQualityFiltersOptions
 ): PbfQualityFilterResult {
   settings = normalizeQualityFilterSettings(settings);
   const countsByFilter: Partial<Record<PbfQualityFilterKey, number>> = {};
@@ -574,6 +576,22 @@ export function applyPbfQualityFilters(
     console.info("[pbf-copier-v2] quality filters", summary);
   }
 
+  if (options?.skipHeavyGrouping) {
+    const deduped = dedupeNearVisiblePreviewItems(annotated);
+    const finalSummary = {
+      ...summary,
+      visibleItems: deduped.items.filter((d) => !d.filteredOut).length,
+      hiddenItems: deduped.items.filter((d) => d.filteredOut).length,
+    };
+    return {
+      items: deduped.items,
+      summary: finalSummary,
+      groupingSummary: undefined,
+      locavaProductSummary,
+      destinationQualityCounters,
+    };
+  }
+
   const grouped = buildOutdoorDestinationGroups(annotated, {
     showSupportObjectsAsMarkers: settings.showSupportObjectsAsMarkers,
     destinationQualityCounters,
@@ -590,11 +608,12 @@ export function applyPbfQualityFilters(
   );
 
   const finalized = rescueFinalRenderableDestinations(withActivities, undefined, destinationQualityCounters);
+  const deduped = dedupeNearVisiblePreviewItems(finalized as PbfQualityFilteredPreviewDoc[]);
 
   const countsByFilterFinal: Partial<Record<PbfQualityFilterKey, number>> = {};
   let finalVisibleItems = 0;
   let finalHiddenItems = 0;
-  for (const item of finalized) {
+  for (const item of deduped.items) {
     if (item.filteredOut) {
       finalHiddenItems += 1;
       for (const key of item.filteredBy ?? []) {
@@ -624,7 +643,7 @@ export function applyPbfQualityFilters(
   }
 
   return {
-    items: finalized as PbfQualityFilteredPreviewDoc[],
+    items: deduped.items as PbfQualityFilteredPreviewDoc[],
     summary: finalSummary,
     groupingSummary: grouped.summary,
     locavaProductSummary,

@@ -49,4 +49,14 @@ describe("pbfCopierV2GeneratedDisplayNames", () => {
     expect(shouldRejectUnnamedBusinessOrBuilding({ shop: "clothes" })).toBe(true);
     expect(shouldRejectUnnamedBusinessOrBuilding({ tourism: "viewpoint" })).toBe(false);
   });
+
+  it("generates sport-specific and shelter names", () => {
+    expect(inferGeneratedOutdoorName({ leisure: "pitch", sport: "tennis" })?.displayName).toBe("Tennis Court");
+    expect(inferGeneratedOutdoorName({ leisure: "skate_park" })?.displayName).toBe("Skate Park");
+    const [shelter] = enrichUnnamedOutdoorDisplayNames([spotDoc({ amenity: "shelter" })]);
+    expect(shelter!.displayName).toBe("Shelter");
+    expect(shelter!.warnings).toContain("v2_generated_outdoor_name");
+    const [peak] = enrichUnnamedOutdoorDisplayNames([spotDoc({ natural: "peak", ele: "1200" })]);
+    expect(peak!.displayName).toBe("Summit");
+  });
 });

@@ -35,6 +35,16 @@ import {
   stopPbfV2FullRun,
   writePbfV2FullRunChunks,
 } from "./pbfCopierV2FullRunService.js";
+import {
+  fetchPbfAssetPreview,
+  listPbfAssetPreviewSources,
+  streamPbfAssetPreview,
+} from "../../../../lib/pbf/pbfAssetPreview.service.js";
+import {
+  getPbfAssetPreviewLiveSources,
+  streamPbfAssetPreviewFromLivePbf,
+} from "../../../../lib/pbf/pbfAssetPreviewLivePbf.service.js";
+import { processPbfAssetPreviewSpot } from "../../../../lib/pbf/pbfAssetPreviewSpot.js";
 import { listPbfV2FullRunChunks, listPbfV2FullRuns } from "./pbfCopierV2FullRunStore.js";
 import { runPbfCopierV2Audit } from "./pbfCopierV2Audit.js";
 import { runPbfCopierV2Pipeline } from "./pbfCopierV2Pipeline.js";
@@ -652,5 +662,269 @@ export async function registerPbfCopierV2Routes(app: FastifyInstance): Promise<v
     const runId = z.string().min(1).parse((request.query as { runId?: string }).runId);
     const chunks = await listPbfV2FullRunChunks(runId);
     return success({ runId, chunks });
+  });
+
+  const PbfPhotoVisionModeSchema = z.enum(["off", "borderline_only", "top_only", "all_candidates"]);
+
+  const PbfAssetPreviewFetchSchema = z.object({
+    runId: z.string().trim().min(1).optional(),
+    chunkId: z.string().trim().min(1).optional(),
+    maxSpots: z.number().int().min(1).max(100).optional(),
+    activeRunId: z.string().trim().min(1).optional(),
+    concurrency: z.number().int().min(2).max(8).optional(),
+    visionMode: PbfPhotoVisionModeSchema.optional(),
+    geminiApiKey: z.string().trim().min(20).max(512).optional(),
+    strictTitleSourceMatch: z.boolean().optional(),
+  });
+
+  const PbfAssetPreviewLiveFetchSchema = z.object({
+    pbfPath: z.string().trim().min(1).optional(),
+    maxSpots: z.number().int().min(1).max(100).optional(),
+    tileStepDegrees: z.number().min(0.2).max(1).optional(),
+    startTileIndex: z.number().int().min(0).optional(),
+    visionMode: PbfPhotoVisionModeSchema.optional(),
+    geminiApiKey: z.string().trim().min(20).max(512).optional(),
+    strictTitleSourceMatch: z.boolean().optional(),
+  });
+
+  const PbfAssetPreviewVisionQaSchema = z.object({
+    doc: z.record(z.unknown()),
+    visionMode: PbfPhotoVisionModeSchema.default("borderline_only"),
+    geminiApiKey: z.string().trim().min(20).max(512).optional(),
+  });
+
+  app.get(`${base}/asset-preview/live-sources`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.asset_preview_live_sources");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const query = request.query as { pbfPath?: string; tileStepDegrees?: string };
+    const tileStep = query.tileStepDegrees ? Number(query.tileStepDegrees) : undefined;
+    try {
+      const sources = await getPbfAssetPreviewLiveSources({
+        pbfPath: query.pbfPath?.trim() || null,
+        tileStepDegrees: Number.isFinite(tileStep) ? tileStep : undefined,
+      });
+      const { pbfPath, resolvedPath, readable, fileSizeBytes, tileStepDegrees, totalTiles, message } = sources;
+      return success({ pbfPath, resolvedPath, readable, fileSizeBytes, tileStepDegrees, totalTiles, message });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to read Vermont PBF.";
+      return reply.status(500).send(failure("asset_preview_live_sources_failed", message));
+    }
+  });
+
+  app.get(`${base}/asset-preview/sources`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.asset_preview_sources");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const query = request.query as { runId?: string; activeRunId?: string };
+    try {
+      const sources = await listPbfAssetPreviewSources(
+        query.runId?.trim() || null,
+        query.activeRunId?.trim() || null,
+      );
+      const { runs, chunks, defaultRunId, activeRunId, prefersWriteRuns } = sources;
+      return success({ runs, chunks, defaultRunId, activeRunId, prefersWriteRuns });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to list asset preview sources.";
+      return reply.status(500).send(failure("asset_preview_sources_failed", message));
+    }
+  });
+
+  app.post(`${base}/asset-preview/fetch`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.asset_preview_fetch");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+
+    let body: unknown;
+    try {
+      body = request.body ?? {};
+    } catch {
+      return reply.status(400).send(failure("invalid_request", "Request body must be valid JSON."));
+    }
+
+    const parsed = PbfAssetPreviewFetchSchema.safeParse(body);
+    if (!parsed.success) {
+      return reply.status(400).send(failure("invalid_request", "Invalid asset preview fetch body."));
+    }
+
+    const headerGeminiKey = String(request.headers["x-pbf-asset-gemini-api-key"] ?? "").trim();
+    const geminiApiKey = parsed.data.geminiApiKey ?? (headerGeminiKey || undefined);
+
+    try {
+      const result = await fetchPbfAssetPreview({
+        env,
+        runId: parsed.data.runId ?? null,
+        activeRunId: parsed.data.activeRunId ?? null,
+        chunkId: parsed.data.chunkId ?? null,
+        maxSpots: parsed.data.maxSpots,
+        concurrency: parsed.data.concurrency,
+        geminiApiKey,
+        visionMode: parsed.data.visionMode ?? "off",
+        strictTitleSourceMatch: parsed.data.strictTitleSourceMatch,
+      });
+      const { runId, chunkId, mode, progress, items } = result;
+      return success({ runId, chunkId, mode, progress, items });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Asset preview fetch failed.";
+      request.log.error({ message }, "pbf_copier_v2.asset_preview_fetch_failure");
+      const status = message.includes("No PBF V2") ? 404 : 502;
+      return reply.status(status).send(failure("asset_preview_fetch_failed", message));
+    }
+  });
+
+  app.post(`${base}/asset-preview/fetch-stream`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.asset_preview_fetch_stream");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+
+    let body: unknown;
+    try {
+      body = request.body ?? {};
+    } catch {
+      return reply.status(400).send(failure("invalid_request", "Request body must be valid JSON."));
+    }
+
+    const parsed = PbfAssetPreviewFetchSchema.safeParse(body);
+    if (!parsed.success) {
+      return reply.status(400).send(failure("invalid_request", "Invalid asset preview fetch body."));
+    }
+
+    const headerGeminiKey = String(request.headers["x-pbf-asset-gemini-api-key"] ?? "").trim();
+    const geminiApiKey = parsed.data.geminiApiKey ?? (headerGeminiKey || undefined);
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    if (typeof reply.raw.flushHeaders === "function") {
+      reply.raw.flushHeaders();
+    }
+
+    const writeSse = (obj: unknown) => {
+      reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+      const raw = reply.raw as NodeJS.WritableStream & { flush?: () => void };
+      raw.flush?.();
+    };
+
+    request.raw.on("close", () => {
+      reply.raw.end();
+    });
+
+    try {
+      await streamPbfAssetPreview(
+        {
+          env,
+          runId: parsed.data.runId ?? null,
+          activeRunId: parsed.data.activeRunId ?? null,
+          chunkId: parsed.data.chunkId ?? null,
+          maxSpots: parsed.data.maxSpots,
+          concurrency: parsed.data.concurrency,
+          geminiApiKey,
+          visionMode: parsed.data.visionMode ?? "off",
+          strictTitleSourceMatch: parsed.data.strictTitleSourceMatch,
+        },
+        (event) => writeSse(event),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Asset preview stream failed.";
+      writeSse({ type: "error", message });
+    }
+    reply.raw.end();
+  });
+
+  app.post(`${base}/asset-preview/fetch-stream-live`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.asset_preview_fetch_stream_live");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+
+    let body: unknown;
+    try {
+      body = request.body ?? {};
+    } catch {
+      return reply.status(400).send(failure("invalid_request", "Request body must be valid JSON."));
+    }
+
+    const parsed = PbfAssetPreviewLiveFetchSchema.safeParse(body);
+    if (!parsed.success) {
+      return reply.status(400).send(failure("invalid_request", "Invalid live asset preview fetch body."));
+    }
+
+    const headerGeminiKey = String(request.headers["x-pbf-asset-gemini-api-key"] ?? "").trim();
+    const geminiApiKey = parsed.data.geminiApiKey ?? (headerGeminiKey || undefined);
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    if (typeof reply.raw.flushHeaders === "function") {
+      reply.raw.flushHeaders();
+    }
+
+    let aborted = false;
+    request.raw.on("close", () => {
+      aborted = true;
+      reply.raw.end();
+    });
+
+    const writeSse = (obj: unknown) => {
+      if (aborted) return;
+      reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+      const raw = reply.raw as NodeJS.WritableStream & { flush?: () => void };
+      raw.flush?.();
+    };
+
+    try {
+      await streamPbfAssetPreviewFromLivePbf(
+        {
+          env,
+          pbfPath: parsed.data.pbfPath ?? null,
+          maxSpots: parsed.data.maxSpots,
+          tileStepDegrees: parsed.data.tileStepDegrees,
+          startTileIndex: parsed.data.startTileIndex,
+          geminiApiKey,
+          visionMode: parsed.data.visionMode ?? "off",
+          strictTitleSourceMatch: parsed.data.strictTitleSourceMatch,
+          shouldAbort: () => aborted,
+        },
+        (event) => writeSse(event),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Live asset preview stream failed.";
+      writeSse({ type: "error", message });
+    }
+    if (!aborted) reply.raw.end();
+  });
+
+  app.post(`${base}/asset-preview/vision-qa-spot`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.asset_preview_vision_qa_spot");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+
+    let body: unknown;
+    try {
+      body = request.body ?? {};
+    } catch {
+      return reply.status(400).send(failure("invalid_request", "Request body must be valid JSON."));
+    }
+
+    const parsed = PbfAssetPreviewVisionQaSchema.safeParse(body);
+    if (!parsed.success) {
+      return reply.status(400).send(failure("invalid_request", "Invalid vision QA body."));
+    }
+
+    const headerGeminiKey = String(request.headers["x-pbf-asset-gemini-api-key"] ?? "").trim();
+    const geminiApiKey = parsed.data.geminiApiKey ?? (headerGeminiKey || undefined);
+
+    try {
+      const result = await processPbfAssetPreviewSpot(parsed.data.doc as PbfCopierPreviewDoc, {
+        env,
+        geminiApiKey,
+        visionMode: parsed.data.visionMode,
+      });
+      return success({ item: result.item, stats: result.stats });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Vision QA spot failed.";
+      return reply.status(502).send(failure("asset_preview_vision_qa_failed", message));
+    }
   });
 }

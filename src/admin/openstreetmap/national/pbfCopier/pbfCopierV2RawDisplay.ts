@@ -6,6 +6,8 @@
  * - Other line geometry stays on map as lines without route markers.
  */
 import {
+  clusterTrailSegmentsByEndpoints,
+  distanceMetersForCoords,
   stitchSegments,
   TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
   type TrailPoint,
@@ -176,9 +178,29 @@ export function mergeHikingTrailPreviewDocs(segments: PbfCopierPreviewDoc[]): Pb
   const lines = segments
     .map((s) => s.routeLineCoordinates ?? [])
     .filter((line) => line.length >= 2) as TrailPoint[][];
-  const stitched = stitchSegments(lines, {
+  const joinMultiplier = 10;
+  const maxGap = TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS * joinMultiplier;
+  const clusters = clusterTrailSegmentsByEndpoints(lines, maxGap);
+  let stitched = stitchSegments(lines, {
     endpointToleranceMeters: TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
+    maxJoinDistanceMultiplier: joinMultiplier,
   });
+  if (!stitched.stitched && clusters.length > 1) {
+    let best = stitched;
+    let bestLen = 0;
+    for (const cluster of clusters) {
+      const attempt = stitchSegments(cluster, {
+        endpointToleranceMeters: TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
+        maxJoinDistanceMultiplier: joinMultiplier,
+      });
+      const len = distanceMetersForCoords(attempt.coordinates);
+      if (len > bestLen) {
+        bestLen = len;
+        best = attempt;
+      }
+    }
+    stitched = best;
+  }
   const base = segments[0]!;
   const displayName = base.displayName;
   const color = hikingTrailColorForName(displayName);

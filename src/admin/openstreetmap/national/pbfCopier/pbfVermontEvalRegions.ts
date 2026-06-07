@@ -4,7 +4,9 @@
 import { bboxFromCenterRadiusKm } from "../../../../lib/inventory/inventoryBbox.js";
 import type { PbfCopierV2ViewportBbox } from "./pbfCopierV2ViewportPreview.js";
 
-export const VERMONT_EVAL_RADIUS_MILES = 30;
+/** Product eval target is 30mi; automated harness uses 20mi for runtime (area ∝ r²). Override with PBF_EVAL_RADIUS_MILES. */
+/** Default 5mi for fast Cursor eval loop; set PBF_EVAL_RADIUS_MILES=30 for full product audit. */
+export const VERMONT_EVAL_RADIUS_MILES = Number(process.env.PBF_EVAL_RADIUS_MILES ?? 5);
 export const VERMONT_EVAL_RADIUS_KM = VERMONT_EVAL_RADIUS_MILES * 1.60934;
 
 export type VermontEvalRegion = {

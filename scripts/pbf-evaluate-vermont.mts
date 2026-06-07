@@ -22,7 +22,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PBF_DEFAULT = path.join(ROOT, "data/osm/vermont-latest.osm.pbf");
 const EVAL_ROOT = path.join(ROOT, "tmp/pbf-v2-evals");
 
-type Mode = "baseline" | "after" | "compare";
+type Mode = "baseline" | "after" | "compare" | "evaluate";
 
 type RegionSummary = {
   slug: string;
@@ -60,8 +60,8 @@ function parseArgs(argv: string[]): {
     switch (token) {
       case "--mode":
       case "-m":
-        if (!next || !["baseline", "after", "compare"].includes(next)) {
-          throw new Error("--mode must be baseline, after, or compare");
+        if (!next || !["baseline", "after", "compare", "evaluate"].includes(next)) {
+          throw new Error("--mode must be baseline, after, compare, or evaluate");
         }
         mode = next as Mode;
         i += 1;
@@ -238,6 +238,64 @@ async function runAuditMode(input: {
   console.error(`[eval] wrote ${summaryPath}`);
 }
 
+async function runEvaluateReport(modeDir: "baseline" | "after"): Promise<void> {
+  const dir = path.join(EVAL_ROOT, modeDir);
+  const lines = [
+    `# PBF V2 evaluation report — ${modeDir}`,
+    "",
+    `Generated: ${new Date().toISOString()}`,
+    "",
+  ];
+
+  for (const region of VERMONT_EVAL_REGIONS) {
+    const file = path.join(dir, `${region.slug}.json`);
+    try {
+      const raw = await fs.readFile(file, "utf8");
+      const result = JSON.parse(raw) as PbfCopierV2AuditResult;
+      const s = result.summary;
+      lines.push(`## ${region.name} (\`${region.slug}\`)`);
+      lines.push("");
+      lines.push(`- Accepted spots: **${s.acceptedSpots}** / rejected: ${s.rejectedSpots}`);
+      lines.push(`- Accepted routes: **${s.acceptedRoutes}** / rejected: ${s.rejectedRoutes}`);
+      lines.push(`- Trail segments collapsed: ${s.hikingTrailSegmentsCollapsed}`);
+      lines.push(`- False negative hints: ${result.potentialFalseNegatives.length}`);
+      lines.push(`- False positive hints: ${result.potentialFalsePositives.length}`);
+      lines.push("");
+      if (result.potentialFalseNegatives.length > 0) {
+        lines.push("**Sample false negatives:**");
+        for (const item of result.potentialFalseNegatives.slice(0, 5)) {
+          lines.push(`- ${item.osmType}/${item.osmId} ${item.name ?? "(unnamed)"} — ${item.whyCursorShouldReview}`);
+        }
+        lines.push("");
+      }
+      if (result.potentialFalsePositives.length > 0) {
+        lines.push("**Sample false positives:**");
+        for (const item of result.potentialFalsePositives.slice(0, 5)) {
+          lines.push(`- ${item.osmType}/${item.osmId} ${item.name ?? "(unnamed)"}`);
+        }
+        lines.push("");
+      }
+      const fragmented = result.acceptedRoutes.filter((r) => r.fragmentationHints.mayBeFragmented);
+      if (fragmented.length > 0) {
+        lines.push(`**Fragmentation warnings (${fragmented.length} in sample):**`);
+        for (const r of fragmented.slice(0, 5)) {
+          lines.push(
+            `- ${r.name ?? "(unnamed)"} way/${r.osmId} merged=${r.fragmentationHints.mergedFromSegments} sameName=${r.fragmentationHints.sameNameNearbyWays.length}`
+          );
+        }
+        lines.push("");
+      }
+    } catch {
+      lines.push(`## ${region.slug} — missing ${file}`);
+      lines.push("");
+    }
+  }
+
+  const outPath = path.join(EVAL_ROOT, modeDir === "baseline" ? "evaluation-report.md" : "evaluation-report-after.md");
+  await fs.writeFile(outPath, lines.join("\n"), "utf8");
+  console.error(`[eval] wrote ${outPath}`);
+}
+
 async function runCompareMode(): Promise<void> {
   const baselineDir = path.join(EVAL_ROOT, "baseline");
   const afterDir = path.join(EVAL_ROOT, "after");
@@ -305,6 +363,12 @@ async function main(): Promise<void> {
 
   if (args.mode === "compare") {
     await runCompareMode();
+    return;
+  }
+
+  if (args.mode === "evaluate") {
+    await runEvaluateReport("baseline");
+    await runEvaluateReport("after");
     return;
   }
 
