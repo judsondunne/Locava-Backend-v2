@@ -44,12 +44,35 @@ export type PhotoSearchResultSetScore = {
 };
 
 const DISPLAY_MAX = 8;
-const RESULT_SET_ACCEPT_THRESHOLD = 12;
+const UNDISCOVERED_APP_DISPLAY_MAX = 8;
+export type PhotoSearchScoringProfile = "admin_strict" | "undiscovered_app";
 
 export type PhotoSearchScoreOptions = {
   visionMode?: PbfPhotoVisionMode;
   strictTitleSourceMatch?: boolean;
+  /** Admin tools stay strict; undiscovered app uses relaxed metadata + fallback ranking. */
+  scoringProfile?: PhotoSearchScoringProfile;
 };
+
+const ADMIN_RESULT_SET_ACCEPT_THRESHOLD = 12;
+const APP_RESULT_SET_ACCEPT_THRESHOLD = 8;
+const APP_FALLBACK_MIN_SCORE = 8;
+
+const APP_HARD_JUNK_REJECTS = new Set([
+  "graphic_asset",
+  "admin_or_event_page",
+  "vector_or_gif",
+  "generic_listing_page",
+  "wrong_state",
+  "stock_or_content_farm",
+  "wrong_town",
+  "different_specific_feature",
+  "generic_category_only",
+  "generic_name_mismatch",
+  "missing_town_context",
+  "forum_or_discussion_page",
+  "thumbnail_too_small",
+]);
 
 function toExternalAsset(
   result: PlaceImageResult,
@@ -78,12 +101,83 @@ function deriveShouldRunGemini(
   return accepted.some((a) => a.assetMatchConfidence === "medium" || a.assetMatchConfidence === "high");
 }
 
+type ScoredPhotoRow = {
+  result: PlaceImageResult;
+  meta: ReturnType<typeof scorePhotoResultMetadata>;
+  serperIndex: number;
+};
+
+function applyUndiscoveredAppFallback(
+  identity: TargetPlaceIdentity,
+  allScored: ScoredPhotoRow[],
+): ScoredPhotoRow[] {
+  const rows = allScored
+    .filter((row) => {
+      if (!row.meta.hardReject) return row.meta.score >= APP_FALLBACK_MIN_SCORE;
+      return !row.meta.rejectReasons.some((reason) => APP_HARD_JUNK_REJECTS.has(reason));
+    })
+    .filter((row) => {
+      const hay = `${row.result.title ?? ""} ${row.result.caption ?? ""} ${row.result.sourceUrl ?? ""}`.toLowerCase();
+      const canonical = identity.canonicalName.toLowerCase();
+      const hasCanonical = canonical.length > 0 && hay.includes(canonical);
+      const requiredHits = identity.requiredNameTokens.filter((token) =>
+        hay.includes(token.toLowerCase()),
+      );
+      const compactCanonical = identity.canonicalName.toLowerCase().replace(/[^a-z0-9]/g, "");
+      const compactHay = hay.replace(/[^a-z0-9]/g, "");
+      const hasName =
+        hasCanonical ||
+        (compactCanonical.length >= 6 && compactHay.includes(compactCanonical)) ||
+        (identity.requiredNameTokens.length >= 2
+          ? requiredHits.length >= Math.min(2, identity.requiredNameTokens.length)
+          : requiredHits.length >= 1);
+      const hasTown =
+        identity.townTokens.length > 0 &&
+        identity.townTokens.some((token) => hay.includes(token.toLowerCase()));
+      const canonicalWords = identity.canonicalName
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter((word) => word.length >= 3);
+      const requiresTown = identity.forbiddenGenericOnly || canonicalWords.length <= 1;
+      const hasPlace = identity.townTokens.length > 0
+        ? requiresTown
+          ? hasTown
+          : hasTown || identity.stateTokens.some((token) => hay.includes(token.toLowerCase()))
+        : identity.stateTokens.some((token) => hay.includes(token.toLowerCase()));
+      return hasName && hasPlace;
+    })
+    .sort((a, b) => a.serperIndex - b.serperIndex);
+
+  return rows.slice(0, DISPLAY_MAX);
+}
+
+function pickUndiscoveredAppRows(
+  rows: ScoredPhotoRow[],
+  displayMax: number,
+): ScoredPhotoRow[] {
+  const seenImageUrls = new Set<string>();
+  const seenSourceUrls = new Set<string>();
+  const picked: ScoredPhotoRow[] = [];
+  const ordered = [...rows].sort((a, b) => a.serperIndex - b.serperIndex);
+
+  for (const row of ordered) {
+    if (row.meta.hardReject || row.meta.confidence === "low") continue;
+    const imageKey = row.result.imageUrl.trim().toLowerCase();
+    const sourceKey = row.result.sourceUrl.trim().toLowerCase();
+    if (!imageKey || seenImageUrls.has(imageKey) || seenSourceUrls.has(sourceKey)) continue;
+    seenImageUrls.add(imageKey);
+    seenSourceUrls.add(sourceKey);
+    picked.push(row);
+    if (picked.length >= displayMax) break;
+  }
+
+  return picked;
+}
+
 function applyConsensus(
   identity: TargetPlaceIdentity,
-  candidates: Array<{
-    result: PlaceImageResult;
-    meta: ReturnType<typeof scorePhotoResultMetadata>;
-  }>,
+  candidates: ScoredPhotoRow[],
+  options?: { scoringProfile?: PhotoSearchScoringProfile; allScored?: ScoredPhotoRow[] },
 ): {
   accepted: PbfAssetPreviewExternalAsset[];
   rejected: PbfAssetRejectedAsset[];
@@ -156,9 +250,19 @@ function applyConsensus(
       .filter((v) => !identityDisagreement || v.meta.identityGroupKey === dominantKey)
       .sort((a, b) => b.meta.score - a.meta.score);
 
+  const profile = options?.scoringProfile ?? "admin_strict";
+  const displayMax = profile === "undiscovered_app" ? UNDISCOVERED_APP_DISPLAY_MAX : DISPLAY_MAX;
+  const acceptThreshold =
+    profile === "undiscovered_app" ? APP_RESULT_SET_ACCEPT_THRESHOLD : ADMIN_RESULT_SET_ACCEPT_THRESHOLD;
+
   let acceptedRows: typeof viable = [];
-  if (high.length >= 1 && dominantMatchesTarget && !identityDisagreement) {
-    acceptedRows = pickFrom(high).slice(0, DISPLAY_MAX);
+  if (profile === "undiscovered_app") {
+    acceptedRows = pickUndiscoveredAppRows(candidates, displayMax);
+    if (acceptedRows.length === 0) {
+      acceptedRows = applyUndiscoveredAppFallback(identity, options?.allScored ?? candidates);
+    }
+  } else if (high.length >= 1 && dominantMatchesTarget && !identityDisagreement) {
+    acceptedRows = pickFrom(high).slice(0, displayMax);
   } else if (medium.length >= 2 && dominantMatchesTarget && !identityDisagreement) {
     const domains = new Set<string>();
     for (const row of pickFrom(medium)) {
@@ -166,7 +270,7 @@ function applyConsensus(
       if (domains.has(d)) continue;
       domains.add(d);
       acceptedRows.push(row);
-      if (acceptedRows.length >= DISPLAY_MAX) break;
+      if (acceptedRows.length >= displayMax) break;
     }
     if (acceptedRows.length < 2) acceptedRows = [];
   }
@@ -186,7 +290,7 @@ function applyConsensus(
   let assetStatus: PbfAssetPreviewStatus = "no_good_match";
   let assetsReady = false;
 
-  if (accepted.length > 0 && resultSetScore >= RESULT_SET_ACCEPT_THRESHOLD) {
+  if (accepted.length > 0 && resultSetScore >= acceptThreshold) {
     assetStatus = "found";
     assetsReady = true;
   } else if (identityDisagreement || !dominantMatchesTarget) {
@@ -242,7 +346,9 @@ export function scorePhotoSearchResultsForIdentity(
   options?: PhotoSearchScoreOptions,
 ): PhotoSearchResultSetScore {
   const visionMode = options?.visionMode ?? "off";
-  const strict = options?.strictTitleSourceMatch !== false;
+  const profile = options?.scoringProfile ?? "admin_strict";
+  const strict =
+    profile === "undiscovered_app" ? false : options?.strictTitleSourceMatch !== false;
 
   if (identity.skipImageLookup) {
     return {
@@ -278,15 +384,15 @@ export function scorePhotoSearchResultsForIdentity(
     };
   }
 
-  const scored = serperResults.map((result) => {
-    const meta = scorePhotoResultMetadata(identity, result);
+  const scored: ScoredPhotoRow[] = serperResults.map((result, serperIndex) => {
+    const meta = scorePhotoResultMetadata(identity, result, { scoringProfile: profile });
     if (!strict && meta.rejectReasons.includes("missing_distinctive_name") && meta.confidence === "medium") {
-      return { result, meta: { ...meta, hardReject: false } };
+      return { result, meta: { ...meta, hardReject: false }, serperIndex };
     }
-    return { result, meta };
+    return { result, meta, serperIndex };
   });
 
-  const consensus = applyConsensus(identity, scored);
+  const consensus = applyConsensus(identity, scored, { scoringProfile: profile, allScored: scored });
   const shouldRunGemini = deriveShouldRunGemini(visionMode, consensus.accepted);
 
   return {

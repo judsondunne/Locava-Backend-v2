@@ -1,11 +1,14 @@
 import type { PlaceImageResult } from "../../types/places.js";
+import { classifyDiscussionOrForumResult } from "../pbf/detectDiscussionOrForumResult.js";
 
 export type PlaceImageRejectReason =
   | "map_like"
   | "diagram_like"
   | "logo_or_icon"
   | "document_or_vector"
-  | "ui_or_screenshot";
+  | "ui_or_screenshot"
+  | "forum_or_discussion_page"
+  | "thumbnail_too_small";
 
 type QualityRule = {
   reason: PlaceImageRejectReason;
@@ -14,12 +17,11 @@ type QualityRule = {
 
 /** Strong metadata signals that the asset is not a place photo. */
 const REJECT_RULES: QualityRule[] = [
-  { reason: "map_like", pattern: /\boverview\s+map\b/i },
-  { reason: "map_like", pattern: /\btrail\s+map\b/i },
-  { reason: "map_like", pattern: /\btopo(graphic)?\s+map\b/i },
   { reason: "map_like", pattern: /\b(hiking|walking|ski|area|park|outdoors?|recreation)\s+map\b/i },
-  { reason: "map_like", pattern: /\bmap\b.*\b(trail|trails|area|park|overview|outdoors?|recreat)/i },
-  { reason: "map_like", pattern: /\b(trail|trails|area|park|overview|outdoors?|recreat).*\bmap\b/i },
+  { reason: "map_like", pattern: /\bgps\s+trail\s+map\b/i },
+  { reason: "map_like", pattern: /\btrail\s+map\b/i },
+  { reason: "map_like", pattern: /\boverview\s+map\b/i },
+  { reason: "map_like", pattern: /\btopo(graphic)?\s+map\b/i },
   { reason: "map_like", pattern: /\bstreet\s+map\b/i },
   { reason: "map_like", pattern: /\bsatellite\s+map\b/i },
   { reason: "map_like", pattern: /\bmap\s+of\b/i },
@@ -46,6 +48,7 @@ const REJECT_RULES: QualityRule[] = [
 ];
 
 const URL_REJECT_RULES: QualityRule[] = [
+  { reason: "map_like", pattern: /static[_-]?map/i },
   { reason: "map_like", pattern: /\/maps?(?:\/|[_-]|$)/i },
   { reason: "map_like", pattern: /[/_-]map[/_-]/i },
   { reason: "map_like", pattern: /map(?:[_-]?box|quest|tiler)/i },
@@ -65,6 +68,11 @@ export function classifyPlaceImageQuality(result: PlaceImageResult): {
   acceptable: boolean;
   reason?: PlaceImageRejectReason;
 } {
+  const forum = classifyDiscussionOrForumResult(result);
+  if (forum.isForum) {
+    return { acceptable: false, reason: forum.reason ?? "forum_or_discussion_page" };
+  }
+
   const haystack = metadataHaystack(result);
 
   for (const rule of REJECT_RULES) {

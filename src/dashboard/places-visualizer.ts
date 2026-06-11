@@ -152,6 +152,7 @@ export function renderPlacesVisualizerPage(): string {
         Use <code style="color:#a7f3d0">Feature, Region</code> or <code style="color:#a7f3d0">Region, Feature</code> on a line to scope results — e.g.
         <code style="color:#a7f3d0">Cascade Falls, Mt. Ascutney</code> or <code style="color:#a7f3d0">Ascutney VT, Hidden Falls</code>.
         Strict title/source metadata gate rejects wrong-place and generic Vermont hits — <strong>wrong photo is worse than none</strong>.
+        Enable <strong>Undiscovered app mode</strong> to preview the same relaxed scoring the native app uses for web photo reveal.
         Gemini vision is not used here.
       </p>
 
@@ -161,12 +162,14 @@ export function renderPlacesVisualizerPage(): string {
           <button id="searchBtn" type="submit">Search</button>
         </form>
         <div class="toggle-row">
+          <label><input type="checkbox" id="undiscoveredAppMode" /> Undiscovered app mode (matches native)</label>
           <label><input type="checkbox" id="strictMatch" checked /> Strict title/source match</label>
           <label><input type="checkbox" id="showRejected" checked /> Show rejected results</label>
         </div>
-        <p class="hint">One place per line. Commas scope a specific feature to a region (either order works). Accepted photos must match distinctive place name + town/state in title or source page.</p>
+        <p class="hint">One place per line. Commas scope a specific feature to a region (either order works). Admin mode requires distinctive place name + town/state in title or source page. Undiscovered app mode uses relaxed scoring — same as the in-app "See web photos" flow.</p>
         <div class="pills">
           <span class="pill-label">Quick picks</span>
+          <button type="button" class="pill" data-place="Covered Bridge Museum, Bennington, VT">Covered Bridge Museum</button>
           <button type="button" class="pill" data-place="Easton Canal Museum">Easton Canal Museum</button>
           <button type="button" class="pill" data-place="Quechee Gorge Vermont">Quechee Gorge Vermont</button>
           <button type="button" class="pill" data-place="Woodstock Vermont">Woodstock Vermont</button>
@@ -307,6 +310,9 @@ export function renderPlacesVisualizerPage(): string {
         const pill = '<span class="status-pill ' + statusPillClass(status) + '">' + escapeHtml(status) + '</span>';
         const counts = 'Accepted ' + (curation.acceptedCount || 0) + ' · Rejected ' + (curation.rejectedCount || 0) +
           ' · raw ' + (curation.rawResultCount || 0);
+        const profileLine = curation.scoringProfile === 'undiscovered_app'
+          ? '<p class="meta">Scoring: <strong style="color:#6ee7b7">undiscovered_app</strong> · strict title/source off</p>'
+          : '<p class="meta">Scoring: admin_strict · strict title/source ' + (curation.strictTitleSourceMatch ? 'on' : 'off') + '</p>';
         const matched = (curation.matchedTokens || []).map(function (t) {
           return '<span class="token">' + escapeHtml(t) + '</span>';
         }).join('');
@@ -329,6 +335,7 @@ export function renderPlacesVisualizerPage(): string {
           ? '<div class="grid" style="margin-top:12px">' + (curation.rejectedPreviews || []).map(renderRejectedPreview).join('') + '</div>'
           : '';
         return '<div style="margin:10px 0 12px">' + pill +
+          profileLine +
           '<p class="meta" style="margin-top:8px">' + counts + ' · set score ' + escapeHtml(String(curation.resultSetScore || 0)) + '</p>' +
           topReject + warns +
           ((matched || missing) ? '<div class="token-row">' + matched + missing + '</div>' : '') +
@@ -375,7 +382,11 @@ export function renderPlacesVisualizerPage(): string {
         if (Array.isArray(payload.places)) {
           const okCount = payload.places.filter((p) => p.curation && p.curation.assetsReady).length;
           $('resultsTitle').textContent = 'Places (' + okCount + ' accepted of ' + payload.places.length + ')';
-          $('resultsMeta').textContent = 'Batch search · strict metadata gate · ' +
+          $('resultsMeta').textContent = 'Batch search · ' +
+            (payload.places[0] && payload.places[0].curation && payload.places[0].curation.scoringProfile === 'undiscovered_app'
+              ? 'undiscovered_app scoring'
+              : 'strict metadata gate') +
+            ' · ' +
             payload.places.reduce((sum, p) => sum + (p.results || []).length, 0) + ' accepted images';
           $('resultsContainer').innerHTML = payload.places.map(function (p) {
             return renderPlaceSection(p, showRejected);
@@ -384,7 +395,10 @@ export function renderPlacesVisualizerPage(): string {
         }
 
         $('resultsTitle').innerHTML = 'Results for <span style="color:#6ee7b7">' + escapeHtml(payload.placeName || query) + '</span>';
-        $('resultsMeta').textContent = 'Strict title/source match · ' +
+        $('resultsMeta').textContent =
+          (payload.curation && payload.curation.scoringProfile === 'undiscovered_app'
+            ? 'Undiscovered app scoring · '
+            : 'Strict title/source match · ') +
           ((payload.curation && payload.curation.assetsReady) ? (payload.results || []).length + ' accepted' : 'no good match');
         $('resultsContainer').innerHTML = renderPlaceSection({
           placeName: payload.placeName,
@@ -394,6 +408,13 @@ export function renderPlacesVisualizerPage(): string {
           curation: payload.curation,
           error: payload.curation && !payload.curation.assetsReady ? (payload.curation.warnings || []).join(' ') : '',
         }, showRejected);
+      }
+
+      function syncUndiscoveredModeUi() {
+        const appMode = $('undiscoveredAppMode').checked;
+        const strictEl = $('strictMatch');
+        strictEl.disabled = appMode;
+        if (appMode) strictEl.checked = false;
       }
 
       async function runSearch(query) {
@@ -407,12 +428,14 @@ export function renderPlacesVisualizerPage(): string {
         setActivePill(trimmed);
         setLoading(true, placeLines.length);
         try {
+          const appMode = $('undiscoveredAppMode').checked;
           const res = await fetch('/api/places/search-images', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               placeName: trimmed,
-              strictTitleSourceMatch: $('strictMatch').checked,
+              strictTitleSourceMatch: appMode ? false : $('strictMatch').checked,
+              scoringProfile: appMode ? 'undiscovered_app' : 'admin_strict',
             }),
           });
           const payload = await res.json().catch(() => ({}));
@@ -432,6 +455,9 @@ export function renderPlacesVisualizerPage(): string {
           setLoading(false, placeLines.length);
         }
       }
+
+      $('undiscoveredAppMode').addEventListener('change', syncUndiscoveredModeUi);
+      syncUndiscoveredModeUi();
 
       $('searchForm').addEventListener('submit', (event) => {
         event.preventDefault();

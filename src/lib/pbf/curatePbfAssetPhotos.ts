@@ -35,6 +35,7 @@ export async function curatePbfAssetPhotos(input: {
   geminiApiKey?: string | null;
   visionMode?: PbfPhotoVisionMode;
   strictTitleSourceMatch?: boolean;
+  scoringProfile?: import("./scorePhotoSearchResultsForPlace.js").PhotoSearchScoringProfile;
 }): Promise<{
   assets: PbfAssetPreviewExternalAsset[];
   rejectedAssets: ReturnType<typeof scorePhotoSearchResultsForPlace>["rejectedAssets"];
@@ -52,6 +53,7 @@ export async function curatePbfAssetPhotos(input: {
   const scored = scorePhotoSearchResultsForPlace(input.doc, input.query, input.rawResults, {
     visionMode,
     strictTitleSourceMatch: input.strictTitleSourceMatch,
+    scoringProfile: input.scoringProfile,
   });
   const gemini = resolvePbfAssetGeminiConfig(input.env, input.geminiApiKey);
 

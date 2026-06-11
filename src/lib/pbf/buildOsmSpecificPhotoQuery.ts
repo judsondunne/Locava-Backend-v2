@@ -96,12 +96,62 @@ function parseIsInTown(isIn: string | undefined): string | undefined {
   return town;
 }
 
+const TOWN_INFERENCE_STOP_WORDS = new Set([
+  "historic",
+  "marker",
+  "monument",
+  "museum",
+  "memorial",
+  "library",
+  "battle",
+  "covered",
+  "free",
+  "state",
+  "national",
+  "park",
+  "trail",
+  "vermont",
+  "tavern",
+  "restaurant",
+  "cafe",
+  "bridge",
+  "connector",
+  "pond",
+  "lake",
+  "falls",
+  "waterfall",
+  "viewpoint",
+  "summit",
+  "hill",
+  "road",
+  "street",
+  "avenue",
+  "warner",
+  "seth",
+]);
+
+/** Landmark / POI titles embed person or feature names — never treat those tokens as towns. */
+const LANDMARK_TITLE_PATTERN =
+  /\b(site|shelter|monument|memorial|marker|ruins|homestead|historic|cemetery|lookout|overlook|campground|campsite|camp\s+site)\b/i;
+
+function inferTownFromDisplayName(displayName: string): string | undefined {
+  if (isWeakDisplayName(displayName)) return undefined;
+  if (LANDMARK_TITLE_PATTERN.test(displayName)) return undefined;
+  const words = displayName.match(/\b[A-Z][a-z]{3,}\b/g) ?? [];
+  for (const word of words) {
+    if (TOWN_INFERENCE_STOP_WORDS.has(word.toLowerCase())) continue;
+    if (word.length >= 5) return word;
+  }
+  return undefined;
+}
+
 function extractTown(doc: PbfCopierPreviewDoc): string | undefined {
   const candidates = [
     tagValue(doc, "addr:city"),
     parseIsInTown(tagValue(doc, "is_in")),
     payloadLocationField(doc, "city"),
     doc.attachedTo?.displayName,
+    inferTownFromDisplayName(doc.displayName?.trim() ?? ""),
   ];
   for (const candidate of candidates) {
     if (!candidate) continue;
@@ -116,6 +166,15 @@ function extractState(doc: PbfCopierPreviewDoc): string {
   const fromPayload = payloadLocationField(doc, "state");
   const raw = (fromTag || fromPayload || "Vermont").trim();
   if (/^vt$/i.test(raw)) return "Vermont";
+  return raw;
+}
+
+function extractCountry(doc: PbfCopierPreviewDoc): string {
+  const fromTag = tagValue(doc, "addr:country");
+  const payload = doc.writePayload as { location?: { country?: string } } | undefined;
+  const fromPayload = payload?.location?.country?.trim();
+  const raw = (fromTag || fromPayload || "United States").trim();
+  if (/^us$/i.test(raw) || /^usa$/i.test(raw)) return "United States";
   return raw;
 }
 
@@ -259,12 +318,14 @@ export function buildOsmSpecificPhotoQuery(doc: PbfCopierPreviewDoc): OsmPhotoQu
   const weakName = isWeakDisplayName(displayName);
   const town = extractTown(doc);
   const state = extractState(doc);
+  const country = extractCountry(doc);
   const address = extractAddress(doc);
   const nearby = extractNearbyContext(doc);
   const categoryWord = categorySearchWord(doc);
 
   if (town) confidenceHints.push(`town:${town}`);
   if (state) confidenceHints.push(`state:${state}`);
+  if (country) confidenceHints.push(`country:${country}`);
   if (categoryWord) confidenceHints.push(`category:${categoryWord}`);
   for (const hint of nearby) confidenceHints.push(`nearby:${hint}`);
   if (address) confidenceHints.push(`address:${address}`);
@@ -276,13 +337,17 @@ export function buildOsmSpecificPhotoQuery(doc: PbfCopierPreviewDoc): OsmPhotoQu
       confidenceHints,
       querySpecificityScore: 0,
       skip: true,
-      skipReason: "query_too_generic",
+      skipReason: "query_too_generic_no_town",
     };
   }
 
   const segments: string[] = [];
   if (displayName && !isRawGeneratedName(displayName)) {
-    segments.push(displayName);
+    if (isStrongProperPlaceName(displayName)) {
+      segments.push(`"${displayName}"`);
+    } else {
+      segments.push(displayName);
+    }
   } else if (!weakName) {
     segments.push(displayName);
   }
@@ -303,6 +368,7 @@ export function buildOsmSpecificPhotoQuery(doc: PbfCopierPreviewDoc): OsmPhotoQu
 
   if (town) segments.push(town);
   if (state) segments.push(state);
+  if (country) segments.push(country);
 
   if (!weakName && address && address.length <= 48) {
     segments.push(address);

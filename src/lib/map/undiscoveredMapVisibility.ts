@@ -3,7 +3,7 @@
  * `mapZoom` is Web Mercator-style integer zoom (10 = regional, 14 = neighborhood, 16 = trail detail).
  */
 /** When false, all public undiscovered features pass through (no zoom hide / cluster-only mode). */
-export const UNDISCOVERED_MARKER_ZOOM_GATING_ENABLED = false;
+export const UNDISCOVERED_MARKER_ZOOM_GATING_ENABLED = true;
 
 export function isUndiscoveredMarkerZoomGatingEnabled(): boolean {
   return UNDISCOVERED_MARKER_ZOOM_GATING_ENABLED;

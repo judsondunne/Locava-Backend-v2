@@ -83,6 +83,38 @@ const GENERIC_NAME_WORDS = new Set([
   "pool",
   "vermont",
   "vt",
+  "united",
+  "states",
+  "state",
+  "america",
+  "kingdom",
+  "republic",
+  "country",
+  "osm",
+  "generated",
+  "unexplored",
+  "preview",
+  "import",
+]);
+
+const GEO_FILLER_TOKENS = new Set([
+  "united",
+  "states",
+  "state",
+  "america",
+  "kingdom",
+  "republic",
+  "country",
+]);
+
+const PIPELINE_CONTEXT_WORDS = new Set([
+  "osm",
+  "generated",
+  "unexplored",
+  "preview",
+  "import",
+  "pbf",
+  "copier",
 ]);
 
 const GENERIC_ONLY_DISPLAY_NAMES = new Set([
@@ -180,6 +212,10 @@ function cleanCanonicalName(name: string): string {
   return name.replace(/\s+/g, " ").trim();
 }
 
+function placeFeatureName(canonicalName: string): string {
+  return (canonicalName.split("·")[0] ?? canonicalName).trim();
+}
+
 function splitDistinctiveTokens(tokens: string[]): { required: string[]; optional: string[] } {
   const required: string[] = [];
   const optional: string[] = [];
@@ -223,10 +259,14 @@ export function deriveTargetPlaceIdentityFromDoc(
 
   const nameTokens = tokenize(canonicalName);
   const queryTokens = query ? query.tokens.map((t) => t.toLowerCase()) : [];
+  // Town tokens from the search query must not become required name tokens (e.g. stamford from geocode).
+  const queryNonTownTokens = queryTokens.filter((token) => !VT_TOWNS.includes(token));
   const contextTokens = tokenize(
     [
       doc.primaryActivity,
-      doc.primaryCategory,
+      doc.primaryCategory && !PIPELINE_CONTEXT_WORDS.has(doc.primaryCategory.toLowerCase())
+        ? doc.primaryCategory
+        : "",
       ...(doc.activities ?? []),
       ...(doc.warnings ?? []),
       query?.query ?? "",
@@ -235,10 +275,26 @@ export function deriveTargetPlaceIdentityFromDoc(
       .join(" "),
   );
 
-  const merged = [...new Set([...nameTokens, ...queryTokens, ...contextTokens])];
+  const merged = [...new Set([...nameTokens, ...queryNonTownTokens, ...contextTokens])];
   const { required, optional } = splitDistinctiveTokens(merged);
   const townFromMerged = required.filter((t) => VT_TOWNS.includes(t) && !nameTokens.includes(t));
-  const requiredNameTokens = required.filter((t) => !VT_TOWNS.includes(t) || nameTokens.includes(t));
+  const normalizedDisplay = canonicalName.toLowerCase();
+  const forbiddenGenericOnly =
+    GENERIC_ONLY_DISPLAY_NAMES.has(normalizedDisplay) ||
+    (normalizedDisplay === "covered bridge" && required.filter((t) => !VT_TOWNS.includes(t)).length === 0);
+
+  let requiredNameTokens = required
+    .filter((t) => !VT_TOWNS.includes(t) || nameTokens.includes(t))
+    .filter((t) => !GEO_FILLER_TOKENS.has(t));
+  if (forbiddenGenericOnly) {
+    const phraseTokens = tokenize(canonicalName).filter((t) => t.length >= 3);
+    requiredNameTokens = [...new Set([...phraseTokens, ...requiredNameTokens])];
+  } else {
+    const phraseTokens = tokenize(canonicalName).filter((t) => t.length >= 3);
+    if (phraseTokens.length >= 2) {
+      requiredNameTokens = [...new Set([...phraseTokens, ...requiredNameTokens])];
+    }
+  }
 
   const townTokens = [...new Set([...extractTownTokens(town, query?.query ?? "", canonicalName), ...townFromMerged])];
   const stateTokens = ["vermont", "vt"];
@@ -248,10 +304,6 @@ export function deriveTargetPlaceIdentityFromDoc(
   const addressTokens = tokenize(address);
   const nearbyContextTokens = contextTokens.filter((t) => !GENERIC_NAME_WORDS.has(t) && !requiredNameTokens.includes(t));
 
-  const normalizedDisplay = canonicalName.toLowerCase();
-  const forbiddenGenericOnly =
-    GENERIC_ONLY_DISPLAY_NAMES.has(normalizedDisplay) ||
-    (normalizedDisplay === "covered bridge" && requiredNameTokens.length === 0);
   const hasDistinctive = requiredNameTokens.length > 0;
   const hasStrongContext =
     townTokens.length > 0 ||
@@ -285,26 +337,41 @@ export function deriveTargetPlaceIdentityFromDoc(
 
 export function deriveTargetPlaceIdentityFromParsedQuery(query: ParsedPlaceQuery): TargetPlaceIdentity {
   const canonicalName = cleanCanonicalName(query.displayName);
+  const featureName = placeFeatureName(canonicalName);
   const searchTokens = tokenize(query.searchQuery);
-  const displayTokens = tokenize(canonicalName);
+  const displayTokens = tokenize(featureName);
   const regionTokens = query.region ? tokenize(query.region) : [];
   const featureTokens = query.feature ? tokenize(query.feature) : [];
   const merged = [...new Set([...displayTokens, ...searchTokens, ...featureTokens])];
   const { required, optional } = splitDistinctiveTokens(merged);
   const townFromMerged = required.filter((t) => VT_TOWNS.includes(t) && !displayTokens.includes(t));
-  const requiredNameTokens = required.filter((t) => !VT_TOWNS.includes(t) || displayTokens.includes(t));
+  const normalizedDisplay = featureName.toLowerCase();
+  const forbiddenGenericOnly =
+    GENERIC_ONLY_DISPLAY_NAMES.has(normalizedDisplay) ||
+    (normalizedDisplay === "covered bridge" && required.filter((t) => !VT_TOWNS.includes(t)).length === 0);
 
-  const townTokens = [...new Set([...extractTownTokens(query.searchQuery, query.region ?? "", canonicalName), ...townFromMerged])];
+  const townTokens = [...new Set([...extractTownTokens(query.searchQuery, query.region ?? "", featureName), ...townFromMerged])];
+
+  let requiredNameTokens = required
+    .filter((t) => !VT_TOWNS.includes(t) || displayTokens.includes(t))
+    .filter((t) => !GEO_FILLER_TOKENS.has(t));
+  const phraseTokens = tokenize(featureName).filter((t) => t.length >= 3);
+  if (forbiddenGenericOnly) {
+    requiredNameTokens = [...new Set([...phraseTokens, ...requiredNameTokens])];
+  } else if (phraseTokens.length >= 2) {
+    requiredNameTokens = [
+      ...new Set([
+        ...phraseTokens,
+        ...requiredNameTokens.filter((token) => !townTokens.includes(token)),
+      ]),
+    ];
+  }
   const categoryTokens = extractCategoryTokens(
     query.feature ?? query.displayName,
     undefined,
     featureTokens,
   );
 
-  const normalizedDisplay = canonicalName.toLowerCase();
-  const forbiddenGenericOnly =
-    GENERIC_ONLY_DISPLAY_NAMES.has(normalizedDisplay) ||
-    (normalizedDisplay === "covered bridge" && requiredNameTokens.length === 0);
   const hasDistinctive = requiredNameTokens.length > 0;
   const hasStrongContext = townTokens.length > 0 || (query.scoped && featureTokens.length > 0);
 

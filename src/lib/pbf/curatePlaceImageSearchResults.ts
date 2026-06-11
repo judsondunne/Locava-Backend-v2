@@ -26,8 +26,12 @@ export function curatePlaceImageSearchResults(
 export function buildPlaceImageCurationMeta(
   scored: PhotoSearchResultSetScore,
   rawResultCount: number,
-  strictTitleSourceMatch: boolean,
+  options: {
+    strictTitleSourceMatch: boolean;
+    scoringProfile?: import("./scorePhotoSearchResultsForPlace.js").PhotoSearchScoringProfile;
+  },
 ): PlaceImageCurationMeta {
+  const scoringProfile = options.scoringProfile ?? "admin_strict";
   return {
     assetStatus: scored.assetStatus,
     assetsReady: scored.assetsReady,
@@ -44,7 +48,8 @@ export function buildPlaceImageCurationMeta(
       rejectReasons: r.rejectReasons,
       metadataScore: r.metadataScore,
     })),
-    strictTitleSourceMatch,
+    strictTitleSourceMatch: options.strictTitleSourceMatch,
+    scoringProfile,
     warnings: scored.warnings,
     rawResultCount,
   };

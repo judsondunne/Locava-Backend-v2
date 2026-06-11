@@ -124,8 +124,17 @@ function matchesFeature(result: PlaceImageResult, feature: string): boolean {
   if (words.length === 0) return true;
   const phrase = feature.trim().toLowerCase();
   if (phrase && haystack.includes(phrase)) return true;
+  const compactHay = haystack.replace(/[^a-z0-9]+/g, "");
+  const compactPhrase = phrase.replace(/[^a-z0-9]+/g, "");
+  if (compactPhrase.length >= 6 && compactHay.includes(compactPhrase)) return true;
   const matched = words.filter((word) => haystack.includes(word));
   return matched.length >= Math.max(1, Math.ceil(words.length * 0.75));
+}
+
+function featureMatchesDistinctively(result: PlaceImageResult, feature: string): boolean {
+  const words = significantWords(feature);
+  if (words.length < 2) return false;
+  return matchesFeature(result, feature);
 }
 
 function looksLikeWrongRegion(result: PlaceImageResult, region: string): boolean {
@@ -147,6 +156,14 @@ function matchesRegionScope(
 ): boolean {
   const haystack = metadataHaystack(result);
   if (looksLikeWrongRegion(result, region)) return false;
+
+  if (
+    feature &&
+    featureMatchesDistinctively(result, feature) &&
+    expandRegionTokens(region).includes("vermont")
+  ) {
+    return true;
+  }
 
   const regionLower = region.toLowerCase();
   if (

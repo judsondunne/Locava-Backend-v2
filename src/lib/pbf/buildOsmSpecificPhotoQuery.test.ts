@@ -54,7 +54,7 @@ describe("buildOsmSpecificPhotoQuery", () => {
       }),
     );
     expect(result.skip).toBe(true);
-    expect(result.skipReason).toBe("query_too_generic");
+    expect(result.skipReason).toBe("query_too_generic_no_town");
   });
 
   it("contextualizes weak swimming area with town", () => {
@@ -79,6 +79,24 @@ describe("buildOsmSpecificPhotoQuery", () => {
       }),
     );
     expect(result.skip).toBe(true);
+  });
+
+  it("does not treat person-name tokens in landmark titles as towns", () => {
+    const result = buildOsmSpecificPhotoQuery(
+      baseDoc({
+        displayName: "Old Seth Warner Shelter Site",
+        primaryCategory: "camp_site",
+        sourceTagSample: {
+          "addr:city": "Bennington",
+          "addr:state": "Vermont",
+          operator: "Green Mountain Club",
+        },
+      }),
+    );
+    expect(result.skip).toBe(false);
+    expect(result.query).toContain("Seth Warner");
+    expect(result.query).toContain("Bennington");
+    expect(result.confidenceHints.some((h) => h === "town:Warner")).toBe(false);
   });
 
   it("adds trail context for named hiking routes", () => {

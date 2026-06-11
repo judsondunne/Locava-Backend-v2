@@ -119,32 +119,39 @@ const MOCK_PLACE_IMAGES: Record<string, Omit<PlaceImageResult, "id">[]> = {
   ],
 };
 
-const DEFAULT_RESULT_TARGET = 4;
-const FETCH_POOL_SIZE = 20;
+const DEFAULT_RESULT_TARGET = 8;
+const FETCH_POOL_SIZE = 30;
+
+const SEARCH_NEGATIVE_TERMS = ["-forum", "-thread", "-reddit", "-tacomaworld", "-quora"];
+
+function enhanceImageSearchQuery(searchQuery: string): string {
+  const base = searchQuery.trim();
+  if (!base) return base;
+  const lower = base.toLowerCase();
+  const negatives = SEARCH_NEGATIVE_TERMS.filter((term) => !lower.includes(term.slice(1)));
+  const withPhoto = /\bphoto(s|graphy)?\b/i.test(base) ? base : `${base} photo`;
+  return negatives.length > 0 ? `${withPhoto} ${negatives.join(" ")}`.trim() : withPhoto;
+}
 
 export type SearchPlaceImagesOptions = {
   resultLimit?: number;
+  /** Skip per-URL HEAD/GET probes — used by undiscovered app for faster first paint. */
+  skipLoadVerification?: boolean;
 };
-
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
 
 function finalizePlaceImageResults(
   raw: PlaceImageResult[],
   query: ParsedPlaceQuery,
   provider: "bing" | "serper" | "mock",
   resultLimit = DEFAULT_RESULT_TARGET,
+  skipLoadVerification = false,
 ): Promise<PlaceImageResult[]> {
   const relevant = filterRelevantPlaceImages(raw, query);
   const photos = filterAcceptablePlaceImages(relevant);
 
-  return filterVerifiedLoadableImages(photos).then((loadable) =>
+  const ranked = (loadable: PlaceImageResult[]) =>
     rankPlaceImages(loadable, query)
-      .slice(0, Math.max(1, Math.min(resultLimit, 20)))
+      .slice(0, Math.max(1, Math.min(resultLimit, 30)))
       .map((result, index) =>
         enrichPlaceImageCitation(
           {
@@ -153,8 +160,20 @@ function finalizePlaceImageResults(
           },
           provider,
         ),
-      ),
-  );
+      );
+
+  if (skipLoadVerification) {
+    return Promise.resolve(ranked(photos));
+  }
+
+  return filterVerifiedLoadableImages(photos).then((loadable) => ranked(loadable));
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
 function withIds(
@@ -187,7 +206,7 @@ async function fetchFromSerper(
       "X-API-KEY": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ q: searchQuery, num: Math.min(Math.max(limit, 4), 20) }),
+    body: JSON.stringify({ q: enhanceImageSearchQuery(searchQuery), num: Math.min(Math.max(limit, 4), 30) }),
     cache: "no-store",
   });
 
@@ -229,8 +248,8 @@ async function fetchFromBing(
   limit = 4,
 ): Promise<PlaceImageResult[]> {
   const url = new URL("https://api.bing.microsoft.com/v7.0/images/search");
-  url.searchParams.set("q", searchQuery);
-  url.searchParams.set("count", String(Math.min(Math.max(limit, 4), 20)));
+  url.searchParams.set("q", enhanceImageSearchQuery(searchQuery));
+  url.searchParams.set("count", String(Math.min(Math.max(limit, 4), 30)));
   url.searchParams.set("safeSearch", "Strict");
   url.searchParams.set("license", "Public");
 
@@ -367,12 +386,19 @@ export async function searchPlaceImages(
   const parsed =
     typeof query === "string" ? buildPlaceQuery(query) : query;
   const resultLimit = options?.resultLimit ?? DEFAULT_RESULT_TARGET;
+  const skipLoadVerification = options?.skipLoadVerification === true;
   const serperKey = String(env.SERPER_API_KEY ?? "").trim();
   const bingKey = String(env.BING_SEARCH_API_KEY ?? "").trim();
 
   if (serperKey) {
     const raw = await fetchFromSerper(parsed.searchQuery, serperKey, FETCH_POOL_SIZE);
-    const results = await finalizePlaceImageResults(raw, parsed, "serper", resultLimit);
+    const results = await finalizePlaceImageResults(
+      raw,
+      parsed,
+      "serper",
+      resultLimit,
+      skipLoadVerification,
+    );
     if (results.length > 0) {
       return { results, source: "serper" };
     }
@@ -380,7 +406,13 @@ export async function searchPlaceImages(
 
   if (bingKey) {
     const raw = await fetchFromBing(parsed.searchQuery, bingKey, FETCH_POOL_SIZE);
-    const results = await finalizePlaceImageResults(raw, parsed, "bing", resultLimit);
+    const results = await finalizePlaceImageResults(
+      raw,
+      parsed,
+      "bing",
+      resultLimit,
+      skipLoadVerification,
+    );
     if (results.length > 0) {
       return { results, source: "bing" };
     }

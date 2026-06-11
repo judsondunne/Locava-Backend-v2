@@ -3,11 +3,14 @@ import type { PbfCopierPreviewDoc } from "../../admin/openstreetmap/national/pbf
 import { searchPlaceImages } from "../places/searchPlaceImages.service.js";
 import type { ParsedPlaceQuery } from "../../types/places.js";
 import type { PbfAssetPreviewItem, PbfPhotoVisionMode } from "../../types/pbfAssetPreview.js";
+import { enrichPreviewDocForPhotoSearch } from "../undiscovered/enrichPreviewDocForPhotoSearch.js";
 import { buildOsmSpecificPhotoQuery } from "./buildOsmSpecificPhotoQuery.js";
 import { curatePbfAssetPhotos } from "./curatePbfAssetPhotos.js";
 
-const SEARCH_POOL_SIZE = 10;
+const SEARCH_POOL_SIZE = 12;
+const UNDISCOVERED_SEARCH_POOL_SIZE = 40;
 const MAX_RESULT_IMAGES = 8;
+const UNDISCOVERED_MAX_RESULT_IMAGES = 20;
 const LOOKUP_RETRY_ATTEMPTS = 1;
 const LOOKUP_RETRY_DELAY_MS = 250;
 
@@ -31,11 +34,15 @@ function isTransientLookupError(error: unknown): boolean {
 async function lookupWithRetry(
   parsed: ParsedPlaceQuery,
   env: AppEnv,
+  options?: { resultLimit?: number; skipLoadVerification?: boolean },
 ): Promise<{ results: Awaited<ReturnType<typeof searchPlaceImages>>["results"]; source: Awaited<ReturnType<typeof searchPlaceImages>>["source"] }> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= LOOKUP_RETRY_ATTEMPTS; attempt += 1) {
     try {
-      return await searchPlaceImages(parsed, env, { resultLimit: SEARCH_POOL_SIZE });
+      return await searchPlaceImages(parsed, env, {
+        resultLimit: options?.resultLimit ?? SEARCH_POOL_SIZE,
+        skipLoadVerification: options?.skipLoadVerification,
+      });
     } catch (error) {
       lastError = error;
       if (!isTransientLookupError(error) || attempt >= LOOKUP_RETRY_ATTEMPTS) break;
@@ -64,15 +71,23 @@ export async function processPbfAssetPreviewSpot(
     geminiApiKey?: string | null;
     visionMode?: PbfPhotoVisionMode;
     strictTitleSourceMatch?: boolean;
+    scoringProfile?: import("./scorePhotoSearchResultsForPlace.js").PhotoSearchScoringProfile;
   },
 ): Promise<{ item: PbfAssetPreviewItem; stats: PbfAssetPreviewSpotStats }> {
   const visionMode = params.visionMode ?? "off";
   const strictTitleSourceMatch = params.strictTitleSourceMatch !== false;
-  const built = buildOsmSpecificPhotoQuery(doc);
-  if (built.skip) {
+  const scoringProfile = params.scoringProfile ?? "admin_strict";
+  const workingDoc =
+    scoringProfile === "undiscovered_app"
+      ? await enrichPreviewDocForPhotoSearch(doc)
+      : doc;
+  const built = buildOsmSpecificPhotoQuery(workingDoc);
+  const allowUndiscoveredLookup =
+    scoringProfile === "undiscovered_app" && built.query.trim().length > 0;
+  if (built.skip && !allowUndiscoveredLookup) {
     return {
       item: {
-        ...doc,
+        ...workingDoc,
         assetPreview: {
           query: built.query,
           querySpecificityScore: built.querySpecificityScore,
@@ -112,28 +127,36 @@ export async function processPbfAssetPreviewSpot(
 
   const parsed: ParsedPlaceQuery = {
     rawLine: built.query,
-    displayName: doc.displayName,
+    displayName: workingDoc.displayName,
     searchQuery: built.query,
     scoped: false,
   };
 
   const lookupStarted = Date.now();
+  const undiscoveredApp = scoringProfile === "undiscovered_app";
+  const resultLimit = undiscoveredApp ? UNDISCOVERED_SEARCH_POOL_SIZE : SEARCH_POOL_SIZE;
+  const maxResultImages = undiscoveredApp ? UNDISCOVERED_MAX_RESULT_IMAGES : MAX_RESULT_IMAGES;
   try {
-    const { results, source } = await lookupWithRetry(parsed, params.env);
+    const { results, source } = await lookupWithRetry(parsed, params.env, {
+      resultLimit,
+      skipLoadVerification: undiscoveredApp,
+    });
+
     const curated = await curatePbfAssetPhotos({
-      doc,
+      doc: workingDoc,
       query: built,
       rawResults: results,
       env: params.env,
       geminiApiKey: params.geminiApiKey,
       visionMode,
-      strictTitleSourceMatch,
+      strictTitleSourceMatch: undiscoveredApp ? strictTitleSourceMatch === true : strictTitleSourceMatch,
+      scoringProfile,
     });
-    const externalAssets = curated.assets.slice(0, MAX_RESULT_IMAGES);
+    const externalAssets = curated.assets.slice(0, maxResultImages);
 
     return {
       item: {
-        ...doc,
+        ...workingDoc,
         assetPreview: {
           query: built.query,
           querySpecificityScore: built.querySpecificityScore,
@@ -178,7 +201,7 @@ export async function processPbfAssetPreviewSpot(
     const message = error instanceof Error ? error.message : "Photo lookup failed";
     return {
       item: {
-        ...doc,
+        ...workingDoc,
         assetPreview: {
           query: built.query,
           querySpecificityScore: built.querySpecificityScore,

@@ -23,17 +23,22 @@ import type {
 const SearchImagesBodySchema = z.object({
   placeName: z.string().trim().min(1).max(4000),
   strictTitleSourceMatch: z.boolean().optional(),
+  scoringProfile: z.enum(["admin_strict", "undiscovered_app"]).optional(),
 });
 
 function curatePlaceResults(
   query: ReturnType<typeof parsePlaceQueries>[number],
   rawResults: Awaited<ReturnType<typeof searchPlaceImages>>["results"],
   source: "bing" | "serper" | "mock",
-  strictTitleSourceMatch: boolean,
+  options: {
+    strictTitleSourceMatch: boolean;
+    scoringProfile: "admin_strict" | "undiscovered_app";
+  },
 ): PlaceWithPhotos {
-  const curated = curatePlaceImageSearchResults(query, rawResults, { strictTitleSourceMatch });
-  const curation = buildPlaceImageCurationMeta(curated, rawResults.length, strictTitleSourceMatch);
+  const curated = curatePlaceImageSearchResults(query, rawResults, options);
+  const curation = buildPlaceImageCurationMeta(curated, rawResults.length, options);
   const warnings = curation.warnings.join(" ");
+  const appMode = options.scoringProfile === "undiscovered_app";
   let error: string | undefined;
   if (rawResults.length === 0) {
     error = `No image results returned for "${query.displayName}".`;
@@ -41,7 +46,10 @@ function curatePlaceResults(
     error =
       curation.assetStatus === "skipped"
         ? warnings || "Place identity too generic for safe image lookup."
-        : warnings || "No good photos found — strict metadata match rejected all results.";
+        : warnings ||
+          (appMode
+            ? "No good photos found — undiscovered app scoring rejected all results."
+            : "No good photos found — strict metadata match rejected all results.");
   }
   return {
     placeName: query.displayName,
@@ -86,7 +94,12 @@ export function registerPlacesVisualizerRoutes(app: FastifyInstance): void {
       return reply.status(400).send(payload);
     }
 
-    const strictTitleSourceMatch = parsed.data.strictTitleSourceMatch !== false;
+    const scoringProfile = parsed.data.scoringProfile ?? "admin_strict";
+    const strictTitleSourceMatch =
+      scoringProfile === "undiscovered_app"
+        ? false
+        : parsed.data.strictTitleSourceMatch !== false;
+    const curationOptions = { strictTitleSourceMatch, scoringProfile };
     const placeQueries = parsePlaceQueries(parsed.data.placeName);
     if (placeQueries.length === 0) {
       const payload: PlaceImageSearchError = {
@@ -109,8 +122,8 @@ export function registerPlacesVisualizerRoutes(app: FastifyInstance): void {
     try {
       if (placeQueries.length === 1) {
         const query = placeQueries[0]!;
-        const { results: rawResults, source } = await searchPlaceImages(query, env);
-        const place = curatePlaceResults(query, rawResults, source, strictTitleSourceMatch);
+        const { results: rawResults, source } = await searchPlaceImages(query, env, { resultLimit: 12 });
+        const place = curatePlaceResults(query, rawResults, source, curationOptions);
 
         if (rawResults.length === 0) {
           const payload: PlaceImageSearchError = {
@@ -137,8 +150,8 @@ export function registerPlacesVisualizerRoutes(app: FastifyInstance): void {
       const places: PlaceWithPhotos[] = await Promise.all(
         placeQueries.map(async (query) => {
           try {
-            const { results: rawResults, source } = await searchPlaceImages(query, env);
-            return curatePlaceResults(query, rawResults, source, strictTitleSourceMatch);
+            const { results: rawResults, source } = await searchPlaceImages(query, env, { resultLimit: 12 });
+            return curatePlaceResults(query, rawResults, source, curationOptions);
           } catch (error) {
             const message =
               error instanceof Error ? error.message : "Image search provider error.";

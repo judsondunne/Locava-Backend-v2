@@ -23,6 +23,7 @@ function normalizeUnexploredSpot(doc: Record<string, unknown>) {
     itemId: String(doc.id ?? ""),
     isUnexplored: true,
     hasMedia: false,
+    ...(doc.photoSearch != null ? { photoSearch: doc.photoSearch } : {}),
   };
 }
 
@@ -35,6 +36,7 @@ function normalizeUnexploredRoute(doc: Record<string, unknown>) {
     isUnexplored: true,
     hasMedia: false,
     isRoute: true,
+    ...(doc.photoSearch != null ? { photoSearch: doc.photoSearch } : {}),
   };
 }
 

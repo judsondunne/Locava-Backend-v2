@@ -54,6 +54,8 @@ export type PlaceImageCurationMeta = {
   missingRequiredTokens: string[];
   rejectedPreviews: PlaceImageRejectedPreview[];
   strictTitleSourceMatch: boolean;
+  /** admin_strict (default) vs undiscovered_app — matches native undiscovered photo search. */
+  scoringProfile?: "admin_strict" | "undiscovered_app";
   warnings: string[];
   rawResultCount: number;
 };
