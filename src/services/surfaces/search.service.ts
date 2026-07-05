@@ -319,7 +319,8 @@ export class SearchService {
             count: posts.length,
             hasMore: useFastPosts ? false : postsPage.hasMore,
             nextCursor: useFastPosts ? null : postsPage.nextCursor,
-            sort: "search_ranked_v1" as const
+            sort: "search_ranked_v1" as const,
+            rankingVersion: useFastPosts ? "fast_v1" : postsPage.rankingVersion ?? "lexical_v1"
           },
           items: wantedTypes.has("posts") ? posts : [],
           ...(includeDebug

@@ -2,6 +2,7 @@ import { incrementDbOps } from "../../observability/request-context.js";
 import { recordFallback, recordTimeout } from "../../observability/request-context.js";
 import { SearchResultsFirestoreAdapter } from "../source-of-truth/search-results-firestore.adapter.js";
 import { enforceSourceOfTruthStrictness, SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
+import { isSemanticRankingEnabled } from "../../config/searchRankingConfig.js";
 
 export type SearchResultCandidateRecord = {
   postId: string;
@@ -26,6 +27,7 @@ export type SearchResultsPageRecord = {
   items: SearchResultCandidateRecord[];
   hasMore: boolean;
   nextCursor: string | null;
+  rankingVersion?: string;
   debug?: Record<string, unknown>;
 };
 
@@ -71,7 +73,7 @@ export class SearchRepository {
 
     if (this.firestoreAdapter.isEnabled()) {
       try {
-        const page = await this.firestoreAdapter.searchResultsPage({
+        const pageInput = {
           viewerId,
           query: normalized,
           cursorOffset: offset,
@@ -79,7 +81,18 @@ export class SearchRepository {
           lat,
           lng,
           includeDebug
-        });
+        };
+        // Semantic ranker first when enabled; it returns null (→ lexical fallback) when embeddings are
+        // unconfigured, the query can't be embedded, or the vector index is unavailable.
+        let rankingVersion = "lexical_v1";
+        let page = isSemanticRankingEnabled()
+          ? await this.firestoreAdapter.semanticSearchResultsPage(pageInput)
+          : null;
+        if (page) {
+          rankingVersion = "semantic_v1";
+        } else {
+          page = await this.firestoreAdapter.searchResultsPage(pageInput);
+        }
         incrementDbOps("queries", page.queryCount);
         incrementDbOps("reads", page.readCount);
         return {
@@ -88,6 +101,7 @@ export class SearchRepository {
           items: page.items,
           hasMore: page.hasMore,
           nextCursor: page.nextCursor,
+          rankingVersion,
           ...(page.debug ? { debug: page.debug } : {})
         };
       } catch (error) {
