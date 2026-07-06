@@ -11,11 +11,17 @@ import { renderOpenStreetMapPbfCopierPage } from "../dashboard/openstreetmap-pbf
 import { renderOpenStreetMapPbfCopierV2Page } from "../dashboard/openstreetmap-pbf-copier-v2.js";
 import { renderPbfPhotoAssetPreviewPage } from "../dashboard/pbf-photo-asset-preview.js";
 import { renderOpenStreetMapVermontOffroadImportPage } from "../dashboard/openstreetmap-vermont-offroad-import.js";
+import { renderUndiscoveredDashboardV1Page } from "../dashboard/undiscovered-dashboard-v1.js";
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get("/admin", async (_request, reply) => {
     reply.type("text/html; charset=utf-8");
     return reply.send(renderAdminPage());
+  });
+
+  app.get("/admin/undiscovered/dashboard-v1", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return reply.send(renderUndiscoveredDashboardV1Page());
   });
 
   app.get("/admin/wiki-curation", async (_request, reply) => {
