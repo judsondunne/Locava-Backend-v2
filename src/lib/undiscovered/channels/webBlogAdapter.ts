@@ -9,15 +9,23 @@ import { itemsToChannelCandidates } from "./placeCandidateExtractor.js";
  * accepts pre-fetched `rawItems`. Region-gated so out-of-state listicles drop out.
  */
 
-/** Very small HTML → text: drop scripts/styles/tags, collapse whitespace. */
+/**
+ * Small HTML → text. Structural boundaries (links, list items, table cells,
+ * headings, paragraphs, line breaks) become a hard `|` separator so the place
+ * extractor can't run capitalized words across cells — otherwise a table of
+ * park names flattens into garbage like "Aitken Arlington Black Turn Brook".
+ */
 export function htmlToText(html: string): string {
   return html
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<\/(a|li|td|th|tr|p|h[1-6]|div|caption|figcaption|dt|dd)>/gi, " | ")
+    .replace(/<br\s*\/?>/gi, " | ")
     .replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
-    .replace(/\s+/g, " ")
+    .replace(/[ \t\r\n]+/g, " ")
+    .replace(/(?: ?\| ?)+/g, " | ")
     .trim();
 }
 

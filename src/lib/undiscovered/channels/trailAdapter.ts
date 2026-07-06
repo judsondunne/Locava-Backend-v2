@@ -28,11 +28,15 @@ export const trailAdapter: DiscoveryChannelAdapter = {
     for (const item of items) {
       const name = String(item.extra?.name ?? "").trim();
       const hasCoords = typeof item.lat === "number" && typeof item.lng === "number";
-      // Trust items that already have a clean name — no text parsing needed.
-      if (name && hasCoords) {
+      // Trust items that already carry a clean name (trail DBs do). Coords are
+      // optional — region is confirmed by in-bbox coords or a regional keyword in
+      // the item text (e.g. the source's "…, Vermont" location label).
+      if (name) {
         if (!isRegionRelevant(item, ctx.region)) continue;
         const rawCat = String(item.extra?.category ?? "hiking_trail");
         const category = normalizeDiscoveryCategory(rawCat);
+        const reasons = ["trail_db_structured"];
+        if (!hasCoords) reasons.push("coords_pending");
         structured.push({
           id: `trail_db:${item.sourceId}`,
           region: ctx.region,
@@ -44,10 +48,10 @@ export const trailAdapter: DiscoveryChannelAdapter = {
           categories: [category],
           primaryActivity: "hiking",
           activities: ["hiking"],
-          lat: item.lat as number,
-          lng: item.lng as number,
+          lat: item.lat ?? 0,
+          lng: item.lng ?? 0,
           reviewStatus: "candidate",
-          qualityGate: { passed: true, reasons: ["trail_db_structured"] },
+          qualityGate: { passed: true, reasons },
           provenance: {
             sourceProvider: "trail-db",
             sourceIds: [item.sourceId],
