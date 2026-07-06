@@ -3,10 +3,16 @@ import {
   DISCOVERY_QUALITY_RULES,
   DISCOVERY_SPOT_CATEGORIES,
   ListCandidatesQuerySchema,
+  SeedFromChannelBodySchema,
   SetStatusBodySchema,
   undiscoveredDashboardContract,
 } from "../../contracts/surfaces/undiscovered-candidate.contract.js";
 import { getDiscoveryCandidateStore } from "../../admin/undiscovered/discoveryCandidateStore.js";
+import {
+  defaultHttpFetchers,
+  getChannelAdapter,
+  listChannelAdapters,
+} from "../../lib/undiscovered/channels/registry.js";
 import { buildVermontSampleCandidates } from "../../lib/undiscovered/vermontSampleCandidates.js";
 import { pbfPreviewToDiscoveryCandidate } from "../../lib/undiscovered/pbfPreviewToDiscoveryCandidate.js";
 import type { PbfCopierPreviewDoc } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierTypes.js";
@@ -81,6 +87,46 @@ export async function registerUndiscoveredDashboardRoutes(app: FastifyInstance):
     const store = getDiscoveryCandidateStore();
     const result = store.upsertMany(buildVermontSampleCandidates());
     return success({ ...result, total: store.size(), region: "VT" });
+  });
+
+  app.get(`${base}/channels`, async () => {
+    setRouteName(c.routeNames.channels);
+    return success({
+      channels: listChannelAdapters().map((a) => ({
+        channel: a.channel,
+        label: a.label,
+        strategy: a.strategy,
+        liveFetchSupported: a.liveFetchSupported,
+      })),
+    });
+  });
+
+  // Multi-channel seam: run a channel adapter and map its output into the review queue.
+  app.post(`${base}/seed-from-channel`, async (request, reply) => {
+    setRouteName(c.routeNames.seedFromChannel);
+    const body = SeedFromChannelBodySchema.parse(request.body ?? {});
+    const adapter = getChannelAdapter(body.channel);
+    if (!adapter) {
+      return reply.status(404).send(failure("unknown_channel", `No adapter for ${body.channel}`));
+    }
+    const candidates = await adapter.fetchCandidates({
+      region: body.region,
+      query: body.query,
+      limit: body.limit,
+      rawItems: body.rawItems,
+      httpGetJson: defaultHttpFetchers.httpGetJson,
+      httpGetText: defaultHttpFetchers.httpGetText,
+    });
+    const store = getDiscoveryCandidateStore();
+    const result = store.upsertMany(candidates);
+    return success({
+      ...result,
+      total: store.size(),
+      channel: body.channel,
+      region: body.region,
+      mapped: candidates.length,
+      liveFetchSupported: adapter.liveFetchSupported,
+    });
   });
 
   // Real seam: accept OSM PBF v2 preview docs and map them into the review queue.

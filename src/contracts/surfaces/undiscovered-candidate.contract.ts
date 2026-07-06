@@ -187,9 +187,31 @@ export const undiscoveredDashboardContract = {
     setStatus: "admin.undiscovered.dashboard_v1.set_status",
     seedSample: "admin.undiscovered.dashboard_v1.seed_sample",
     seedFromPbf: "admin.undiscovered.dashboard_v1.seed_from_pbf",
+    seedFromChannel: "admin.undiscovered.dashboard_v1.seed_from_channel",
+    channels: "admin.undiscovered.dashboard_v1.channels",
     categories: "admin.undiscovered.dashboard_v1.categories",
   },
 } as const;
+
+export const SeedFromChannelBodySchema = z.object({
+  channel: DiscoverySourceChannelSchema,
+  region: z.string().default("VT"),
+  query: z.string().max(500).optional(),
+  limit: z.number().int().min(1).max(100).optional(),
+  /** Optional pre-fetched raw items (fixtures / manual paste / channels without live fetch). */
+  rawItems: z
+    .array(
+      z.object({
+        sourceId: z.string(),
+        text: z.string(),
+        sourceUrl: z.string().optional(),
+        lat: z.number().optional(),
+        lng: z.number().optional(),
+        extra: z.record(z.unknown()).optional(),
+      }),
+    )
+    .optional(),
+});
 
 export const SetStatusBodySchema = z.object({
   status: DiscoveryReviewStatusSchema,

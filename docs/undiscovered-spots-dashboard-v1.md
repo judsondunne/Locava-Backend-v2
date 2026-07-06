@@ -59,8 +59,27 @@ Page: `GET /admin/undiscovered/dashboard-v1`
 - Next: per-channel adapters (Reddit / trail / blog) that emit the same
   `DiscoveryCandidate` — additive, no dashboard changes required.
 
+## Multi-channel discovery (June 26–27)
+
+Non-OSM sources implement one interface (`DiscoveryChannelAdapter`) and emit the
+same `DiscoveryCandidate`, so they flow into the same queue / dashboard / quality
+gate with no per-channel dashboard changes.
+
+- Shared core — `src/lib/undiscovered/channels/placeCandidateExtractor.ts`: extracts
+  named spots from free text (trailing feature-type decides category/route-vs-spot)
+  and **region-gates** to Vermont (in-bbox coords, or a VT keyword) so out-of-state
+  mentions are dropped — the guard against irrelevant locations.
+- Adapters — `reddit` (live public JSON), `web_blog` (live fetch + HTML→text),
+  `trail_db` (structured name+coords), `instagram` (started: caption/geotag
+  extraction, live fetch pending Graph API/provider).
+- Registry + endpoints: `GET /channels`, `POST /seed-from-channel` (accepts a live
+  query or pasted `rawItems`). Injectable fetchers keep adapters unit-testable.
+- Dashboard: channel selector + "Seed from channel", a channel column, and a
+  channel filter.
+
 ## Verification
 
-- Unit tests: 11/11 pass (review store transitions + OSM adapter).
+- Unit tests: 25/25 pass (review store, OSM adapter, place extractor, channel adapters).
 - Manual: seed Vermont → run a candidate through to `written` → invalid
-  `candidate → written` correctly returns HTTP 409.
+  `candidate → written` returns HTTP 409; seed `web_blog` from pasted text →
+  extracts Bristol/Bingham Falls (spots) + Huntington Gorge Trail (route).

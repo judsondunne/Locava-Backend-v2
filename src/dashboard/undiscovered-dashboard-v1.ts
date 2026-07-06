@@ -67,6 +67,13 @@ export function renderUndiscoveredDashboardV1Page(): string {
         <button id="seedSample">Seed Vermont sample</button>
         <span class="sub">Loads representative VT candidates so the workflow is usable without a .osm.pbf. Real scans POST preview docs to <code>/seed-from-pbf</code>.</span>
       </div>
+      <div class="row" style="border-top:1px solid #1f2937;padding-top:10px;margin-top:6px">
+        <label>Channel</label>
+        <select id="seedChannel"></select>
+        <input id="seedQuery" type="text" placeholder="query (e.g. waterfall, or a blog URL)" style="width:320px;padding:6px 10px;border-radius:6px;border:1px solid #334155;background:#1f2937;color:#fff;font-size:12px"/>
+        <button id="seedChannelBtn">Seed from channel</button>
+        <span class="sub" id="channelHint"></span>
+      </div>
     </div>
 
     <div class="panel">
@@ -81,6 +88,8 @@ export function renderUndiscoveredDashboardV1Page(): string {
         <select id="fStatus"><option value="">all</option><option>candidate</option><option>reviewed</option><option>approved</option><option>rejected</option><option>written</option></select>
         <label>Category</label>
         <select id="fCategory"><option value="">all</option></select>
+        <label>Channel</label>
+        <select id="fChannel"><option value="">all</option></select>
         <button class="secondary" id="refresh">Refresh</button>
       </div>
     </div>
@@ -89,7 +98,7 @@ export function renderUndiscoveredDashboardV1Page(): string {
       <h2>Candidates</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Name</th><th>Kind</th><th>Category</th><th>Status</th><th>Quality</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Name</th><th>Kind</th><th>Category</th><th>Channel</th><th>Status</th><th>Quality</th><th>Actions</th></tr></thead>
           <tbody id="rows"></tbody>
         </table>
       </div>
@@ -151,11 +160,25 @@ function renderRows(items){
       + '<td>'+c.displayName+'</td>'
       + '<td>'+c.kind+'</td>'
       + '<td>'+c.primaryCategory+'</td>'
+      + '<td><span class="pill">'+c.sourceChannel+'</span></td>'
       + '<td><span class="pill '+c.reviewStatus+'">'+c.reviewStatus+'</span></td>'
       + '<td>'+q+'</td>'
       + '<td>'+actions+'</td>'
       + '</tr>';
-  }).join('') || '<tr><td colspan="6" class="sub">No candidates. Click “Seed Vermont sample”.</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="sub">No candidates. Click “Seed Vermont sample” or seed from a channel.</td></tr>';
+}
+
+let CHANNELS = [];
+async function loadChannels(){
+  const data = await api('/channels');
+  CHANNELS = data.channels;
+  $('seedChannel').innerHTML = CHANNELS.map(c=>'<option value="'+c.channel+'">'+c.label+(c.liveFetchSupported?'':' (paste/fixture)')+'</option>').join('');
+  $('fChannel').innerHTML = '<option value="">all</option>' + CHANNELS.map(c=>'<option value="'+c.channel+'">'+c.label+'</option>').join('');
+  updateChannelHint();
+}
+function updateChannelHint(){
+  const ch = CHANNELS.find(c=>c.channel===$('seedChannel').value);
+  $('channelHint').textContent = ch ? ch.strategy : '';
 }
 
 async function load(){
@@ -163,6 +186,7 @@ async function load(){
     const params = new URLSearchParams({ region:'VT' });
     if($('fStatus').value) params.set('status', $('fStatus').value);
     if($('fCategory').value) params.set('category', $('fCategory').value);
+    if($('fChannel').value) params.set('channel', $('fChannel').value);
     const data = await api('/candidates?' + params.toString());
     renderStats(data.counts);
     renderRows(data.items);
@@ -174,9 +198,22 @@ $('seedSample').onclick = async () => {
   try{ setStatus('Seeding…'); const r = await api('/seed-sample', { method:'POST', body:'{}' }); setStatus('Seeded '+r.total+' (VT).', 'ok'); await loadCategories(); await load(); }
   catch(e){ setStatus('Seed failed: '+e.message, 'err'); }
 };
+$('seedChannel').onchange = updateChannelHint;
+$('seedChannelBtn').onclick = async () => {
+  try{
+    const channel = $('seedChannel').value;
+    const query = $('seedQuery').value.trim();
+    setStatus('Seeding from '+channel+'…');
+    const r = await api('/seed-from-channel', { method:'POST', body: JSON.stringify({ channel, region:'VT', query: query||undefined }) });
+    const note = r.mapped===0 && !r.liveFetchSupported ? ' (this channel needs pasted items / a live source)' : '';
+    setStatus('Seeded '+r.mapped+' from '+channel+' — total '+r.total+note, 'ok');
+    await load();
+  }catch(e){ setStatus('Channel seed failed: '+e.message, 'err'); }
+};
 $('refresh').onclick = load;
 $('fStatus').onchange = load;
 $('fCategory').onchange = load;
+$('fChannel').onchange = load;
 
 // Event delegation: survives innerHTML replacement, avoids fragile inline onclick.
 $('rows').addEventListener('click', (e) => {
@@ -185,7 +222,7 @@ $('rows').addEventListener('click', (e) => {
   transition(decodeURIComponent(btn.getAttribute('data-id')), btn.getAttribute('data-to'));
 });
 
-loadCategories().then(load);
+Promise.all([loadCategories(), loadChannels()]).then(load);
 </script>
 </body>
 </html>`;
