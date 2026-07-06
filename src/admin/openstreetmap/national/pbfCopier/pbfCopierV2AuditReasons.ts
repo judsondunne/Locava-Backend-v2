@@ -134,6 +134,10 @@ const FILTER_KEY_TO_REJECT_CODES: Partial<Record<PbfQualityFilterKey, string[]>>
   map_junk: ["failed_quality_filter"],
   residential_land: ["unsupported_osm_tags"],
   non_destination_residential: ["unsupported_osm_tags"],
+  unqualified_terrain_peak: ["missing_trail_context"],
+  unqualified_terrain_feature: ["missing_trail_context"],
+  generic_road_route: ["unsupported_osm_tags"],
+  private_or_restricted_access: ["private_or_access_restricted"],
 };
 
 export function mapClassifierRejectionToCodes(rejectionReason: string | null | undefined): string[] {

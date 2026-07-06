@@ -6,7 +6,9 @@ import {
   isResidentialHomeOnly,
   mergeHikingTrailPreviewDocs,
   postProcessRawOsmPreviewDocs,
+  remergeNamedHikingTrailRoutes,
 } from "./pbfCopierV2RawDisplay.js";
+import { hikingTrailMergeKey } from "./pbfCopierPreviewQuality.js";
 
 function routeDoc(overrides: Partial<PbfCopierPreviewDoc> & { displayName: string }): PbfCopierPreviewDoc {
   const { displayName, ...rest } = overrides;
@@ -155,6 +157,41 @@ describe("pbfCopierV2RawDisplay", () => {
     expect(trail?.displayName).toBe("Laughlin Trail");
     expect(trail?.routeLineCoordinates?.length).toBeGreaterThanOrEqual(3);
     expect(trail?.routeLineColor).toBeTruthy();
+  });
+
+  it("hikingTrailMergeKey groups parent trails with connector segments", () => {
+    expect(hikingTrailMergeKey("Faulkner Trail")).toBe(hikingTrailMergeKey("Faulkner Trail Connector Trail"));
+    expect(hikingTrailMergeKey("North Ridge Loop Trail Connector Trail")).toBe(
+      hikingTrailMergeKey("North Ridge Loop Trail")
+    );
+  });
+
+  it("remergeNamedHikingTrailRoutes stitches connector segments after grouping", () => {
+    const parent = routeDoc({
+      id: "way/30",
+      displayName: "Faulkner Trail",
+      osmId: 30,
+      warnings: ["v2_hiking_trail_merged"],
+      routeLineCoordinates: [
+        { lat: 43.64, lng: -72.41 },
+        { lat: 43.641, lng: -72.409 },
+      ],
+    });
+    const connector = routeDoc({
+      id: "way/31",
+      displayName: "Faulkner Trail Connector Trail",
+      osmId: 31,
+      routeLineCoordinates: [
+        { lat: 43.641, lng: -72.409 },
+        { lat: 43.642, lng: -72.408 },
+      ],
+    });
+    const result = remergeNamedHikingTrailRoutes([parent, connector]);
+    expect(result.groupsRemerged).toBe(1);
+    expect(result.segmentsCollapsed).toBe(1);
+    const trail = result.items.find((d) => d.displayName === "Faulkner Trail");
+    expect(trail?.warnings).toContain("v2_hiking_trail_merged");
+    expect(trail?.routeLineCoordinates?.length).toBeGreaterThanOrEqual(3);
   });
 
   it("mergeHikingTrailPreviewDocs anchors marker at trail start", () => {

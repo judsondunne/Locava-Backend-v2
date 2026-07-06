@@ -12,8 +12,13 @@ import {
   TRAIL_MERGE_ENDPOINT_TOLERANCE_METERS,
   type TrailPoint,
 } from "../../../../lib/inventory/trails/inventoryTrailGraph.js";
-import { normalizePreviewDisplayName } from "./pbfCopierPreviewQuality.js";
+import {
+  hikingTrailMergeKey,
+  normalizePreviewDisplayName,
+  pickCanonicalTrailDisplayName,
+} from "./pbfCopierPreviewQuality.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
+import { hasMeaningfulPreviewName } from "./pbfCopierV2PreviewName.js";
 import { enrichRoutePreviewDoc } from "./pbfCopierV2RouteEnrichment.js";
 import {
   buildUnnamedHikingTrailContext,
@@ -160,7 +165,7 @@ function isNamedTrailDoc(doc: PbfCopierPreviewDoc): boolean {
   const key = normalizePreviewDisplayName(doc.displayName);
   if (!key) return false;
   if (key.startsWith("highway ") || key.startsWith("osm ")) return false;
-  if (!hasOsmNameTag(doc.sourceTagSample ?? {})) return false;
+  if (!hasOsmNameTag(doc.sourceTagSample ?? {}) && !hasMeaningfulPreviewName(doc)) return false;
   return true;
 }
 
@@ -202,7 +207,7 @@ export function mergeHikingTrailPreviewDocs(segments: PbfCopierPreviewDoc[]): Pb
     stitched = best;
   }
   const base = segments[0]!;
-  const displayName = base.displayName;
+  const displayName = pickCanonicalTrailDisplayName(segments.map((s) => s.displayName));
   const color = hikingTrailColorForName(displayName);
 
   let routeLineCoordinates: TrailPoint[] | undefined;
@@ -301,7 +306,14 @@ export function postProcessRawOsmPreviewDocs(docs: PbfCopierPreviewDoc[]): RawOs
       continue;
     }
 
-    const key = normalizePreviewDisplayName(doc.displayName);
+    const key = hikingTrailMergeKey(doc.displayName);
+    if (!key) {
+      lineOnlyRoutes.push({
+        ...doc,
+        warnings: [...(doc.warnings ?? []), "v2_line_no_marker"],
+      });
+      continue;
+    }
     const bucket = hikingByName.get(key) ?? [];
     bucket.push(doc);
     hikingByName.set(key, bucket);
@@ -358,4 +370,110 @@ export function enrichHikingTrailLineRoute(doc: PbfCopierPreviewDoc): PbfCopierP
     activities: doc.activities?.length ? doc.activities : ["hiking"],
     primaryCategory: doc.primaryCategory === "osm" ? "hiking" : doc.primaryCategory,
   };
+}
+
+type FilteredPreviewDoc = PbfCopierPreviewDoc & {
+  filteredOut?: boolean;
+  filteredBy?: string[];
+  filterReason?: string;
+};
+
+function isMergeableHikingRoute(doc: PbfCopierPreviewDoc): boolean {
+  if (doc.kind !== "unexplored_route") return false;
+  return (
+    isHikingTrailPreviewDoc(doc) ||
+    doc.warnings?.includes("v2_hiking_trail_merged") ||
+    doc.primaryActivity === "hiking" ||
+    doc.primaryCategory === "hiking"
+  );
+}
+
+export function isUnnamedPathWithoutTrailEvidence(doc: PbfCopierPreviewDoc): boolean {
+  if ((doc.warnings ?? []).includes("v2_hiking_trail_merged")) return false;
+  const tags = doc.sourceTagSample ?? {};
+  if (tags.name?.trim() || tags["name:en"]?.trim()) return false;
+  const highway = tags.highway?.trim().toLowerCase();
+  if (!highway || !["path", "footway", "steps"].includes(highway)) return false;
+  if (tags.sac_scale || tags.trail_visibility) return false;
+  const route = tags.route?.trim().toLowerCase();
+  if (route && ["hiking", "foot", "walking"].includes(route)) return false;
+  return true;
+}
+
+function isLineOnlyJunkRoute(doc: FilteredPreviewDoc): boolean {
+  const warnings = doc.warnings ?? [];
+  if (warnings.includes("v2_line_no_marker") && !warnings.includes("v2_hiking_trail_merged")) return true;
+  return isUnnamedPathWithoutTrailEvidence(doc);
+}
+
+function isWalkingPathJunkSegment(doc: FilteredPreviewDoc): boolean {
+  if (isLineOnlyJunkRoute(doc)) return true;
+  if ((doc.filteredBy ?? []).includes("unnamed_path")) return true;
+  if (!hasMeaningfulPreviewName(doc)) return true;
+  const raw = (doc.displayName || "").trim().toLowerCase();
+  return raw.startsWith("highway=") || raw.startsWith("osm way/");
+}
+
+/** After outdoor grouping renames connectors, stitch parent + connector segments again. */
+export function remergeNamedHikingTrailRoutes<T extends FilteredPreviewDoc>(
+  items: T[]
+): { items: T[]; groupsRemerged: number; segmentsCollapsed: number } {
+  const passThrough: T[] = [];
+  const buckets = new Map<string, T[]>();
+
+  for (const doc of items) {
+    if (isLineOnlyJunkRoute(doc)) {
+      passThrough.push({
+        ...doc,
+        filteredOut: true,
+        filteredBy: [...new Set([...(doc.filteredBy ?? []), "unnamed_path"])],
+        filterReason: doc.filterReason || "walking path / sidewalk / paved connector",
+      } as T);
+      continue;
+    }
+    if (!isMergeableHikingRoute(doc) || !hasMeaningfulPreviewName(doc)) {
+      passThrough.push(doc);
+      continue;
+    }
+    const key = hikingTrailMergeKey(doc.displayName);
+    if (!key) {
+      passThrough.push(doc);
+      continue;
+    }
+    const bucket = buckets.get(key) ?? [];
+    bucket.push(doc);
+    buckets.set(key, bucket);
+  }
+
+  let groupsRemerged = 0;
+  let segmentsCollapsed = 0;
+  const merged: T[] = [...passThrough];
+
+  for (const bucket of buckets.values()) {
+    if (bucket.length <= 1) {
+      merged.push(bucket[0]!);
+      continue;
+    }
+    const mergeable = bucket.filter((d) => !isWalkingPathJunkSegment(d));
+    if (mergeable.length <= 1) {
+      for (const doc of bucket) merged.push(doc);
+      continue;
+    }
+    groupsRemerged += 1;
+    segmentsCollapsed += bucket.length - 1;
+    const canonicalName = pickCanonicalTrailDisplayName(mergeable.map((d) => d.displayName));
+    const anyVisible = mergeable.some((d) => !d.filteredOut);
+    const ordered = [...mergeable.filter((d) => !d.filteredOut), ...mergeable.filter((d) => d.filteredOut)];
+    const mergedRoute = mergeHikingTrailPreviewDocs(ordered);
+    const template = mergeable.find((d) => !d.filteredOut) ?? mergeable[0]!;
+    merged.push({
+      ...mergedRoute,
+      displayName: canonicalName,
+      filteredOut: anyVisible ? false : template.filteredOut,
+      filteredBy: anyVisible ? [] : template.filteredBy,
+      filterReason: anyVisible ? "" : template.filterReason,
+    } as T);
+  }
+
+  return { items: merged, groupsRemerged, segmentsCollapsed };
 }

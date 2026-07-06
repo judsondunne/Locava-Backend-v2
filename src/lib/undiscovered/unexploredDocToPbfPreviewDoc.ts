@@ -58,7 +58,12 @@ function parseOsmIdentity(doc: Record<string, unknown>): { osmType: "node" | "wa
   return { osmType, osmId: Math.trunc(osmId) };
 }
 
-function readLocation(doc: Record<string, unknown>, fallback?: UndiscoveredPhotoSearchBody) {
+type PhotoSearchDocFallback = Pick<
+  UndiscoveredPhotoSearchBody,
+  "name" | "town" | "state" | "lat" | "long" | "osmTags" | "type"
+>;
+
+function readLocation(doc: Record<string, unknown>, fallback?: PhotoSearchDocFallback) {
   const location = asRecord(doc.location);
   const town =
     readString(location?.city) ??
@@ -75,7 +80,7 @@ function readLocation(doc: Record<string, unknown>, fallback?: UndiscoveredPhoto
 
 function readCoordinates(
   doc: Record<string, unknown>,
-  fallback?: UndiscoveredPhotoSearchBody,
+  fallback?: PhotoSearchDocFallback,
 ): { lat: number; lng: number } {
   const center = asRecord(doc.center);
   const location = asRecord(doc.location);
@@ -100,10 +105,7 @@ function readCoordinates(
 export function unexploredDocToPbfPreviewDoc(input: {
   collection: "unexploredSpots" | "unexploredRoutes";
   doc: Record<string, unknown>;
-  fallback?: Pick<
-    UndiscoveredPhotoSearchBody,
-    "name" | "town" | "state" | "lat" | "long" | "osmTags" | "type"
-  >;
+  fallback?: PhotoSearchDocFallback;
 }): PbfCopierPreviewDoc {
   const { doc, collection, fallback } = input;
   const isRoute = collection === "unexploredRoutes";

@@ -5,11 +5,18 @@ import { normalizePreviewDisplayName } from "./pbfCopierPreviewQuality.js";
 import { isHikingTrailPreviewDoc } from "./pbfCopierV2RawDisplay.js";
 import { isSyntheticPreviewLabel, isNamedSkiRun } from "./pbfCopierV2MountainQuality.js";
 import {
+  collectPublicTrailLines,
   isNearRecreationArea,
   minDistanceToNamedTrailMeters,
   type NamedTrailLine,
   type RecreationAreaPoint,
 } from "./pbfCopierV2TrailProximity.js";
+import {
+  isQualifiedTerrainDestination,
+  isTerrainDestinationCandidate,
+  terrainFilterKey,
+  UNQUALIFIED_TERRAIN_FILTER_REASON,
+} from "./pbfCopierV2TerrainQualification.js";
 import type { PbfSupportMetadata, PbfSupportObjectRef } from "./pbfCopierV2SupportObjects.js";
 import {
   getEffectiveOsmTags,
@@ -43,7 +50,11 @@ export type LocavaProductFilterKey =
   | "professional_office"
   | "age_restricted_retail"
   | "address_only"
-  | "map_junk";
+  | "map_junk"
+  | "unqualified_terrain_peak"
+  | "unqualified_terrain_feature"
+  | "generic_road_route"
+  | "private_or_restricted_access";
 
 export type LocavaProductFilterMatch = { key: LocavaProductFilterKey; reason: string };
 
@@ -220,8 +231,6 @@ const FOOD_SHOPS = new Set(["bakery", "farm", "coffee", "deli", "pastry", "confe
 
 const VISITOR_BUSINESS_AMENITIES = new Set([
   "spa",
-  "hairdresser",
-  "beauty_salon",
   "cinema",
   "theatre",
   "theater",
@@ -259,15 +268,10 @@ const LOCAL_RETAIL_SHOPS = new Set([
   "bakery",
   "coffee",
   "deli",
-  "supermarket",
-  "convenience",
   "greengrocer",
   "seafood",
   "butcher",
-  "alcohol",
-  "wine",
   "sports",
-  "clothes",
   "art",
   "gift",
   "craft",
@@ -278,9 +282,6 @@ const LOCAL_RETAIL_SHOPS = new Set([
   "general",
   "antiques",
   "variety",
-  "hairdresser",
-  "beauty",
-  "jewelry",
   "shoes",
   "musical_instrument",
   "photo",
@@ -292,18 +293,6 @@ const LOCAL_RETAIL_SHOPS = new Set([
   "motorcycle",
   "bicycle_repair",
   "outdoor_repair",
-  "hardware",
-  "interior_decoration",
-  "cosmetics",
-  "pet",
-  "baby_goods",
-  "fabric",
-  "tailor",
-  "music",
-  "electronics",
-  "furniture",
-  "mall",
-  "department_store",
 ]);
 
 const HEALTHCARE_AMENITIES = new Set([
@@ -425,6 +414,33 @@ const HIDE_RETAIL_SHOPS = new Set([
   "money_lender",
   "pawnbroker",
   "mobile_phone",
+  "hairdresser",
+  "supermarket",
+  "department_store",
+  "convenience",
+  "furniture",
+  "jewelry",
+  "clothes",
+  "wholesale",
+  "doityourself",
+  "pet",
+  "beauty",
+  "massage",
+  "tobacco",
+  "e-cigarette",
+  "cannabis",
+  "alcohol",
+  "wine",
+  "weapons",
+  "mall",
+  "hardware",
+  "electronics",
+  "cosmetics",
+  "interior_decoration",
+  "baby_goods",
+  "fabric",
+  "tailor",
+  "music",
 ]);
 
 const SCHOOL_PUBLIC_ATTRACTION_AMENITIES = new Set([
@@ -560,29 +576,48 @@ function isDestinationLikeSportsName(name: string): boolean {
   );
 }
 
+function isGenericNamedSportsCourt(name: string): boolean {
+  const n = name.trim().toLowerCase();
+  return /^(tennis court|basketball court|sports field|soccer field|baseball field|ball field|playing field)\b/.test(n);
+}
+
 export function isGenericSportsPitch(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
   const leisure = tag(tags, "leisure");
+  const n = displayName(doc).toLowerCase();
+
   if (leisure === "sports_centre" || leisure === "stadium") {
     if (hasMeaningfulPreviewName(doc) || hasOsmNameTag(tags)) return false;
     return true;
   }
-  if (leisure === "pitch" || leisure === "track") {
-    if (hasTag(tags, "sport") && (doc.warnings?.includes("v2_generated_outdoor_name") || hasStrongUnnamedOutdoorCategory(tags))) {
-      return false;
-    }
-  }
-  if (leisure !== "pitch" && leisure !== "track") return false;
+  if (leisure !== "pitch" && leisure !== "track" && leisure !== "swimming_pool") return false;
   if (hasTourismHistoricLandmarkException(tags)) return false;
+
+  if (isGenericNamedSportsCourt(n)) return true;
+
+  if (leisure === "pitch" || leisure === "track") {
+    const unnamedGenerated =
+      !hasOsmNameTag(tags) &&
+      !hasMeaningfulPreviewName(doc) &&
+      hasTag(tags, "sport") &&
+      (doc.warnings?.includes("v2_generated_outdoor_name") || hasStrongUnnamedOutdoorCategory(tags));
+    if (unnamedGenerated) return false;
+  }
+
+  if (tag(tags, "access") === "public" || tag(tags, "access") === "yes") {
+    if (hasMeaningfulPreviewName(doc) && isDestinationLikeSportsName(displayName(doc))) return false;
+  }
   if (hasMeaningfulPreviewName(doc) && isDestinationLikeSportsName(displayName(doc))) return false;
 
   const sport = tag(tags, "sport");
   if (sport && ["baseball", "soccer", "football", "tennis", "basketball", "volleyball"].includes(sport)) {
     if (!hasOsmNameTag(tags) && !isDestinationLikeSportsName(displayName(doc))) return true;
-    const n = displayName(doc).toLowerCase();
-    if (/^(field|pitch|court|diamond|soccer field|baseball field)\b/.test(n)) return true;
+    if (/^(field|pitch|court|diamond|soccer field|baseball field|tennis court|basketball court|sports field)\b/.test(n)) {
+      return true;
+    }
   }
 
+  if (tag(tags, "access") === "private" || tag(tags, "access") === "no") return true;
   if (!hasOsmNameTag(tags) && !hasMeaningfulPreviewName(doc)) return true;
   if (isSyntheticPreviewLabel(doc)) return true;
 
@@ -718,26 +753,87 @@ export function isUtilityInfrastructure(doc: PbfCopierPreviewDoc): boolean {
   return false;
 }
 
-export function isResidentialRoadGeometry(doc: PbfCopierPreviewDoc): boolean {
-  const tags = doc.sourceTagSample ?? {};
-  const highway = tag(tags, "highway");
-  if (highway === "residential") return true;
-  if (tag(tags, "landuse") === "residential" && !hasTourismHistoricLandmarkException(tags)) {
-    if (!hasMeaningfulPreviewName(doc) || isSyntheticPreviewLabel(doc)) return true;
-    const n = displayName(doc).toLowerCase();
-    if (/\b(apartments|condos|subdivision|residential)\b/.test(n)) return true;
-  }
-  if (highway === "track") {
-    const sac = tag(tags, "sac_scale");
-    const route = tag(tags, "route");
-    if (sac || route === "hiking" || route === "foot" || route === "mtb") return false;
-    if (tag(tags, "foot") === "yes" || tag(tags, "hiking") === "yes" || tag(tags, "bicycle") === "yes") return false;
-    if (!hasOsmNameTag(tags) && !hasMeaningfulPreviewName(doc)) return true;
-  }
-  if (tag(tags, "access") === "private" && highway && ["residential", "service", "track", "unclassified"].includes(highway)) {
-    return true;
-  }
+const ORDINARY_ROAD_NAME_RE =
+  /\b(road|rd|drive|dr|avenue|ave|lane|ln|circle|way)\b\.?$/i;
+
+function hasRealTrailEvidence(tags: Record<string, string>, name: string): boolean {
+  if (tag(tags, "route") === "hiking" || tag(tags, "route") === "foot" || tag(tags, "route") === "mtb") return true;
+  const foot = tag(tags, "foot");
+  if (foot === "designated" || foot === "yes" || foot === "permissive") return true;
+  const bicycle = tag(tags, "bicycle");
+  if (bicycle === "designated" || bicycle === "yes") return true;
+  if (hasTag(tags, "piste:type") || hasTag(tags, "sac_scale") || hasTag(tags, "trail_visibility")) return true;
+  if (/\b(trail|path|loop|connector)\b/i.test(name)) return true;
+  if (tag(tags, "highway") === "trailhead") return true;
   return false;
+}
+
+export function isGenericRoadRoute(doc: PbfCopierPreviewDoc): boolean {
+  if (doc.kind !== "unexplored_route" && !doc.routeLineCoordinates?.length) return false;
+  if (doc.warnings?.includes("v2_hiking_trail_merged") || doc.warnings?.includes("v2_unnamed_hiking_trail")) {
+    return false;
+  }
+  if (isPrimaryHikingRoute(doc) || isHikingTrailPreviewDoc(doc)) return false;
+
+  const tags = getEffectiveOsmTags(doc);
+  const highway = tag(tags, "highway");
+  if (!highway) return false;
+
+  const name = displayName(doc);
+  if (hasRealTrailEvidence(tags, name)) return false;
+
+  if (["residential", "service", "unclassified", "living_street"].includes(highway)) return true;
+  if (highway === "track" && !hasRealTrailEvidence(tags, name)) return true;
+  if (ORDINARY_ROAD_NAME_RE.test(name.trim()) && !hasRealTrailEvidence(tags, name)) return true;
+
+  return false;
+}
+
+export function isPublicVisitorBusinessDespitePrivateAccess(doc: PbfCopierPreviewDoc): boolean {
+  if (isLocavaFoodDrinkDestination(doc)) return true;
+  const tags = doc.sourceTagSample ?? {};
+  const tourism = tag(tags, "tourism");
+  if (tourism && ["hotel", "museum", "gallery", "attraction", "theme_park", "zoo"].includes(tourism)) return true;
+  const amenity = tag(tags, "amenity");
+  if (amenity && ["restaurant", "cafe", "bar", "pub", "theatre", "theater", "cinema"].includes(amenity)) return true;
+  if (hasTag(tags, "piste:type") && (hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc))) return true;
+  if (tag(tags, "leisure") === "stadium" || tag(tags, "leisure") === "water_park") return true;
+  return false;
+}
+
+export function isPrivateOrRestrictedDestination(doc: PbfCopierPreviewDoc): boolean {
+  if (isPublicVisitorBusinessDespitePrivateAccess(doc)) return false;
+  const tags = doc.sourceTagSample ?? {};
+  const access = tag(tags, "access");
+  if (access === "private" || access === "no") return true;
+  if (tag(tags, "foot") === "private" || tag(tags, "motor_vehicle") === "private") return true;
+  if (tag(tags, "leisure") === "swimming_pool" && access === "private") return true;
+  if (tag(tags, "leisure") === "pitch" && access === "private") return true;
+  if (tag(tags, "natural") === "water" && access === "private") return true;
+  return false;
+}
+
+export function matchGenericRoadRoute(doc: PbfCopierPreviewDoc): LocavaProductFilterMatch | null {
+  if (isProtectedLocavaDestination(doc)) return null;
+  if (!isGenericRoadRoute(doc)) return null;
+  return { key: "generic_road_route", reason: "ordinary road/track, not a Locava trail destination" };
+}
+
+export function matchPrivateOrRestrictedAccess(doc: PbfCopierPreviewDoc): LocavaProductFilterMatch | null {
+  if (isProtectedLocavaDestination(doc)) return null;
+  if (!isPrivateOrRestrictedDestination(doc)) return null;
+  const tags = doc.sourceTagSample ?? {};
+  if (tag(tags, "leisure") === "swimming_pool") {
+    return { key: "private_pool", reason: "private/generic pool, not swimming spot" };
+  }
+  return {
+    key: "private_or_restricted_access",
+    reason: "private or restricted access, not public Undiscovered destination",
+  };
+}
+
+export function isResidentialRoadGeometry(doc: PbfCopierPreviewDoc): boolean {
+  return isGenericRoadRoute(doc);
 }
 
 export function isSupportAmenityPrimary(doc: PbfCopierPreviewDoc): boolean {
@@ -791,6 +887,10 @@ export function isRailMetadata(doc: PbfCopierPreviewDoc): boolean {
 
 export function isDamWeirWithoutVisitorContext(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
+  for (const [key, value] of Object.entries(tags)) {
+    if (!value?.trim()) continue;
+    if (key.startsWith("demolished:") || key.startsWith("disused:") || key.startsWith("abandoned:")) return true;
+  }
   const waterway = tag(tags, "waterway");
   if (waterway !== "dam" && waterway !== "weir") return false;
   if (tag(tags, "tourism") === "viewpoint" || tag(tags, "tourism") === "attraction") return false;
@@ -860,19 +960,8 @@ function parseElevationMeters(tags: Record<string, string>): number | null {
 }
 
 export function isMajorTrailLinkedPeak(doc: PbfCopierPreviewDoc, trails: NamedTrailLine[]): boolean {
-  const tags = doc.sourceTagSample ?? {};
-  const natural = tag(tags, "natural");
-  if (natural !== "peak" && natural !== "hill" && tag(tags, "place") !== "peak") return false;
-  if (!hasMeaningfulPreviewName(doc) && !hasOsmNameTag(tags)) return false;
-
-  const ele = parseElevationMeters(tags);
-  if (ele != null && ele >= 1200) return true;
-  const n = displayName(doc);
-  if (/\b(mount|mountain|summit)\b/i.test(n) && (hasTag(tags, "wikidata") || hasTag(tags, "wikipedia"))) {
-    return true;
-  }
-  if (doc.lat == null || doc.lng == null) return false;
-  return minDistanceToNamedTrailMeters(doc.lat, doc.lng, trails) <= 250;
+  if (!isTerrainDestinationCandidate(doc)) return false;
+  return isQualifiedTerrainDestination(doc, { trails });
 }
 
 export function isGeologicalLabelWithoutVisitorContext(
@@ -883,34 +972,25 @@ export function isGeologicalLabelWithoutVisitorContext(
   const tags = doc.sourceTagSample ?? {};
   const natural = tag(tags, "natural");
   const isGeo =
-    natural === "peak" ||
-    natural === "hill" ||
-    natural === "saddle" ||
+    isTerrainDestinationCandidate(doc) ||
     natural === "cape" ||
-    tag(tags, "place") === "peak";
+    tag(tags, "place") === "islet";
   if (!isGeo) return false;
 
-  const named = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
-  if (natural === "peak" && named && (hasTag(tags, "ele") || hasTag(tags, "wikidata"))) {
-    return false;
+  if (isTerrainDestinationCandidate(doc)) {
+    return !isQualifiedTerrainDestination(doc, { trails, recreationAreas });
   }
 
   if (doc.destinationGroupId || doc.attachedToRouteId) return false;
-  if (tag(tags, "tourism") === "viewpoint") return false;
-  if (tag(tags, "tourism") === "attraction" || tag(tags, "historic")) return false;
-  if (/\b(overlook|lookout|viewpoint|scenic)\b/i.test(displayName(doc))) return false;
-
-  if (isMajorTrailLinkedPeak(doc, trails)) return false;
-
-  if (doc.lat != null && doc.lng != null) {
-    if (minDistanceToNamedTrailMeters(doc.lat, doc.lng, trails) <= 250) return false;
-    if (isNearRecreationArea(doc.lat, doc.lng, recreationAreas, 250)) return false;
-    if (hasTag(tags, "wikidata") && minDistanceToNamedTrailMeters(doc.lat, doc.lng, trails) <= 500) {
-      return false;
+  if (tag(tags, "tourism") === "viewpoint" || tag(tags, "tourism") === "attraction") return false;
+  if (hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc)) {
+    if (doc.lat != null && doc.lng != null) {
+      if (minDistanceToNamedTrailMeters(doc.lat, doc.lng, trails) <= 250) return false;
+      if (isNearRecreationArea(doc.lat, doc.lng, recreationAreas, 250)) return false;
     }
+    if (natural === "cape") return true;
   }
-
-  return true;
+  return !hasOsmNameTag(tags) && !hasMeaningfulPreviewName(doc);
 }
 
 function isTrailLikeFootway(tags: Record<string, string>): boolean {
@@ -1034,10 +1114,23 @@ export function isLandscapeStreetObject(doc: PbfCopierPreviewDoc): boolean {
   if (amenity && ["waste_basket", "post_box", "recycling", "grit_bin"].includes(amenity)) return true;
 
   const barrier = tag(tags, "barrier");
-  if (barrier && ["wall", "block", "fence", "gate", "chain", "guard_rail", "kerb", "bollard"].includes(barrier)) {
+  if (
+    barrier &&
+    ["wall", "block", "fence", "gate", "chain", "guard_rail", "kerb", "bollard", "retaining_wall", "hedge", "floating_boom"].includes(
+      barrier
+    )
+  ) {
     if (tag(tags, "sac_scale") || tag(tags, "trail_visibility") || tag(tags, "highway") === "trailhead") return false;
+    if (doc.attachedTo || doc.destinationGroupId) return false;
     return true;
   }
+
+  if (tag(tags, "natural") === "tree_row") return true;
+  if (tag(tags, "natural") === "sand" && !hasOsmNameTag(tags) && !hasMeaningfulPreviewName(doc)) return true;
+  if (tag(tags, "natural") === "rock" && !hasOsmNameTag(tags) && !hasMeaningfulPreviewName(doc)) return true;
+  if (tag(tags, "area") === "yes" && Object.keys(tags).length <= 2) return true;
+  if (tag(tags, "junction") === "yes") return true;
+  if (tag(tags, "public_transport") === "stop_position" || tag(tags, "highway") === "bus_stop") return true;
 
   return false;
 }
@@ -1126,10 +1219,10 @@ export function isLocavaFoodDrinkDestination(doc: PbfCopierPreviewDoc): boolean 
 
 export function isLocavaCemeteryDestination(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
-  if (tag(tags, "amenity") === "grave_yard") return true;
-  if (tag(tags, "landuse") === "cemetery") return true;
-  if (tag(tags, "historic") === "cemetery") return true;
-  if (/\bcemetery\b/i.test(displayName(doc)) || /\bgraveyard\b/i.test(displayName(doc))) return true;
+  if (tag(tags, "tourism") === "attraction" || tag(tags, "historic")) return true;
+  if (hasTag(tags, "heritage") || hasTag(tags, "listed_status")) return true;
+  const n = displayName(doc);
+  if (/\b(historic|national|memorial)\b/i.test(n) && /\b(cemetery|graveyard)\b/i.test(n)) return true;
   return false;
 }
 
@@ -1291,33 +1384,50 @@ export function isPlaceOfWorshipHidden(doc: PbfCopierPreviewDoc): boolean {
 
 export function enrichLocavaProductClassification(doc: PbfCopierPreviewDoc): PbfCopierPreviewDoc {
   if (isNamedSkiRun(doc)) {
-    return { ...doc, primaryActivity: "skiing", primaryCategory: "ski_run", activities: ["skiing"] };
+    return { ...doc, primaryActivity: "skiing", primaryCategory: "skiing", activities: ["skiing"] };
   }
   if (isLocavaCemeteryDestination(doc)) {
-    return { ...doc, primaryActivity: "historic", primaryCategory: "cemetery", activities: ["historic"] };
+    return { ...doc, primaryActivity: "historical", primaryCategory: "cemetery", activities: ["historical", "cemetery"] };
   }
   if (isLocavaFoodDrinkDestination(doc)) {
     const tags = doc.sourceTagSample ?? {};
     const amenity = tag(tags, "amenity");
     const shop = tag(tags, "shop");
-    let category = "restaurant";
-    if (amenity === "cafe" || shop === "coffee") category = "cafe";
-    else if (amenity === "bar" || amenity === "pub" || amenity === "biergarten") category = "bar";
-    else if (shop === "bakery") category = "bakery";
-    else if (amenity === "marketplace" || shop === "farm") category = "marketplace";
-    else if (amenity === "fast_food") category = "fast_food";
-    return { ...doc, primaryActivity: "food", primaryCategory: category, activities: ["food"] };
+    let primary: string = "restaurants";
+    const activities = ["restaurants"];
+    if (amenity === "cafe" || shop === "coffee") {
+      primary = "cafe";
+      activities.push("coffee");
+    } else if (amenity === "bar" || amenity === "pub" || amenity === "biergarten") {
+      primary = "bar";
+      activities.push("bar");
+    } else if (shop === "bakery") {
+      primary = "bakery";
+    } else if (amenity === "marketplace" || shop === "farm") {
+      primary = "market";
+      activities.push("market");
+    } else if (amenity === "fast_food") {
+      primary = "restaurants";
+    }
+    return { ...doc, primaryActivity: primary, primaryCategory: primary, activities: [...new Set(activities)] };
   }
   if (isLocavaLocalRetailDestination(doc)) {
-    const shop = tag(doc.sourceTagSample ?? {}, "shop") || "shop";
-    return { ...doc, primaryActivity: "shopping", primaryCategory: shop, activities: ["shopping"] };
+    return { ...doc, primaryActivity: "shopping", primaryCategory: "shopping", activities: ["shopping"] };
   }
   if (isLocavaVisitorBusinessDestination(doc)) {
     const tags = doc.sourceTagSample ?? {};
     const amenity = tag(tags, "amenity");
     const tourism = tag(tags, "tourism");
-    const category = amenity ?? tourism ?? tag(tags, "leisure") ?? "destination";
-    return { ...doc, primaryActivity: category, primaryCategory: category, activities: [category] };
+    const leisure = tag(tags, "leisure");
+    let primary = "things";
+    if (tourism === "museum") primary = "museum";
+    else if (tourism === "gallery") primary = "gallery";
+    else if (amenity === "theatre" || amenity === "cinema") primary = "theater";
+    else if (leisure === "marina") primary = "pier";
+    else if (leisure === "water_park") primary = "waterpark";
+    else if (leisure === "sports_centre" || leisure === "stadium") primary = "things";
+    else if (tourism === "hotel" || tourism === "motel") primary = "things";
+    return { ...doc, primaryActivity: primary, primaryCategory: primary, activities: [primary] };
   }
   return doc;
 }
@@ -1325,14 +1435,23 @@ export function enrichLocavaProductClassification(doc: PbfCopierPreviewDoc): Pbf
 /** Never hide these via Locava product rules (quality filters may still apply). */
 export function isProtectedLocavaDestination(doc: PbfCopierPreviewDoc): boolean {
   if (isLocavaFoodDrinkDestination(doc)) return true;
-  if (isLocavaCemeteryDestination(doc)) return true;
+  if (isLocavaCemeteryDestination(doc) && (hasTag(doc.sourceTagSample ?? {}, "historic") || tag(doc.sourceTagSample ?? {}, "tourism") === "attraction")) {
+    return true;
+  }
   if (isLocavaLocalRetailDestination(doc)) return true;
   if (isLocavaVisitorBusinessDestination(doc)) return true;
   if (isNamedSkiRun(doc)) return true;
-  if (doc.warnings?.includes("v2_generated_outdoor_name")) return true;
-  if (hasStrongUnnamedOutdoorCategory(doc.sourceTagSample ?? {})) return true;
-
   const tags = doc.sourceTagSample ?? {};
+  const namedOutdoor = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
+  if (
+    !namedOutdoor &&
+    doc.warnings?.includes("v2_generated_outdoor_name") &&
+    !isGenericSportsPitch(doc)
+  ) {
+    return true;
+  }
+  if (!namedOutdoor && hasStrongUnnamedOutdoorCategory(tags) && !isGenericSportsPitch(doc)) return true;
+
   if (doc.warnings?.includes("v2_hiking_trail_merged")) return true;
   if (tag(tags, "highway") === "trailhead") return true;
   if (tag(tags, "tourism") === "viewpoint" || tag(tags, "tourism") === "picnic_site") return true;
@@ -1360,25 +1479,52 @@ export function isProtectedLocavaDestination(doc: PbfCopierPreviewDoc): boolean 
   if (namedOutdoorFeature(doc)) return true;
   if (tag(tags, "board_type") === "planet_walk") return true;
   if (/\b(planet walk|saturn)\b/i.test(displayName(doc))) return true;
-  if (/\bcovered bridge\b/i.test(displayName(doc)) && hasTag(tags, "historic")) return true;
+  if (/\bcovered bridge\b/i.test(displayName(doc))) return true;
+  if (tag(tags, "bridge") === "yes" && (tag(tags, "covered") === "yes" || hasTag(tags, "historic"))) return true;
 
+  return false;
+}
+
+function hasDemolishedDisusedOrClosedTag(tags: Record<string, string>): boolean {
+  for (const key of Object.keys(tags)) {
+    if (key.startsWith("demolished:") || key.startsWith("disused:") || key.startsWith("abandoned:") || key.startsWith("closed:")) {
+      return true;
+    }
+  }
   return false;
 }
 
 function namedOutdoorFeature(doc: PbfCopierPreviewDoc): boolean {
   const tags = doc.sourceTagSample ?? {};
+  if (hasDemolishedDisusedOrClosedTag(tags)) return false;
   const named = hasOsmNameTag(tags) || hasMeaningfulPreviewName(doc);
   if (!named) return false;
   if (isTelecomOrUtilityTower(doc) || isCivicInstitutionalNoise(doc)) return false;
   if (tag(tags, "man_made") === "monitoring_station" || hasTag(tags, "monitoring:water_level")) return false;
+  if (isTerrainDestinationCandidate(doc)) return false;
   if (isHikingTrailPreviewDoc(doc) || doc.warnings?.includes("v2_hiking_trail_merged")) return true;
   const n = displayName(doc);
-  if (/\b(notch|pond|spring|mount|mountain|head|falls|waterfall|summit|peak)\b/i.test(n)) return true;
-  if (/\b(hill|lake)\b/i.test(n) && (tag(tags, "natural") === "peak" || tag(tags, "natural") === "water")) {
+  if (/\b(notch|spring|head|falls|waterfall)\b/i.test(n)) return true;
+  if (/\bpond\b/i.test(n) && tag(tags, "natural") === "water" && tag(tags, "access") !== "private") return true;
+  if (/\b(mount|mountain|summit|peak|pinnacle|rock|overlook|lookout)\b/i.test(n)) {
+    if (hasTag(tags, "wikipedia") || tag(tags, "tourism") === "viewpoint" || tag(tags, "tourism") === "attraction") {
+      return true;
+    }
+  }
+  if (tag(tags, "natural") === "spring") return true;
+  if (tag(tags, "natural") === "water" && tag(tags, "access") !== "private" && tag(tags, "access") !== "no") {
     return true;
   }
-  if (tag(tags, "natural") === "spring" || tag(tags, "natural") === "water") return true;
   if (named && tag(tags, "place") === "island" && tag(tags, "tourism")) return true;
+  return false;
+}
+
+function isClosedBusiness(doc: PbfCopierPreviewDoc): boolean {
+  const tags = doc.sourceTagSample ?? {};
+  for (const [key, value] of Object.entries(tags)) {
+    if (!value?.trim()) continue;
+    if (key.startsWith("closed:") || key.startsWith("disused:") || key.startsWith("abandoned:")) return true;
+  }
   return false;
 }
 
@@ -1386,6 +1532,17 @@ export function matchLocavaProductRules(doc: PbfCopierPreviewDoc): LocavaProduct
   if (isProtectedLocavaDestination(doc)) return null;
 
   const tags = doc.sourceTagSample ?? {};
+
+  const roadRoute = matchGenericRoadRoute(doc);
+  if (roadRoute) return roadRoute;
+
+  const privateAccess = matchPrivateOrRestrictedAccess(doc);
+  if (privateAccess) return privateAccess;
+
+  if (isClosedBusiness(doc) && !tag(tags, "historic")) {
+    return { key: "map_junk", reason: "closed/disused business or feature" };
+  }
+
   if (tag(tags, "amenity") === "library" && isInstitutionalOrNonPublicLibrary(doc)) {
     return { key: "public_service", reason: "institutional library, not public discovery spot" };
   }
@@ -1429,8 +1586,10 @@ export function matchLocavaProductRules(doc: PbfCopierPreviewDoc): LocavaProduct
   if (isUtilityInfrastructure(doc)) {
     return { key: "support_infrastructure", reason: "utility infrastructure, not destination" };
   }
-  if (isResidentialRoadGeometry(doc)) {
-    return { key: "map_junk", reason: "residential/road geometry, not destination" };
+  if (tag(tags, "amenity") === "grave_yard" || tag(tags, "landuse") === "cemetery") {
+    if (!isLocavaCemeteryDestination(doc)) {
+      return { key: "map_junk", reason: "ordinary cemetery, not historic discovery destination" };
+    }
   }
   if (isNameOnlyBuilding(doc)) {
     return { key: "professional_office", reason: "name-only building/business without destination tag" };
@@ -1475,13 +1634,29 @@ export function matchLocavaProductRules(doc: PbfCopierPreviewDoc): LocavaProduct
   if (shop && HIDE_RETAIL_SHOPS.has(shop)) {
     return { key: "generic_retail", reason: "generic/chain utility retail, not Locava destination" };
   }
-  if (tag(tags, "amenity") === "fuel") {
+  const amenity = tag(tags, "amenity");
+  if (amenity === "fuel" || amenity === "car_wash" || amenity === "car_rental") {
     const n = displayName(doc).toLowerCase();
     const hasVisitorStore =
       tag(tags, "shop") ||
       /\b(country store|general store|market|deli|bakery|travel plaza|rest area)\b/.test(n);
     if (!hasVisitorStore) {
       return { key: "generic_retail", reason: "gas station, not Locava destination" };
+    }
+  }
+  if (amenity === "hairdresser" || amenity === "beauty_salon") {
+    return { key: "generic_retail", reason: "generic salon/service retail, not Locava destination" };
+  }
+  if (hasMeaningfulPreviewName(doc) && /^water access$/i.test(displayName(doc))) {
+    if (
+      !tag(tags, "waterway") &&
+      tag(tags, "canoe") !== "yes" &&
+      tag(tags, "boat") !== "yes" &&
+      tag(tags, "amenity") !== "slipway" &&
+      tag(tags, "leisure") !== "swimming_area" &&
+      tag(tags, "natural") !== "beach"
+    ) {
+      return { key: "map_junk", reason: "generic water access without recreation evidence" };
     }
   }
   if (shop === "convenience" && looksLikeChainBrand(displayName(doc))) {
@@ -1558,6 +1733,10 @@ export function matchLocavaMapJunk(doc: PbfCopierPreviewDoc): LocavaProductFilte
   }
 
   const building = tag(tags, "building");
+  const buildingPart = tag(tags, "building:part");
+  if (buildingPart) {
+    return { key: "map_junk", reason: `building:part=${buildingPart}` };
+  }
   if (
     building &&
     [
@@ -1574,6 +1753,12 @@ export function matchLocavaMapJunk(doc: PbfCopierPreviewDoc): LocavaProductFilte
       "hangar",
       "factory",
       "office",
+      "service",
+      "retail",
+      "kiosk",
+      "bunker",
+      "transformer_tower",
+      "storage_tank",
     ].includes(building) &&
     !hasTag(tags, "historic") &&
     !isLocavaFoodDrinkDestination(doc)
@@ -1581,6 +1766,9 @@ export function matchLocavaMapJunk(doc: PbfCopierPreviewDoc): LocavaProductFilte
     if (building !== "yes" || !hasMeaningfulPreviewName(doc)) {
       return { key: "map_junk", reason: `generic building=${building}` };
     }
+  }
+  if (building === "yes" && !hasOsmNameTag(tags) && !hasMeaningfulPreviewName(doc)) {
+    return { key: "map_junk", reason: "unnamed building=yes" };
   }
 
   return null;

@@ -21,6 +21,13 @@ describe("renderOpenStreetMapPbfCopierV2Page", () => {
     expect(html).toContain("Write V2 Spots");
     expect(html).toContain("validate-write-payload");
     expect(html).toContain("write-blank-spots");
+    expect(html).toContain("scanStatusPanel");
+    expect(html).toContain("writeActivityPanel");
+    expect(html).toContain("writeActivityConsole");
+    expect(html).not.toContain('id="btnWriteBlankSpots" disabled');
+    expect(html).toContain("viewport-preview-stream");
+    expect(html).toContain('id="purgeUndiscoveredPanel"');
+    expect(html).not.toContain("Photo preview moved to its own page");
     const match = html.match(/<script>\n([\s\S]*?)<\/script>/);
     expect(match).toBeTruthy();
     const jsPath = join(tmpdir(), "pbf-copier-v2-page-" + process.pid + ".js");

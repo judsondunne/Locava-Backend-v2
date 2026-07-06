@@ -3,6 +3,7 @@
  */
 import {
   collectNamedTrailLines,
+  collectPublicTrailLines,
   collectRecreationAreaPoints,
   isNearRecreationArea,
   minDistanceToNamedTrailMeters,
@@ -17,6 +18,11 @@ import {
   pruneDistantSupportMetadata,
   type LocavaPostFilterSummary,
 } from "./pbfCopierV2LocavaProductRules.js";
+import {
+  isTerrainDestinationCandidate,
+  terrainFilterKey,
+  UNQUALIFIED_TERRAIN_FILTER_REASON,
+} from "./pbfCopierV2TerrainQualification.js";
 import type { PbfQualityFilteredPreviewDoc } from "./pbfCopierV2QualityFilters.js";
 import { haversineMeters, type PbfSupportObjectRef } from "./pbfCopierV2SupportObjects.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
@@ -109,7 +115,7 @@ export function applyLocavaPostGroupingFilters(
   items: PbfQualityFilteredPreviewDoc[],
   summary: LocavaPostFilterSummary = emptyLocavaPostFilterSummary()
 ): PbfQualityFilteredPreviewDoc[] {
-  const trails = collectNamedTrailLines(items);
+  const trails = [...collectNamedTrailLines(items), ...collectPublicTrailLines(items)];
   const recreationAreas = collectRecreationAreaPoints(items);
   const routes = items.filter(
     (d) => d.kind === "unexplored_route" && !d.filteredOut && d.routeLineCoordinates?.length
@@ -142,8 +148,12 @@ export function applyLocavaPostGroupingFilters(
     }
 
     if (!next.filteredOut && isGeologicalLabelWithoutVisitorContext(next, trails, recreationAreas)) {
+      const filterKey = isTerrainDestinationCandidate(next) ? terrainFilterKey(next) : "non_destination_amenity";
       next = mergeLocavaFilterMatch(next, {
-        reason: "geological label without clear visitor/trail context",
+        filterKey,
+        reason: isTerrainDestinationCandidate(next)
+          ? UNQUALIFIED_TERRAIN_FILTER_REASON
+          : "geological label without clear visitor/trail context",
       });
       summary.hiddenGeologicalLabels += 1;
     }

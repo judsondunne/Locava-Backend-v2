@@ -9,16 +9,13 @@ import type { OsmNationalWriteOptions } from "../../../../repositories/source-of
 import { findExistingUnexploredIds } from "../copier/osmNationalCopierExistsBatch.js";
 import {
   assertPbfCopierCollectionTarget,
-  PBF_UNDISCOVERED_SHAPE_CONFIRMATION,
   pbfIsEmulatorActive,
   pbfIsProductionWriteUnlocked,
 } from "./pbfCopierGuards.js";
 import {
   assertOsmNationalWriteAllowed,
   OsmNationalWriteBlockedError,
-  OSM_NATIONAL_PRODUCTION_CONFIRMATION,
   OSM_NATIONAL_PRODUCTION_ENV_VAR,
-  VERMONT_OFFROAD_PRODUCTION_PASSWORD,
 } from "../osmNationalWriteGuard.js";
 import { PREVIEW_WRITE_BATCH_SIZE } from "./pbfCopierPreviewWrite.js";
 import {
@@ -107,18 +104,10 @@ function evaluateV2WriteGuard(input: PbfV2WriteInput): { ok: true } | { ok: fals
         ok: false,
         code: "production_write_blocked",
         message:
-          `Production writes: enter password "${VERMONT_OFFROAD_PRODUCTION_PASSWORD}" in the write modal (no env var), ` +
-          `or set ${OSM_NATIONAL_PRODUCTION_ENV_VAR}=true in the backend .env and use confirmProductionWrite=${OSM_NATIONAL_PRODUCTION_CONFIRMATION}.`,
+          "Production writes require the production write password in the dashboard, " +
+          `or set ${OSM_NATIONAL_PRODUCTION_ENV_VAR}=true in the backend .env with the configured confirmation token.`,
       };
     }
-  }
-  const shapeConfirm = input.confirmUndiscoveredShape ?? PBF_UNDISCOVERED_SHAPE_CONFIRMATION;
-  if (shapeConfirm !== PBF_UNDISCOVERED_SHAPE_CONFIRMATION) {
-    return {
-      ok: false,
-      code: "undiscovered_shape_confirmation_required",
-      message: `Write requires confirmUndiscoveredShape=${PBF_UNDISCOVERED_SHAPE_CONFIRMATION}.`,
-    };
   }
   try {
     assertOsmNationalWriteAllowed({

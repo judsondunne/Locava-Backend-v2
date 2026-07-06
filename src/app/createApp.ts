@@ -34,6 +34,7 @@ import { registerUserChatsCollectionsPurgeRoutes } from "../routes/internal/user
 import { registerReelsMvpPublisherRoutes } from "../admin/reelsMvpPublisher/reelsMvpPublisher.routes.js";
 import { registerPostSingleVideoRepairRoutes } from "../admin/postSingleVideoRepair/postSingleVideoRepair.routes.js";
 import { registerSeedLikesRoutes } from "../admin/seedLikes/seedLikes.routes.js";
+import { registerPostLikeBoostRoutes } from "../admin/postLikeBoost/postLikeBoost.routes.js";
 import { registerWikiCurationRoutes } from "../admin/wikiCuration/wikiCuration.routes.js";
 import { registerInventoryAdminRoutes } from "../admin/inventory/inventory.routes.js";
 import { registerOpenStreetMapAdminRoutes } from "../admin/openstreetmap/openstreetmap.routes.js";
@@ -866,6 +867,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerStateContentFactoryDevRoutes);
   app.register(registerPostSingleVideoRepairRoutes);
   app.register(registerSeedLikesRoutes);
+  app.register(registerPostLikeBoostRoutes);
   app.register(registerWikiCurationRoutes);
   app.register(registerInventoryAdminRoutes);
   app.register(registerOpenStreetMapAdminRoutes);

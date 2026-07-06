@@ -250,7 +250,7 @@ const PurgeUndiscoveredBodySchema = z
   .object({
     writeTarget: z.enum(["emulator", "production"]),
     confirmProductionWrite: z.string().optional(),
-    confirmPurge: z.string(),
+    confirmPurge: z.string().optional(),
     dryRun: z.boolean().optional(),
   })
   .strict();
@@ -392,40 +392,120 @@ export async function registerPbfCopierV2Routes(app: FastifyInstance): Promise<v
     }
   });
 
+  type ViewportPreviewBuildInput = z.infer<typeof ViewportPreviewBodySchema> & {
+    onScanProgress?: (progress: {
+      rawObjectsScanned: number;
+      nodesScanned: number;
+      waysScanned: number;
+      relationsScanned: number;
+      itemsInViewport?: number;
+    }) => void | Promise<void>;
+  };
+
+  function finalizeViewportPreview(
+    body: z.infer<typeof ViewportPreviewBodySchema>,
+    result: Awaited<ReturnType<typeof scanPbfViewportPreview>>
+  ) {
+    const settings: PbfQualityFilterSettings = {
+      ...DEFAULT_PBF_QUALITY_FILTER_SETTINGS,
+      ...(body.qualityFilterSettings ?? {}),
+      hideUnnamedPaths: false,
+    };
+    const cacheId = storePbfCopierV2ScanCache(body.pbfPath, result.items);
+    const filtered = runPbfCopierV2Pipeline({ rawItems: result.items, qualitySettings: settings });
+    return {
+      ...result,
+      items: filtered.items,
+      rawItemCount: result.items.length,
+      cacheId,
+      summary: filtered.summary,
+      groupingSummary: filtered.groupingSummary,
+      destinationQualityCounters: filtered.destinationQualityCounters,
+      readOnly: true as const,
+      firebaseWrites: false as const,
+      postsWriteForbidden: true as const,
+    };
+  }
+
+  async function buildViewportPreviewResponse(body: ViewportPreviewBuildInput) {
+    const result = await scanPbfViewportPreview({
+      pbfPath: body.pbfPath,
+      bbox: body.bbox,
+      mode: body.mode,
+      onScanProgress: body.onScanProgress,
+    });
+    return finalizeViewportPreview(body, result);
+  }
+
   app.post(`${base}/viewport-preview`, async (request, reply) => {
     setRouteName("admin.osm.pbf_copier_v2.viewport_preview");
     if (!(await requirePbfAdmin(request, reply, env))) return;
     const body = ViewportPreviewBodySchema.parse(request.body ?? {});
     try {
-      const result = await scanPbfViewportPreview({
-        pbfPath: body.pbfPath,
-        bbox: body.bbox,
-        mode: body.mode,
-      });
-      const settings: PbfQualityFilterSettings = {
-        ...DEFAULT_PBF_QUALITY_FILTER_SETTINGS,
-        ...(body.qualityFilterSettings ?? {}),
-        hideUnnamedPaths: false,
-      };
-      const cacheId = storePbfCopierV2ScanCache(body.pbfPath, result.items);
-      const filtered = runPbfCopierV2Pipeline({ rawItems: result.items, qualitySettings: settings });
-      return success({
-        ...result,
-        items: filtered.items,
-        rawItemCount: result.items.length,
-        cacheId,
-        summary: filtered.summary,
-        groupingSummary: filtered.groupingSummary,
-        destinationQualityCounters: filtered.destinationQualityCounters,
-        readOnly: true as const,
-        firebaseWrites: false as const,
-        postsWriteForbidden: true as const,
-      });
+      return success(await buildViewportPreviewResponse(body));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const code = message.includes(":") ? message.split(":")[0]! : "viewport_preview_failed";
       return reply.status(400).send(failure(code, message));
     }
+  });
+
+  app.post(`${base}/viewport-preview-stream`, async (request, reply) => {
+    setRouteName("admin.osm.pbf_copier_v2.viewport_preview_stream");
+    if (!(await requirePbfAdmin(request, reply, env))) return;
+    const body = ViewportPreviewBodySchema.parse(request.body ?? {});
+
+    reply.hijack();
+    reply.raw.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    if (typeof reply.raw.flushHeaders === "function") {
+      reply.raw.flushHeaders();
+    }
+
+    let aborted = false;
+    request.raw.on("close", () => {
+      aborted = true;
+      reply.raw.end();
+    });
+
+    const writeSse = (obj: unknown) => {
+      if (aborted) return;
+      reply.raw.write(`data: ${JSON.stringify(obj)}\n\n`);
+      const raw = reply.raw as NodeJS.WritableStream & { flush?: () => void };
+      raw.flush?.();
+    };
+
+    try {
+      writeSse({ type: "start", message: "Opening PBF and scanning viewport…" });
+      const scanResult = await scanPbfViewportPreview({
+        pbfPath: body.pbfPath,
+        bbox: body.bbox,
+        mode: body.mode,
+        onScanProgress: async (progress) => {
+          writeSse({
+            type: "progress",
+            message: "Reading PBF…",
+            ...progress,
+          });
+        },
+      });
+      writeSse({
+        type: "postprocess",
+        message: "PBF read complete — applying quality filters and trail merge…",
+        rawItemCount: scanResult.items.length,
+        stats: scanResult.stats,
+      });
+      const payload = finalizeViewportPreview(body, scanResult);
+      writeSse({ type: "done", data: payload });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      writeSse({ type: "error", message });
+    }
+    reply.raw.end();
   });
 
   app.post(`${base}/apply-quality-filters`, async (request, reply) => {

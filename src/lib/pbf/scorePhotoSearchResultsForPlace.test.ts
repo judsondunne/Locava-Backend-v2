@@ -49,8 +49,9 @@ describe("scorePhotoResultMetadata word boundaries", () => {
       publicMapEligible: true,
       mapReadiness: "ready" as const,
     };
-    const query = buildOsmSpecificPhotoQuery(d);
-    const scored = scorePhotoSearchResultsForPlace(d, query, [
+    const doc = d as unknown as PbfCopierPreviewDoc;
+    const query = buildOsmSpecificPhotoQuery(doc);
+    const scored = scorePhotoSearchResultsForPlace(doc, query, [
       {
         id: "1",
         imageUrl: "https://example.com/a.jpg",

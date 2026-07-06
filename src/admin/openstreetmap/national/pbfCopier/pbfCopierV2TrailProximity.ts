@@ -16,8 +16,27 @@ function tag(tags: Record<string, string>, key: string): string | undefined {
   return tags[key]?.trim().toLowerCase();
 }
 
+function hasTag(tags: Record<string, string>, key: string): boolean {
+  return Boolean(tags[key]?.trim());
+}
+
 function hasOsmName(tags: Record<string, string>): boolean {
   return Boolean(tags.name?.trim() || tags["name:en"]?.trim());
+}
+
+function pointToSegmentMeters(
+  lat: number,
+  lng: number,
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+): number {
+  const dx = b.lng - a.lng;
+  const dy = b.lat - a.lat;
+  if (dx === 0 && dy === 0) return haversineMeters(lat, lng, a.lat, a.lng);
+  const t = Math.max(0, Math.min(1, ((lng - a.lng) * dx + (lat - a.lat) * dy) / (dx * dx + dy * dy)));
+  const plat = a.lat + t * dy;
+  const plng = a.lng + t * dx;
+  return haversineMeters(lat, lng, plat, plng);
 }
 
 export function minDistanceToPolylineMeters(
@@ -30,10 +49,96 @@ export function minDistanceToPolylineMeters(
   for (let i = 0; i < coords.length - 1; i++) {
     const a = coords[i]!;
     const b = coords[i + 1]!;
-    min = Math.min(min, haversineMeters(lat, lng, a.lat, a.lng));
-    min = Math.min(min, haversineMeters(lat, lng, b.lat, b.lng));
+    min = Math.min(min, pointToSegmentMeters(lat, lng, a, b));
   }
   return min;
+}
+
+function isPrivateTrailAccess(tags: Record<string, string>): boolean {
+  const access = tag(tags, "access");
+  if (access === "private" || access === "no") return true;
+  if (tag(tags, "foot") === "private" || tag(tags, "motor_vehicle") === "private") return true;
+  return false;
+}
+
+function isOrdinaryRoadHighway(tags: Record<string, string>): boolean {
+  const highway = tag(tags, "highway");
+  if (!highway) return false;
+  if (["residential", "unclassified", "living_street", "service"].includes(highway)) return true;
+  if (highway === "track") {
+    const service = tag(tags, "service");
+    if (service && ["driveway", "parking_aisle", "alley"].includes(service)) return true;
+    const foot = tag(tags, "foot");
+    const route = tag(tags, "route");
+    if (foot === "designated" || foot === "yes" || foot === "permissive" || route === "hiking") return false;
+    if (hasTag(tags, "sac_scale") || hasTag(tags, "trail_visibility") || tag(tags, "hiking") === "yes") return false;
+    if (hasTag(tags, "piste:type")) return false;
+    return true;
+  }
+  return false;
+}
+
+function isPublicTrailGeometry(doc: PbfCopierPreviewDoc, tags: Record<string, string>): boolean {
+  if (isPrivateTrailAccess(tags)) return false;
+  if (isOrdinaryRoadHighway(tags)) return false;
+
+  const highway = tag(tags, "highway");
+  if (highway === "path" || highway === "footway" || highway === "bridleway" || highway === "steps") {
+    const footway = tag(tags, "footway");
+    if (footway && ["sidewalk", "crossing", "traffic_island", "access_aisle"].includes(footway)) return false;
+    return true;
+  }
+
+  if (highway === "track") {
+    const foot = tag(tags, "foot");
+    if (foot === "designated" || foot === "yes" || foot === "permissive" || tag(tags, "hiking") === "yes") {
+      return true;
+    }
+    if (hasTag(tags, "sac_scale") || hasTag(tags, "trail_visibility")) return true;
+  }
+
+  const route = tag(tags, "route");
+  if (route && ["hiking", "foot", "walking", "bicycle", "mtb", "ski"].includes(route)) return true;
+  if (hasTag(tags, "piste:type")) return true;
+  if (doc.warnings?.includes("v2_hiking_trail_merged") || doc.warnings?.includes("v2_unnamed_hiking_trail")) {
+    return true;
+  }
+  if (isHikingTrailPreviewDoc(doc)) return true;
+
+  return false;
+}
+
+/** All public trail/route geometries in the batch (named or unnamed) for proximity checks. */
+export function collectPublicTrailLines(items: PbfCopierPreviewDoc[]): NamedTrailLine[] {
+  const lines: NamedTrailLine[] = [];
+  for (const doc of items) {
+    const tags = doc.sourceTagSample ?? {};
+    if (!isPublicTrailGeometry(doc, tags)) continue;
+    const coords = doc.routeLineCoordinates;
+    if (!coords || coords.length < 2) continue;
+    lines.push({
+      osmType: doc.osmType,
+      osmId: doc.osmId,
+      displayName: doc.displayName || tags.name || tags["name:en"] || "(trail)",
+      coordinates: coords,
+    });
+  }
+  return lines;
+}
+
+export function minDistanceToPublicTrailMeters(
+  lat: number,
+  lng: number,
+  trails: NamedTrailLine[],
+  maxSearchMeters = 500
+): number {
+  let min = Infinity;
+  for (const trail of trails) {
+    const d = minDistanceToPolylineMeters(lat, lng, trail.coordinates);
+    if (d < min) min = d;
+    if (min <= 0) return 0;
+  }
+  return min > maxSearchMeters ? Infinity : min;
 }
 
 export function collectNamedTrailLines(items: PbfCopierPreviewDoc[]): NamedTrailLine[] {

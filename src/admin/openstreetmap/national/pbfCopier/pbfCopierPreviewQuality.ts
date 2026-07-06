@@ -72,6 +72,39 @@ export function normalizePreviewDisplayName(name: string | null | undefined): st
     .trim();
 }
 
+const TRAIL_MERGE_SUFFIX_RE = /\s+(connector trail|viewpoint)\s*$/i;
+
+/** Normalize trail names so parent trails and connector segments bucket together. */
+export function hikingTrailMergeKey(name: string | null | undefined): string {
+  let key = normalizePreviewDisplayName(name);
+  if (!key) return "";
+  for (let i = 0; i < 4; i += 1) {
+    const next = key.replace(TRAIL_MERGE_SUFFIX_RE, "").trim();
+    if (next === key) break;
+    key = next;
+  }
+  return key;
+}
+
+/** Prefer the shortest non-connector label when merging trail segments. */
+export function pickCanonicalTrailDisplayName(names: string[]): string {
+  const cleaned = names.map((n) => n.trim()).filter(Boolean);
+  if (cleaned.length === 0) return "Trail";
+  let best = cleaned[0]!;
+  for (const candidate of cleaned) {
+    const candidateIsConnector = /\bconnector trail\b/i.test(candidate);
+    const bestIsConnector = /\bconnector trail\b/i.test(best);
+    if (bestIsConnector && !candidateIsConnector) {
+      best = candidate;
+      continue;
+    }
+    if (candidateIsConnector === bestIsConnector && candidate.length < best.length) {
+      best = candidate;
+    }
+  }
+  return best.replace(/\s+connector trail(\s+connector trail)+/gi, " Connector Trail").trim();
+}
+
 export type PreviewDuplicateRemoval = {
   normalizedName: string;
   keptId: string;

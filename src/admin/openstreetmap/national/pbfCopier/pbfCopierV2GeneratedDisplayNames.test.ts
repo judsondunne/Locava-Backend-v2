@@ -34,6 +34,7 @@ function spotDoc(tags: Record<string, string>, displayName = ""): PbfCopierPrevi
     pbfFilePath: "/tmp/test.osm.pbf",
     sourceProvider: "osm",
     sourceTagSample: tags,
+    warnings: [],
   };
 }
 

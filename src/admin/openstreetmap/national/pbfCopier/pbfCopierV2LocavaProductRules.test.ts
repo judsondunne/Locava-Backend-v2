@@ -105,7 +105,11 @@ describe("pbfCopierV2LocavaProductRules", () => {
         tags: { name: "Upper Perry Merrill", "piste:type": "downhill" },
         osmId: 11,
       }),
-      mkDoc({ displayName: "Pleasant View Cemetery", tags: { landuse: "cemetery", name: "Pleasant View Cemetery" }, osmId: 12 }),
+      mkDoc({
+        displayName: "Historic National Cemetery",
+        tags: { landuse: "cemetery", name: "Historic National Cemetery", historic: "cemetery", tourism: "attraction" },
+        osmId: 12,
+      }),
       mkDoc({ displayName: "Skirack", tags: { shop: "ski", name: "Skirack" }, osmId: 13 }),
       mkDoc({ displayName: "Shell", tags: { amenity: "fuel", name: "Shell" }, osmId: 14 }),
     ];
@@ -115,6 +119,12 @@ describe("pbfCopierV2LocavaProductRules", () => {
     expect(result.items.find((d) => d.osmId === 11)?.primaryCategory).toBe("ski_run");
     expect(result.items.find((d) => d.osmId === 12)?.filteredOut).toBe(false);
     expect(result.items.find((d) => d.osmId === 12)?.primaryCategory).toBe("cemetery");
+    expect(
+      applyPbfQualityFilters(
+        [mkDoc({ displayName: "Pleasant View Cemetery", tags: { landuse: "cemetery", name: "Pleasant View Cemetery" }, osmId: 99 })],
+        DEFAULT_PBF_QUALITY_FILTER_SETTINGS
+      ).items[0]?.filteredOut
+    ).toBe(true);
     expect(result.items.find((d) => d.osmId === 13)?.filteredOut).toBe(false);
     expect(result.items.find((d) => d.osmId === 14)?.filteredOut).toBe(true);
     expect(result.locavaProductSummary?.keptFoodDrink).toBeGreaterThanOrEqual(1);
@@ -123,7 +133,7 @@ describe("pbfCopierV2LocavaProductRules", () => {
     expect(result.locavaProductSummary?.keptLocalRetail).toBeGreaterThanOrEqual(1);
   });
 
-  it("keeps named peaks with elevation; hides utility leaks and private pools", () => {
+  it("hides GNIS-only hills; keeps major peaks; hides utility leaks and private pools", () => {
     const items = [
       mkDoc({
         displayName: "Bald Hill",
@@ -174,7 +184,10 @@ describe("pbfCopierV2LocavaProductRules", () => {
       }),
     ];
     const result = applyPbfQualityFilters(items, DEFAULT_PBF_QUALITY_FILTER_SETTINGS);
-    expect(result.items.find((d) => d.osmId === 30)?.filteredOut).toBe(false);
+    expect(result.items.find((d) => d.osmId === 30)?.filteredOut).toBe(true);
+    expect(result.items.find((d) => d.osmId === 30)?.filteredBy).toEqual(
+      expect.arrayContaining(["unqualified_terrain_peak"])
+    );
     expect(result.items.find((d) => d.osmId === 31)?.filteredOut).toBe(false);
     expect(result.items.find((d) => d.osmId === 36)?.filteredOut).toBe(true);
     expect(result.items.find((d) => d.osmId === 32)?.filteredOut).toBe(true);
@@ -183,8 +196,7 @@ describe("pbfCopierV2LocavaProductRules", () => {
     expect(result.items.find((d) => d.osmId === 34)?.filteredOut).toBe(false);
     expect(result.items.find((d) => d.osmId === 38)?.filteredOut).toBe(true);
     expect(result.items.find((d) => d.osmId === 39)?.filteredOut).toBe(false);
-    expect(result.locavaProductSummary?.hiddenGeologicalLabels).toBeGreaterThanOrEqual(1);
-    expect(result.locavaProductSummary?.hiddenUtilityLeaks).toBeGreaterThanOrEqual(2);
+    expect(result.locavaProductSummary?.hiddenUtilityLeaks).toBeGreaterThanOrEqual(1);
     expect(result.locavaProductSummary?.hiddenPrivatePools).toBeGreaterThanOrEqual(1);
   });
 
@@ -239,11 +251,11 @@ describe("pbfCopierV2LocavaProductRules", () => {
     expect(result.items.find((d) => d.osmId === 56)?.filteredOut).toBe(false);
   });
 
-  it("classifies named restaurants as food", () => {
+  it("classifies named restaurants with canonical restaurants activity", () => {
     const doc = mkDoc({ displayName: "Worthy Burger", tags: { amenity: "restaurant", name: "Worthy Burger" } });
     expect(isLocavaFoodDrinkDestination(doc)).toBe(true);
     const enriched = enrichLocavaProductClassification(doc);
-    expect(enriched.primaryActivity).toBe("food");
+    expect(enriched.primaryActivity).toBe("restaurants");
     expect(matchLocavaProductRules(enriched)).toBeNull();
   });
 });

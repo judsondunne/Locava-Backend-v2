@@ -37,7 +37,7 @@ function readyCache(overrides: Partial<UndiscoveredPhotoSearchCache> = {}): Undi
     status: "ready",
     query: '"Quechee Gorge" "Quechee" "Vermont" photos',
     provider: "serper",
-    validator: "metadata_v3",
+    validator: "metadata_v4",
     fetchedAt: new Date().toISOString(),
     expiresAt: futureIso(),
     resultCount: 1,
@@ -124,7 +124,7 @@ describe("undiscoveredPhotoSearch.service", () => {
       status: "empty",
       query: "Lye Brook Trail Arlington Vermont",
       provider: "serper",
-      validator: "metadata_v3",
+      validator: "metadata_v4",
       fetchedAt: new Date().toISOString(),
       expiresAt: futureIso(),
       resultCount: 0,
@@ -177,16 +177,18 @@ describe("undiscoveredPhotoSearch.service", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(processPbfAssetPreviewSpotMock).toHaveBeenCalledTimes(1);
-    expect(processPbfAssetPreviewSpotMock.mock.calls[0][1]).toEqual({
+    const previewCall = processPbfAssetPreviewSpotMock.mock.calls[0];
+    expect(previewCall).toBeDefined();
+    expect(previewCall![1]).toEqual({
       env,
       visionMode: "off",
       strictTitleSourceMatch: false,
       scoringProfile: "undiscovered_app",
     });
-    expect(processPbfAssetPreviewSpotMock.mock.calls[0][1]).not.toHaveProperty("geminiApiKey");
+    expect(previewCall![1]).not.toHaveProperty("geminiApiKey");
     expect(writeUnexploredPhotoSearchMock).toHaveBeenCalled();
     const written = writeUnexploredPhotoSearchMock.mock.calls.at(-1)?.[2];
-    expect(written.validator).toBe("metadata_v3");
+    expect(written.validator).toBe("metadata_v4");
     expect(written.results[0]).toMatchObject({
       sourceUrl: "https://example.com/page",
       sourceDomain: "example.com",

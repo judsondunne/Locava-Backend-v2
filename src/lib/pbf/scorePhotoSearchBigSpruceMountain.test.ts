@@ -16,7 +16,7 @@ function bigSpruceDoc(): PbfCopierPreviewDoc {
     lng: -72.98,
     sourceTagSample: { natural: "peak" },
     writePayload: { location: { state: "Vermont" } },
-  } as PbfCopierPreviewDoc;
+  } as unknown as PbfCopierPreviewDoc;
 }
 
 function imageResult(input: {
@@ -25,6 +25,7 @@ function imageResult(input: {
   sourceUrl?: string;
 }): PlaceImageResult {
   return {
+    id: input.title,
     imageUrl: "https://example.com/photo.jpg",
     caption: input.caption ?? input.title,
     title: input.title,

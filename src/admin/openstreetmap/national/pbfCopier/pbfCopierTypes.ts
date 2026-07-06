@@ -293,6 +293,16 @@ export type PbfCopierPreviewDoc = {
   activities: string[];
   /** Evidence strings for secondary activities added by enrichActivities (debug/preview). */
   activityEvidence?: Record<string, string>;
+  /** Warnings from canonical activity normalization (debug/dev export). */
+  activityWarnings?: string[];
+  /** Raw OSM tag strings removed from activity fields (debug/dev export). */
+  rawTagActivitySuppressed?: string[];
+  /** How canonical activities were derived (debug/dev export). */
+  canonicalActivitySource?: string;
+  /** Why this item remains visible after filters (debug/dev export). */
+  whyVisible?: string;
+  /** Why canonical normalization would hide this item (debug/dev export). */
+  whyHidden?: string;
   primaryCategory: string;
   lat: number;
   lng: number;

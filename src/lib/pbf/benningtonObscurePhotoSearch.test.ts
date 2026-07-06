@@ -44,6 +44,7 @@ function img(input: {
   imageUrl?: string;
 }): PlaceImageResult {
   return {
+    id: input.title,
     imageUrl: input.imageUrl ?? "https://example.com/photo.jpg",
     caption: input.caption ?? input.title,
     title: input.title,

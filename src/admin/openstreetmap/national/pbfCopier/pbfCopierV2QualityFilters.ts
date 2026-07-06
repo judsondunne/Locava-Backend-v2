@@ -2,7 +2,7 @@
  * PBF Copier V2 — post-fetch quality filters (runs after raw OSM + trail merge).
  * Annotates items with filteredOut / filteredBy / filterReason without mutating source geometry.
  */
-import { isHikingTrailPreviewDoc } from "./pbfCopierV2RawDisplay.js";
+import { isHikingTrailPreviewDoc, isUnnamedPathWithoutTrailEvidence, remergeNamedHikingTrailRoutes } from "./pbfCopierV2RawDisplay.js";
 import { hasMeaningfulPreviewName, hasOsmNameTag } from "./pbfCopierV2PreviewName.js";
 export { hasMeaningfulPreviewName, hasOsmNameTag } from "./pbfCopierV2PreviewName.js";
 import {
@@ -28,8 +28,11 @@ import {
   isLocavaFoodDrinkDestination,
   isLocavaLocalRetailDestination,
   isProtectedLocavaDestination,
+  isGenericRoadRoute,
+  matchGenericRoadRoute,
   matchLocavaMapJunk,
   matchLocavaProductRules,
+  matchPrivateOrRestrictedAccess,
   emptyLocavaProductSummary,
   trackLocavaProductVisibility,
   type PbfLocavaProductSummary,
@@ -62,6 +65,7 @@ import {
   type PbfDestinationQualityCounters,
 } from "./pbfCopierV2DestinationQuality.js";
 import { dedupeNearVisiblePreviewItems } from "./pbfCopierPreviewQuality.js";
+import { canonicalizePreviewDocActivities, enforceVisibleCanonicalActivities } from "./pbfCopierV2CanonicalActivities.js";
 import type { PbfCopierPreviewDoc } from "./pbfCopierTypes.js";
 
 export type PbfQualityFilterKey =
@@ -103,7 +107,12 @@ export type PbfQualityFilterKey =
   | "address_only"
   | "map_junk"
   | "residential_land"
-  | "non_destination_residential";
+  | "non_destination_residential"
+  | "unqualified_terrain_peak"
+  | "unqualified_terrain_feature"
+  | "generic_road_route"
+  | "private_or_restricted_access"
+  | "raw_osm_activity";
 
 export type PbfQualityFilterSettings = PbfSupportObjectSettings & {
   hideInfrastructure: boolean;
@@ -247,7 +256,6 @@ export function isProtectedFromQualityFilter(doc: PbfCopierPreviewDoc): boolean 
   if (tag(tags, "building") === "hut" && named) return true;
   if (tag(tags, "leisure") === "nature_reserve" && named) return true;
   if (tag(tags, "leisure") === "park" && named) return true;
-  if (tag(tags, "natural") === "peak" && named) return true;
   if (tag(tags, "natural") === "beach") return true;
   if (named && (tag(tags, "place") === "island" || tag(tags, "place") === "islet")) return true;
   if (tag(tags, "board_type") === "planet_walk") return true;
@@ -256,10 +264,21 @@ export function isProtectedFromQualityFilter(doc: PbfCopierPreviewDoc): boolean 
   if (isNamedSkiRun(doc)) return true;
   if (tag(tags, "historic") && named) return true;
   if (tag(tags, "natural") === "spring" && named) return true;
-  if (tag(tags, "natural") === "water" && named) return true;
+  if (tag(tags, "natural") === "water" && named && tag(tags, "access") !== "private" && tag(tags, "access") !== "no") {
+    return true;
+  }
   if (tag(tags, "place") === "pass" && named) return true;
-  if (named && /\b(notch|pond|lake|spring|mount|mountain|head)\b/i.test(display)) return true;
-  if (isLocavaCemeteryDestination(doc)) return true;
+  if (named && /\b(notch|lake|spring|head)\b/i.test(display)) return true;
+  if (
+    named &&
+    /\bpond\b/i.test(display) &&
+    tag(tags, "natural") === "water" &&
+    tag(tags, "access") !== "private" &&
+    tag(tags, "access") !== "no"
+  ) {
+    return true;
+  }
+  if (isLocavaCemeteryDestination(doc) && tag(tags, "historic")) return true;
 
   return false;
 }
@@ -354,8 +373,15 @@ function matchBroadGeography(doc: PbfCopierPreviewDoc): FilterMatch | null {
   if (waterway && ["river", "stream", "canal", "drain", "ditch"].includes(waterway)) {
     return { key: "broad_geography", reason: `broad ${waterway} geometry` };
   }
-  if (tag(tags, "natural") === "water" && !hasMeaningfulPreviewName(doc)) {
+  if (
+    tag(tags, "natural") === "water" &&
+    !hasMeaningfulPreviewName(doc) &&
+    doc.kind !== "unexplored_spot"
+  ) {
     return { key: "broad_geography", reason: "unnamed broad water polygon" };
+  }
+  if (tag(tags, "natural") === "water" && hasMeaningfulPreviewName(doc) && doc.kind === "unexplored_spot") {
+    return null;
   }
   if (hasMeaningfulPreviewName(doc) && /\b(river|brook|creek)\b/i.test(doc.displayName || "")) {
     if (doc.kind === "unexplored_route" || (doc.geometryPointCount ?? 0) > 30) {
@@ -424,8 +450,11 @@ function evaluateQualityFilters(
   const residential = matchResidentialLand(doc);
   if (residential) matches.push(residential);
 
+  const roadRoute = matchGenericRoadRoute(doc);
+  if (roadRoute) matches.push(roadRoute);
+
   tryMatch(settings.hideInfrastructure, matchInfrastructure);
-  tryMatch(settings.hideServiceRoads, matchServiceRoad);
+  tryMatch(settings.hideServiceRoads, (d) => (isGenericRoadRoute(d) ? null : matchServiceRoad(d)));
   tryMatch(settings.hideAdministrative, matchAdministrative);
   tryMatch(settings.hideRailway, matchRailway);
   tryMatch(settings.hideBroadGeography, matchBroadGeography);
@@ -436,6 +465,9 @@ function evaluateQualityFilters(
     const mountain = matchMountainOutdoorQuality(doc);
     if (mountain) matches.push(mountain);
   }
+
+  const privateAccess = matchPrivateOrRestrictedAccess(doc);
+  if (privateAccess) matches.push(privateAccess);
 
   if (settings.hideNonDestinationAmenities) {
     const product = matchLocavaProductRules(doc);
@@ -503,7 +535,9 @@ function matchNonDestinationAmenity(doc: PbfCopierPreviewDoc): FilterMatch | nul
 }
 
 function classifyDoc(doc: PbfCopierPreviewDoc): PbfCopierPreviewDoc {
-  return enrichLocavaProductClassification(enrichOutdoorResortClassification(doc));
+  return canonicalizePreviewDocActivities(
+    enrichLocavaProductClassification(enrichOutdoorResortClassification(doc))
+  );
 }
 
 function normalizeQualityFilterSettings(settings: PbfQualityFilterSettings): PbfQualityFilterSettings {
@@ -577,7 +611,8 @@ export function applyPbfQualityFilters(
   }
 
   if (options?.skipHeavyGrouping) {
-    const deduped = dedupeNearVisiblePreviewItems(annotated);
+    const canonEnforced = annotated.map((doc) => enforceVisibleCanonicalActivities(doc));
+    const deduped = dedupeNearVisiblePreviewItems(canonEnforced);
     const finalSummary = {
       ...summary,
       visibleItems: deduped.items.filter((d) => !d.filteredOut).length,
@@ -597,8 +632,14 @@ export function applyPbfQualityFilters(
     destinationQualityCounters,
   });
 
+  const remergedTrails = remergeNamedHikingTrailRoutes(grouped.items);
+  if (remergedTrails.groupsRemerged > 0) {
+    grouped.summary.hikingTrailGroupsRemerged = remergedTrails.groupsRemerged;
+    grouped.summary.hikingTrailSegmentsRemerged = remergedTrails.segmentsCollapsed;
+  }
+
   const postSummary = emptyLocavaPostFilterSummary();
-  const postFiltered = applyLocavaPostGroupingFilters(grouped.items, postSummary);
+  const postFiltered = applyLocavaPostGroupingFilters(remergedTrails.items, postSummary);
   locavaProductSummary.hiddenGeologicalLabels += postSummary.hiddenGeologicalLabels;
   locavaProductSummary.hiddenGenericFootways += postSummary.hiddenGenericFootways;
   destinationQualityCounters.unnamedPathsStillFiltered += postSummary.hiddenGenericFootways;
@@ -607,8 +648,19 @@ export function applyPbfQualityFilters(
     enrichActivities(doc, destinationQualityCounters)
   );
 
-  const finalized = rescueFinalRenderableDestinations(withActivities, undefined, destinationQualityCounters);
-  const deduped = dedupeNearVisiblePreviewItems(finalized as PbfQualityFilteredPreviewDoc[]);
+  const finalized = rescueFinalRenderableDestinations(withActivities, undefined, destinationQualityCounters).map(
+    (doc) => enforceVisibleCanonicalActivities(doc)
+  );
+  const rehiddenJunkPaths = (finalized as PbfQualityFilteredPreviewDoc[]).map((doc) => {
+    if (!isUnnamedPathWithoutTrailEvidence(doc)) return doc;
+    return {
+      ...doc,
+      filteredOut: true,
+      filteredBy: [...new Set([...(doc.filteredBy ?? []), "unnamed_path"])],
+      filterReason: "walking path / sidewalk / paved connector",
+    };
+  });
+  const deduped = dedupeNearVisiblePreviewItems(rehiddenJunkPaths);
 
   const countsByFilterFinal: Partial<Record<PbfQualityFilterKey, number>> = {};
   let finalVisibleItems = 0;

@@ -94,7 +94,7 @@ function hasExplicitDestinationTag(tags: Record<string, string>): boolean {
     return true;
   }
   if (tag(tags, "historic")) return true;
-  if (tag(tags, "natural") === "peak" || tag(tags, "natural") === "beach") return true;
+  if (tag(tags, "natural") === "beach") return true;
   return false;
 }
 

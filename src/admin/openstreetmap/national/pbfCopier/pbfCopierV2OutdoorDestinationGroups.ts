@@ -34,6 +34,8 @@ export type PbfOutdoorGroupingSummary = {
   derivedNamesCreated: number;
   lowConfidenceNames: number;
   hiddenJunkAfterGrouping: number;
+  hikingTrailGroupsRemerged?: number;
+  hikingTrailSegmentsRemerged?: number;
 };
 
 export type PbfOutdoorGroupingSettings = {

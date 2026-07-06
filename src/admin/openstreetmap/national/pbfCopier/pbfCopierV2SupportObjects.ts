@@ -31,6 +31,8 @@ export type PbfSupportMetadata = {
   toilets?: PbfSupportObjectRef[];
   informationMaps?: PbfSupportObjectRef[];
   connectors?: PbfSupportObjectRef[];
+  trailheads?: PbfSupportObjectRef[];
+  viewpoints?: PbfSupportObjectRef[];
 };
 
 export type PbfSupportAttachmentTarget = {
@@ -115,7 +117,6 @@ function isProtectedFromQualityFilter(doc: PbfCopierPreviewDoc): boolean {
   if (tag(tags, "building") === "hut" && named) return true;
   if (tag(tags, "leisure") === "nature_reserve" && named) return true;
   if (tag(tags, "leisure") === "park" && named) return true;
-  if (tag(tags, "natural") === "peak" && named) return true;
   if (tag(tags, "natural") === "beach") return true;
   if (named && (tag(tags, "place") === "island" || tag(tags, "place") === "islet")) return true;
   if (tag(tags, "board_type") === "planet_walk") return true;
@@ -252,7 +253,6 @@ export function isPrimaryDestination(doc: PbfCopierPreviewDoc): boolean {
 
   if (tag(tags, "historic") && named) return true;
   if (tag(tags, "man_made") === "bridge" && named) return true;
-  if (tag(tags, "amenity") === "grave_yard") return true;
   if (isLocavaCemeteryDestination(doc)) return true;
 
   if (isLocavaFoodDrinkDestination(doc)) return true;
@@ -262,12 +262,15 @@ export function isPrimaryDestination(doc: PbfCopierPreviewDoc): boolean {
   if (named && /\b(play grove|playground|timber tumble)\b/i.test(display)) return true;
   if (tag(tags, "leisure") === "recreation_ground" && named) return true;
 
-  if (tag(tags, "natural") === "peak" && named) return true;
   if (tag(tags, "natural") === "spring" && named) return true;
-  if (tag(tags, "natural") === "water" && named) return true;
+  if (tag(tags, "natural") === "water" && named && tag(tags, "access") !== "private" && tag(tags, "access") !== "no") {
+    return true;
+  }
   if (tag(tags, "place") === "pass" && named) return true;
-  if (tag(tags, "place") === "peak" && named) return true;
-  if (named && /\b(notch|pond|lake|spring|pass|head|mount|mountain)\b/i.test(display)) return true;
+  if (named && /\b(notch|pond|lake|spring|pass|head)\b/i.test(display)) return true;
+  if (named && /\b(mount|mountain|summit|peak|pinnacle|rock|overlook)\b/i.test(display)) {
+    if (tag(tags, "tourism") === "viewpoint" || hasTag(tags, "wikipedia")) return true;
+  }
 
   return false;
 }
@@ -435,7 +438,13 @@ function isToiletFriendlyDestination(doc: PbfCopierPreviewDoc): boolean {
   if (isParkingFriendlyDestination(doc)) return true;
   if (isBenchFriendlyDestination(doc)) return true;
   const tags = doc.sourceTagSample ?? {};
-  if (tag(tags, "natural") === "peak" && (hasMeaningfulPreviewName(doc) || hasOsmNameTag(tags))) return true;
+  if (
+    tag(tags, "natural") === "peak" &&
+    (hasMeaningfulPreviewName(doc) || hasOsmNameTag(tags)) &&
+    (tag(tags, "tourism") === "viewpoint" || hasTag(tags, "wikipedia"))
+  ) {
+    return true;
+  }
   if (tag(tags, "tourism") === "viewpoint") return true;
   if (isPrimaryDestination(doc)) return true;
   return false;

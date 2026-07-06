@@ -50,7 +50,10 @@ function cleanContextName(name: string): string {
 function composeName(contextName: string, featureLabel: string): string {
   const base = cleanContextName(contextName);
   if (!base) return featureLabel;
-  if (base.toLowerCase().includes(featureLabel.toLowerCase())) return base;
+  const baseLower = base.toLowerCase();
+  const labelLower = featureLabel.toLowerCase().trim();
+  if (baseLower.includes(labelLower)) return base;
+  if (labelLower === "connector trail" && /\bconnector trail\b/i.test(base)) return base;
   return `${base} ${featureLabel}`;
 }
 

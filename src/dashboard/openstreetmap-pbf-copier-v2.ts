@@ -99,6 +99,20 @@ export function renderOpenStreetMapPbfCopierV2Page(): string {
     .write-console .line-ok{color:#86efac}
     .purge-danger-panel{border:2px solid #b91c1c;background:linear-gradient(180deg,#450a0a33 0%,#111827 100%)}
     .purge-danger-panel h2{color:#fecaca;text-transform:none;letter-spacing:0}
+    .purge-danger-panel summary{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;list-style:none}
+    .purge-danger-panel summary::-webkit-details-marker{display:none}
+    .purge-danger-panel summary h2{margin:0}
+    .scan-status-panel summary{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;list-style:none}
+    .scan-status-panel summary::-webkit-details-marker{display:none}
+    .scan-status-panel[open] summary h2{color:#7dd3fc}
+    .scan-status-panel summary h2{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#cbd5e1}
+    .write-activity-panel{border-color:#0369a1;background:linear-gradient(180deg,#0c4a6e22 0%,#111827 100%)}
+    .write-activity-panel summary{display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;list-style:none}
+    .write-activity-panel summary::-webkit-details-marker{display:none}
+    .write-activity-panel[open] summary h2{color:#7dd3fc}
+    .write-activity-panel summary h2{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:#cbd5e1}
+    .cluster-marker{min-width:28px;height:28px;padding:0 8px;border-radius:999px;background:#1e3a8a;border:2px solid #93c5fd;color:#fff;font-size:12px;font-weight:800;line-height:24px;text-align:center;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+    .cluster-marker:hover{background:#2563eb}
     .scary{color:#fca5a5}
     #purgeUndiscoveredModal{position:fixed;inset:0;background:rgba(2,6,23,.85);display:none;align-items:center;justify-content:center;z-index:10000;padding:16px}
     #purgeUndiscoveredModal.open{display:flex}
@@ -180,8 +194,8 @@ export function renderOpenStreetMapPbfCopierV2Page(): string {
 
   <div id="statusBar" class="muted">Ready — validate a PBF file, pan/zoom the map, then scan the current viewport.</div>
 
-  <div class="panel purge-danger-panel" id="purgeUndiscoveredPanel">
-    <h2>Remove all undiscovered map data</h2>
+  <details class="panel purge-danger-panel" id="purgeUndiscoveredPanel">
+    <summary><h2>Remove all undiscovered map data</h2> <span class="pill err">danger</span></summary>
     <p class="muted">
       Permanently deletes <code>unexploredSpots</code>, <code>unexploredRoutes</code> (plus route
       <code>geometryChunks</code>), and the nested <code>unexploredTiles</code> map cache
@@ -198,28 +212,23 @@ export function renderOpenStreetMapPbfCopierV2Page(): string {
     </div>
     <div class="purge-inline-creds" style="margin-top:12px">
       <p class="muted" style="margin:0 0 8px">
-        Count or delete requires password <strong>Cooper</strong> and the confirmation phrase below (copy/paste OK).
+        Count or delete requires the production write password.
       </p>
-      <label style="display:block;margin:6px 0">Confirmation phrase
-        <input id="purgePanelPhrase" type="text" placeholder="DELETE_ALL_UNDISCOVERED_SPOTS_AND_ROUTES" autocomplete="off" style="width:100%;max-width:640px;margin-top:4px"/>
-      </label>
       <label style="display:block;margin:6px 0">Production password
-        <input id="purgePanelPassword" type="password" placeholder="Cooper" autocomplete="off" style="width:100%;max-width:240px;margin-top:4px"/>
+        <input id="purgePanelPassword" type="password" placeholder="Production password" autocomplete="off" style="width:100%;max-width:240px;margin-top:4px"/>
       </label>
     </div>
     <p class="muted" id="purgeUndiscoveredMeta"></p>
-  </div>
+  </details>
 
   <div id="purgeUndiscoveredModal" aria-hidden="true" style="display:none">
     <div class="purge-modal-inner">
       <h3 class="scary">Confirm permanent delete</h3>
       <p class="muted">
         This removes <strong>all</strong> undiscovered spots, routes, and nested map tile cache from Firestore.
-        User posts are not affected.
+        User posts are not affected. Production write password required.
       </p>
-      <p class="muted">Type exactly: <code id="purgeConfirmPhraseHint">DELETE_ALL_UNDISCOVERED_SPOTS_AND_ROUTES</code></p>
-      <input id="purgeConfirmPhrase" type="text" placeholder="Confirmation phrase" autocomplete="off" style="width:100%;margin:8px 0"/>
-      <input id="purgePassword" type="password" placeholder="Production password (Cooper)" autocomplete="off" style="width:100%;margin:8px 0"/>
+      <input id="purgePassword" type="password" placeholder="Production password" autocomplete="off" style="width:100%;margin:8px 0"/>
       <div class="row">
         <button type="button" class="secondary" id="btnConfirmPurgeDryRun">Count only (dry-run)</button>
         <button type="button" class="danger" id="btnConfirmPurgeUndiscovered">Delete all now</button>
@@ -306,17 +315,6 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
     <p id="fullRunRunId" class="muted"></p>
   </div>
 
-  <div class="panel asset-preview-panel" id="assetPreviewPanel" style="border-width:3px;padding:22px 24px;text-align:center">
-    <h2 style="font-size:22px;margin:0 0 8px;color:#86efac">📷 Photo preview moved to its own page</h2>
-    <p class="muted" style="max-width:560px;margin:0 auto 18px;font-size:14px;line-height:1.5">
-      Scans <strong>vermont-latest.osm.pbf</strong> live (tile-by-tile, same V2 pipeline) and curates photos per spot —
-      no saved run or dry-run artifacts needed.
-    </p>
-    <a href="/admin/openstreetmap/pbf-photo-preview" style="display:inline-block;background:#16a34a;color:#fff;font-weight:800;font-size:17px;padding:14px 28px;border-radius:12px;text-decoration:none;box-shadow:0 4px 18px rgba(22,163,74,.4)">
-      Open PBF Photo Preview →
-    </a>
-  </div>
-
   <div class="panel" id="mapPanel">
     <h2>Map</h2>
     <p class="muted">Scan the PBF viewport, or load what is already in Firestore and fit the map to all undiscovered spots/routes (same data the native app uses).</p>
@@ -330,6 +328,13 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
       <button type="button" class="secondary" id="btnGoMarshBillings">Marsh-Billings (Barrette platform)</button>
       <span id="viewportCount" class="muted"></span>
     </div>
+    <details class="panel scan-status-panel" id="scanStatusPanel">
+      <summary><h2>Scan activity</h2> <span id="scanStatusBadge" class="pill">idle</span></summary>
+      <p id="scanStatusLine" class="muted" style="margin-top:0">No viewport scan in progress.</p>
+      <div class="stat-grid" id="scanStatsLiveGrid"></div>
+      <h3 style="margin:14px 0 6px;font-size:12px;text-transform:uppercase;color:#94a3b8">Scan console</h3>
+      <div class="write-console" id="scanConsoleLog" style="max-height:320px">No scan activity yet.</div>
+    </details>
     <div class="map-shell"><div id="previewMap" style="width:100%;height:100%"></div></div>
     <div class="map-route-legend">Colored faint lines = hiking trails/paths (colored dot at trail start — click line or dot). Gray lines = other roads (no start dot). All scanned items in view are always drawn.</div>
     <div id="mapRenderStats" class="map-route-legend muted"></div>
@@ -402,7 +407,7 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
 
   <div class="panel" id="writePanel" style="display:none">
     <h2>Write V2 Spots</h2>
-    <p class="muted">Writes validated items to <code>unexploredSpots</code> and <code>unexploredRoutes</code> (same schema as Master PBF Copier). Never writes <code>/posts</code>. Validate → dry run → write.</p>
+    <p class="muted">Writes validated items to <code>unexploredSpots</code> and <code>unexploredRoutes</code> (same schema as Master PBF Copier). Never writes <code>/posts</code>. Dry run and write logs appear below.</p>
     <div class="stat-grid" id="writeStatsGrid"></div>
     <div class="row" style="margin-top:10px">
       <label>Write scope
@@ -426,15 +431,21 @@ curl -L -o data/osm/vermont-latest.osm.pbf https://download.geofabrik.de/north-a
     </div>
     <div class="row">
       <label>Production password
-        <input id="writeProductionPassword" type="password" placeholder="Cooper"/>
+        <input id="writeProductionPassword" type="password" placeholder="Production password" autocomplete="off"/>
       </label>
     </div>
     <div class="row">
       <button type="button" class="secondary" id="btnValidateWrite">Validate Write Payload</button>
       <button type="button" class="secondary" id="btnDryRunWrite">Dry Run</button>
-      <button type="button" class="success" id="btnWriteBlankSpots" disabled>Write Blank Spots</button>
+      <button type="button" class="success" id="btnWriteBlankSpots">Write Blank Spots</button>
       <button type="button" class="secondary" id="btnResetWrite">Reset</button>
     </div>
+    <details class="panel write-activity-panel" id="writeActivityPanel" open>
+      <summary><h2>Dry run / write log</h2> <span id="writeActivityBadge" class="pill">idle</span></summary>
+      <p id="writeActivityLine" class="muted" style="margin-top:0">Validate, dry run, and real writes log here with full API responses and errors.</p>
+      <div class="stat-grid" id="writeActivityStatsGrid"></div>
+      <div class="write-console" id="writeActivityConsole" style="max-height:420px;margin-top:10px">No dry-run or write activity yet.</div>
+    </details>
     <p id="writeTargetInfo" class="muted"></p>
     <p id="writeValidationSummary" class="muted"></p>
     <div id="writeResultPanel" style="display:none;margin-top:12px">
@@ -468,6 +479,10 @@ const TABLE_ROW_CAP = 500;
 const MAP_RENDER_CONFIG = {
   debounceMs: 150,
 };
+const MAP_CLUSTER_MIN_ZOOM_INDIVIDUAL = 13;
+const MAP_CLUSTER_MAX_INDIVIDUAL_MARKERS = 48;
+const MAP_CLUSTER_MIN_ZOOM_ROUTE_LINES = 15;
+const MAP_CLUSTER_MAX_ROUTE_LINES = 18;
 const TRAIL_FALLBACK_COLORS = ["#ef4444","#f97316","#eab308","#22c55e","#14b8a6","#06b6d4","#3b82f6","#6366f1","#8b5cf6","#d946ef","#ec4899","#f43f5e"];
 
 let previewDocs = [];
@@ -479,8 +494,15 @@ let lastAssetPreviewChunkCount = 0;
 let fullRunWritePollTimer = null;
 let undiscoveredCountsPollTimer = null;
 let clientWriteConsoleLines = [];
+let writeActivityConsoleLines = [];
+let scanConsoleLines = [];
+let scanElapsedTimer = null;
+let scanStartedAtMs = 0;
+let writeOpsInFlight = null;
+let writeElapsedTimer = null;
+let writeOpsStartedAtMs = 0;
+let writeHeartbeatTick = 0;
 let uiRunMode = "bbox";
-let purgeUndiscoveredConfirmation = "DELETE_ALL_UNDISCOVERED_SPOTS_AND_ROUTES";
 let purgeRequestInFlight = false;
 let lastWriteReadyCounts = null;
 let rawItemCount = 0;
@@ -509,8 +531,9 @@ let previewClusterMarkers = [];
 let lastMapRenderItems = [];
 let writeValidated = false;
 let writeDryRunDone = false;
+let writeProofCacheId = null;
+let writeProofSettingsKey = null;
 let lastWriteResult = null;
-const UNDISCOVERED_SHAPE_PHRASE = "I_CONFIRM_UNDISCOVERED_WRITES_MATCH_POST_LIKE_SCHEMA";
 const LARGE_WRITE_THRESHOLD = 500;
 
 function getVisibleFilteredItems() {
@@ -537,6 +560,113 @@ function buildWriteRequestBody(extra) {
     overwrite: $("writeOverwrite").checked,
   };
   return Object.assign(body, extra || {});
+}
+
+function buildWriteSettingsKey() {
+  return [
+    $("writeScope").value || "all_visible",
+    $("writeTarget").value || "production",
+    $("writeSkipExisting").checked ? "1" : "0",
+    $("writeOverwrite").checked ? "1" : "0",
+    $("writeIncludeHidden").checked ? "1" : "0",
+    $("writeIncludeSupportPrimary").checked ? "1" : "0",
+    JSON.stringify(readQualityFilterSettings()),
+  ].join("|");
+}
+
+function writePlanTotal(result) {
+  if (!result) return 0;
+  return (result.spotsPlanned || 0) + (result.routesPlanned || 0);
+}
+
+function summarizeWriteWarnings() {
+  const warnings = [];
+  if (!scanCacheId) warnings.push("No scan cache — scan the viewport first or write will fail.");
+  if (writeOpsInFlight === "dry-run") warnings.push("Dry run still running — wait for it to finish.");
+  else if (writeOpsInFlight === "write") warnings.push("Write still running — please wait.");
+  else if (!writeDryRunDone) warnings.push("Dry run not completed yet for this scan.");
+  if (writeProofCacheId && writeProofCacheId !== scanCacheId) {
+    warnings.push("Scan cache changed since last dry run.");
+  }
+  if (writeProofSettingsKey && writeProofSettingsKey !== buildWriteSettingsKey()) {
+    warnings.push("Write settings changed since last dry run.");
+  }
+  const total = writePlanTotal(lastWriteResult);
+  if (lastWriteResult && total <= 0) {
+    const dup = lastWriteResult.skippedDuplicates;
+    if (dup) warnings.push("Last plan had 0 new docs (" + dup.toLocaleString() + " duplicates). Try Overwrite or uncheck Skip duplicates.");
+    else warnings.push("Last plan had 0 docs to write.");
+  }
+  if ($("writeTarget").value === "production" && !($("writeProductionPassword").value || "").trim()) {
+    warnings.push("Production target selected but password is empty.");
+  }
+  return warnings;
+}
+
+function markWriteProofFromResult(result) {
+  const total = writePlanTotal(result);
+  const hasErrors = (result.errors && result.errors.length) || (result.validationErrors && result.validationErrors.length);
+  writeValidated = !hasErrors;
+  writeDryRunDone = writeValidated;
+  writeProofCacheId = scanCacheId;
+  writeProofSettingsKey = buildWriteSettingsKey();
+  if (total <= 0 && !hasErrors) {
+    appendWriteActivityConsole("Dry run completed with 0 docs to write (check duplicates / filters).", "warn");
+  }
+}
+
+function openWriteActivityPanel() {
+  const panel = $("writeActivityPanel");
+  if (panel) panel.open = true;
+}
+
+function renderWriteActivityBadge(status) {
+  const badge = $("writeActivityBadge");
+  if (!badge) return;
+  badge.textContent = status || "idle";
+  badge.className = "pill" + (status === "running" || status === "ok" ? " ok" : status === "error" ? " err" : status === "warn" ? " err" : "");
+}
+
+function renderWriteActivityStats(rows) {
+  const grid = $("writeActivityStatsGrid");
+  if (!grid) return;
+  grid.innerHTML = (rows || []).map(function (r) {
+    return '<div class="stat-box"><div class="stat-label">' + r[0] + '</div><div class="stat-value">' + r[1] + '</div></div>';
+  }).join("");
+}
+
+function appendWriteActivityConsole(line, kind) {
+  const ts = new Date().toLocaleTimeString();
+  writeActivityConsoleLines.push({ ts: ts, line: line, kind: kind || "info" });
+  if (writeActivityConsoleLines.length > 400) writeActivityConsoleLines = writeActivityConsoleLines.slice(-400);
+  const el = $("writeActivityConsole");
+  if (!el) return;
+  el.innerHTML = writeActivityConsoleLines.map(function (row) {
+    const cls = row.kind === "err" ? "line-err" : row.kind === "ok" ? "line-ok" : row.kind === "warn" ? "line-err" : "";
+    return '<div class="' + cls + '">[' + escapeHtml(row.ts) + '] ' + escapeHtml(row.line) + '</div>';
+  }).join("");
+  el.scrollTop = el.scrollHeight;
+}
+
+function logWriteActivityResult(label, result) {
+  if (!result) return;
+  const rows = [
+    ["Phase", label],
+    ["Target", result.writeTarget || $("writeTarget").value || "—"],
+    ["Spots planned", (result.spotsPlanned || 0).toLocaleString()],
+    ["Routes planned", (result.routesPlanned || 0).toLocaleString()],
+    ["Would write / wrote", (result.written != null ? result.written : writePlanTotal(result)).toLocaleString()],
+    ["Dup skipped", (result.skippedDuplicates || 0).toLocaleString()],
+    ["Invalid skipped", (result.skippedInvalid || 0).toLocaleString()],
+    ["Tiles", result.tilesWritten != null ? result.tilesWritten.toLocaleString() : "—"],
+  ];
+  renderWriteActivityStats(rows);
+  if (result.validationErrors && result.validationErrors.length) {
+    appendWriteActivityConsole("Validation errors: " + result.validationErrors.join("; "), "err");
+  }
+  if (result.errors && result.errors.length) {
+    appendWriteActivityConsole("Errors: " + result.errors.join("; "), "err");
+  }
 }
 
 function renderWriteStats(summary, plan) {
@@ -576,7 +706,8 @@ function renderWriteResult(result) {
     return "<tr><td>" + escapeHtml(ex.kind) + "</td><td>" + escapeHtml(ex.displayName) + "</td><td>" + escapeHtml(ex.reason) + "</td></tr>";
   }).join("") || '<tr><td colspan="4" class="muted">None</td></tr>';
   $("writeErrors").textContent = (result.errors && result.errors.length) ? ("Errors: " + result.errors.join("; ")) : "";
-  renderWriteStatusFromResult(result, { source: "viewport", dryRun: !!result.dryRun });
+  const phase = result.dryRun ? "dry-run" : (result.written > 0 || (result.spotsWritten || 0) + (result.routesWritten || 0) > 0 ? "write" : "validate");
+  renderWriteStatusFromResult(result, { source: "viewport", dryRun: !!result.dryRun, phase: phase });
 }
 
 function openWriteStatusPanel() {
@@ -588,7 +719,7 @@ function renderWriteStatusBadge(status) {
   const badge = $("writeStatusBadge");
   if (!badge) return;
   badge.textContent = status || "idle";
-  badge.className = "pill" + (status === "writing" ? " ok" : status === "error" ? " err" : status === "complete" ? " ok" : "");
+  badge.className = "pill" + (status === "writing" || status === "complete" || status === "dry-run" || status === "validated" ? " ok" : status === "error" ? " err" : "");
 }
 
 function renderWriteStatusGrid(rows) {
@@ -601,7 +732,12 @@ function renderWriteStatusFromResult(result, meta) {
   if (!result) return;
   openWriteStatusPanel();
   const dryRun = meta && meta.dryRun;
-  const status = dryRun ? "dry-run" : (result.errors && result.errors.length ? "error" : "complete");
+  const phase = meta && meta.phase;
+  const status = dryRun
+    ? "dry-run"
+    : phase === "validate"
+      ? "validated"
+      : (result.errors && result.errors.length ? "error" : "complete");
   renderWriteStatusBadge(status);
   const rows = [
     ["Source", (meta && meta.source) || "—"],
@@ -628,6 +764,126 @@ function appendWriteConsole(line, kind) {
   clientWriteConsoleLines.push({ ts: ts, line: line, kind: kind || "info" });
   if (clientWriteConsoleLines.length > 150) clientWriteConsoleLines = clientWriteConsoleLines.slice(-150);
   renderWriteConsole(clientWriteConsoleLines, null);
+}
+
+function openScanStatusPanel() {
+  const panel = $("scanStatusPanel");
+  if (panel) panel.open = true;
+}
+
+function renderScanStatusBadge(status) {
+  const badge = $("scanStatusBadge");
+  if (!badge) return;
+  badge.textContent = status || "idle";
+  badge.className = "pill" + (status === "scanning" ? " ok" : status === "error" ? " err" : status === "complete" ? " ok" : "");
+}
+
+function renderScanStatsLiveGrid(rows) {
+  const grid = $("scanStatsLiveGrid");
+  if (!grid) return;
+  grid.innerHTML = (rows || []).map(function (r) {
+    return '<div class="stat-box"><div class="stat-label">' + r[0] + '</div><div class="stat-value">' + r[1] + '</div></div>';
+  }).join("");
+}
+
+function appendScanConsole(line, kind) {
+  const ts = new Date().toLocaleTimeString();
+  scanConsoleLines.push({ ts: ts, line: line, kind: kind || "info" });
+  if (scanConsoleLines.length > 250) scanConsoleLines = scanConsoleLines.slice(-250);
+  renderScanConsole();
+}
+
+function renderScanConsole() {
+  const el = $("scanConsoleLog");
+  if (!el) return;
+  el.innerHTML = scanConsoleLines.length
+    ? scanConsoleLines.map(function (row) {
+      const cls = row.kind === "err" ? "line-err" : row.kind === "ok" ? "line-ok" : "";
+      return '<div class="' + cls + '">[' + escapeHtml(row.ts) + '] ' + escapeHtml(row.line) + '</div>';
+    }).join("")
+    : "No scan activity yet.";
+  el.scrollTop = el.scrollHeight;
+}
+
+function stopScanElapsedTimer() {
+  if (scanElapsedTimer) {
+    clearInterval(scanElapsedTimer);
+    scanElapsedTimer = null;
+  }
+}
+
+function stopWriteOpsTimer() {
+  if (writeElapsedTimer) {
+    clearInterval(writeElapsedTimer);
+    writeElapsedTimer = null;
+  }
+}
+
+function writeOpsPhaseLabel(phase) {
+  if (phase === "dry-run") return "Dry run";
+  if (phase === "write") return "Write";
+  if (phase === "validate") return "Validate";
+  return "Operation";
+}
+
+function startWriteOpsTimer(phase) {
+  stopWriteOpsTimer();
+  writeOpsInFlight = phase;
+  writeOpsStartedAtMs = Date.now();
+  writeHeartbeatTick = 0;
+  renderWriteActivityBadge("running");
+  const label = writeOpsPhaseLabel(phase);
+  appendWriteActivityConsole("▶ " + label + " started — waiting on server…", "info");
+  writeElapsedTimer = setInterval(function () {
+    if (!writeOpsInFlight) return;
+    writeHeartbeatTick += 1;
+    const sec = Math.round((Date.now() - writeOpsStartedAtMs) / 1000);
+    const liveLabel = writeOpsPhaseLabel(writeOpsInFlight);
+    $("writeActivityLine").textContent = liveLabel + " in progress… " + sec + "s elapsed (server still working)";
+    renderWriteActivityStats([
+      ["Phase", liveLabel],
+      ["Status", "running"],
+      ["Elapsed", sec + "s"],
+      ["Target", $("writeTarget").value || "—"],
+    ]);
+    if (writeHeartbeatTick % 2 === 0) {
+      appendWriteActivityConsole(liveLabel + " still running… " + sec + "s elapsed", "info");
+    }
+  }, 2000);
+}
+
+function finishWriteOpsTimer(phase, badge) {
+  stopWriteOpsTimer();
+  writeOpsInFlight = null;
+  if (badge) renderWriteActivityBadge(badge);
+  const sec = writeOpsStartedAtMs ? Math.round((Date.now() - writeOpsStartedAtMs) / 1000) : 0;
+  if (sec > 0) {
+    appendWriteActivityConsole(writeOpsPhaseLabel(phase) + " finished in " + sec + "s", badge === "error" ? "err" : "ok");
+  }
+}
+
+function startScanElapsedTimer() {
+  stopScanElapsedTimer();
+  scanStartedAtMs = Date.now();
+  scanElapsedTimer = setInterval(function () {
+    if (!scanInFlight) return;
+    const sec = Math.round((Date.now() - scanStartedAtMs) / 1000);
+    $("scanStatusLine").textContent = "Scanning… elapsed " + sec + "s (reading entire Vermont PBF — this can take several minutes)";
+  }, 1000);
+}
+
+function renderScanProgress(progress, message) {
+  const elapsedSec = scanStartedAtMs ? Math.round((Date.now() - scanStartedAtMs) / 1000) : 0;
+  const rows = [
+    ["Elapsed", elapsedSec + "s"],
+    ["PBF objects read", (progress.rawObjectsScanned || 0).toLocaleString()],
+    ["Nodes", (progress.nodesScanned || 0).toLocaleString()],
+    ["Ways", (progress.waysScanned || 0).toLocaleString()],
+    ["Relations", (progress.relationsScanned || 0).toLocaleString()],
+    ["In viewport (raw)", progress.itemsInViewport != null ? progress.itemsInViewport.toLocaleString() : "—"],
+  ];
+  renderScanStatsLiveGrid(rows);
+  $("scanStatusLine").textContent = message || ("Reading PBF… " + (progress.rawObjectsScanned || 0).toLocaleString() + " objects scanned");
 }
 
 function renderWriteConsole(clientLines, serverLines) {
@@ -782,118 +1038,215 @@ function stopFullRunWritePolling() {
 }
 
 function updateWriteButtons() {
-  $("btnWriteBlankSpots").disabled = !(writeValidated && writeDryRunDone);
+  const btn = $("btnWriteBlankSpots");
+  if (btn) btn.disabled = false;
+  const warnings = summarizeWriteWarnings();
+  if (warnings.length) {
+    $("writeValidationSummary").textContent = warnings.join(" · ");
+  } else if (lastWriteResult) {
+    $("writeValidationSummary").textContent =
+      "Last plan: " + writePlanTotal(lastWriteResult).toLocaleString() + " doc(s) to "
+      + ($("writeTarget").value || "production") + ".";
+  } else {
+    $("writeValidationSummary").textContent = "Write is always enabled — run Dry Run to preview, then Write Blank Spots.";
+  }
 }
 
 function resetWriteState() {
+  finishWriteOpsTimer("validate", "idle");
   writeValidated = false;
   writeDryRunDone = false;
+  writeProofCacheId = null;
+  writeProofSettingsKey = null;
   lastWriteResult = null;
+  writeActivityConsoleLines = [];
+  $("writeActivityConsole").textContent = "No dry-run or write activity yet.";
+  renderWriteActivityStats([]);
+  renderWriteActivityBadge("idle");
+  $("writeActivityLine").textContent = "Validate, dry run, and real writes log here with full API responses and errors.";
   $("writeValidationSummary").textContent = "";
   $("writeResultPanel").style.display = "none";
   updateWriteButtons();
 }
 
 async function validateWritePayload() {
+  if (writeOpsInFlight) {
+    appendWriteActivityConsole("Already running: " + writeOpsInFlight + " — wait for it to finish.", "warn");
+    return;
+  }
+  openWriteActivityPanel();
+  $("writeActivityLine").textContent = "Validating write payload…";
+  appendWriteActivityConsole("POST /validate-write-payload", "info");
+  startWriteOpsTimer("validate");
   try {
+    const body = buildWriteRequestBody();
+    appendWriteActivityConsole(
+      "Request: scope=" + body.selectedWriteScope + ", target cache=" + (body.cacheId || "—").slice(0, 8) + "…, skipExisting=" + body.skipExisting + ", overwrite=" + body.overwrite,
+      "info"
+    );
     openWriteStatusPanel();
     renderWriteStatusBadge("validating");
     $("writeStatusLine").textContent = "Validating write payload…";
     const json = await api("/validate-write-payload", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWriteRequestBody()),
+      body: JSON.stringify(body),
     });
     const data = json.data || json;
     lastWriteResult = data;
     writeValidated = !(data.validationErrors && data.validationErrors.length);
-    writeDryRunDone = false;
     renderWriteStats(data.summary, data);
     renderWriteResult(data);
-    const total = (data.spotsPlanned || 0) + (data.routesPlanned || 0);
-    var msg = "Validation: " + total + " item(s) ready";
-    if (data.duplicateCandidates) msg += ", " + data.duplicateCandidates + " duplicate candidate(s)";
+    logWriteActivityResult("validate", data);
+    const total = writePlanTotal(data);
+    var msg = "Validation: " + total.toLocaleString() + " item(s) ready";
+    if (data.duplicateCandidates) msg += ", " + data.duplicateCandidates.toLocaleString() + " duplicate candidate(s)";
     if (data.requiresLargeWriteConfirmation) msg += " — WARNING: >" + LARGE_WRITE_THRESHOLD + " items";
-    if (data.validationErrors && data.validationErrors.length) msg += " — errors: " + data.validationErrors.join(", ");
-    $("writeValidationSummary").textContent = msg;
+    appendWriteActivityConsole(msg, writeValidated ? "ok" : "warn");
+    finishWriteOpsTimer("validate", writeValidated ? "ok" : "warn");
+    $("writeActivityLine").textContent = msg;
     updateWriteButtons();
     setStatus(writeValidated ? "ok" : "warn", msg);
   } catch (err) {
-    resetWriteState();
-    setStatus("error", "Validate failed: " + (err.message || String(err)));
+    const msg = err && err.message ? err.message : String(err);
+    appendWriteActivityConsole("Validate failed: " + msg, "err");
+    finishWriteOpsTimer("validate", "error");
+    $("writeActivityLine").textContent = "Validate failed: " + msg;
+    setStatus("error", "Validate failed: " + msg);
   }
 }
 
 async function dryRunWrite() {
+  if (writeOpsInFlight) {
+    appendWriteActivityConsole("Already running: " + writeOpsInFlight + " — wait for it to finish.", "warn");
+    return;
+  }
+  openWriteActivityPanel();
+  writeDryRunDone = false;
+  $("writeActivityLine").textContent = "Dry run in progress — no Firestore writes…";
+  appendWriteActivityConsole("POST /dry-run-write", "info");
+  startWriteOpsTimer("dry-run");
   try {
+    const body = buildWriteRequestBody({
+      writeTarget: $("writeTarget").value,
+      confirmProductionWrite: $("writeProductionPassword").value || undefined,
+      confirmLargeWrite: true,
+    });
+    appendWriteActivityConsole(
+      "Request: target=" + body.writeTarget
+        + ", scope=" + body.selectedWriteScope
+        + ", cache=" + (body.cacheId || "—").slice(0, 8) + "…"
+        + ", skipExisting=" + body.skipExisting
+        + ", overwrite=" + body.overwrite
+        + ", visibleItems≈" + getVisibleFilteredItems().length
+        + ", password=" + (body.confirmProductionWrite ? "set" : "empty"),
+      "info"
+    );
     openWriteStatusPanel();
     renderWriteStatusBadge("writing");
     $("writeStatusLine").textContent = "Dry run — simulating write plan (no Firestore writes)…";
     const json = await api("/dry-run-write", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWriteRequestBody({
-        writeTarget: $("writeTarget").value,
-        confirmProductionWrite: $("writeProductionPassword").value || undefined,
-        confirmLargeWrite: true,
-      })),
+      body: JSON.stringify(body),
     });
     const data = json.data || json;
     lastWriteResult = data;
-    writeValidated = true;
-    writeDryRunDone = true;
+    markWriteProofFromResult(data);
     renderWriteStats(data.summary, data);
     renderWriteResult(data);
-    const total = (data.spotsPlanned || 0) + (data.routesPlanned || 0);
-    $("writeValidationSummary").textContent = "Dry run: would write " + total + " doc(s), skip " + (data.skippedDuplicates || 0) + " duplicate(s). Zero Firebase writes performed.";
+    logWriteActivityResult("dry-run", data);
+    const total = writePlanTotal(data);
+    var dryMsg = "Dry run complete — would write " + total.toLocaleString() + " doc(s)";
+    if (data.skippedDuplicates) dryMsg += ", skip " + data.skippedDuplicates.toLocaleString() + " duplicate(s)";
+    dryMsg += ". Zero Firebase writes performed.";
+    appendWriteActivityConsole(dryMsg, total > 0 && !(data.errors && data.errors.length) ? "ok" : "warn");
+    finishWriteOpsTimer("dry-run", total > 0 && !(data.errors && data.errors.length) ? "ok" : "warn");
+    $("writeActivityLine").textContent = dryMsg;
+    $("writeValidationSummary").textContent = dryMsg;
     updateWriteButtons();
-    setStatus("ok", "Dry run complete — no Firebase writes.");
+    setStatus(total > 0 ? "ok" : "warn", dryMsg);
   } catch (err) {
-    setStatus("error", "Dry run failed: " + (err.message || String(err)));
+    const msg = err && err.message ? err.message : String(err);
+    appendWriteActivityConsole("Dry run failed: " + msg, "err");
+    finishWriteOpsTimer("dry-run", "error");
+    $("writeActivityLine").textContent = "Dry run failed: " + msg;
+    setStatus("error", "Dry run failed: " + msg);
+    updateWriteButtons();
   }
 }
 
 async function writeBlankSpots() {
-  if (!writeValidated || !writeDryRunDone) {
-    setStatus("warn", "Run Validate and Dry Run before writing.");
+  if (writeOpsInFlight) {
+    appendWriteActivityConsole("Already running: " + writeOpsInFlight + " — wait for it to finish.", "warn");
     return;
   }
-  const total = (lastWriteResult && ((lastWriteResult.spotsPlanned || 0) + (lastWriteResult.routesPlanned || 0))) || 0;
-  if (total > LARGE_WRITE_THRESHOLD) {
-    if (!window.confirm("Write " + total + " items to " + $("writeTarget").value + "?")) return;
+  if (!writeDryRunDone) {
+    appendWriteActivityConsole("Warning: Dry run not completed — write may skip items or fail duplicate checks.", "warn");
   }
-  $("btnWriteBlankSpots").disabled = true;
+  openWriteActivityPanel();
+  appendWriteActivityConsole("POST /write-blank-spots", "info");
+  summarizeWriteWarnings().forEach(function (w) {
+    if (w.indexOf("Dry run not completed") >= 0 && writeDryRunDone) return;
+    appendWriteActivityConsole("Warning: " + w, "warn");
+  });
+  startWriteOpsTimer("write");
+  const plannedTotal = writePlanTotal(lastWriteResult);
+  if (plannedTotal > LARGE_WRITE_THRESHOLD) {
+    if (!window.confirm("Write " + plannedTotal + " items to " + $("writeTarget").value + "?")) {
+      appendWriteActivityConsole("Write cancelled by user.", "warn");
+      finishWriteOpsTimer("write", "idle");
+      return;
+    }
+  }
   setStatus("loading", "Writing blank spots/routes…");
   openWriteStatusPanel();
   renderWriteStatusBadge("writing");
   $("writeStatusLine").textContent = "Writing spots, routes, and unexploredTiles to Firestore…";
+  $("writeActivityLine").textContent = "Writing to Firestore…";
   renderWriteStatusGrid([
     ["Source", "viewport scan"],
     ["Target", $("writeTarget").value],
     ["Status", "in progress…"],
   ]);
   try {
+    const body = buildWriteRequestBody({
+      writeTarget: $("writeTarget").value,
+      confirmProductionWrite: $("writeProductionPassword").value || undefined,
+      confirmLargeWrite: true,
+    });
+    appendWriteActivityConsole(
+      "Request: target=" + body.writeTarget + ", password=" + (body.confirmProductionWrite ? "set" : "empty"),
+      "info"
+    );
     const json = await api("/write-blank-spots", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(buildWriteRequestBody({
-        writeTarget: $("writeTarget").value,
-        confirmProductionWrite: $("writeProductionPassword").value || undefined,
-        confirmUndiscoveredShape: UNDISCOVERED_SHAPE_PHRASE,
-        confirmLargeWrite: true,
-      })),
+      body: JSON.stringify(body),
     });
     const data = json.data || json;
     lastWriteResult = data;
     renderWriteResult(data);
-    setStatus(data.errors && data.errors.length ? "warn" : "ok",
-      "Write complete: " + (data.written || 0) + " written, " + (data.skippedDuplicates || 0) + " duplicates skipped.");
+    logWriteActivityResult("write", data);
+    const okMsg = "Write complete: " + (data.written || 0).toLocaleString() + " written, "
+      + (data.skippedDuplicates || 0).toLocaleString() + " duplicates skipped, "
+      + (data.tilesWritten || 0).toLocaleString() + " tiles upserted.";
+    appendWriteActivityConsole(okMsg, data.errors && data.errors.length ? "warn" : "ok");
+    finishWriteOpsTimer("write", data.errors && data.errors.length ? "warn" : "ok");
+    $("writeActivityLine").textContent = okMsg;
+    setStatus(data.errors && data.errors.length ? "warn" : "ok", okMsg);
     if (!(data.errors && data.errors.length) && !data.dryRun) {
       void pollUndiscoveredCounts(true);
       void loadDbUndiscoveredOnMap({ fit: true });
     }
   } catch (err) {
-    setStatus("error", "Write failed: " + (err.message || String(err)));
+    const msg = err && err.message ? err.message : String(err);
+    appendWriteActivityConsole("Write failed: " + msg, "err");
+    appendWriteConsole("Write failed: " + msg, "err");
+    finishWriteOpsTimer("write", "error");
+    $("writeActivityLine").textContent = "Write failed: " + msg;
+    $("writeErrors").textContent = "Errors: " + msg;
+    setStatus("error", "Write failed: " + msg);
   } finally {
     updateWriteButtons();
   }
@@ -901,6 +1254,7 @@ async function writeBlankSpots() {
 
 function showWritePanel() {
   $("writePanel").style.display = "block";
+  updateWriteButtons();
   renderWriteStats({
     totalRawItems: rawItemCount,
     totalVisibleFiltered: getVisibleFilteredItems().length,
@@ -917,8 +1271,8 @@ function safeMinMaxCoords(coords) {
   var minLng = Infinity;
   var maxLng = -Infinity;
   for (var i = 0; i < coords.length; i++) {
-    var c = coords[i];
-    if (c == null || c.lat == null || c.lng == null) continue;
+    var c = normalizeMapPoint(coords[i]);
+    if (!c) continue;
     if (c.lat < minLat) minLat = c.lat;
     if (c.lat > maxLat) maxLat = c.lat;
     if (c.lng < minLng) minLng = c.lng;
@@ -1302,16 +1656,23 @@ function routeSelectKey(doc) {
 }
 
 function routeMarkerPoint(doc) {
-  if (doc.routeMarkerCoordinate) return doc.routeMarkerCoordinate;
-  if (doc.routeLineCoordinates && doc.routeLineCoordinates.length) return doc.routeLineCoordinates[0];
+  if (doc.routeMarkerCoordinate) {
+    const m = normalizeMapPoint(doc.routeMarkerCoordinate);
+    if (m) return m;
+  }
+  if (doc.routeLineCoordinates && doc.routeLineCoordinates.length) {
+    const m = normalizeMapPoint(doc.routeLineCoordinates[0]);
+    if (m) return m;
+  }
   if (doc.routeLineSegments) {
     for (var si = 0; si < doc.routeLineSegments.length; si++) {
       var seg = doc.routeLineSegments[si];
-      if (seg && seg.length) return seg[0];
+      if (!seg || !seg.length) continue;
+      const m = normalizeMapPoint(seg[0]);
+      if (m) return m;
     }
   }
-  if (doc.lat != null && doc.lng != null) return { lat: doc.lat, lng: doc.lng };
-  return null;
+  return docCoords(doc);
 }
 
 function routeHasRenderableLine(doc) {
@@ -1514,9 +1875,15 @@ function appendRouteFeatures(features, hitFeatures, startFeatures, startHitFeatu
   };
   function pushPair(coords, segmentIdx) {
     if (!coords || coords.length < 2) return;
+    var line = [];
+    for (var pi = 0; pi < coords.length; pi += 1) {
+      var pt = normalizeMapPoint(coords[pi]);
+      if (pt) line.push(pt);
+    }
+    if (line.length < 2) return;
     var geometry = {
       type: "LineString",
-      coordinates: coords.map(function (p) { return [p.lng, p.lat]; }),
+      coordinates: line.map(function (p) { return [p.lng, p.lat]; }),
     };
     features.push({
       type: "Feature",
@@ -1675,9 +2042,131 @@ function clearPreviewMapMarkers() {
   }
 }
 
+function normalizeMapPoint(p) {
+  if (p == null) return null;
+  if (Array.isArray(p) && p.length >= 2) {
+    const lng = Number(p[0]);
+    const lat = Number(p[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat: lat, lng: lng };
+    return null;
+  }
+  if (typeof p === "object") {
+    const lat = Number(p.lat ?? p.latitude);
+    const lng = Number(p.lng ?? p.lon ?? p.long ?? p.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) return { lat: lat, lng: lng };
+  }
+  return null;
+}
+
 function docCoords(doc) {
-  if (doc.lat == null || doc.lng == null) return null;
-  return { lat: doc.lat, lng: doc.lng };
+  if (!doc) return null;
+  const fromFields = normalizeMapPoint({ lat: doc.lat, lng: doc.lng });
+  if (fromFields) return fromFields;
+  if (doc.routeMarkerCoordinate) return normalizeMapPoint(doc.routeMarkerCoordinate);
+  return null;
+}
+
+function clusterGridSizeForZoom(zoom) {
+  if (zoom <= 9) return 0.45;
+  if (zoom <= 11) return 0.22;
+  if (zoom <= 13) return 0.11;
+  if (zoom <= 15) return 0.045;
+  return 0.018;
+}
+
+function docInMapViewport(doc) {
+  if (!previewMap || !previewMapReady) return true;
+  let bounds;
+  try {
+    bounds = previewMap.getBounds();
+  } catch (_boundsErr) {
+    return true;
+  }
+  if (!bounds) return true;
+  const c = docCoords(doc);
+  if (c && bounds.contains([c.lng, c.lat])) return true;
+  if (doc.kind !== "unexplored_route") return false;
+  const coords = doc.routeLineCoordinates || [];
+  for (let i = 0; i < coords.length; i += 1) {
+    const p = normalizeMapPoint(coords[i]);
+    if (p && bounds.contains([p.lng, p.lat])) return true;
+  }
+  const segments = doc.routeLineSegments || [];
+  for (let s = 0; s < segments.length; s += 1) {
+    const seg = segments[s] || [];
+    for (let j = 0; j < seg.length; j += 1) {
+      const pt = normalizeMapPoint(seg[j]);
+      if (pt && bounds.contains([pt.lng, pt.lat])) return true;
+    }
+  }
+  return false;
+}
+
+function shouldClusterSpots(zoom, spotCount) {
+  return zoom < MAP_CLUSTER_MIN_ZOOM_INDIVIDUAL || spotCount > MAP_CLUSTER_MAX_INDIVIDUAL_MARKERS;
+}
+
+function buildSpotClusters(spotDocs, zoom) {
+  const cell = clusterGridSizeForZoom(zoom);
+  const buckets = new Map();
+  spotDocs.forEach(function (doc) {
+    const c = docCoords(doc);
+    if (!c) return;
+    const key = Math.floor(c.lat / cell) + ":" + Math.floor(c.lng / cell);
+    const cur = buckets.get(key);
+    if (!cur) {
+      buckets.set(key, { lat: c.lat, lng: c.lng, count: 1, docs: [doc] });
+      return;
+    }
+    cur.count += 1;
+    cur.lat += c.lat;
+    cur.lng += c.lng;
+    cur.docs.push(doc);
+  });
+  const clusters = [];
+  const singles = [];
+  buckets.forEach(function (bucket) {
+    if (bucket.count > 1) {
+      clusters.push({
+        lat: bucket.lat / bucket.count,
+        lng: bucket.lng / bucket.count,
+        count: bucket.count,
+        docs: bucket.docs,
+      });
+      return;
+    }
+    if (!shouldClusterSpots(zoom, spotDocs.length) || zoom >= MAP_CLUSTER_MIN_ZOOM_INDIVIDUAL) {
+      const single = bucket.docs[0];
+      if (single) singles.push(single);
+    }
+  });
+  return { clusters: clusters, singles: singles };
+}
+
+function addClusterMarker(cluster) {
+  if (!previewMap || !Number.isFinite(cluster.lat) || !Number.isFinite(cluster.lng)) return null;
+  const el = document.createElement("div");
+  el.className = "cluster-marker";
+  el.textContent = String(cluster.count);
+  el.title = cluster.count + " spots in this area — click to zoom in";
+  el.addEventListener("click", function (ev) {
+    ev.stopPropagation();
+    if (!previewMap || cluster.count <= 1) return;
+    const coords = cluster.docs.map(function (d) { return docCoords(d); }).filter(Boolean);
+    const bounds = safeLngLatBounds(coords);
+    if (bounds) {
+      previewMap.fitBounds(bounds, {
+        padding: 56,
+        duration: 450,
+        maxZoom: Math.min(previewMap.getZoom() + 2, 16),
+      });
+    }
+  });
+  const marker = new maplibregl.Marker({ element: el, anchor: "center" })
+    .setLngLat([cluster.lng, cluster.lat])
+    .addTo(previewMap);
+  previewClusterMarkers.push(marker);
+  return marker;
 }
 
 function routeMarkerEmoji(doc) {
@@ -1733,9 +2222,16 @@ function fitPreviewDocs(docs) {
   docs.forEach(function (doc) {
     const c = docCoords(doc);
     if (c) coords.push(c);
-    if (doc.routeLineCoordinates) doc.routeLineCoordinates.forEach(function (p) { coords.push(p); });
+    if (doc.routeLineCoordinates) doc.routeLineCoordinates.forEach(function (p) {
+      const pt = normalizeMapPoint(p);
+      if (pt) coords.push(pt);
+    });
     if (doc.routeLineSegments) doc.routeLineSegments.forEach(function (seg) {
-      if (seg) seg.forEach(function (p) { coords.push(p); });
+      if (!seg) return;
+      seg.forEach(function (p) {
+        const pt = normalizeMapPoint(p);
+        if (pt) coords.push(pt);
+      });
     });
   });
   if (!coords.length) return;
@@ -1760,9 +2256,14 @@ function buildMapRenderItems(sourceDocs) {
   var zoom = previewMap ? previewMap.getZoom() : DEFAULT_MAP_ZOOM;
   var totalVisible = (sourceDocs || []).filter(function (d) { return passesQualityVisibility(d); }).length;
   var toRender = [];
+  var hiddenOutsideViewportCount = 0;
   (sourceDocs || []).forEach(function (doc) {
     if (!passesQualityVisibility(doc)) return;
     if (isSupportOnlyMapDoc(doc)) return;
+    if (!docInMapViewport(doc)) {
+      hiddenOutsideViewportCount += 1;
+      return;
+    }
     toRender.push(doc);
   });
   var routeCount = toRender.filter(function (d) { return d.kind === "unexplored_route"; }).length;
@@ -1781,7 +2282,7 @@ function buildMapRenderItems(sourceDocs) {
     detailLevel: "all",
     renderCapApplied: false,
     hiddenByZoomCount: 0,
-    hiddenOutsideViewportCount: 0,
+    hiddenOutsideViewportCount: hiddenOutsideViewportCount,
     renderCalculationMs: Math.round(performance.now() - t0),
     includeRouteHitTargets: true,
   };
@@ -1795,8 +2296,16 @@ function clearClusterMarkers() {
 }
 
 function placeSpotMarkers(spotDocs) {
-  spotDocs.forEach(function (doc) { addPreviewMarker(doc); });
-  return spotDocs.length;
+  if (!spotDocs.length) return { markers: 0, clusters: 0 };
+  const zoom = previewMap ? previewMap.getZoom() : DEFAULT_MAP_ZOOM;
+  if (!shouldClusterSpots(zoom, spotDocs.length)) {
+    spotDocs.forEach(function (doc) { addPreviewMarker(doc); });
+    return { markers: spotDocs.length, clusters: 0 };
+  }
+  const grouped = buildSpotClusters(spotDocs, zoom);
+  grouped.clusters.forEach(function (cluster) { addClusterMarker(cluster); });
+  grouped.singles.forEach(function (doc) { addPreviewMarker(doc); });
+  return { markers: grouped.singles.length, clusters: grouped.clusters.length };
 }
 
 function renderMapRenderStatsPanel() {
@@ -1804,9 +2313,13 @@ function renderMapRenderStatsPanel() {
   if (!el || !mapRenderStats) { if (el) el.textContent = ""; return; }
   var s = mapRenderStats;
   var rendered = s.renderedMarkers + s.renderedRoutes;
-  var note = "Showing " + rendered + " scanned item(s) (" + s.renderedRoutes + " routes, " + s.renderedMarkers + " spots)";
+  var note = "Showing " + rendered + " in view (" + s.renderedRoutes + " routes, " + s.renderedMarkers + " spots";
+  if (s.clustersRendered) note += ", " + s.clustersRendered + " clusters";
+  note += ")";
+  if (s.hiddenOutsideViewportCount) note += " · " + s.hiddenOutsideViewportCount + " off-screen";
   if (s.trailLikeRoutes) note += " · " + s.trailLikeRoutes + " hiking/trail lines";
   if (s.routeLineFeatures != null) note += " · " + s.routeLineFeatures + " line segment(s)";
+  if (s.hiddenByZoomCount) note += " · " + s.hiddenByZoomCount + " hidden at this zoom";
   note += " · " + s.renderCalculationMs + "ms";
   el.textContent = note;
 }
@@ -1820,14 +2333,30 @@ function drawMapRenderPipeline() {
   mapRenderInFlight = true;
   try {
     var mapRenderItems = buildMapRenderItems(previewDocs);
+    var zoom = previewMap.getZoom();
     var routes = mapRenderItems.filter(function (d) { return d.kind === "unexplored_route"; });
     var spots = mapRenderItems.filter(function (d) { return d.kind !== "unexplored_route"; });
     clearPreviewMapMarkers();
     clearClusterMarkers();
-    placeSpotMarkers(spots);
+    var spotPlacement = placeSpotMarkers(spots);
+    if (mapRenderStats) {
+      mapRenderStats.renderedMarkers = spotPlacement.markers;
+      mapRenderStats.clustersRendered = spotPlacement.clusters;
+    }
     ensurePreviewRouteLayers();
     if (previewMap.getSource(PREVIEW_ROUTES_SOURCE)) {
-      var routeData = buildRoutesGeoJson(routes, true);
+      var routesToDraw = routes;
+      if (zoom < MAP_CLUSTER_MIN_ZOOM_ROUTE_LINES) {
+        routesToDraw = [];
+        if (mapRenderStats) mapRenderStats.hiddenByZoomCount = routes.length;
+      } else if (routes.length > MAP_CLUSTER_MAX_ROUTE_LINES) {
+        routesToDraw = routes.slice(0, MAP_CLUSTER_MAX_ROUTE_LINES);
+        if (mapRenderStats) {
+          mapRenderStats.hiddenByZoomCount = routes.length - routesToDraw.length;
+          mapRenderStats.renderCapApplied = true;
+        }
+      }
+      var routeData = buildRoutesGeoJson(routesToDraw, true);
       previewMap.getSource(PREVIEW_ROUTES_SOURCE).setData(routeData.visible);
       if (previewMap.getSource(PREVIEW_ROUTES_HIT_SOURCE)) {
         previewMap.getSource(PREVIEW_ROUTES_HIT_SOURCE).setData(routeData.hit);
@@ -1993,6 +2522,45 @@ function refreshResultsUi() {
   $("viewportCount").textContent = mapNote;
 }
 
+function applyViewportScanResult(data, bbox) {
+  if (!data.items || !data.items.length) {
+    previewDocs = [];
+    scanCacheId = data.cacheId || null;
+    rawItemCount = data.rawItemCount || 0;
+    renderQualityFilterStats(null);
+    $("viewportCount").textContent = "0 items in viewport";
+    updateCopyJsonButton();
+    setStatus("warn", "Scan complete — no OSM objects with geometry in this viewport bbox.");
+    appendScanConsole("Scan finished — 0 items in viewport bbox.", "ok");
+  } else {
+    scanCacheId = data.cacheId || null;
+    rawItemCount = data.rawItemCount || data.stats?.itemsReturned || data.items.length;
+    previewDocs = data.items;
+    qualityFilterSummary = data.summary || null;
+    groupingSummary = data.groupingSummary || null;
+    locavaProductSummary = data.locavaProductSummary || null;
+    renderQualityFilterStats(qualityFilterSummary);
+    renderScanStats(data.stats);
+    refreshResultsUi();
+    fitMapToVisibleRouteGeometry();
+    updateCopyJsonButton();
+    const summary = qualityFilterSummary;
+    const visible = summary ? summary.visibleItems : previewDocs.length;
+    const hidden = summary ? summary.hiddenItems : 0;
+    const elapsedMs = data.stats && data.stats.elapsedMs;
+    const okMsg = "Scan complete — " + rawItemCount + " raw OSM items (" + visible + " visible, " + hidden + " hidden)"
+      + (elapsedMs != null ? ". " + elapsedMs + " ms." : ".") + " Read-only.";
+    setStatus("ok", okMsg);
+    appendScanConsole(okMsg, "ok");
+  }
+  lastScanBbox = bbox;
+  lastScanStats = data.stats || null;
+  $("qualityFiltersPanel").style.display = "block";
+  $("resultsPanel").style.display = "block";
+  showWritePanel();
+  resetWriteState();
+}
+
 async function scanViewport() {
   if (scanInFlight) return;
   const pbfPath = ($("filePath").value || "").trim();
@@ -2009,54 +2577,80 @@ async function scanViewport() {
   qualityFilterSummary = null;
   groupingSummary = null;
   clearPreviewMapMarkers();
-  setStatus("loading", "Scanning entire PBF for all OSM objects in viewport… (no filter, no Firebase write)");
+  scanConsoleLines = [];
+  openScanStatusPanel();
+  renderScanStatusBadge("scanning");
+  renderScanStatsLiveGrid([
+    ["Phase", "starting"],
+    ["PBF file", pbfPath.split("/").pop() || pbfPath],
+    ["BBox", bbox.westLng.toFixed(3) + "…" + bbox.eastLng.toFixed(3)],
+  ]);
+  renderScanConsole();
+  appendScanConsole("Starting viewport scan (raw OSM) — reads the entire PBF file; only objects in the map bbox are kept.", "info");
+  startScanElapsedTimer();
+  setStatus("loading", "Scanning viewport — see Scan activity console below for live progress.");
+  $("scanStatusLine").textContent = "Connecting to scan stream…";
   try {
-    const json = await api("/viewport-preview", {
+    let data = null;
+    const res = await fetch(apiBase + "/viewport-preview-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        pbfPath,
-        bbox,
+        pbfPath: pbfPath,
+        bbox: bbox,
         mode: "raw_osm",
         qualityFilterSettings: readQualityFilterSettings(),
       }),
     });
-    const data = json.data || json;
-    if (!data.items || !data.items.length) {
-      previewDocs = [];
-      scanCacheId = data.cacheId || null;
-      rawItemCount = data.rawItemCount || 0;
-      renderQualityFilterStats(null);
-      $("viewportCount").textContent = "0 items in viewport";
-      updateCopyJsonButton();
-      setStatus("warn", "Scan complete — no OSM objects with geometry in this viewport bbox.");
-    } else {
-      scanCacheId = data.cacheId || null;
-      rawItemCount = data.rawItemCount || data.stats?.itemsReturned || data.items.length;
-      previewDocs = data.items;
-      qualityFilterSummary = data.summary || null;
-      groupingSummary = data.groupingSummary || null;
-      locavaProductSummary = data.locavaProductSummary || null;
-      renderQualityFilterStats(qualityFilterSummary);
-      renderScanStats(data.stats);
-      refreshResultsUi();
-      fitMapToVisibleRouteGeometry();
-      updateCopyJsonButton();
-      const summary = qualityFilterSummary;
-      const visible = summary ? summary.visibleItems : previewDocs.length;
-      const hidden = summary ? summary.hiddenItems : 0;
-      setStatus("ok", "Scan complete — " + rawItemCount + " raw OSM items (" + visible + " visible, " + hidden + " hidden). "
-        + (data.stats && data.stats.elapsedMs) + " ms. Read-only.");
+    if (!res.ok) {
+      const errText = await res.text();
+      var errJson = null;
+      try { errJson = JSON.parse(errText); } catch (_e) {}
+      throw new Error((errJson && errJson.error && errJson.error.message) || errText || res.statusText);
     }
-    lastScanBbox = bbox;
-    lastScanStats = data.stats || null;
-    $("qualityFiltersPanel").style.display = "block";
-    $("resultsPanel").style.display = "block";
-    showWritePanel();
-    resetWriteState();
+    await consumeAssetPreviewSseStream(res, function (msg) {
+      if (msg.type === "start") {
+        appendScanConsole(msg.message || "Opening PBF…", "info");
+        $("scanStatusLine").textContent = msg.message || "Opening PBF…";
+      } else if (msg.type === "progress") {
+        renderScanProgress(msg, msg.message || "Reading PBF…");
+        appendScanConsole(
+          "PBF read: " + (msg.rawObjectsScanned || 0).toLocaleString() + " objects"
+            + " (nodes " + (msg.nodesScanned || 0).toLocaleString()
+            + ", ways " + (msg.waysScanned || 0).toLocaleString()
+            + ", relations " + (msg.relationsScanned || 0).toLocaleString() + ")"
+            + (msg.itemsInViewport != null ? " · " + msg.itemsInViewport.toLocaleString() + " in viewport so far" : ""),
+          "info"
+        );
+      } else if (msg.type === "postprocess") {
+        appendScanConsole(
+          (msg.message || "Post-processing…")
+            + (msg.rawItemCount != null ? " · " + msg.rawItemCount.toLocaleString() + " raw items before filters" : ""),
+          "info"
+        );
+        $("scanStatusLine").textContent = msg.message || "Applying quality filters…";
+        renderScanStatsLiveGrid([
+          ["Phase", "post-process"],
+          ["Raw items", msg.rawItemCount != null ? msg.rawItemCount.toLocaleString() : "—"],
+          ["Elapsed", Math.round((Date.now() - scanStartedAtMs) / 1000) + "s"],
+        ]);
+      } else if (msg.type === "done") {
+        data = msg.data || null;
+      } else if (msg.type === "error") {
+        throw new Error(msg.message || "Viewport scan stream failed");
+      }
+    });
+    if (!data) throw new Error("Scan stream ended without results — try again or use a smaller viewport.");
+    renderScanStatusBadge("complete");
+    applyViewportScanResult(data, bbox);
   } catch (err) {
-    setStatus("error", err.message || String(err));
+    renderScanStatusBadge("error");
+    const msg = err && err.message ? err.message : String(err);
+    appendScanConsole("Scan failed: " + msg, "err");
+    $("scanStatusLine").textContent = "Scan failed: " + msg;
+    setStatus("error", msg);
   } finally {
+    stopScanElapsedTimer();
     scanInFlight = false;
     $("btnShowAllPosts").disabled = false;
   }
@@ -2090,28 +2684,21 @@ function syncPurgePanelFromHealth(data) {
   if (data && data.purgeUndiscoveredEnvVar && $("purgeEnvVarName")) {
     $("purgeEnvVarName").textContent = data.purgeUndiscoveredEnvVar;
   }
-  if (data && data.purgeUndiscoveredConfirmation) {
-    purgeUndiscoveredConfirmation = data.purgeUndiscoveredConfirmation;
-    if ($("purgeConfirmPhraseHint")) $("purgeConfirmPhraseHint").textContent = purgeUndiscoveredConfirmation;
-  }
   ["btnPurgeUndiscoveredDryRun", "btnPurgeUndiscovered"].forEach(function (id) {
     const el = $(id);
     if (el) el.disabled = !enabled;
   });
   if ($("purgeUndiscoveredMeta")) {
     $("purgeUndiscoveredMeta").textContent = enabled
-      ? "Purge enabled — deletes spots, routes, and nested unexploredTiles (map cache). Cooper + confirmation phrase required."
+      ? "Purge enabled — deletes spots, routes, and nested unexploredTiles (map cache). Production password required."
       : "Purge disabled — set OSM_PBF_COPIER_ALLOW_PURGE_UNDISCOVERED=true in .env (or shell) and restart backend.";
   }
 }
 
 function readPurgeCredentials() {
-  const panelPhrase = ($("purgePanelPhrase") && $("purgePanelPhrase").value || "").trim();
   const panelPassword = ($("purgePanelPassword") && $("purgePanelPassword").value || "").trim();
-  const modalPhrase = ($("purgeConfirmPhrase") && $("purgeConfirmPhrase").value || "").trim();
   const modalPassword = ($("purgePassword") && $("purgePassword").value || "").trim();
   return {
-    phrase: panelPhrase || modalPhrase,
     password: panelPassword || modalPassword,
   };
 }
@@ -2127,12 +2714,8 @@ function setPurgeControlsBusy(busy) {
 async function runPurgeUndiscovered(dryRun) {
   if (purgeRequestInFlight) return;
   const creds = readPurgeCredentials();
-  if (creds.phrase !== purgeUndiscoveredConfirmation) {
-    setStatus("warn", "Paste the confirmation phrase exactly: " + purgeUndiscoveredConfirmation);
-    return;
-  }
   if (!creds.password) {
-    setStatus("warn", "Enter production password Cooper.");
+    setStatus("warn", "Enter the production write password.");
     return;
   }
   setPurgeControlsBusy(true);
@@ -2154,7 +2737,6 @@ async function runPurgeUndiscovered(dryRun) {
       body: JSON.stringify({
         writeTarget: "production",
         confirmProductionWrite: creds.password,
-        confirmPurge: creds.phrase,
         dryRun: dryRun,
       }),
     });
@@ -2175,7 +2757,6 @@ async function runPurgeUndiscovered(dryRun) {
 
 function openPurgeUndiscoveredModal() {
   const creds = readPurgeCredentials();
-  if ($("purgeConfirmPhrase")) $("purgeConfirmPhrase").value = creds.phrase;
   if ($("purgePassword")) $("purgePassword").value = creds.password;
   const modal = $("purgeUndiscoveredModal");
   if (!modal) return;
@@ -2238,13 +2819,25 @@ function setUiRunMode(mode) {
     : "Scan the current map viewport only — same algorithm as before.";
 }
 
+function normalizeRouteLineCoordinates(raw) {
+  if (!Array.isArray(raw)) return [];
+  const out = [];
+  for (let i = 0; i < raw.length; i += 1) {
+    const pt = normalizeMapPoint(raw[i]);
+    if (pt) out.push(pt);
+  }
+  return out;
+}
+
 function dbMarkerToPreviewDoc(item, kind) {
   const isRoute = kind === "route";
+  const routeLineCoordinates = isRoute ? normalizeRouteLineCoordinates(item.routeLineCoordinates) : undefined;
+  const anchor = normalizeMapPoint({ lat: item.lat, lng: item.lng }) || (routeLineCoordinates && routeLineCoordinates[0]) || null;
   return {
     id: item.id,
     kind: isRoute ? "unexplored_route" : "unexplored_spot",
-    lat: item.lat,
-    lng: item.lng,
+    lat: anchor ? anchor.lat : item.lat,
+    lng: anchor ? anchor.lng : item.lng,
     displayName: item.displayName || item.id,
     primaryActivity: item.primaryActivity || (isRoute ? "hiking" : "place"),
     primaryCategory: item.primaryActivity || (isRoute ? "hiking" : "place"),
@@ -2252,8 +2845,8 @@ function dbMarkerToPreviewDoc(item, kind) {
     filteredOut: false,
     sourceTagSample: {},
     warnings: ["loaded_from_firestore"],
-    routeLineCoordinates: isRoute ? (item.routeLineCoordinates || []) : undefined,
-    geometryPointCount: isRoute ? (item.routeLineCoordinates || []).length : 0,
+    routeLineCoordinates: routeLineCoordinates,
+    geometryPointCount: isRoute ? (routeLineCoordinates || []).length : 0,
     publicMapEligible: item.publicMapEligible === true,
     mapReadiness: item.mapReadiness || "ready",
   };
@@ -2436,12 +3029,12 @@ async function fullRunWrite(opts) {
     options.writeTarget = target;
     options.dryRun = false;
     if (target === "production" && !options.confirmProductionWrite) {
-      const pw = window.prompt("Production write password (Cooper):");
+      const pw = window.prompt("Production write password:");
       if (!pw) { setStatus("warn", "Production write cancelled — password required"); return; }
       options.confirmProductionWrite = pw;
     }
   }
-  const body = Object.assign({ runId: fullRunId, confirmUndiscoveredShape: UNDISCOVERED_SHAPE_PHRASE }, options);
+  const body = Object.assign({ runId: fullRunId }, options);
   appendWriteConsole("POST /full-run/write-current " + JSON.stringify({ dryRun: body.dryRun, writeTarget: body.writeTarget }), "info");
   setStatus("loading", body.dryRun ? "Dry run write…" : "Writing to Firestore (spots + routes + tiles)…");
   openWriteStatusPanel();
@@ -2901,11 +3494,25 @@ function bindControls() {
     showHiddenFiltered = $("qfShowHidden").checked;
     refreshResultsUi();
   });
-  $("writeOverwrite").addEventListener("change", function () {
+  function onWriteSettingsChanged() {
     if ($("writeOverwrite").checked) $("writeSkipExisting").checked = false;
-  });
-  $("writeSkipExisting").addEventListener("change", function () {
     if ($("writeSkipExisting").checked) $("writeOverwrite").checked = false;
+    const newKey = buildWriteSettingsKey();
+    if (writeOpsInFlight) {
+      updateWriteButtons();
+      return;
+    }
+    if (writeProofSettingsKey && writeProofSettingsKey !== newKey) {
+      writeDryRunDone = false;
+      appendWriteActivityConsole("Write settings changed — run Dry Run again to refresh the plan.", "warn");
+    }
+    updateWriteButtons();
+  }
+  ["writeScope", "writeTarget", "writeSkipExisting", "writeOverwrite", "writeIncludeHidden", "writeIncludeSupportPrimary", "writeProductionPassword"].forEach(function (id) {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("change", onWriteSettingsChanged);
+    if (id === "writeProductionPassword") el.addEventListener("input", function () { updateWriteButtons(); });
   });
   $("btnValidateWrite").addEventListener("click", function () { void validateWritePayload(); });
   $("btnDryRunWrite").addEventListener("click", function () { void dryRunWrite(); });
@@ -2947,6 +3554,7 @@ try {
     });
   }
   startUndiscoveredCountsPolling();
+  updateWriteButtons();
 } catch (err) {
   setStatus("error", "Page init failed: " + (err && err.message ? err.message : String(err)));
 }

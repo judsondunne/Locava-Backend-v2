@@ -36,7 +36,8 @@ const GEOMETRY_DELETE_BATCH_SIZE = 25;
 export type UndiscoveredPurgeInput = {
   writeTarget: OsmNationalWriteTarget;
   confirmProductionWrite?: string;
-  confirmPurge: string;
+  /** @deprecated Password-only — no longer required in the UI. */
+  confirmPurge?: string;
   dryRun?: boolean;
 };
 
@@ -76,12 +77,6 @@ export function assertPbfUndiscoveredPurgeAllowed(input: UndiscoveredPurgeInput)
 
   if (input.writeTarget === "none") {
     throw new Error("PBF_PURGE_WRITE_TARGET_REQUIRED:writeTarget must be emulator or production");
-  }
-
-  if (input.confirmPurge?.trim() !== PBF_PURGE_UNDISCOVERED_CONFIRMATION) {
-    throw new Error(
-      `PBF_PURGE_CONFIRMATION_REQUIRED:confirmPurge must be exactly ${PBF_PURGE_UNDISCOVERED_CONFIRMATION}`
-    );
   }
 
   assertOsmNationalWriteAllowed({

@@ -33,7 +33,7 @@ export interface PlaceImageResult {
   copyrightDisclaimer?: string;
 }
 
-export type PlaceImageAssetStatus = "found" | "no_good_match" | "low_confidence" | "skipped";
+export type PlaceImageAssetStatus = "found" | "no_good_match" | "low_confidence" | "skipped" | "error";
 
 export type PlaceImageRejectedPreview = {
   title: string;

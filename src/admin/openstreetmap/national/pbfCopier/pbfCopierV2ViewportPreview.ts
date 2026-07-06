@@ -847,6 +847,7 @@ async function scanPbfViewportPreviewRaw(input: {
     nodesScanned: number;
     waysScanned: number;
     relationsScanned: number;
+    itemsInViewport?: number;
   }) => void | Promise<void>;
 }): Promise<PbfCopierV2ViewportPreviewResult> {
   validateViewportBbox(input.bbox);
@@ -893,27 +894,34 @@ async function scanPbfViewportPreviewRaw(input: {
   });
 
   let lastProgressMs = 0;
-  const emitScanProgress = async (): Promise<void> => {
+  const progressMinMs = input.onScanProgress ? 1500 : 8000;
+  const progressObjectStep = input.onScanProgress ? 5000 : 15000;
+  const emitScanProgress = async (force = false): Promise<void> => {
     if (!input.onScanProgress) return;
     const now = Date.now();
-    if (now - lastProgressMs < 8000) return;
+    if (!force && now - lastProgressMs < progressMinMs && stats.rawObjectsScanned % progressObjectStep !== 0) {
+      return;
+    }
     lastProgressMs = now;
     await input.onScanProgress({
       rawObjectsScanned: stats.rawObjectsScanned,
       nodesScanned: stats.nodesScanned,
       waysScanned: stats.waysScanned,
       relationsScanned: stats.relationsScanned,
+      itemsInViewport: items.length,
     });
   };
 
   const maxRawObjectsScanned = input.maxRawObjectsScanned;
   let scanStoppedEarly = false;
 
+  await emitScanProgress(true);
+
   try {
     for await (const chunk of reader.read()) {
       for (const entity of chunk.entities) {
         stats.rawObjectsScanned += 1;
-        if (stats.rawObjectsScanned % 15000 === 0) {
+        if (stats.rawObjectsScanned % progressObjectStep === 0) {
           await emitScanProgress();
         }
         if (entity.type === "node") stats.nodesScanned += 1;
@@ -966,6 +974,8 @@ async function scanPbfViewportPreviewRaw(input: {
     await reader.close();
   }
 
+  await emitScanProgress(true);
+
   const processed = postProcessRawOsmPreviewDocs(items);
   const finalItems = processed.items.map((doc) =>
     doc.kind === "unexplored_route" ? enrichRoutePreviewDoc(doc) : doc
@@ -997,6 +1007,7 @@ export async function scanPbfViewportPreview(input: {
     nodesScanned: number;
     waysScanned: number;
     relationsScanned: number;
+    itemsInViewport?: number;
   }) => void | Promise<void>;
 }): Promise<PbfCopierV2ViewportPreviewResult> {
   if (input.mode !== "locava_filtered") {

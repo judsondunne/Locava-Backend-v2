@@ -138,13 +138,35 @@ export function inferActivitiesFromOsmTags(tags: Record<string, string>): Locava
     if (waterType === "pond") {
       addAct(acts, "pond");
       addAct(acts, "fishing");
-    } else if (waterType === "lake") {
+    } else if (waterType === "lake" || waterType === "reservoir") {
       addAct(acts, "lake");
       addAct(acts, "fishing");
       addAct(acts, "kayaking");
+    } else if (waterType === "river") {
+      addAct(acts, "river");
+      addAct(acts, "water");
     } else {
       addAct(acts, "water");
     }
+    addAct(acts, "wateraccess");
+  }
+  if (waterway === "river" || waterway === "stream" || waterway === "canal") {
+    addAct(acts, "river");
+    addAct(acts, "water");
+  }
+  if (tag(tags, "place") === "island" || tag(tags, "place") === "islet" || natural === "peninsula") {
+    addAct(acts, "island");
+    addAct(acts, "nature");
+    addAct(acts, "wateraccess");
+  }
+  if (amenity === "slipway" || amenity === "boat_ramp" || tag(tags, "leisure") === "slipway") {
+    addAct(acts, "wateraccess");
+    addAct(acts, "boating");
+    addAct(acts, "kayaking");
+  }
+  if (tag(tags, "canoe") === "yes" || tag(tags, "boat") === "yes" || tag(tags, "access") === "boat") {
+    addAct(acts, "wateraccess");
+    addAct(acts, "boating");
   }
   if (leisure === "park") {
     addAct(acts, "park");
@@ -248,6 +270,26 @@ export function inferActivitiesFromOsmTags(tags: Record<string, string>): Locava
   if (historic === "castle") addAct(acts, "castle");
   if (historic === "ruins" || tag(tags, "ruins") === "yes") addAct(acts, "ruins");
   if (historic === "monument" || tourism === "monument") addAct(acts, "monuments");
+
+  const shop = tag(tags, "shop");
+  if (shop) {
+    if (shop === "bakery") addAct(acts, "bakery");
+    else if (shop === "coffee") addAct(acts, "coffee");
+    else if (shop === "mall" || shop === "department_store" || shop === "antiques") addAct(acts, "shopping");
+    else if (shop === "farm" || shop === "country_store") addAct(acts, "market");
+    else addAct(acts, "shopping");
+  }
+
+  const landuse = tag(tags, "landuse");
+  if (landuse === "retail" && tag(tags, "name")) {
+    addAct(acts, "shopping");
+    if (/\b(village|market|mall|outlet)\b/i.test(tag(tags, "name") ?? "")) addAct(acts, "market");
+  }
+  if (tourism === "gallery" || shop === "art" || shop === "antiques") {
+    addAct(acts, "gallery");
+    addAct(acts, "art");
+  }
+  if (tourism === "attraction" && tag(tags, "name")) addAct(acts, "things");
 
   return dedupeActivities([...acts]);
 }
