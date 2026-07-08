@@ -21,6 +21,7 @@ import {
 } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2FullRunService.js";
 import { listPbfV2FullRuns } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2FullRunStore.js";
 import { scanPbfViewportPreview } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2ViewportPreview.js";
+import { searchPlaceImages } from "../../lib/places/searchPlaceImages.service.js";
 import { runPbfCopierV2Pipeline } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2Pipeline.js";
 
 const VERMONT_PBF_PATH = "data/osm/vermont-latest.osm.pbf";
@@ -227,6 +228,33 @@ export async function registerUndiscoveredDashboardRoutes(
       const message = error instanceof Error ? error.message : String(error);
       const code = message.includes(":") ? message.split(":")[0]! : "scan_area_failed";
       return reply.status(400).send(failure(code, message));
+    }
+  });
+
+  // Candid photo search for any typed location. Reuses the existing heuristic
+  // image pipeline (Serper = Google Images → Bing fallback; ranking drops
+  // logos/maps/stock-looking results). Live results need SERPER_API_KEY or
+  // BING_SEARCH_API_KEY; without keys a small mock set answers known demo names.
+  app.post(`${base}/photo-search`, async (request, reply) => {
+    setRouteName("admin.undiscovered.dashboard_v1.photo_search");
+    const body = z
+      .object({ query: z.string().min(2).max(200), limit: z.number().int().min(1).max(24).optional() })
+      .parse(request.body ?? {});
+    try {
+      const { results, source } = await searchPlaceImages(body.query, env, {
+        resultLimit: body.limit ?? 12,
+        skipLoadVerification: true,
+      });
+      const hasKeys = Boolean(
+        String(env.SERPER_API_KEY ?? "").trim() || String(env.BING_SEARCH_API_KEY ?? "").trim(),
+      );
+      const note = !hasKeys
+        ? "No image-search API key set — showing mock results for known demo names only. Add SERPER_API_KEY (Google Images via serper.dev) or BING_SEARCH_API_KEY to .env for live search."
+        : undefined;
+      return success({ query: body.query, source, count: results.length, results, note });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send(failure("photo_search_failed", message));
     }
   });
 

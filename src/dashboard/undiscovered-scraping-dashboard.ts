@@ -112,6 +112,16 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
     </div>
 
     <div class="panel">
+      <h2>Photo search — any location</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+        <input id="photoQuery" type="text" placeholder="type a location, e.g. Warren Falls Vermont" style="width:320px"/>
+        <button id="photoBtn">Search photos</button>
+        <span class="muted" id="photoNote"></span>
+      </div>
+      <div id="photoGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px"></div>
+    </div>
+
+    <div class="panel">
       <h2>Review &amp; add locations</h2>
       <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <button class="secondary" id="importPbf">Import PBF results</button>
@@ -337,6 +347,30 @@ $('scanArea').onclick = async () => {
   }catch(e){ $('mapNote').textContent='scan failed: '+e.message+' (zoom in — very large areas are capped)'; }
   finally{ $('scanArea').disabled=false; }
 };
+
+// ---- Photo search: candid photos for any typed location ----
+async function searchPhotos(){
+  const q = $('photoQuery').value.trim();
+  if(q.length < 2){ $('photoNote').textContent='type a location name first'; return; }
+  try{
+    $('photoBtn').disabled=true; $('photoNote').textContent='searching…'; $('photoGrid').innerHTML='';
+    const d = await api('/photo-search',{method:'POST',body:JSON.stringify({query:q,limit:12})});
+    $('photoNote').textContent = d.count+' photo(s) via '+d.source+(d.note?' — '+d.note:'');
+    $('photoGrid').innerHTML = d.results.map(r=>{
+      const dom = r.sourceDomain || (r.sourceUrl||'').replace(/^https?:\\/\\//,'').split('/')[0] || 'source';
+      return '<div style="background:#020617;border:1px solid #1f2937;border-radius:10px;overflow:hidden">'
+        +'<a href="'+(r.sourceUrl||r.imageUrl)+'" target="_blank" rel="noopener">'
+        +'<img src="'+r.imageUrl+'" alt="" loading="lazy" style="width:100%;height:120px;object-fit:cover;display:block" onerror="this.closest(\\'div\\').style.display=\\'none\\'"/></a>'
+        +'<div style="padding:7px 9px">'
+        +'<div style="font-size:11px;color:#e2e8f0;line-height:1.35;max-height:30px;overflow:hidden">'+(r.caption||q)+'</div>'
+        +'<a href="'+(r.sourceUrl||'#')+'" target="_blank" rel="noopener" style="font-size:10px;color:#93c5fd">'+dom+' ↗</a>'
+        +'</div></div>';
+    }).join('') || '<span class="muted">No candid photos found for “'+q+'”.</span>';
+  }catch(e){ $('photoNote').textContent='search failed: '+e.message; }
+  finally{ $('photoBtn').disabled=false; }
+}
+$('photoBtn').onclick = searchPhotos;
+$('photoQuery').addEventListener('keydown',(e)=>{ if(e.key==='Enter') searchPhotos(); });
 
 loadChannels().then(()=>{ syncChannelUI(); loadReviewFilters(); loadReview(); loadMap(); tick(); setInterval(tick, 2000); });
 </script>
