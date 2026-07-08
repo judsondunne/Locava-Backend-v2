@@ -11,7 +11,6 @@ import { renderOpenStreetMapPbfCopierPage } from "../dashboard/openstreetmap-pbf
 import { renderOpenStreetMapPbfCopierV2Page } from "../dashboard/openstreetmap-pbf-copier-v2.js";
 import { renderPbfPhotoAssetPreviewPage } from "../dashboard/pbf-photo-asset-preview.js";
 import { renderOpenStreetMapVermontOffroadImportPage } from "../dashboard/openstreetmap-vermont-offroad-import.js";
-import { renderUndiscoveredDashboardV1Page } from "../dashboard/undiscovered-dashboard-v1.js";
 import { renderUndiscoveredScrapingDashboardPage } from "../dashboard/undiscovered-scraping-dashboard.js";
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
@@ -20,14 +19,19 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
     return reply.send(renderAdminPage());
   });
 
-  app.get("/admin/undiscovered/dashboard-v1", async (_request, reply) => {
+  // Consolidated single dashboard. The old dashboard-v1 URL redirects here.
+  app.get("/admin/undiscovered", async (_request, reply) => {
     reply.type("text/html; charset=utf-8");
-    return reply.send(renderUndiscoveredDashboardV1Page());
+    return reply.send(renderUndiscoveredScrapingDashboardPage());
   });
 
   app.get("/admin/undiscovered/scraping", async (_request, reply) => {
     reply.type("text/html; charset=utf-8");
     return reply.send(renderUndiscoveredScrapingDashboardPage());
+  });
+
+  app.get("/admin/undiscovered/dashboard-v1", async (_request, reply) => {
+    return reply.redirect("/admin/undiscovered/scraping", 302);
   });
 
   app.get("/admin/wiki-curation", async (_request, reply) => {

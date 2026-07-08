@@ -49,7 +49,7 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
 </head>
 <body>
   <div class="shell">
-    <h1>📡 Live Scraping — Undiscovered Spots</h1>
+    <h1>🧭 Undiscovered Spots — Dashboard</h1>
     <p class="sub">Multi-channel discovery at scale. Primary engine: <b>PBF Copier V2</b> (OpenStreetMap) on the real Vermont extract. Dry-run — zero production writes. Auto-refreshes every 2s.</p>
 
     <div class="hero">
@@ -93,6 +93,7 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
       <h2>Review &amp; add locations</h2>
       <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <button class="secondary" id="importPbf">Import PBF results</button>
+        <button class="secondary" id="seedSample">Seed VT sample</button>
         <select id="rChannel"><option value="">all channels</option></select>
         <select id="rCategory"><option value="">all categories</option></select>
         <select id="rStatus"><option value="">all statuses</option><option>candidate</option><option>reviewed</option><option>approved</option><option>rejected</option><option>written</option></select>
@@ -105,6 +106,7 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
             <th style="padding:7px 8px;text-align:left;font-weight:600">Category</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Channel</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Source</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Quality</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Status</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Add to app</th>
           </tr></thead>
@@ -226,11 +228,15 @@ function reviewRow(c){
   const src = c.provenance && c.provenance.sourceUrl;
   const view = src ? '<a href="'+src+'" target="_blank" rel="noopener" style="color:#93c5fd">view ↗</a>' : '<span class="muted">—</span>';
   const acts = (NEXT[c.reviewStatus]||[]).map(([to,cls,lbl])=>'<button class="'+cls+'" data-id="'+encodeURIComponent(c.id)+'" data-to="'+to+'" style="padding:3px 8px;font-size:11px">'+lbl+'</button>').join('');
+  const q = c.qualityGate && c.qualityGate.passed
+    ? '<span class="pill" style="border-color:#166534;color:#86efac">pass</span>'
+    : '<span style="color:#fbbf24;font-size:11px">'+((c.qualityGate&&c.qualityGate.reasons||[]).join(', ')||'flagged')+'</span>';
   return '<tr style="border-top:1px solid #1f2937">'
     +'<td style="padding:6px 8px">'+c.displayName+'</td>'
     +'<td style="padding:6px 8px">'+c.primaryCategory+'</td>'
     +'<td style="padding:6px 8px"><span class="dot" style="background:'+col+'"></span>'+c.sourceChannel+'</td>'
     +'<td style="padding:6px 8px">'+view+'</td>'
+    +'<td style="padding:6px 8px">'+q+'</td>'
     +'<td style="padding:6px 8px"><span class="pill" style="border-color:'+bc+';color:'+tc+'">'+c.reviewStatus+'</span></td>'
     +'<td style="padding:6px 8px">'+acts+'</td>'
     +'</tr>';
@@ -242,7 +248,7 @@ async function loadReview(){
     if($('rCategory').value) p.set('category',$('rCategory').value);
     if($('rStatus').value) p.set('status',$('rStatus').value);
     const d = await api('/candidates?'+p.toString());
-    $('reviewRows').innerHTML = d.items.slice(0,400).map(reviewRow).join('') || '<tr><td colspan="6" class="muted" style="padding:10px">No locations. Scrape a channel or Import PBF results.</td></tr>';
+    $('reviewRows').innerHTML = d.items.slice(0,400).map(reviewRow).join('') || '<tr><td colspan="7" class="muted" style="padding:10px">No locations. Scrape a channel, Import PBF results, or Seed VT sample.</td></tr>';
     $('rCount').textContent = fmt(d.total)+' locations'+(d.total>400?' (showing 400)':'');
   }catch(e){ $('rCount').textContent='load failed: '+e.message; }
 }
@@ -252,6 +258,11 @@ $('importPbf').onclick = async () => {
   try{ $('importPbf').disabled=true; $('rCount').textContent='importing PBF results…'; const r=await api('/pbf/import-results',{method:'POST',body:'{}'}); $('rCount').textContent='imported '+r.imported+' PBF locations'; await loadReview(); await tick(); }
   catch(e){ $('rCount').textContent='import failed: '+e.message; }
   finally{ $('importPbf').disabled=false; }
+};
+$('seedSample').onclick = async () => {
+  try{ $('seedSample').disabled=true; $('rCount').textContent='seeding VT sample…'; const r=await api('/seed-sample',{method:'POST',body:'{}'}); $('rCount').textContent='seeded '+r.total+' sample locations'; await loadReview(); await tick(); }
+  catch(e){ $('rCount').textContent='seed failed: '+e.message; }
+  finally{ $('seedSample').disabled=false; }
 };
 
 loadChannels().then(()=>{ syncChannelUI(); loadReviewFilters(); loadReview(); tick(); setInterval(tick, 2000); });
