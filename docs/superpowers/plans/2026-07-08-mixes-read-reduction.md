@@ -27,30 +27,26 @@ Override any value in `Locava-Backend-v2/.env` before `./scripts/mainDeploy.sh`.
 
 Rollback legacy timer: `ENABLE_MIXES_BACKGROUND_WARMER=true`
 
-## Index deploy (staging → prod, Fable A6)
+## Index check (staging → prod, Fable A6)
 
-Composite index for `pageRecent` cursors: `posts` — `time DESC`, `__name__ DESC` (in `firestore.indexes.json`).
+`pageRecent` needs only a **single-field** index on `posts.time` (descending). Firestore rejects a `time` + `__name__` composite as unnecessary.
 
-```bash
-chmod +x scripts/deployFirestoreIndexes.sh
-./scripts/deployFirestoreIndexes.sh demo-locava-backendv2
-# wait for Enabled in Firebase console → Firestore → Indexes
-CONFIRM_PRODUCTION_INDEX_DEPLOY=1 ./scripts/deployFirestoreIndexes.sh learn-32d72
-```
+**Firebase web (no CLI):**
 
-Or: `npm run deploy:firestore:indexes -- demo-locava-backendv2`
+1. Firebase Console → project → **Firestore** → **Indexes** → **Single field** tab
+2. Find collection **`posts`**, field **`time`**
+3. Confirm it is **indexed** for Collection scope (Descending enabled, not listed under exemptions)
 
-Deploy indexes **before** or in parallel with the code deploy, but do not rely on cursor pagination until the index is **Enabled** (not Building).
+If a query still fails at runtime, Firestore logs include a **Create index** link — use that exact link (do not hand-build a composite unless the link asks for one).
 
 ## Recommended deploy order
 
 1. Merge PR / checkout branch
-2. Deploy indexes to staging project → verify Enabled
+2. Verify single-field index on `posts.time` in Firebase web (Indexes → Single field)
 3. `./scripts/mainDeploy.sh` (env defaults ship automatically)
 4. Smoke: search bootstrap, mix pagination page 2+, near-me exhaust
-5. Deploy indexes to production (`learn-32d72`) with confirmation flag
-6. `./scripts/mainDeploy.sh` to production Cloud Run
-7. Monitor Query Insights 48h
+5. `./scripts/mainDeploy.sh` to production Cloud Run
+6. Monitor Query Insights 48h
 
 
 ## Task 1 — lazy TTL snapshot (no background timer)
@@ -64,7 +60,7 @@ Deploy indexes **before** or in parallel with the code deploy, but do not rely o
 
 - `orderBy("time","desc").orderBy(documentId(),"desc")` + `startAfter`
 - Overfetch: `limit×3`, cap 120, max 3 chained queries
-- Composite index required: `posts` — `time DESC`, `__name__ DESC` (verify in staging first; see `scripts/deployFirestoreIndexes.sh`)
+- Single-field index on `posts.time` (desc) — verify in Firebase web; composite `time` + `__name__` is not required
 
 ## Task 3 — bootstrap + activity paths (revised)
 

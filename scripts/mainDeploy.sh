@@ -33,6 +33,9 @@ cd "$PROJECT_ROOT"
 GCLOUD_BIN="${GCLOUD_BIN:-$(command -v gcloud || true)}"
 if [ -z "$GCLOUD_BIN" ]; then
   echo "❌ gcloud CLI not found"
+  echo "   Install: brew install --cask google-cloud-sdk"
+  echo "   Then:    gcloud auth login && gcloud config set project <your-project-id>"
+  echo "   Docs:    https://cloud.google.com/sdk/docs/install"
   exit 1
 fi
 
@@ -379,6 +382,8 @@ echo "🗺️ Region: $REGION"
 echo "☁️ Project: $PROJECT_ID"
 echo "📂 Source (monorepo root): $MONOREPO_ROOT  — includes ../locava-contracts for @locava/contracts"
 echo "🧾 Carrying over old backend env families: Wasabi, Redis, analytics, admin tokens, worker flags, Firebase creds, client telemetry (defaults on)"
+echo "📉 Mixes read-reduction env (baked defaults unless overridden in .env):"
+grep -E '^(MIXES_POOL_|WARMER_FULL_BACKOFF_MS|ENABLE_MIXES_BACKGROUND_WARMER):' "$ENV_FILE" 2>/dev/null | sed 's/^/   /' || true
 echo "⚙️  Cloud Run: memory=$MEMORY cpu=$CPU min=$MIN_INSTANCES max=$MAX_INSTANCES concurrency=$CONCURRENCY timeout=$TIMEOUT"
 echo "🩺 Startup probe: $STARTUP_PROBE"
 

@@ -46,8 +46,27 @@ if ! command -v "$FIREBASE_BIN" >/dev/null 2>&1; then
   FIREBASE_BIN="npx --yes firebase-tools"
 fi
 
+export FIREBASE_SKIP_UPDATE_CHECK="${FIREBASE_SKIP_UPDATE_CHECK:-true}"
+export CI="${CI:-true}"
+
+if ! $FIREBASE_BIN projects:list --project "$PROJECT_ID" >/dev/null 2>&1; then
+  echo "❌ Firebase CLI is not authenticated for project $PROJECT_ID."
+  echo ""
+  echo "Try in order:"
+  echo "  1) Fix config dir permissions (if update check failed):"
+  echo "       sudo chown -R \"\$USER\":\$(id -gn \"\$USER\") ~/.config"
+  echo "  2) Login (no global install required):"
+  echo "       FIREBASE_SKIP_UPDATE_CHECK=true npx firebase-tools login --no-localhost"
+  echo "  3) Or use a service account already on this machine:"
+  echo "       export GOOGLE_APPLICATION_CREDENTIALS=/path/to/firebase-adminsdk.json"
+  echo "       $0 $PROJECT_ID"
+  echo ""
+  echo "Manual fallback (Firebase console → Firestore → Indexes → Single field):"
+  echo "  Confirm posts / time is indexed (Descending), not exempted"
+  exit 1
+fi
+
 echo "📂 Index source: $PROJECT_ROOT/firestore.indexes.json"
-echo "   Includes posts composite: time DESC + __name__ DESC (pageRecent cursor pagination)"
 $FIREBASE_BIN deploy --only firestore:indexes --project "$PROJECT_ID" --non-interactive
 
 echo ""

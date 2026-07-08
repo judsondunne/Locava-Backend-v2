@@ -9,8 +9,8 @@
 ## Posts recent pagination (`pageRecent`)
 
 - **Query:** `posts` `.orderBy("time", "desc").orderBy(documentId(), "desc")` with `startAfter` cursor.
-- **Index:** Composite `posts` — `time` DESC, `__name__` DESC (see `firestore.indexes.json`).
-- **Deploy:** `./scripts/deployFirestoreIndexes.sh demo-locava-backendv2` then production with `CONFIRM_PRODUCTION_INDEX_DEPLOY=1`.
+- **Index:** Single-field index on `time` (descending) for collection `posts` — **not** a composite index. Firestore uses automatic document-ID ordering as the tie-breaker; the console will reject a `time` + `__name__` composite as unnecessary.
+- **Verify (Firebase web):** Firestore → Indexes → **Single field** → confirm `posts` / `time` is indexed (not exempted).
 
 ## Posts by author (suggested user first post)
 
