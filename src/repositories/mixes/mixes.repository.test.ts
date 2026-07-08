@@ -147,4 +147,17 @@ describe("mixes repository production pool manager", () => {
     delete process.env.MIXES_WARMER_FORCE;
     delete process.env.MIXES_POOL_SNAPSHOT_PATH;
   });
+
+  it("does not start scheduled refresh unless legacy warmer env is enabled", () => {
+    const fake = buildFakeDb({ rows: buildRows(2) });
+    const repo = buildRepo(fake.db);
+    delete process.env.ENABLE_MIXES_BACKGROUND_WARMER;
+    repo.startBackgroundRefresh();
+    expect((repo as any).refreshTimer).toBeNull();
+    process.env.ENABLE_MIXES_BACKGROUND_WARMER = "true";
+    repo.startBackgroundRefresh();
+    expect((repo as any).refreshTimer).not.toBeNull();
+    repo.stopBackgroundRefresh();
+    delete process.env.ENABLE_MIXES_BACKGROUND_WARMER;
+  });
 });
