@@ -134,6 +134,14 @@
       "collectionGroup": "posts",
       "queryScope": "COLLECTION",
       "fields": [
+        { "fieldPath": "time", "order": "DESCENDING" },
+        { "fieldPath": "__name__", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
         { "fieldPath": "reel", "order": "ASCENDING" },
         { "fieldPath": "randomKey", "order": "ASCENDING" },
         { "fieldPath": "__name__", "order": "ASCENDING" }
