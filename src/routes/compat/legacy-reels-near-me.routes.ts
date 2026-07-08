@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import type { Query, QueryDocumentSnapshot } from "firebase-admin/firestore";
-import { NEAR_ME_COLD_MAX_DOCS } from "../../constants/firestore-read-budgets.js";
+import { NEAR_ME_COLD_MAX_DOCS, NEAR_ME_EXHAUST_MAX_FIRESTORE_READS, NEAR_ME_EXHAUST_MAX_ITERATIONS } from "../../constants/firestore-read-budgets.js";
 import { incrementDbOps, setRouteName } from "../../observability/request-context.js";
 import { geoPrefixesAroundCenter } from "../../lib/geo-prefixes-around-center.js";
 import { getPostCoordinates } from "../../lib/posts/postFieldSelectors.js";
@@ -845,6 +845,7 @@ async function collectExhaustiveNearMePosts(input: {
   items: NearMePost[];
   exhaust: NormalizedExhaust;
   firestorePagesScanned: number;
+  firestoreReadsAccrued: number;
   firestoreFallbackUsed: boolean;
   candidateSources: string[];
   duplicatesSuppressed: number;
@@ -862,12 +863,13 @@ async function collectExhaustiveNearMePosts(input: {
   const out: NearMePost[] = [];
   let state = await normalizeExhaustState(input.incoming, input.lat, input.lng);
   let firestorePagesScanned = 0;
+  let firestoreReadsAccrued = 0;
   let firestoreFallbackUsed = false;
   const candidateSources: string[] = [];
   let duplicatesSuppressed = 0;
   let candidatesWithinRadius = 0;
   let invalidCursorRecovered = false;
-  let safety = 24;
+  let safety = NEAR_ME_EXHAUST_MAX_ITERATIONS;
   const startedAt = Date.now();
   const budgetMs = nearMeExhaustiveBudgetMs();
 
@@ -889,6 +891,9 @@ async function collectExhaustiveNearMePosts(input: {
 
   while (out.length < input.limit && safety-- > 0) {
     if (Date.now() - startedAt > budgetMs) {
+      break;
+    }
+    if (firestoreReadsAccrued >= NEAR_ME_EXHAUST_MAX_FIRESTORE_READS) {
       break;
     }
     if (!state.geoFinished && state.phase !== "recent") {
@@ -970,6 +975,7 @@ async function collectExhaustiveNearMePosts(input: {
       items: Array<Record<string, unknown> & { id: string }>;
       nextCursor: { lastTime: number; lastId: string } | null;
       hasMore: boolean;
+      reads?: number;
     };
     try {
       recentPage = await mixPostsRepo.pageRecent({
@@ -977,8 +983,9 @@ async function collectExhaustiveNearMePosts(input: {
         cursor: state.recent
       });
     } catch {
-      recentPage = { items: [], nextCursor: null, hasMore: false };
+      recentPage = { items: [], nextCursor: null, hasMore: false, reads: 0 };
     }
+    firestoreReadsAccrued += recentPage.reads ?? 0;
     if (recentPage.items.length === 0 && state.recent) {
       invalidCursorRecovered = true;
       state.recent = null;
@@ -988,8 +995,9 @@ async function collectExhaustiveNearMePosts(input: {
           cursor: null
         });
       } catch {
-        recentPage = { items: [], nextCursor: null, hasMore: false };
+        recentPage = { items: [], nextCursor: null, hasMore: false, reads: 0 };
       }
+      firestoreReadsAccrued += recentPage.reads ?? 0;
     }
     firestorePagesScanned += 1;
 
@@ -1019,6 +1027,7 @@ async function collectExhaustiveNearMePosts(input: {
     items: out,
     exhaust: state,
     firestorePagesScanned,
+    firestoreReadsAccrued,
     firestoreFallbackUsed,
     candidateSources,
     duplicatesSuppressed,
