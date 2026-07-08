@@ -158,18 +158,31 @@ $('startPbf').onclick = async () => {
   try{ $('startPbf').disabled=true; $('pbfStatus').textContent='starting…'; await api('/pbf/start-vermont',{method:'POST',body:'{}'}); setTimeout(()=>{$('startPbf').disabled=false;}, 4000); await tick(); }
   catch(e){ $('pbfStatus').textContent='error: '+e.message; $('startPbf').disabled=false; }
 };
-$('seedChannel').onchange = () => { const c=CHANNELS.find(x=>x.channel===$('seedChannel').value); $('chanHint').textContent=c?c.strategy:''; };
+const PLACEHOLDER = {
+  web_blog: 'blank = curated VT pages, or paste a page URL',
+  reddit: 'search terms (needs API creds)',
+  trail_db: 'needs pasted items / trail API key',
+  instagram: 'needs pasted captions / Graph API',
+};
+function syncChannelUI(){
+  const ch = $('seedChannel').value;
+  const c = CHANNELS.find(x=>x.channel===ch);
+  $('chanHint').textContent = c ? c.strategy : '';
+  $('seedQuery').placeholder = PLACEHOLDER[ch] || 'query / URL';
+}
+$('seedChannel').onchange = syncChannelUI;
 $('seedBtn').onclick = async () => {
   try{
     const channel=$('seedChannel').value, query=$('seedQuery').value.trim();
-    $('chanHint').textContent='scraping '+channel+'…';
+    $('seedBtn').disabled=true; $('chanHint').textContent='scraping '+channel+'…';
     const r = await api('/seed-from-channel',{method:'POST',body:JSON.stringify({channel,region:'VT',query:query||undefined})});
-    $('chanHint').textContent='+'+r.mapped+' from '+channel+(r.mapped===0&&!r.liveFetchSupported?' (needs creds / paste)':'');
+    $('chanHint').textContent = r.mapped>0 ? ('✓ +'+r.mapped+' from '+channel+' — total '+r.total) : (r.note || 'No results.');
     await tick();
   }catch(e){ $('chanHint').textContent='failed: '+e.message; }
+  finally{ $('seedBtn').disabled=false; }
 };
 
-loadChannels().then(()=>{ $('seedChannel').dispatchEvent(new Event('change')); tick(); setInterval(tick, 2000); });
+loadChannels().then(()=>{ syncChannelUI(); tick(); setInterval(tick, 2000); });
 </script>
 </body>
 </html>`;

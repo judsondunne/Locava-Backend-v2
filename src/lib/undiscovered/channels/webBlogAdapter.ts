@@ -29,21 +29,37 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
+/** Curated real Vermont pages used when no URL is supplied, so Scrape works one-click. */
+export const DEFAULT_VERMONT_WEB_SOURCES = [
+  "https://en.wikipedia.org/wiki/List_of_Vermont_state_parks",
+  "https://en.wikipedia.org/wiki/Camel%27s_Hump",
+  "https://en.wikipedia.org/wiki/Green_Mountains",
+];
+
 export const webBlogAdapter: DiscoveryChannelAdapter = {
   channel: "web_blog",
   label: "Web / local blog",
-  strategy: "Fetch outdoor blogs / listicles, strip to text, extract named spots.",
+  strategy: "Fetch outdoor blogs / listicles (or default Vermont pages), strip to text, extract named spots.",
   liveFetchSupported: true,
   async fetchCandidates(ctx: ChannelFetchContext) {
     let items = ctx.rawItems ?? [];
-    if (items.length === 0 && ctx.query && ctx.httpGetText) {
-      try {
-        const html = await ctx.httpGetText(ctx.query);
-        const text = htmlToText(html);
-        items = [{ sourceId: ctx.query, text, sourceUrl: ctx.query }] as RawDiscoveryItem[];
-      } catch {
-        items = [];
+    if (items.length === 0 && ctx.httpGetText) {
+      // Accept one URL, a comma-separated list, or fall back to curated Vermont pages.
+      const urls = (ctx.query ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => /^https?:\/\//i.test(s));
+      const targets = urls.length > 0 ? urls : DEFAULT_VERMONT_WEB_SOURCES;
+      const fetched: RawDiscoveryItem[] = [];
+      for (const url of targets) {
+        try {
+          const html = await ctx.httpGetText(url);
+          fetched.push({ sourceId: url, text: htmlToText(html), sourceUrl: url });
+        } catch {
+          // Skip an unreachable page; others still contribute.
+        }
       }
+      items = fetched;
     }
     return itemsToChannelCandidates(items, {
       channel: "web_blog",

@@ -199,6 +199,24 @@ export async function registerUndiscoveredDashboardRoutes(
     });
     const store = getDiscoveryCandidateStore();
     const result = store.upsertMany(candidates);
+
+    // Actionable feedback so a 0-result never looks like a silent failure.
+    let note: string | undefined;
+    if (candidates.length === 0) {
+      const redditAuthed = Boolean(env.REDDIT_CLIENT_ID && env.REDDIT_CLIENT_SECRET);
+      if (body.channel === "reddit" && !redditAuthed) {
+        note = "Reddit needs API credentials — set REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET in .env, then restart.";
+      } else if (body.channel === "instagram") {
+        note = "Instagram has no open search API — paste captions/geotags (rawItems), or configure the Graph API.";
+      } else if (body.channel === "trail_db") {
+        note = "Trail sources need structured items (name + coords) via rawItems, or a trail API key.";
+      } else if (body.channel === "web_blog") {
+        note = "No place names found. Enter a Vermont page URL (or comma-separated URLs); left blank, it scrapes curated Vermont pages.";
+      } else {
+        note = "No candidates produced for this input.";
+      }
+    }
+
     return success({
       ...result,
       total: store.size(),
@@ -206,6 +224,7 @@ export async function registerUndiscoveredDashboardRoutes(
       region: body.region,
       mapped: candidates.length,
       liveFetchSupported: adapter.liveFetchSupported,
+      note,
     });
   });
 
