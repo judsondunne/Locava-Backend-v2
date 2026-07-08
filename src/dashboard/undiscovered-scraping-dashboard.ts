@@ -100,6 +100,7 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <h2 style="margin:0">Map — Vermont spots</h2>
         <span>
+          <button id="scanArea">Scan this area</button>
           <label style="font-size:12px;color:#94a3b8">show up to</label>
           <select id="mapLimit"><option>200</option><option selected>500</option><option>1000</option><option>2000</option></select>
           <button class="secondary" id="mapRefresh">Refresh map</button>
@@ -324,6 +325,18 @@ async function loadMap(){
 }
 $('mapRefresh').onclick = loadMap;
 $('mapLimit').onchange = loadMap;
+$('scanArea').onclick = async () => {
+  initMap(); if(!MAP) return;
+  const b = MAP.getBounds();
+  const bbox = { westLng:b.getWest(), southLat:b.getSouth(), eastLng:b.getEast(), northLat:b.getNorth() };
+  try{
+    $('scanArea').disabled=true; $('mapNote').textContent='scanning this area from the Vermont PBF…';
+    const r = await api('/pbf/scan-area',{method:'POST',body:JSON.stringify({bbox})});
+    $('mapNote').textContent = 'scanned '+r.scanned.toLocaleString()+' objects → '+r.visible+' quality spots ('+r.inserted+' new) in view';
+    await loadMap(); await loadReview(); await tick();
+  }catch(e){ $('mapNote').textContent='scan failed: '+e.message+' (zoom in — very large areas are capped)'; }
+  finally{ $('scanArea').disabled=false; }
+};
 
 loadChannels().then(()=>{ syncChannelUI(); loadReviewFilters(); loadReview(); loadMap(); tick(); setInterval(tick, 2000); });
 </script>

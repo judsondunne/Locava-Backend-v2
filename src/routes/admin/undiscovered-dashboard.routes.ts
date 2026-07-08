@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import type { AppEnv } from "../../config/env.js";
 import {
   DISCOVERY_QUALITY_RULES,
@@ -19,8 +20,20 @@ import {
   startPbfV2FullRun,
 } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2FullRunService.js";
 import { listPbfV2FullRuns } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2FullRunStore.js";
+import { scanPbfViewportPreview } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2ViewportPreview.js";
+import { runPbfCopierV2Pipeline } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2Pipeline.js";
 
 const VERMONT_PBF_PATH = "data/osm/vermont-latest.osm.pbf";
+
+const ScanAreaBodySchema = z.object({
+  bbox: z.object({
+    westLng: z.number(),
+    southLat: z.number(),
+    eastLng: z.number(),
+    northLat: z.number(),
+  }),
+  maxRawObjectsScanned: z.number().int().positive().max(2_000_000).optional(),
+});
 
 /** Summarize the most recent PBF full-run for the live scraping metrics. */
 async function latestPbfRunSummary() {
@@ -180,6 +193,41 @@ export async function registerUndiscoveredDashboardRoutes(
     const store = getDiscoveryCandidateStore();
     const result = store.upsertMany(candidates);
     return success({ ...result, imported: candidates.length, total: store.size(), runId: latest!.runId });
+  });
+
+  // Browse-by-area: scan the Vermont PBF for the map's current viewport (same
+  // engine + quality pipeline as the PBF Copier V2 dashboard) and load the real,
+  // coordinated spots into the reviewable/mappable queue.
+  app.post(`${base}/pbf/scan-area`, async (request, reply) => {
+    setRouteName("admin.undiscovered.dashboard_v1.pbf_scan_area");
+    const body = ScanAreaBodySchema.parse(request.body ?? {});
+    try {
+      const scan = await scanPbfViewportPreview({
+        pbfPath: VERMONT_PBF_PATH,
+        bbox: body.bbox,
+        mode: "raw_osm",
+        maxRawObjectsScanned: body.maxRawObjectsScanned,
+      });
+      const filtered = runPbfCopierV2Pipeline({ rawItems: scan.items });
+      // Keep only quality-passing items with a real name (drop raw-tag junk).
+      const visible = filtered.items.filter(
+        (i) => !i.filteredOut && i.displayName && !i.displayName.includes("="),
+      );
+      const candidates = visible.map((d) => pbfPreviewToDiscoveryCandidate(d, { region: "VT" }));
+      const store = getDiscoveryCandidateStore();
+      const result = store.upsertMany(candidates);
+      return success({
+        ...result,
+        scanned: scan.items.length,
+        visible: visible.length,
+        imported: candidates.length,
+        total: store.size(),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code = message.includes(":") ? message.split(":")[0]! : "scan_area_failed";
+      return reply.status(400).send(failure(code, message));
+    }
   });
 
   app.get(`${base}/channels`, async () => {
