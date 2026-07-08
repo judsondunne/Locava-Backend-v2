@@ -306,6 +306,130 @@ function isCategoryOnlyMatch(hay: string, identity: TargetPlaceIdentity): boolea
   return categoryHits.length > 0 && stateHits.length > 0;
 }
 
+/** Metadata tokens that strongly suggest a monochrome / vintage (non-color) image. */
+const MONOCHROME_TOKENS = [
+  "black and white",
+  "black-and-white",
+  "black & white",
+  "b&w",
+  "monochrome",
+  "grayscale",
+  "greyscale",
+  "sepia",
+  "daguerreotype",
+  "tintype",
+  "engraving",
+  "lithograph",
+  "woodcut",
+  "vintage photo",
+  "vintage photograph",
+  "historic photo",
+  "historical photo",
+  "old photograph",
+  "vintage postcard",
+  "antique postcard",
+];
+
+/** Metadata tokens that suggest text rendered on the image (quotes, memes, printables). */
+const TEXT_OVERLAY_TOKENS = [
+  "infographic",
+  "meme",
+  "quote",
+  "typography",
+  "lettering",
+  "word art",
+  "wall art",
+  "printable",
+  "template",
+  "brochure",
+  "pamphlet",
+  "invitation",
+  "book cover",
+  "magazine cover",
+  "album cover",
+  "greeting card",
+  "t-shirt",
+  "tshirt",
+  "sticker",
+  "decal",
+  "watermarked",
+];
+
+/** Print-on-demand / graphics marketplaces — images are usually designs with text. */
+const TEXT_OVERLAY_HOST_PATTERNS = [
+  /redbubble/i,
+  /zazzle/i,
+  /society6/i,
+  /teepublic/i,
+  /fineartamerica/i,
+  /allposters/i,
+  /canva\.com/i,
+  /freepik/i,
+  /vecteezy/i,
+  /vectorstock/i,
+  /pngtree/i,
+  /pinterest\./i,
+  /etsy\./i,
+];
+
+export type PhotoVisualQualityAssessment = {
+  bonus: number;
+  positiveReasons: string[];
+  rejectReasons: string[];
+};
+
+/**
+ * Metadata-only visual quality signals: resolution tiers rate sharper photos
+ * higher; monochrome/vintage wording and text-overlay wording (or print-shop
+ * hosts) reject. No pixel access — Serper supplies dimensions, everything else
+ * is inferred from titles/captions/domains.
+ */
+export function assessPhotoVisualQualityFromMetadata(
+  result: PlaceImageResult,
+): PhotoVisualQualityAssessment {
+  const positiveReasons: string[] = [];
+  const rejectReasons: string[] = [];
+  let bonus = 0;
+
+  const width = result.imageWidth ?? 0;
+  const height = result.imageHeight ?? 0;
+  if (width > 0 && height > 0) {
+    const megapixels = (width * height) / 1_000_000;
+    const minDim = Math.min(width, height);
+    const aspect = Math.max(width / height, height / width);
+    if (minDim < 300 || megapixels < 0.1) {
+      rejectReasons.push("low_resolution");
+    } else if (megapixels >= 2) {
+      bonus += 6;
+      positiveReasons.push("high_resolution");
+    } else if (megapixels >= 1) {
+      bonus += 4;
+      positiveReasons.push("good_resolution");
+    } else if (megapixels >= 0.4) {
+      bonus += 2;
+      positiveReasons.push("decent_resolution");
+    }
+    if (aspect > 3.2) {
+      rejectReasons.push("extreme_aspect_ratio");
+    }
+  }
+
+  const qualityHay =
+    `${result.caption ?? ""} ${result.title ?? ""} ${result.sourceName ?? ""} ${result.sourceUrl ?? ""} ${result.imageUrl ?? ""}`.toLowerCase();
+  if (MONOCHROME_TOKENS.some((t) => qualityHay.includes(t))) {
+    rejectReasons.push("monochrome_or_vintage");
+  }
+  const host = `${result.sourceDomain ?? ""} ${result.sourceUrl ?? ""}`.toLowerCase();
+  if (
+    TEXT_OVERLAY_TOKENS.some((t) => qualityHay.includes(t)) ||
+    TEXT_OVERLAY_HOST_PATTERNS.some((p) => p.test(host))
+  ) {
+    rejectReasons.push("likely_text_overlay");
+  }
+
+  return { bonus, positiveReasons, rejectReasons };
+}
+
 export function scorePhotoResultMetadata(
   identity: TargetPlaceIdentity,
   result: PlaceImageResult,
@@ -387,6 +511,16 @@ export function scorePhotoResultMetadata(
 
   if (STOCK_HOST_PATTERNS.some((p) => p.test(domain) || p.test(hay))) {
     rejectReasons.push("stock_or_content_farm");
+    hardReject = true;
+  }
+
+  // Visual quality from metadata: resolution rates photos up; monochrome/vintage
+  // wording and text-overlay signals (posters, memes, print shops) reject.
+  const visualQuality = assessPhotoVisualQualityFromMetadata(result);
+  score += visualQuality.bonus;
+  positiveReasons.push(...visualQuality.positiveReasons);
+  for (const reason of visualQuality.rejectReasons) {
+    rejectReasons.push(reason);
     hardReject = true;
   }
 
