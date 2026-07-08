@@ -12,6 +12,10 @@ July 7 Query Insights showed ~120,900 reads from `posts ORDER BY time DESC LIMIT
 
 ## Phase 0 — deploy env (staging → prod)
 
+`scripts/mainDeploy.sh` is the Backend v2 Cloud Run deploy entrypoint. It merges layered `.env` files
+(`Locava Backend/.env`, `Locava-Native/.env`, `Locava-Backend-v2/.env`, `.env.local`) and ships env to
+Cloud Run via `--env-vars-file`. Mixes read-reduction defaults are baked into the deploy script when unset:
+
 ```
 MIXES_POOL_REFRESH_MS=300000
 MIXES_POOL_MAX_DOCS=200
@@ -19,7 +23,35 @@ MIXES_POOL_COLD_START_DOCS=80
 WARMER_FULL_BACKOFF_MS=600000
 ```
 
+Override any value in `Locava-Backend-v2/.env` before `./scripts/mainDeploy.sh`.
+
 Rollback legacy timer: `ENABLE_MIXES_BACKGROUND_WARMER=true`
+
+## Index deploy (staging → prod, Fable A6)
+
+Composite index for `pageRecent` cursors: `posts` — `time DESC`, `__name__ DESC` (in `firestore.indexes.json`).
+
+```bash
+chmod +x scripts/deployFirestoreIndexes.sh
+./scripts/deployFirestoreIndexes.sh demo-locava-backendv2
+# wait for Enabled in Firebase console → Firestore → Indexes
+CONFIRM_PRODUCTION_INDEX_DEPLOY=1 ./scripts/deployFirestoreIndexes.sh learn-32d72
+```
+
+Or: `npm run deploy:firestore:indexes -- demo-locava-backendv2`
+
+Deploy indexes **before** or in parallel with the code deploy, but do not rely on cursor pagination until the index is **Enabled** (not Building).
+
+## Recommended deploy order
+
+1. Merge PR / checkout branch
+2. Deploy indexes to staging project → verify Enabled
+3. `./scripts/mainDeploy.sh` (env defaults ship automatically)
+4. Smoke: search bootstrap, mix pagination page 2+, near-me exhaust
+5. Deploy indexes to production (`learn-32d72`) with confirmation flag
+6. `./scripts/mainDeploy.sh` to production Cloud Run
+7. Monitor Query Insights 48h
+
 
 ## Task 1 — lazy TTL snapshot (no background timer)
 
@@ -32,7 +64,7 @@ Rollback legacy timer: `ENABLE_MIXES_BACKGROUND_WARMER=true`
 
 - `orderBy("time","desc").orderBy(documentId(),"desc")` + `startAfter`
 - Overfetch: `limit×3`, cap 120, max 3 chained queries
-- Composite index required: `posts` — `time DESC`, `__name__ DESC` (verify in staging first)
+- Composite index required: `posts` — `time DESC`, `__name__ DESC` (verify in staging first; see `scripts/deployFirestoreIndexes.sh`)
 
 ## Task 3 — bootstrap + activity paths (revised)
 

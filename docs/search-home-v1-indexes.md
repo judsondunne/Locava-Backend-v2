@@ -6,6 +6,12 @@
 - **Ordering:** No composite `orderBy` on `(activities, time)` in v2 code; posts are sorted by `time` desc **in memory** after fetch (see `MixPostsRepository.pageByActivity`).
 - **Index:** Single-field index on `activities` is typically auto-created by Firestore for `array-contains`.
 
+## Posts recent pagination (`pageRecent`)
+
+- **Query:** `posts` `.orderBy("time", "desc").orderBy(documentId(), "desc")` with `startAfter` cursor.
+- **Index:** Composite `posts` — `time` DESC, `__name__` DESC (see `firestore.indexes.json`).
+- **Deploy:** `./scripts/deployFirestoreIndexes.sh demo-locava-backendv2` then production with `CONFIRM_PRODUCTION_INDEX_DEPLOY=1`.
+
 ## Posts by author (suggested user first post)
 
 - **Query:** `posts` where `userId` **==** `{userId}` with bounded `.limit(...)` (no `orderBy` in-query).
