@@ -14,6 +14,40 @@ import {
   getChannelAdapter,
   listChannelAdapters,
 } from "../../lib/undiscovered/channels/registry.js";
+import {
+  getPbfV2FullRunStatus,
+  startPbfV2FullRun,
+} from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2FullRunService.js";
+import { listPbfV2FullRuns } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2FullRunStore.js";
+
+const VERMONT_PBF_PATH = "data/osm/vermont-latest.osm.pbf";
+
+/** Summarize the most recent PBF full-run for the live scraping metrics. */
+async function latestPbfRunSummary() {
+  const runs = await listPbfV2FullRuns();
+  if (!runs || runs.length === 0) return null;
+  const latest = [...runs].sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))[0];
+  if (!latest) return null;
+  const status = await getPbfV2FullRunStatus(latest.runId);
+  const r = status.run;
+  if (!r) return null;
+  const wr = status.writeReadyCounts ?? { spots: 0, routes: 0 };
+  return {
+    runId: r.runId,
+    status: r.status,
+    mode: r.mode,
+    phase: r.phase,
+    percentComplete: r.percentComplete,
+    processedObjects: r.processedObjects,
+    avgObjectsPerSec: Math.round(r.avgObjectsPerSec ?? 0),
+    currentChunkIndex: r.currentChunkIndex,
+    totalChunks: r.totalChunks,
+    etaMs: r.etaMs,
+    acceptedSpots: wr.spots ?? 0,
+    acceptedRoutes: wr.routes ?? 0,
+    acceptedTotal: (wr.spots ?? 0) + (wr.routes ?? 0),
+  };
+}
 import { buildVermontSampleCandidates } from "../../lib/undiscovered/vermontSampleCandidates.js";
 import { pbfPreviewToDiscoveryCandidate } from "../../lib/undiscovered/pbfPreviewToDiscoveryCandidate.js";
 import type { PbfCopierPreviewDoc } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierTypes.js";
@@ -91,6 +125,40 @@ export async function registerUndiscoveredDashboardRoutes(
     const store = getDiscoveryCandidateStore();
     const result = store.upsertMany(buildVermontSampleCandidates());
     return success({ ...result, total: store.size(), region: "VT" });
+  });
+
+  // Unified live scraping metrics: PBF engine run + all channels + grand total.
+  app.get(`${base}/scrape-metrics`, async () => {
+    setRouteName("admin.undiscovered.dashboard_v1.scrape_metrics");
+    const store = getDiscoveryCandidateStore();
+    const all = store.list();
+    const byChannel: Record<string, number> = {};
+    for (const c of all) byChannel[c.sourceChannel] = (byChannel[c.sourceChannel] ?? 0) + 1;
+    const pbf = await latestPbfRunSummary();
+    const channelCandidates = all.length;
+    const pbfAccepted = pbf?.acceptedTotal ?? 0;
+    return success({
+      pbf,
+      channels: byChannel,
+      totals: {
+        channelCandidates,
+        pbfAccepted,
+        grandTotal: channelCandidates + pbfAccepted,
+      },
+      statusCounts: store.counts(),
+    });
+  });
+
+  // One-click: start a dry-run PBF scan of the bundled Vermont extract (no prod writes).
+  app.post(`${base}/pbf/start-vermont`, async (request, reply) => {
+    setRouteName("admin.undiscovered.dashboard_v1.pbf_start_vermont");
+    try {
+      const run = await startPbfV2FullRun({ pbfPath: VERMONT_PBF_PATH, mode: "dry_run" });
+      return success({ runId: run.runId, status: run.status, mode: run.mode, totalChunks: run.totalChunks, postsWriteForbidden: true as const });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return reply.status(400).send(failure("pbf_start_failed", message));
+    }
   });
 
   app.get(`${base}/channels`, async () => {

@@ -1,0 +1,176 @@
+/**
+ * Undiscovered Spots — Live Scraping Dashboard — /admin/undiscovered/scraping
+ *
+ * Real-time scale view across all discovery channels. The PBF Copier V2 engine
+ * (OSM) is the primary high-volume source; Reddit/web/trail/Instagram feed the
+ * same review queue. Shows live per-channel progress, total locations collected,
+ * processing status, and throughput metrics. Dry-run only — no production writes.
+ */
+export function renderUndiscoveredScrapingDashboardPage(): string {
+  const api = "/admin/undiscovered/api/dashboard-v1";
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Live Scraping — Undiscovered Spots</title>
+  <style>
+    body{font-family:Inter,Arial,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
+    .shell{max-width:1200px;margin:0 auto;padding:20px 16px 48px}
+    h1{font-size:24px;margin:0 0 2px}
+    .sub{color:#94a3b8;font-size:13px;margin:0 0 16px}
+    h2{font-size:12px;margin:0 0 10px;color:#cbd5e1;text-transform:uppercase;letter-spacing:.04em}
+    .panel{border:1px solid #334155;border-radius:12px;background:#111827;padding:16px;margin:14px 0}
+    button{padding:8px 14px;border-radius:8px;border:none;background:#2563eb;color:#fff;font-size:13px;cursor:pointer;font-weight:600;margin:2px 6px 2px 0}
+    button.secondary{background:#334155}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    input,select{padding:6px 10px;border-radius:6px;border:1px solid #334155;background:#1f2937;color:#fff;font-size:12px}
+    .hero{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+    .metric{background:#020617;border:1px solid #1f2937;border-radius:10px;padding:14px}
+    .metric .label{font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.04em}
+    .metric .value{font-size:30px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
+    .metric.big .value{color:#86efac}
+    .bar{height:10px;background:#0b1220;border-radius:999px;overflow:hidden;border:1px solid #1f2937;margin-top:8px}
+    .bar > div{height:100%;background:#2563eb;width:0%;transition:width .5s ease}
+    .bar.done > div{background:#166534}
+    .grid2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px}
+    .chan{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-top:1px solid #1f2937;font-size:13px}
+    .chan:first-child{border-top:none}
+    .dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px}
+    .cnum{font-weight:700;font-variant-numeric:tabular-nums}
+    .pill{display:inline-block;padding:2px 9px;border-radius:999px;border:1px solid #334155;font-size:10px;color:#cbd5e1;background:#0b1220}
+    .pill.run{border-color:#2563eb;color:#93c5fd}
+    .pill.done{border-color:#166534;color:#86efac}
+    .muted{color:#64748b;font-size:12px}
+    .kv{display:flex;gap:18px;flex-wrap:wrap;margin-top:8px;font-size:12px;color:#94a3b8}
+    .kv b{color:#e2e8f0;font-variant-numeric:tabular-nums}
+    code{background:#020617;padding:1px 5px;border-radius:4px;color:#93c5fd}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <h1>📡 Live Scraping — Undiscovered Spots</h1>
+    <p class="sub">Multi-channel discovery at scale. Primary engine: <b>PBF Copier V2</b> (OpenStreetMap) on the real Vermont extract. Dry-run — zero production writes. Auto-refreshes every 2s.</p>
+
+    <div class="hero">
+      <div class="metric big"><div class="label">Total quality locations</div><div class="value" id="mTotal">0</div></div>
+      <div class="metric"><div class="label">Objects scanned</div><div class="value" id="mObjects">0</div></div>
+      <div class="metric"><div class="label">Throughput (obj/s)</div><div class="value" id="mRate">0</div></div>
+      <div class="metric"><div class="label">Channels active</div><div class="value" id="mChannels">0</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel">
+        <h2>PBF Copier V2 — OSM engine (Vermont)</h2>
+        <div class="row">
+          <button id="startPbf">Start Vermont scan</button>
+          <span class="pill" id="pbfStatus">idle</span>
+        </div>
+        <div class="bar" id="pbfBarWrap"><div id="pbfBar"></div></div>
+        <div class="kv">
+          <span>chunk <b id="pbfChunk">0/0</b></span>
+          <span>objects <b id="pbfObj">0</b></span>
+          <span>accepted spots <b id="pbfSpots">0</b></span>
+          <span>accepted routes <b id="pbfRoutes">0</b></span>
+          <span>ETA <b id="pbfEta">—</b></span>
+        </div>
+        <p class="muted" id="pbfNote" style="margin-top:10px">This scans millions of OSM objects and accepts quality spots/routes. Projected full-Vermont yield updates live.</p>
+      </div>
+
+      <div class="panel">
+        <h2>Discovery channels</h2>
+        <div id="chanList"></div>
+        <div class="row" style="margin-top:12px;border-top:1px solid #1f2937;padding-top:10px">
+          <select id="seedChannel"></select>
+          <input id="seedQuery" type="text" placeholder="query / URL" style="width:150px"/>
+          <button class="secondary" id="seedBtn">Scrape</button>
+        </div>
+        <p class="muted" id="chanHint" style="margin-top:8px"></p>
+      </div>
+    </div>
+
+    <p class="sub" style="margin-top:6px">Scale path: Vermont proven here → same engine + tile grid scales to every U.S. state (national copier already exists). Reddit/IG go live with API credentials.</p>
+  </div>
+
+<script>
+const API = ${JSON.stringify(api)};
+const $ = (id) => document.getElementById(id);
+const fmt = (n) => (n==null?'—':Number(n).toLocaleString());
+const chanColor = {osm_pbf:'#38bdf8',web_blog:'#34d399',instagram:'#f472b6',trail_db:'#fbbf24',reddit:'#fb923c'};
+let CHANNELS = [];
+
+async function api(path, opts){
+  const res = await fetch(API+path, Object.assign({headers:{'Content-Type':'application/json'}}, opts));
+  const j = await res.json().catch(()=>({}));
+  if(!res.ok || j.ok===false) throw new Error((j.error&&j.error.message)||('HTTP '+res.status));
+  return j.data;
+}
+
+function fmtEta(ms){ if(!ms||ms<0) return '—'; const s=Math.round(ms/1000); if(s<90) return s+'s'; return Math.round(s/60)+'m'; }
+
+async function loadChannels(){
+  const d = await api('/channels');
+  CHANNELS = d.channels;
+  $('seedChannel').innerHTML = CHANNELS.map(c=>'<option value="'+c.channel+'">'+c.label+(c.liveFetchSupported?'':' (paste)')+'</option>').join('');
+}
+
+async function tick(){
+  try{
+    const m = await api('/scrape-metrics');
+    const pbf = m.pbf;
+    // hero
+    $('mTotal').textContent = fmt(m.totals.grandTotal);
+    $('mObjects').textContent = fmt(pbf ? pbf.processedObjects : 0);
+    $('mRate').textContent = fmt(pbf && pbf.status==='running' ? pbf.avgObjectsPerSec : 0);
+    $('mChannels').textContent = Object.keys(m.channels).length + (pbf ? 1 : 0);
+    // pbf card
+    if(pbf){
+      $('pbfStatus').textContent = pbf.status + ' · ' + (pbf.phase||'');
+      $('pbfStatus').className = 'pill ' + (pbf.status==='complete'?'done':'run');
+      $('pbfBar').style.width = (pbf.percentComplete||0) + '%';
+      $('pbfBarWrap').className = 'bar' + (pbf.status==='complete'?' done':'');
+      $('pbfChunk').textContent = pbf.currentChunkIndex + '/' + pbf.totalChunks;
+      $('pbfObj').textContent = fmt(pbf.processedObjects);
+      $('pbfSpots').textContent = fmt(pbf.acceptedSpots);
+      $('pbfRoutes').textContent = fmt(pbf.acceptedRoutes);
+      $('pbfEta').textContent = pbf.status==='running' ? fmtEta(pbf.etaMs) : (pbf.status==='complete'?'done':'—');
+      if(pbf.percentComplete>0 && pbf.status==='running'){
+        const proj = Math.round(pbf.acceptedTotal / (pbf.percentComplete/100));
+        $('pbfNote').textContent = 'Projected full-Vermont yield ≈ ' + fmt(proj) + ' quality locations at current accept rate.';
+      } else if(pbf.status==='complete'){
+        $('pbfNote').textContent = 'Scan complete — ' + fmt(pbf.acceptedTotal) + ' quality Vermont locations, dry-run (no production writes).';
+      }
+    }
+    // channels
+    const rows = CHANNELS.map(c=>{
+      const n = m.channels[c.channel] || 0;
+      const col = chanColor[c.channel] || '#64748b';
+      const live = c.needsCredentials ? '<span class="pill">needs creds</span>' : (c.liveFetchSupported?'<span class="pill run">live</span>':'<span class="pill">paste</span>');
+      return '<div class="chan"><span><span class="dot" style="background:'+col+'"></span>'+c.label+' '+live+'</span><span class="cnum">'+fmt(n)+'</span></div>';
+    }).join('');
+    // include osm_pbf as a channel row (accepted total)
+    const pbfRow = '<div class="chan"><span><span class="dot" style="background:'+chanColor.osm_pbf+'"></span>OSM / PBF <span class="pill run">engine</span></span><span class="cnum">'+fmt(pbf?pbf.acceptedTotal:0)+'</span></div>';
+    $('chanList').innerHTML = pbfRow + rows;
+  }catch(e){ /* transient */ }
+}
+
+$('startPbf').onclick = async () => {
+  try{ $('startPbf').disabled=true; $('pbfStatus').textContent='starting…'; await api('/pbf/start-vermont',{method:'POST',body:'{}'}); setTimeout(()=>{$('startPbf').disabled=false;}, 4000); await tick(); }
+  catch(e){ $('pbfStatus').textContent='error: '+e.message; $('startPbf').disabled=false; }
+};
+$('seedChannel').onchange = () => { const c=CHANNELS.find(x=>x.channel===$('seedChannel').value); $('chanHint').textContent=c?c.strategy:''; };
+$('seedBtn').onclick = async () => {
+  try{
+    const channel=$('seedChannel').value, query=$('seedQuery').value.trim();
+    $('chanHint').textContent='scraping '+channel+'…';
+    const r = await api('/seed-from-channel',{method:'POST',body:JSON.stringify({channel,region:'VT',query:query||undefined})});
+    $('chanHint').textContent='+'+r.mapped+' from '+channel+(r.mapped===0&&!r.liveFetchSupported?' (needs creds / paste)':'');
+    await tick();
+  }catch(e){ $('chanHint').textContent='failed: '+e.message; }
+};
+
+loadChannels().then(()=>{ $('seedChannel').dispatchEvent(new Event('change')); tick(); setInterval(tick, 2000); });
+</script>
+</body>
+</html>`;
+}
