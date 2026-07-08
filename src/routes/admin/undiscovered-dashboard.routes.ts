@@ -161,6 +161,27 @@ export async function registerUndiscoveredDashboardRoutes(
     }
   });
 
+  // Pull the latest PBF run's accepted locations into the reviewable queue so
+  // they can be sifted + actioned alongside channel candidates.
+  app.post(`${base}/pbf/import-results`, async (request, reply) => {
+    setRouteName("admin.undiscovered.dashboard_v1.pbf_import_results");
+    const runs = await listPbfV2FullRuns();
+    if (!runs || runs.length === 0) {
+      return reply.status(404).send(failure("no_pbf_run", "No PBF run to import — start a scan first."));
+    }
+    const latest = [...runs].sort((a, b) => (b.startedAt ?? "").localeCompare(a.startedAt ?? ""))[0];
+    const status = await getPbfV2FullRunStatus(latest!.runId);
+    const samples = status.categorySamples ?? {};
+    const docs: PbfCopierPreviewDoc[] = [];
+    for (const list of Object.values(samples)) docs.push(...(list ?? []));
+    // Skip low-signal accepted docs whose display name is a raw OSM tag (e.g. "barrier=yes").
+    const named = docs.filter((d) => d.displayName && !d.displayName.includes("="));
+    const candidates = named.map((d) => pbfPreviewToDiscoveryCandidate(d, { region: "VT" }));
+    const store = getDiscoveryCandidateStore();
+    const result = store.upsertMany(candidates);
+    return success({ ...result, imported: candidates.length, total: store.size(), runId: latest!.runId });
+  });
+
   app.get(`${base}/channels`, async () => {
     setRouteName(c.routeNames.channels);
     const redditAuthed = Boolean(env.REDDIT_CLIENT_ID && env.REDDIT_CLIENT_SECRET);

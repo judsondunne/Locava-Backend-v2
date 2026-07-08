@@ -89,6 +89,31 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
       </div>
     </div>
 
+    <div class="panel">
+      <h2>Review &amp; add locations</h2>
+      <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+        <button class="secondary" id="importPbf">Import PBF results</button>
+        <select id="rChannel"><option value="">all channels</option></select>
+        <select id="rCategory"><option value="">all categories</option></select>
+        <select id="rStatus"><option value="">all statuses</option><option>candidate</option><option>reviewed</option><option>approved</option><option>rejected</option><option>written</option></select>
+        <span class="muted" id="rCount"></span>
+      </div>
+      <div style="max-height:460px;overflow:auto;border:1px solid #1f2937;border-radius:8px">
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="position:sticky;top:0;background:#0b1220;color:#94a3b8">
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Location</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Category</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Channel</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Source</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Status</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Add to app</th>
+          </tr></thead>
+          <tbody id="reviewRows"></tbody>
+        </table>
+      </div>
+      <p class="muted" style="margin-top:8px">Sift the scraped locations, open each source to verify, then <b>Approve</b> to queue it for the app database. Approved → the guarded production write (Wednesday). “Import PBF results” pulls a sample of the 51k OSM locations in to review.</p>
+    </div>
+
     <p class="sub" style="margin-top:6px">Scale path: Vermont proven here → same engine + tile grid scales to every U.S. state (national copier already exists). Reddit/IG go live with API credentials.</p>
   </div>
 
@@ -182,7 +207,54 @@ $('seedBtn').onclick = async () => {
   finally{ $('seedBtn').disabled=false; }
 };
 
-loadChannels().then(()=>{ syncChannelUI(); tick(); setInterval(tick, 2000); });
+// ---- Review table: sift, view source, approve into the app database ----
+const STATUS_COLOR = {candidate:['#475569','#cbd5e1'],reviewed:['#0369a1','#7dd3fc'],approved:['#166534','#86efac'],rejected:['#b91c1c','#fca5a5'],written:['#7c3aed','#c4b5fd']};
+const NEXT = {candidate:[['approved','ok','Approve'],['rejected','bad','Reject']],reviewed:[['approved','ok','Approve'],['rejected','bad','Reject']],approved:[['written','ok','Add ✓'],['rejected','bad','Reject']],rejected:[['candidate','secondary','Reopen']],written:[['approved','secondary','Undo']]};
+
+async function loadReviewFilters(){
+  const d = await api('/categories');
+  $('rCategory').innerHTML = '<option value="">all categories</option>' + d.categories.map(c=>'<option>'+c+'</option>').join('');
+  $('rChannel').innerHTML = '<option value="">all channels</option>' + CHANNELS.map(c=>'<option value="'+c.channel+'">'+c.label+'</option>').join('') + '<option value="osm_pbf">OSM / PBF</option>';
+}
+async function transition(id, to){
+  try{ await api('/candidates/'+encodeURIComponent(id)+'/status',{method:'POST',body:JSON.stringify({status:to,reviewedBy:'dashboard'})}); await loadReview(); await tick(); }
+  catch(e){ $('rCount').textContent='action failed: '+e.message; }
+}
+function reviewRow(c){
+  const [bc,tc] = STATUS_COLOR[c.reviewStatus]||STATUS_COLOR.candidate;
+  const col = chanColor[c.sourceChannel]||'#64748b';
+  const src = c.provenance && c.provenance.sourceUrl;
+  const view = src ? '<a href="'+src+'" target="_blank" rel="noopener" style="color:#93c5fd">view ↗</a>' : '<span class="muted">—</span>';
+  const acts = (NEXT[c.reviewStatus]||[]).map(([to,cls,lbl])=>'<button class="'+cls+'" data-id="'+encodeURIComponent(c.id)+'" data-to="'+to+'" style="padding:3px 8px;font-size:11px">'+lbl+'</button>').join('');
+  return '<tr style="border-top:1px solid #1f2937">'
+    +'<td style="padding:6px 8px">'+c.displayName+'</td>'
+    +'<td style="padding:6px 8px">'+c.primaryCategory+'</td>'
+    +'<td style="padding:6px 8px"><span class="dot" style="background:'+col+'"></span>'+c.sourceChannel+'</td>'
+    +'<td style="padding:6px 8px">'+view+'</td>'
+    +'<td style="padding:6px 8px"><span class="pill" style="border-color:'+bc+';color:'+tc+'">'+c.reviewStatus+'</span></td>'
+    +'<td style="padding:6px 8px">'+acts+'</td>'
+    +'</tr>';
+}
+async function loadReview(){
+  try{
+    const p = new URLSearchParams({region:'VT'});
+    if($('rChannel').value) p.set('channel',$('rChannel').value);
+    if($('rCategory').value) p.set('category',$('rCategory').value);
+    if($('rStatus').value) p.set('status',$('rStatus').value);
+    const d = await api('/candidates?'+p.toString());
+    $('reviewRows').innerHTML = d.items.slice(0,400).map(reviewRow).join('') || '<tr><td colspan="6" class="muted" style="padding:10px">No locations. Scrape a channel or Import PBF results.</td></tr>';
+    $('rCount').textContent = fmt(d.total)+' locations'+(d.total>400?' (showing 400)':'');
+  }catch(e){ $('rCount').textContent='load failed: '+e.message; }
+}
+$('reviewRows').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-to]'); if(!b) return; transition(decodeURIComponent(b.getAttribute('data-id')), b.getAttribute('data-to')); });
+$('rChannel').onchange = loadReview; $('rCategory').onchange = loadReview; $('rStatus').onchange = loadReview;
+$('importPbf').onclick = async () => {
+  try{ $('importPbf').disabled=true; $('rCount').textContent='importing PBF results…'; const r=await api('/pbf/import-results',{method:'POST',body:'{}'}); $('rCount').textContent='imported '+r.imported+' PBF locations'; await loadReview(); await tick(); }
+  catch(e){ $('rCount').textContent='import failed: '+e.message; }
+  finally{ $('importPbf').disabled=false; }
+};
+
+loadChannels().then(()=>{ syncChannelUI(); loadReviewFilters(); loadReview(); tick(); setInterval(tick, 2000); });
 </script>
 </body>
 </html>`;

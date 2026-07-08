@@ -51,6 +51,8 @@ export function pbfPreviewToDiscoveryCandidate(
       sourceProvider: doc.sourceProvider,
       sourceIds: doc.sourceIds ?? [],
       sourceKeys: doc.sourceKeys ?? [],
+      // Deep-link to the source OSM object so a reviewer can inspect it on the map.
+      sourceUrl: `https://www.openstreetmap.org/${doc.osmType}/${doc.osmId}`,
       importRunId: doc.importRunId,
     },
     createdAt: now,
