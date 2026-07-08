@@ -13,8 +13,15 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Live Scraping — Undiscovered Spots</title>
+  <title>Undiscovered Spots — Dashboard</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
+    #map{height:420px;border-radius:10px;overflow:hidden;border:1px solid #1f2937}
+    .emoji-pin{font-size:22px;line-height:22px;text-align:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+    .leaflet-popup-content{font-family:Inter,Arial,sans-serif}
+    .legend{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:10px;font-size:12px;color:#cbd5e1}
+    .legend span{white-space:nowrap}
     body{font-family:Inter,Arial,sans-serif;margin:0;background:#0f172a;color:#e2e8f0}
     .shell{max-width:1200px;margin:0 auto;padding:20px 16px 48px}
     h1{font-size:24px;margin:0 0 2px}
@@ -87,6 +94,20 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
         </div>
         <p class="muted" id="chanHint" style="margin-top:8px"></p>
       </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <h2 style="margin:0">Map — Vermont spots</h2>
+        <span>
+          <label style="font-size:12px;color:#94a3b8">show up to</label>
+          <select id="mapLimit"><option>200</option><option selected>500</option><option>1000</option><option>2000</option></select>
+          <button class="secondary" id="mapRefresh">Refresh map</button>
+        </span>
+      </div>
+      <div id="map"></div>
+      <div class="legend" id="mapLegend"></div>
+      <p class="muted" id="mapNote" style="margin-top:8px"></p>
     </div>
 
     <div class="panel">
@@ -219,7 +240,7 @@ async function loadReviewFilters(){
   $('rChannel').innerHTML = '<option value="">all channels</option>' + CHANNELS.map(c=>'<option value="'+c.channel+'">'+c.label+'</option>').join('') + '<option value="osm_pbf">OSM / PBF</option>';
 }
 async function transition(id, to){
-  try{ await api('/candidates/'+encodeURIComponent(id)+'/status',{method:'POST',body:JSON.stringify({status:to,reviewedBy:'dashboard'})}); await loadReview(); await tick(); }
+  try{ await api('/candidates/'+encodeURIComponent(id)+'/status',{method:'POST',body:JSON.stringify({status:to,reviewedBy:'dashboard'})}); await loadReview(); await loadMap(); await tick(); }
   catch(e){ $('rCount').textContent='action failed: '+e.message; }
 }
 function reviewRow(c){
@@ -255,17 +276,56 @@ async function loadReview(){
 $('reviewRows').addEventListener('click',(e)=>{ const b=e.target.closest('button[data-to]'); if(!b) return; transition(decodeURIComponent(b.getAttribute('data-id')), b.getAttribute('data-to')); });
 $('rChannel').onchange = loadReview; $('rCategory').onchange = loadReview; $('rStatus').onchange = loadReview;
 $('importPbf').onclick = async () => {
-  try{ $('importPbf').disabled=true; $('rCount').textContent='importing PBF results…'; const r=await api('/pbf/import-results',{method:'POST',body:'{}'}); $('rCount').textContent='imported '+r.imported+' PBF locations'; await loadReview(); await tick(); }
+  try{ $('importPbf').disabled=true; $('rCount').textContent='importing PBF results…'; const r=await api('/pbf/import-results',{method:'POST',body:'{}'}); $('rCount').textContent='imported '+r.imported+' PBF locations'; await loadReview(); await loadMap(); await tick(); }
   catch(e){ $('rCount').textContent='import failed: '+e.message; }
   finally{ $('importPbf').disabled=false; }
 };
 $('seedSample').onclick = async () => {
-  try{ $('seedSample').disabled=true; $('rCount').textContent='seeding VT sample…'; const r=await api('/seed-sample',{method:'POST',body:'{}'}); $('rCount').textContent='seeded '+r.total+' sample locations'; await loadReview(); await tick(); }
+  try{ $('seedSample').disabled=true; $('rCount').textContent='seeding VT sample…'; const r=await api('/seed-sample',{method:'POST',body:'{}'}); $('rCount').textContent='seeded '+r.total+' sample locations'; await loadReview(); await loadMap(); await tick(); }
   catch(e){ $('rCount').textContent='seed failed: '+e.message; }
   finally{ $('seedSample').disabled=false; }
 };
 
-loadChannels().then(()=>{ syncChannelUI(); loadReviewFilters(); loadReview(); tick(); setInterval(tick, 2000); });
+// ---- Minimap: plot spots with real coordinates, emoji by category ----
+const EMOJI = {
+  waterfall:'💧', swimming_hole:'🏊', summit_viewpoint:'⛰️', scenic_overlook:'🌄',
+  hiking_trail:'🥾', lake_pond:'🏞️', river_stream:'🌊', gorge_canyon:'🏔️', cave:'🕳️',
+  forest_natural:'🌲', beach:'🏖️', campsite:'🏕️', historic_landmark:'🏛️', park:'🌳', other:'📍'
+};
+const VT = {minLat:42.6,maxLat:45.1,minLng:-73.5,maxLng:-71.4};
+let MAP=null, MARKERS=null;
+function initMap(){
+  if(MAP || typeof L==='undefined') return;
+  MAP = L.map('map',{scrollWheelZoom:true}).setView([44.0,-72.7], 8);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(MAP);
+  MARKERS = L.layerGroup().addTo(MAP);
+}
+function pin(cat){ return L.divIcon({html:'<div class="emoji-pin">'+(EMOJI[cat]||EMOJI.other)+'</div>',className:'',iconSize:[24,24],iconAnchor:[12,12]}); }
+async function loadMap(){
+  initMap(); if(!MAP) return;
+  MARKERS.clearLayers();
+  const limit = Number($('mapLimit').value)||500;
+  const d = await api('/candidates?region=VT');
+  const plottable = d.items.filter(c=>c.lat && c.lng && c.lat>=VT.minLat&&c.lat<=VT.maxLat&&c.lng>=VT.minLng&&c.lng<=VT.maxLng).slice(0,limit);
+  const bounds=[];
+  const usedCats=new Set();
+  for(const c of plottable){
+    usedCats.add(c.primaryCategory);
+    const src = c.provenance && c.provenance.sourceUrl;
+    const html = '<b>'+c.displayName+'</b><br>'+(EMOJI[c.primaryCategory]||'📍')+' '+c.primaryCategory+' · '+c.sourceChannel
+      +'<br>status: '+c.reviewStatus+(src?('<br><a href="'+src+'" target="_blank" rel="noopener">view source ↗</a>'):'');
+    L.marker([c.lat,c.lng],{icon:pin(c.primaryCategory)}).bindPopup(html).addTo(MARKERS);
+    bounds.push([c.lat,c.lng]);
+  }
+  if(bounds.length) MAP.fitBounds(bounds,{padding:[30,30],maxZoom:11});
+  const noCoords = d.total - d.items.filter(c=>c.lat&&c.lng).length;
+  $('mapNote').textContent = plottable.length+' spots plotted'+(d.total>plottable.length?' of '+d.total+' ('+noCoords+' have no coordinates yet — mostly web/blog text finds; Import PBF results for mapped spots)':'');
+  $('mapLegend').innerHTML = Array.from(usedCats).sort().map(cat=>'<span>'+(EMOJI[cat]||'📍')+' '+cat+'</span>').join('') || '<span class="muted">No mapped spots yet — click “Import PBF results”.</span>';
+}
+$('mapRefresh').onclick = loadMap;
+$('mapLimit').onchange = loadMap;
+
+loadChannels().then(()=>{ syncChannelUI(); loadReviewFilters(); loadReview(); loadMap(); tick(); setInterval(tick, 2000); });
 </script>
 </body>
 </html>`;
