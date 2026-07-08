@@ -195,20 +195,35 @@ function extractHostname(url: string): string {
   }
 }
 
-async function fetchFromSerper(
-  searchQuery: string,
-  apiKey: string,
-  limit = 4,
-): Promise<PlaceImageResult[]> {
-  const response = await fetch("https://google.serper.dev/images", {
+async function serperImagesRequest(q: string, apiKey: string, num: number): Promise<Response> {
+  return fetch("https://google.serper.dev/images", {
     method: "POST",
     headers: {
       "X-API-KEY": apiKey,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ q: enhanceImageSearchQuery(searchQuery), num: Math.min(Math.max(limit, 4), 30) }),
+    body: JSON.stringify({ q, num }),
     cache: "no-store",
   });
+}
+
+async function fetchFromSerper(
+  searchQuery: string,
+  apiKey: string,
+  limit = 4,
+): Promise<PlaceImageResult[]> {
+  const q = enhanceImageSearchQuery(searchQuery);
+  let response = await serperImagesRequest(q, apiKey, Math.min(Math.max(limit, 4), 30));
+
+  // Free-tier Serper accounts reject "advanced query patterns" (quoted phrases /
+  // negative terms) when num > 10 with HTTP 400. Degrade gracefully: retry at
+  // num=10, then with quotes stripped, before giving up.
+  if (response.status === 400) {
+    response = await serperImagesRequest(q, apiKey, Math.min(Math.max(limit, 4), 10));
+  }
+  if (response.status === 400 && q.includes('"')) {
+    response = await serperImagesRequest(q.replace(/"/g, ""), apiKey, Math.min(Math.max(limit, 4), 10));
+  }
 
   if (!response.ok) {
     throw new Error(`Serper image search failed (${response.status})`);
