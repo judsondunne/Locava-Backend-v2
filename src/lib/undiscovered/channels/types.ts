@@ -36,6 +36,8 @@ export interface ChannelFetchContext {
   rawItems?: RawDiscoveryItem[];
   httpGetJson?: (url: string) => Promise<unknown>;
   httpGetText?: (url: string) => Promise<string>;
+  /** Reddit app-only OAuth credentials, supplied by the route from env when present. */
+  redditCreds?: { clientId?: string; clientSecret?: string; userAgent?: string };
 }
 
 export interface DiscoveryChannelAdapter {

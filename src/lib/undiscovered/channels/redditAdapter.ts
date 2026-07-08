@@ -1,5 +1,6 @@
 import type { DiscoveryChannelAdapter, ChannelFetchContext, RawDiscoveryItem } from "./types.js";
 import { itemsToChannelCandidates } from "./placeCandidateExtractor.js";
+import { fetchRedditSearchItems, hasRedditCreds } from "./redditClient.js";
 
 /**
  * Reddit channel — searches a subreddit's public JSON for spot mentions.
@@ -36,24 +37,37 @@ function parseRedditListing(json: unknown): RawDiscoveryItem[] {
 export const redditAdapter: DiscoveryChannelAdapter = {
   channel: "reddit",
   label: "Reddit",
-  strategy: "Search r/vermont + r/VermontHiking public JSON for spot mentions in post titles.",
+  strategy:
+    "Search r/vermont + r/VermontHiking for spot mentions in post titles (app-only OAuth; needs REDDIT_CLIENT_ID/SECRET).",
   liveFetchSupported: true,
   async fetchCandidates(ctx: ChannelFetchContext) {
+    const query = ctx.query || "waterfall OR swimming hole OR hidden gem OR trail";
+    const limit = Math.min(ctx.limit ?? 25, 100);
     let items = ctx.rawItems ?? [];
-    if (items.length === 0 && ctx.httpGetJson) {
-      const query = ctx.query || "waterfall OR swimming hole OR hidden gem OR trail";
-      const limit = Math.min(ctx.limit ?? 25, 100);
-      const perSub: RawDiscoveryItem[] = [];
-      for (const sub of DEFAULT_SUBREDDITS) {
-        try {
-          const json = await ctx.httpGetJson(buildSearchUrl(sub, query, limit));
-          perSub.push(...parseRedditListing(json));
-        } catch {
-          // Skip a failing subreddit; other channels/subs still contribute.
+
+    if (items.length === 0) {
+      if (hasRedditCreds(ctx.redditCreds)) {
+        // Preferred path: authenticated OAuth search (Reddit blocks anonymous datacenter reads).
+        items = await fetchRedditSearchItems({
+          creds: ctx.redditCreds,
+          subreddits: DEFAULT_SUBREDDITS,
+          query,
+          limit,
+        });
+      } else if (ctx.httpGetJson) {
+        // Fallback: public JSON (often 403 from servers) — kept for local/testing.
+        const perSub: RawDiscoveryItem[] = [];
+        for (const sub of DEFAULT_SUBREDDITS) {
+          try {
+            perSub.push(...parseRedditListing(await ctx.httpGetJson(buildSearchUrl(sub, query, limit))));
+          } catch {
+            // Skip a failing subreddit.
+          }
         }
+        items = perSub;
       }
-      items = perSub;
     }
+
     return itemsToChannelCandidates(items, {
       channel: "reddit",
       region: ctx.region,

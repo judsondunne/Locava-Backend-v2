@@ -69,9 +69,18 @@ gate with no per-channel dashboard changes.
   named spots from free text (trailing feature-type decides category/route-vs-spot)
   and **region-gates** to Vermont (in-bbox coords, or a VT keyword) so out-of-state
   mentions are dropped — the guard against irrelevant locations.
-- Adapters — `reddit` (live public JSON), `web_blog` (live fetch + HTML→text),
+- Adapters — `reddit` (app-only OAuth search), `web_blog` (live fetch + HTML→text),
   `trail_db` (structured name+coords), `instagram` (started: caption/geotag
   extraction, live fetch pending Graph API/provider).
+
+### Reddit setup (app-only OAuth)
+Reddit blocks anonymous datacenter requests (HTTP 403), so the live path needs a
+registered app. Register a **script** app at <https://www.reddit.com/prefs/apps>,
+then set in `.env`:
+`REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`. The adapter does
+the `client_credentials` token exchange (no user account) and queries the OAuth
+search endpoint. Without creds it falls back to public JSON / pasted `rawItems`.
+`GET /channels` reports `needsCredentials: true` for Reddit until they're set.
 - Registry + endpoints: `GET /channels`, `POST /seed-from-channel` (accepts a live
   query or pasted `rawItems`). Injectable fetchers keep adapters unit-testable.
 - Dashboard: channel selector + "Seed from channel", a channel column, and a

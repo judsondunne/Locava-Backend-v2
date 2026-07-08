@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import type { AppEnv } from "../../config/env.js";
 import {
   DISCOVERY_QUALITY_RULES,
   DISCOVERY_SPOT_CATEGORIES,
@@ -28,7 +29,10 @@ const c = undiscoveredDashboardContract;
  * `/posts`; the actual gated write stays in the PBF copier v2 pipeline. The
  * dashboard manages the candidate → reviewed → approved → written workflow.
  */
-export async function registerUndiscoveredDashboardRoutes(app: FastifyInstance): Promise<void> {
+export async function registerUndiscoveredDashboardRoutes(
+  app: FastifyInstance,
+  env: AppEnv,
+): Promise<void> {
   const base = c.apiBase;
 
   app.get(`${base}/health`, async () => {
@@ -91,12 +95,15 @@ export async function registerUndiscoveredDashboardRoutes(app: FastifyInstance):
 
   app.get(`${base}/channels`, async () => {
     setRouteName(c.routeNames.channels);
+    const redditAuthed = Boolean(env.REDDIT_CLIENT_ID && env.REDDIT_CLIENT_SECRET);
     return success({
       channels: listChannelAdapters().map((a) => ({
         channel: a.channel,
         label: a.label,
         strategy: a.strategy,
-        liveFetchSupported: a.liveFetchSupported,
+        // Reddit's live path is only usable once OAuth creds are configured.
+        liveFetchSupported: a.channel === "reddit" ? redditAuthed : a.liveFetchSupported,
+        needsCredentials: a.channel === "reddit" && !redditAuthed,
       })),
     });
   });
@@ -116,6 +123,11 @@ export async function registerUndiscoveredDashboardRoutes(app: FastifyInstance):
       rawItems: body.rawItems,
       httpGetJson: defaultHttpFetchers.httpGetJson,
       httpGetText: defaultHttpFetchers.httpGetText,
+      redditCreds: {
+        clientId: env.REDDIT_CLIENT_ID,
+        clientSecret: env.REDDIT_CLIENT_SECRET,
+        userAgent: env.REDDIT_USER_AGENT,
+      },
     });
     const store = getDiscoveryCandidateStore();
     const result = store.upsertMany(candidates);

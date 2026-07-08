@@ -873,7 +873,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerPlacesVisualizerRoutes);
   app.register(registerAdminRoutes);
-  app.register(registerUndiscoveredDashboardRoutes);
+  app.register(async (instance) => {
+    await registerUndiscoveredDashboardRoutes(instance, env);
+  });
   app.register(registerPublicExpoPushRoutes);
   app.register(registerPublicPbfCopierRoutes);
   if (isLocalDevIdentityModeEnabled()) {
