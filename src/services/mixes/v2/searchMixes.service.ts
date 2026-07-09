@@ -650,7 +650,7 @@ export class SearchMixesServiceV2 {
       // recent scan filtered by distance. This preserves "no global posts as nearby" while avoiding
       // hard dependency on geohash parity/coverage.
       if (out.length === 0 && searched.length > 0) {
-        const recent = await this.postsRepo.pageRecent({ limit: 220, cursor: null });
+        const recent = await this.postsRepo.pageRecent({ limit: 36, cursor: null });
         const filtered = (recent.items ?? [])
           .map((p) => {
             const lat = Number((p as any)?.lat ?? NaN);

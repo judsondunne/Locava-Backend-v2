@@ -17,6 +17,7 @@
     "test:firestore:reset": "ALLOW_DESTRUCTIVE_FIRESTORE_EMULATOR_ONLY=I_UNDERSTAND_THIS_ONLY_RUNS_ON_EMULATOR ALLOW_POSTS_WIPE_IN_EMULATOR=I_UNDERSTAND_POSTS_WIPE_EMULATOR_ONLY tsx test/firestore/reset.mts",
     "test:firestore:seed": "ALLOW_DESTRUCTIVE_FIRESTORE_EMULATOR_ONLY=I_UNDERSTAND_THIS_ONLY_RUNS_ON_EMULATOR ALLOW_POSTS_WIPE_IN_EMULATOR=I_UNDERSTAND_POSTS_WIPE_EMULATOR_ONLY tsx test/firestore/seed.mts",
     "test:deterministic": "tsx test/firestore/run-deterministic.mts",
+    "deploy:firestore:indexes": "bash scripts/deployFirestoreIndexes.sh",
     "health:dashboard:check": "tsx scripts/health-dashboard-check.mts",
     "health:audit": "tsx scripts/health-audit.mts",
     "photoqa": "tsx scripts/photo-search-qa/runPhotoSearchQa.ts",

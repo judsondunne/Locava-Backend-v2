@@ -6,6 +6,12 @@
 - **Ordering:** No composite `orderBy` on `(activities, time)` in v2 code; posts are sorted by `time` desc **in memory** after fetch (see `MixPostsRepository.pageByActivity`).
 - **Index:** Single-field index on `activities` is typically auto-created by Firestore for `array-contains`.
 
+## Posts recent pagination (`pageRecent`)
+
+- **Query:** `posts` `.orderBy("time", "desc").orderBy(documentId(), "desc")` with `startAfter` cursor.
+- **Index:** Single-field index on `time` (descending) for collection `posts` — **not** a composite index. Firestore uses automatic document-ID ordering as the tie-breaker; the console will reject a `time` + `__name__` composite as unnecessary.
+- **Verify (Firebase web):** Firestore → Indexes → **Single field** → confirm `posts` / `time` is indexed (not exempted).
+
 ## Posts by author (suggested user first post)
 
 - **Query:** `posts` where `userId` **==** `{userId}` with bounded `.limit(...)` (no `orderBy` in-query).

@@ -33,6 +33,9 @@ cd "$PROJECT_ROOT"
 GCLOUD_BIN="${GCLOUD_BIN:-$(command -v gcloud || true)}"
 if [ -z "$GCLOUD_BIN" ]; then
   echo "❌ gcloud CLI not found"
+  echo "   Install: brew install --cask google-cloud-sdk"
+  echo "   Then:    gcloud auth login && gcloud config set project <your-project-id>"
+  echo "   Docs:    https://cloud.google.com/sdk/docs/install"
   exit 1
 fi
 
@@ -209,7 +212,16 @@ const passthroughKeys = [
   "SOURCE_OF_TRUTH_STRICT",
   "REQUEST_TIMEOUT_MS",
   "ENABLE_SCHEDULED_LIKES_WORKER",
-  "ENABLE_AUTO_LIKE_BOOSTER_WORKER"
+  "ENABLE_AUTO_LIKE_BOOSTER_WORKER",
+  "MIXES_POOL_REFRESH_MS",
+  "MIXES_POOL_MAX_DOCS",
+  "MIXES_POOL_MAX_STALE_MS",
+  "MIXES_POOL_COLD_START_DOCS",
+  "MIXES_POOL_SNAPSHOT_PATH",
+  "ENABLE_MIXES_BACKGROUND_WARMER",
+  "WARMER_FULL_BACKOFF_MS",
+  "WARMER_QUIET_PERIOD_MS",
+  "WARMER_CRITICAL_WINDOW_MS"
 ];
 
 for (const key of passthroughKeys) {
@@ -238,6 +250,19 @@ if ((!env.FIREBASE_PRIVATE_KEY || !env.FIREBASE_CLIENT_EMAIL || !env.FIREBASE_PR
 
 if (!env.GCP_PROJECT_ID && env.GOOGLE_CLOUD_PROJECT) {
   env.GCP_PROJECT_ID = env.GOOGLE_CLOUD_PROJECT;
+}
+
+// Mixes read-reduction (July 2026): ship tuned defaults on Cloud Run unless overridden in layered .env.
+const mixesPoolDefaults = {
+  MIXES_POOL_REFRESH_MS: "300000",
+  MIXES_POOL_MAX_DOCS: "200",
+  MIXES_POOL_COLD_START_DOCS: "80",
+  WARMER_FULL_BACKOFF_MS: "600000",
+};
+for (const [key, fallback] of Object.entries(mixesPoolDefaults)) {
+  if (env[key] === undefined || env[key] === "") {
+    env[key] = fallback;
+  }
 }
 
 // Never ship workstation-only credential paths or local debug routes to Cloud Run.
@@ -316,7 +341,15 @@ const preferredOrder = [
   "MAP_MARKERS_INDEX_PAGE_MAX_DOCS",
   "OPENWEATHER_API_KEY",
   "SOURCE_OF_TRUTH_STRICT",
-  "REQUEST_TIMEOUT_MS"
+  "REQUEST_TIMEOUT_MS",
+  "MIXES_POOL_REFRESH_MS",
+  "MIXES_POOL_MAX_DOCS",
+  "MIXES_POOL_MAX_STALE_MS",
+  "MIXES_POOL_COLD_START_DOCS",
+  "ENABLE_MIXES_BACKGROUND_WARMER",
+  "WARMER_FULL_BACKOFF_MS",
+  "WARMER_QUIET_PERIOD_MS",
+  "WARMER_CRITICAL_WINDOW_MS"
 ];
 
 const yamlScalar = (value) => JSON.stringify(String(value));
@@ -349,6 +382,8 @@ echo "🗺️ Region: $REGION"
 echo "☁️ Project: $PROJECT_ID"
 echo "📂 Source (monorepo root): $MONOREPO_ROOT  — includes ../locava-contracts for @locava/contracts"
 echo "🧾 Carrying over old backend env families: Wasabi, Redis, analytics, admin tokens, worker flags, Firebase creds, client telemetry (defaults on)"
+echo "📉 Mixes read-reduction env (baked defaults unless overridden in .env):"
+grep -E '^(MIXES_POOL_|WARMER_FULL_BACKOFF_MS|ENABLE_MIXES_BACKGROUND_WARMER):' "$ENV_FILE" 2>/dev/null | sed 's/^/   /' || true
 echo "⚙️  Cloud Run: memory=$MEMORY cpu=$CPU min=$MIN_INSTANCES max=$MAX_INSTANCES concurrency=$CONCURRENCY timeout=$TIMEOUT"
 echo "🩺 Startup probe: $STARTUP_PROBE"
 

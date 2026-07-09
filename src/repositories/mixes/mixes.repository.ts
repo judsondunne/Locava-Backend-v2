@@ -30,10 +30,10 @@ type MixPool = {
   lastRefreshErrorMessage: string | null;
 };
 
-const DEFAULT_REFRESH_MS = 60_000;
+const DEFAULT_REFRESH_MS = 300_000;
 const DEFAULT_MAX_STALE_MS = 10 * 60_000;
-const DEFAULT_MAX_DOCS = 600;
-const DEFAULT_COLD_START_DOCS = 120;
+const DEFAULT_MAX_DOCS = 150;
+const DEFAULT_COLD_START_DOCS = 80;
 const DEFAULT_SNAPSHOT_PATH = path.join(process.cwd(), "state", "mixes-preview-snapshot.json");
 
 function toIntEnv(name: string, fallback: number, min: number, max: number): number {
@@ -82,7 +82,7 @@ export class MixesRepository {
   private dbClient: ReturnType<typeof getFirestoreSourceClient> | null | undefined;
   private readonly refreshMs = toIntEnv("MIXES_POOL_REFRESH_MS", DEFAULT_REFRESH_MS, 15_000, 300_000);
   private readonly maxStaleMs = toIntEnv("MIXES_POOL_MAX_STALE_MS", DEFAULT_MAX_STALE_MS, 30_000, 3_600_000);
-  private readonly maxDocs = toIntEnv("MIXES_POOL_MAX_DOCS", DEFAULT_MAX_DOCS, 200, 30_000);
+  private readonly maxDocs = toIntEnv("MIXES_POOL_MAX_DOCS", DEFAULT_MAX_DOCS, 80, 30_000);
   private readonly coldStartDocs = toIntEnv("MIXES_POOL_COLD_START_DOCS", DEFAULT_COLD_START_DOCS, 60, 10_000);
   private readonly snapshotPath = process.env.MIXES_POOL_SNAPSHOT_PATH ?? DEFAULT_SNAPSHOT_PATH;
   private readonly pool: MixPool = {
@@ -101,7 +101,6 @@ export class MixesRepository {
   private snapshotLoadPromise: Promise<void> | null = null;
 
   startBackgroundRefresh(log?: FastifyBaseLogger): void {
-    if (this.refreshTimer) return;
     const db = this.getDb();
     if (!db || typeof (db as any).collection !== "function") return;
     this.log = log ?? this.log;
@@ -109,6 +108,8 @@ export class MixesRepository {
     setTimeout(() => {
       void this.scheduleRefresh(this.coldStartDocs, "startup");
     }, startupDelayMs);
+    const enableLegacyTimer = process.env.ENABLE_MIXES_BACKGROUND_WARMER === "true";
+    if (!enableLegacyTimer || this.refreshTimer) return;
     this.refreshTimer = setInterval(() => {
       void this.scheduleRefresh(this.maxDocs, "scheduled");
     }, this.refreshMs);

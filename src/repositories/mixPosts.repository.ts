@@ -1,6 +1,11 @@
-import { FieldPath, type Query } from "firebase-admin/firestore";
+import { FieldPath, type Query, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { isPostVisibleInPublicAlgorithmPools } from "../lib/posts/postFieldSelectors.js";
 import { incrementDbOps } from "../observability/request-context.js";
+import {
+  ACTIVITY_MIX_POOL_CAP,
+  RECENT_POSTS_PAGE_OVERFETCH_CAP,
+  RECENT_POSTS_PAGE_OVERFETCH_CHAINS,
+} from "../constants/firestore-read-budgets.js";
 import { getFirestoreSourceClient } from "./source-of-truth/firestore-client.js";
 import { SourceOfTruthRequiredError } from "./source-of-truth/strict-mode.js";
 import { getBestPostCover } from "../services/mixes/mixCover.service.js";
@@ -119,6 +124,41 @@ export class MixPostsRepository {
     });
   }
 
+  private async fetchRecentBatch(input: {
+    batchSize: number;
+    startAfter: { time: number; id: string } | null;
+  }): Promise<{ rows: MixPostRow[]; lastDoc: QueryDocumentSnapshot | null; rawCount: number }> {
+    const db = this.requireDb();
+    let q: Query = db
+      .collection("posts")
+      .orderBy("time", "desc")
+      .orderBy(FieldPath.documentId(), "desc")
+      .limit(input.batchSize);
+    if (input.startAfter) {
+      q = q.startAfter(input.startAfter.time, input.startAfter.id);
+    }
+    const snap = await q.select(...SELECT_FIELDS).get();
+    incrementDbOps("queries", 1);
+    incrementDbOps("reads", snap.docs.length);
+    const rows = snap.docs.map(mapDoc).filter(isVisiblePost);
+    return { rows, lastDoc: snap.docs[snap.docs.length - 1] ?? null, rawCount: snap.docs.length };
+  }
+
+  private cursorStartAfter(
+    cursor: { lastTime: number | null; lastId: string | null } | null,
+  ): { time: number; id: string } | null {
+    if (!cursor?.lastId || cursor.lastTime == null) return null;
+    return { time: Number(cursor.lastTime) || 0, id: String(cursor.lastId) };
+  }
+
+  private docStartAfter(doc: QueryDocumentSnapshot): { time: number; id: string } {
+    const data = doc.data() as Record<string, unknown>;
+    return {
+      time: asFiniteInt(data.time ?? data.updatedAtMs ?? data.createdAtMs) ?? Date.now(),
+      id: doc.id,
+    };
+  }
+
   private applyCursorDesc<T extends { time?: unknown; postId?: unknown; id?: unknown }>(
     rows: T[],
     cursor: { lastTime: number | null; lastId: string | null } | null,
@@ -169,7 +209,7 @@ export class MixPostsRepository {
     );
     if (tags.length === 0) return { items: [], nextCursor: null, hasMore: false };
     const limit = Math.max(1, Math.min(36, Math.floor(input.limit)));
-    const poolCapDefault = Math.max(72, Math.min(520, limit * 22));
+    const poolCapDefault = Math.max(limit, Math.min(ACTIVITY_MIX_POOL_CAP, limit * 3));
     const poolCap =
       typeof input.poolCapOverride === "number" && Number.isFinite(input.poolCapOverride)
         ? Math.max(limit, Math.min(120, Math.floor(input.poolCapOverride)))
@@ -244,21 +284,42 @@ export class MixPostsRepository {
   async pageRecent(input: {
     limit: number;
     cursor: { lastTime: number | null; lastId: string | null } | null;
-  }): Promise<{ items: MixPostRow[]; nextCursor: { lastTime: number; lastId: string } | null; hasMore: boolean }> {
+  }): Promise<{
+    items: MixPostRow[];
+    nextCursor: { lastTime: number; lastId: string } | null;
+    hasMore: boolean;
+    reads: number;
+  }> {
     const limit = Math.max(1, Math.min(36, Math.floor(input.limit)));
-    // Avoid composite-index requirements (privacy == public + orderBy time + __name__) by querying
-    // recent posts and filtering visibility (including privacy) in-memory.
-    const poolCap = Math.max(120, Math.min(600, limit * 22));
-    const pooled = await this.runQuery((db) => db.collection("posts").orderBy("time", "desc").limit(poolCap));
-    const ranked = this.sortByTimeDescIdDesc(pooled);
-    const afterCursor = this.applyCursorDesc(ranked, input.cursor);
-    const slice = afterCursor.slice(0, limit);
-    const hasMore = afterCursor.length > limit;
-    const last = slice[slice.length - 1];
+    const fetchBatch = Math.min(RECENT_POSTS_PAGE_OVERFETCH_CAP, Math.max(limit, limit * 3));
+    const maxChains = RECENT_POSTS_PAGE_OVERFETCH_CHAINS;
+    const collected: MixPostRow[] = [];
+    let startAfter = this.cursorStartAfter(input.cursor);
+    let lastRawCount = 0;
+    let reads = 0;
+
+    for (let chain = 0; chain < maxChains; chain += 1) {
+      if (collected.length >= limit) break;
+      const batch = await this.fetchRecentBatch({ batchSize: fetchBatch, startAfter });
+      reads += batch.rawCount;
+      lastRawCount = batch.rawCount;
+      for (const row of batch.rows) {
+        collected.push(row);
+        if (collected.length >= limit) break;
+      }
+      if (collected.length >= limit) break;
+      if (!batch.lastDoc || batch.rawCount < fetchBatch) break;
+      startAfter = this.docStartAfter(batch.lastDoc);
+    }
+
+    const items = collected.slice(0, limit);
+    const hasMore = collected.length > limit || lastRawCount >= fetchBatch;
+    const last = items[items.length - 1];
     return {
-      items: slice,
-      nextCursor: hasMore && last ? { lastTime: Number((last as any)?.time ?? 0) || 0, lastId: String((last as any)?.postId ?? (last as any)?.id ?? "") } : null,
+      items,
+      nextCursor: hasMore && last ? { lastTime: Number(last.time ?? 0) || 0, lastId: String(last.postId ?? last.id ?? "") } : null,
       hasMore,
+      reads,
     };
   }
 
