@@ -22,6 +22,7 @@ import {
 import { listPbfV2FullRuns } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2FullRunStore.js";
 import { scanPbfViewportPreview } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2ViewportPreview.js";
 import { searchPlaceImages } from "../../lib/places/searchPlaceImages.service.js";
+import { applyPixelQualityChecks } from "../../lib/pbf/pixelPhotoChecks.js";
 import { runPbfCopierV2Pipeline } from "../../admin/openstreetmap/national/pbfCopier/pbfCopierV2Pipeline.js";
 
 const VERMONT_PBF_PATH = "data/osm/vermont-latest.osm.pbf";
@@ -245,13 +246,34 @@ export async function registerUndiscoveredDashboardRoutes(
         resultLimit: body.limit ?? 12,
         skipLoadVerification: true,
       });
+      // Pixel-level pass: decode actual image bytes to drop true B&W photos and
+      // OCR the top results to drop images with rendered text. Best-effort.
+      const pixel = await applyPixelQualityChecks(results, { maxImages: 10, maxOcr: 4 });
       const hasKeys = Boolean(
         String(env.SERPER_API_KEY ?? "").trim() || String(env.BING_SEARCH_API_KEY ?? "").trim(),
       );
       const note = !hasKeys
         ? "No image-search API key set — showing mock results for known demo names only. Add SERPER_API_KEY (Google Images via serper.dev) or BING_SEARCH_API_KEY to .env for live search."
         : undefined;
-      return success({ query: body.query, source, count: results.length, results, note });
+      return success({
+        query: body.query,
+        source,
+        count: pixel.kept.length,
+        results: pixel.kept,
+        pixelChecks: {
+          analyzed: pixel.analyzed,
+          ocrRan: pixel.ocrRan,
+          unverified: pixel.unverified,
+          rejected: pixel.rejected.map((r) => ({
+            imageUrl: r.result.imageUrl,
+            sourceDomain: r.result.sourceDomain,
+            reasons: r.rejectReasons,
+            textSample: r.analysis.textSample,
+            meanSaturation: r.analysis.meanSaturation,
+          })),
+        },
+        note,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       return reply.status(400).send(failure("photo_search_failed", message));

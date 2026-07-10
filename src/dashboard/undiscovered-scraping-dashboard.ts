@@ -355,7 +355,10 @@ async function searchPhotos(){
   try{
     $('photoBtn').disabled=true; $('photoNote').textContent='searching…'; $('photoGrid').innerHTML='';
     const d = await api('/photo-search',{method:'POST',body:JSON.stringify({query:q,limit:12})});
-    $('photoNote').textContent = d.count+' photo(s) via '+d.source+(d.note?' — '+d.note:'');
+    const px = d.pixelChecks || {};
+    const pxNote = (px.analyzed?(' · pixel-checked '+px.analyzed+(px.ocrRan?(' (OCR on '+px.ocrRan+')'):'')):'')
+      + ((px.rejected&&px.rejected.length)?(' · dropped '+px.rejected.length+': '+px.rejected.map(r=>r.reasons.join('/')).join(', ')):'');
+    $('photoNote').textContent = d.count+' photo(s) via '+d.source+pxNote+(d.note?' — '+d.note:'');
     $('photoGrid').innerHTML = d.results.map(r=>{
       const dom = r.sourceDomain || (r.sourceUrl||'').replace(/^https?:\\/\\//,'').split('/')[0] || 'source';
       return '<div style="background:#020617;border:1px solid #1f2937;border-radius:10px;overflow:hidden">'
