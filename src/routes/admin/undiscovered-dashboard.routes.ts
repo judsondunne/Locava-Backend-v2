@@ -5,10 +5,15 @@ import {
   DISCOVERY_QUALITY_RULES,
   DISCOVERY_SPOT_CATEGORIES,
   ListCandidatesQuerySchema,
+  RankSpotsBodySchema,
   SeedFromChannelBodySchema,
   SetStatusBodySchema,
   undiscoveredDashboardContract,
 } from "../../contracts/surfaces/undiscovered-candidate.contract.js";
+import {
+  buildDefaultWebSearchFetcher,
+  rankCandidate,
+} from "../../lib/undiscovered/spotRanking.js";
 import { getDiscoveryCandidateStore } from "../../admin/undiscovered/discoveryCandidateStore.js";
 import {
   defaultHttpFetchers,
@@ -278,6 +283,58 @@ export async function registerUndiscoveredDashboardRoutes(
       const message = error instanceof Error ? error.message : String(error);
       return reply.status(400).send(failure("photo_search_failed", message));
     }
+  });
+
+  // Popularity ranking on top of the quality filter (no AI): local metadata
+  // signals for all matching spots, authority-weighted Google hits for up to
+  // `limit` of them (1 Serper credit each, cached per name).
+  app.post(`${base}/rank-spots`, async (request) => {
+    setRouteName("admin.undiscovered.dashboard_v1.rank_spots");
+    const body = RankSpotsBodySchema.parse(request.body ?? {});
+    const store = getDiscoveryCandidateStore();
+    const fetcher = buildDefaultWebSearchFetcher(env);
+    const pool = store
+      .list({ channel: body.channel, category: body.category })
+      .filter((cand) => cand.qualityGate.passed)
+      .filter((cand) => (body.onlyUnranked ? cand.ranking?.webAuthority === undefined : true));
+
+    let creditsSpent = 0;
+    let webRanked = 0;
+    let localRanked = 0;
+    const tiers: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 };
+    for (let i = 0; i < pool.length; i++) {
+      const cand = pool[i]!;
+      const useWeb = fetcher && i < body.limit;
+      const r = await rankCandidate(cand, { fetcher: useWeb ? fetcher : null, region: cand.region });
+      store.setRanking(cand.id, r.ranking);
+      if (r.spentCredit) creditsSpent += 1;
+      if (r.usedWeb) webRanked += 1;
+      else localRanked += 1;
+      tiers[r.ranking.tier] = (tiers[r.ranking.tier] ?? 0) + 1;
+    }
+
+    const top = store
+      .list({ channel: body.channel, category: body.category })
+      .filter((cand) => cand.ranking)
+      .slice(0, 5)
+      .map((cand) => ({
+        name: cand.displayName,
+        score: cand.ranking!.score,
+        tier: cand.ranking!.tier,
+        webAuthority: cand.ranking!.webAuthority,
+        hiddenGem: cand.ranking!.hiddenGem ?? false,
+        signals: cand.ranking!.signals.slice(0, 6),
+      }));
+
+    return success({
+      considered: pool.length,
+      webRanked,
+      localRanked,
+      creditsSpent,
+      tiers,
+      top,
+      webSearchAvailable: Boolean(fetcher),
+    });
   });
 
   app.get(`${base}/channels`, async () => {

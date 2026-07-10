@@ -126,6 +126,7 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
       <div class="row" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
         <button class="secondary" id="importPbf">Import PBF results</button>
         <button class="secondary" id="seedSample">Seed VT sample</button>
+        <button id="rankSpots">Rank spots</button>
         <select id="rChannel"><option value="">all channels</option></select>
         <select id="rCategory"><option value="">all categories</option></select>
         <select id="rStatus"><option value="">all statuses</option><option>candidate</option><option>reviewed</option><option>approved</option><option>rejected</option><option>written</option></select>
@@ -139,6 +140,7 @@ export function renderUndiscoveredScrapingDashboardPage(): string {
             <th style="padding:7px 8px;text-align:left;font-weight:600">Channel</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Source</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Quality</th>
+            <th style="padding:7px 8px;text-align:left;font-weight:600">Rank</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Status</th>
             <th style="padding:7px 8px;text-align:left;font-weight:600">Add to app</th>
           </tr></thead>
@@ -263,12 +265,18 @@ function reviewRow(c){
   const q = c.qualityGate && c.qualityGate.passed
     ? '<span class="pill" style="border-color:#166534;color:#86efac">pass</span>'
     : '<span style="color:#fbbf24;font-size:11px">'+((c.qualityGate&&c.qualityGate.reasons||[]).join(', ')||'flagged')+'</span>';
+  const TIER_COLOR = {S:'#f59e0b',A:'#34d399',B:'#60a5fa',C:'#64748b'};
+  const rk = c.ranking
+    ? '<span class="pill" style="border-color:'+(TIER_COLOR[c.ranking.tier]||'#64748b')+';color:'+(TIER_COLOR[c.ranking.tier]||'#94a3b8')+'" title="'+(c.ranking.signals||[]).join(', ')+'">'
+      + c.ranking.tier+' · '+c.ranking.score+(c.ranking.hiddenGem?' 💎':'')+'</span>'
+    : '<span class="muted">—</span>';
   return '<tr style="border-top:1px solid #1f2937">'
     +'<td style="padding:6px 8px">'+c.displayName+'</td>'
     +'<td style="padding:6px 8px">'+c.primaryCategory+'</td>'
     +'<td style="padding:6px 8px"><span class="dot" style="background:'+col+'"></span>'+c.sourceChannel+'</td>'
     +'<td style="padding:6px 8px">'+view+'</td>'
     +'<td style="padding:6px 8px">'+q+'</td>'
+    +'<td style="padding:6px 8px">'+rk+'</td>'
     +'<td style="padding:6px 8px"><span class="pill" style="border-color:'+bc+';color:'+tc+'">'+c.reviewStatus+'</span></td>'
     +'<td style="padding:6px 8px">'+acts+'</td>'
     +'</tr>';
@@ -280,7 +288,7 @@ async function loadReview(){
     if($('rCategory').value) p.set('category',$('rCategory').value);
     if($('rStatus').value) p.set('status',$('rStatus').value);
     const d = await api('/candidates?'+p.toString());
-    $('reviewRows').innerHTML = d.items.slice(0,400).map(reviewRow).join('') || '<tr><td colspan="7" class="muted" style="padding:10px">No locations. Scrape a channel, Import PBF results, or Seed VT sample.</td></tr>';
+    $('reviewRows').innerHTML = d.items.slice(0,400).map(reviewRow).join('') || '<tr><td colspan="8" class="muted" style="padding:10px">No locations. Scrape a channel, Import PBF results, or Seed VT sample.</td></tr>';
     $('rCount').textContent = fmt(d.total)+' locations'+(d.total>400?' (showing 400)':'');
   }catch(e){ $('rCount').textContent='load failed: '+e.message; }
 }
@@ -295,6 +303,20 @@ $('seedSample').onclick = async () => {
   try{ $('seedSample').disabled=true; $('rCount').textContent='seeding VT sample…'; const r=await api('/seed-sample',{method:'POST',body:'{}'}); $('rCount').textContent='seeded '+r.total+' sample locations'; await loadReview(); await loadMap(); await tick(); }
   catch(e){ $('rCount').textContent='seed failed: '+e.message; }
   finally{ $('seedSample').disabled=false; }
+};
+$('rankSpots').onclick = async () => {
+  try{
+    $('rankSpots').disabled=true; $('rCount').textContent='ranking spots (web authority)…';
+    const f = { limit: 20, onlyUnranked: true };
+    if($('rChannel').value) f.channel=$('rChannel').value;
+    if($('rCategory').value) f.category=$('rCategory').value;
+    const r = await api('/rank-spots',{method:'POST',body:JSON.stringify(f)});
+    const tierTxt = 'S:'+r.tiers.S+' A:'+r.tiers.A+' B:'+r.tiers.B+' C:'+r.tiers.C;
+    $('rCount').textContent = 'ranked '+r.considered+' ('+r.webRanked+' web-checked, '+r.creditsSpent+' credits) — '+tierTxt
+      + (r.webSearchAvailable?'':' — no SERPER_API_KEY: local signals only');
+    await loadReview(); await loadMap();
+  }catch(e){ $('rCount').textContent='rank failed: '+e.message; }
+  finally{ $('rankSpots').disabled=false; }
 };
 
 // ---- Minimap: plot spots with real coordinates, emoji by category ----
@@ -311,7 +333,15 @@ function initMap(){
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'© OpenStreetMap'}).addTo(MAP);
   MARKERS = L.layerGroup().addTo(MAP);
 }
-function pin(cat){ return L.divIcon({html:'<div class="emoji-pin">'+(EMOJI[cat]||EMOJI.other)+'</div>',className:'',iconSize:[24,24],iconAnchor:[12,12]}); }
+function pin(cat, tier){
+  // Visual weight by rank tier: S/A big & bright, B medium, C/unranked small & dim.
+  const size = tier==='S' ? 30 : tier==='A' ? 26 : tier==='B' ? 21 : 16;
+  const opacity = tier==='S'||tier==='A' ? 1 : tier==='B' ? 0.85 : 0.55;
+  return L.divIcon({
+    html:'<div class="emoji-pin" style="font-size:'+size+'px;line-height:'+size+'px;opacity:'+opacity+'">'+(EMOJI[cat]||EMOJI.other)+'</div>',
+    className:'', iconSize:[size,size], iconAnchor:[size/2,size/2],
+  });
+}
 async function loadMap(){
   initMap(); if(!MAP) return;
   MARKERS.clearLayers();
@@ -323,9 +353,11 @@ async function loadMap(){
   for(const c of plottable){
     usedCats.add(c.primaryCategory);
     const src = c.provenance && c.provenance.sourceUrl;
+    const rankLine = c.ranking ? '<br>rank: <b>'+c.ranking.tier+'</b> ('+c.ranking.score+')'+(c.ranking.hiddenGem?' 💎 hidden gem':'') : '';
     const html = '<b>'+c.displayName+'</b><br>'+(EMOJI[c.primaryCategory]||'📍')+' '+c.primaryCategory+' · '+c.sourceChannel
+      +rankLine
       +'<br>status: '+c.reviewStatus+(src?('<br><a href="'+src+'" target="_blank" rel="noopener">view source ↗</a>'):'');
-    L.marker([c.lat,c.lng],{icon:pin(c.primaryCategory)}).bindPopup(html).addTo(MARKERS);
+    L.marker([c.lat,c.lng],{icon:pin(c.primaryCategory, c.ranking&&c.ranking.tier)}).bindPopup(html).addTo(MARKERS);
     bounds.push([c.lat,c.lng]);
   }
   if(bounds.length) MAP.fitBounds(bounds,{padding:[30,30],maxZoom:11});

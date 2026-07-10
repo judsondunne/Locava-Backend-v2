@@ -41,6 +41,7 @@ export class DiscoveryCandidateStore {
           reviewStatus: existing.reviewStatus,
           reviewNotes: existing.reviewNotes,
           reviewedBy: existing.reviewedBy,
+          ranking: existing.ranking ?? parsed.ranking,
           createdAt: existing.createdAt,
           updatedAt: new Date().toISOString(),
         });
@@ -66,12 +67,23 @@ export class DiscoveryCandidateStore {
       if (filter.category && c.primaryCategory !== filter.category) continue;
       out.push(c);
     }
-    // Stable, useful ordering: quality-passing first, then name.
+    // Ordering: ranked spots first (score desc), then quality-passing, then name.
     out.sort((a, b) => {
+      const ar = a.ranking?.score ?? -1;
+      const br = b.ranking?.score ?? -1;
+      if (ar !== br) return br - ar;
       if (a.qualityGate.passed !== b.qualityGate.passed) return a.qualityGate.passed ? -1 : 1;
       return a.displayName.localeCompare(b.displayName);
     });
     return out;
+  }
+
+  /** Attach or replace a popularity ranking on a candidate. */
+  setRanking(id: string, ranking: NonNullable<DiscoveryCandidate["ranking"]>): boolean {
+    const current = this.byId.get(id);
+    if (!current) return false;
+    this.byId.set(id, { ...current, ranking, updatedAt: new Date().toISOString() });
+    return true;
   }
 
   /**

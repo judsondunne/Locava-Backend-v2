@@ -58,6 +58,20 @@ export function isWritableDiscoveryStatus(status: DiscoveryReviewStatus): boolea
   return status === "approved";
 }
 
+/** Popularity ranking computed on top of the quality filter (no AI — metadata + web authority). */
+export const DiscoveryRankingSchema = z.object({
+  /** 0–100 combined score (local metadata signals + web authority). */
+  score: z.number().min(0).max(100),
+  tier: z.enum(["S", "A", "B", "C"]),
+  /** Authority-weighted Google organic hits (absent until web ranking ran). */
+  webAuthority: z.number().optional(),
+  /** High local quality but ~zero web presence — a true "undiscovered" candidate. */
+  hiddenGem: z.boolean().optional(),
+  signals: z.array(z.string()),
+  rankedAt: z.string(),
+});
+export type DiscoveryRanking = z.infer<typeof DiscoveryRankingSchema>;
+
 export const DiscoveryQualityGateSchema = z.object({
   /** Passed the quality gate (would be shown), independent of human review. */
   passed: z.boolean(),
@@ -86,6 +100,7 @@ export const DiscoveryCandidateSchema = z.object({
 
   reviewStatus: DiscoveryReviewStatusSchema.default("candidate"),
   qualityGate: DiscoveryQualityGateSchema,
+  ranking: DiscoveryRankingSchema.optional(),
 
   /** Provenance for dedupe/audit. */
   provenance: z.object({
@@ -217,6 +232,14 @@ export const SetStatusBodySchema = z.object({
   status: DiscoveryReviewStatusSchema,
   reviewNotes: z.string().max(2000).optional(),
   reviewedBy: z.string().max(120).optional(),
+});
+
+export const RankSpotsBodySchema = z.object({
+  limit: z.number().int().min(1).max(50).default(20),
+  channel: DiscoverySourceChannelSchema.optional(),
+  category: z.string().optional(),
+  /** Skip spots that already carry a web-backed ranking (protects Serper quota). */
+  onlyUnranked: z.boolean().default(true),
 });
 
 export const ListCandidatesQuerySchema = z.object({
