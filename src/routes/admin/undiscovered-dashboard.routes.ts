@@ -302,10 +302,10 @@ export async function registerUndiscoveredDashboardRoutes(
     let webRanked = 0;
     let localRanked = 0;
     const tiers: Record<string, number> = { S: 0, A: 0, B: 0, C: 0 };
-    for (let i = 0; i < pool.length; i++) {
-      const cand = pool[i]!;
-      const useWeb = fetcher && i < body.limit;
-      const r = await rankCandidate(cand, { fetcher: useWeb ? fetcher : null, region: cand.region });
+    for (const cand of pool) {
+      // Budget applies to actual web lookups; generic names never consume a slot.
+      const wantWeb = fetcher && webRanked < body.limit;
+      const r = await rankCandidate(cand, { fetcher: wantWeb ? fetcher : null, region: cand.region });
       store.setRanking(cand.id, r.ranking);
       if (r.spentCredit) creditsSpent += 1;
       if (r.usedWeb) webRanked += 1;

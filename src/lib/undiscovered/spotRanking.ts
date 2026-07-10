@@ -172,6 +172,30 @@ export function combineRanking(
   };
 }
 
+/** Generic feature words that can't identify a place on their own. */
+const GENERIC_NAME_WORDS = new Set([
+  "beach", "field", "fields", "park", "trail", "path", "pond", "lake", "river",
+  "brook", "creek", "stream", "hill", "mountain", "falls", "bridge", "dam",
+  "baseball", "soccer", "tennis", "playground", "parking", "picnic", "area",
+  "north", "south", "east", "west", "upper", "lower", "middle", "old", "new",
+  "town", "city", "village", "state", "forest", "loop", "the",
+  "connector", "access", "spur", "junction", "crossing", "entrance", "overlook",
+]);
+
+/**
+ * Web ranking only makes sense for distinctive names. Searching `"Beach" Vermont`
+ * matches every Vermont beach page, so generic or numeric names would score
+ * falsely high — those stay local-signals-only.
+ */
+export function isWebRankableName(name: string): boolean {
+  const words = name.trim().split(/\s+/);
+  if (words.length < 2) return false;
+  return words.some((w) => {
+    const clean = w.replace(/[^a-zA-Z]/g, "").toLowerCase();
+    return clean.length >= 4 && !GENERIC_NAME_WORDS.has(clean);
+  });
+}
+
 /** In-memory web-search cache — never spend a credit twice on the same name. */
 const webSearchCache = new Map<string, WebSearchResponse | null>();
 
@@ -207,7 +231,7 @@ export async function rankCandidate(
 ): Promise<RankCandidateResult> {
   const local = computeLocalRankSignals(candidate);
   const fetcher = opts.fetcher ?? null;
-  if (!fetcher) {
+  if (!fetcher || !isWebRankableName(candidate.displayName)) {
     return { ranking: combineRanking(local, null), usedWeb: false, spentCredit: false };
   }
   const cacheKey = candidate.displayName.trim().toLowerCase();

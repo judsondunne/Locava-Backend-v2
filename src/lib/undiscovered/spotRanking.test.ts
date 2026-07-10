@@ -111,6 +111,28 @@ describe("combineRanking", () => {
   });
 });
 
+describe("isWebRankableName", () => {
+  it("rejects generic and numeric names, accepts distinctive ones", async () => {
+    const { isWebRankableName } = await import("./spotRanking.js");
+    for (const bad of ["Beach", "Baseball Field", "1792", "Old Trail", "North Pond"]) {
+      expect(isWebRankableName(bad), bad).toBe(false);
+    }
+    for (const good of ["Moss Glen Falls", "Quechee Gorge Trail", "Advent Hill"]) {
+      expect(isWebRankableName(good), good).toBe(true);
+    }
+  });
+
+  it("generic names never spend web credits", async () => {
+    resetWebSearchCache();
+    let calls = 0;
+    const fetcher = async () => { calls += 1; return FAMOUS_RESPONSE; };
+    const r = await rankCandidate(candidate({ displayName: "Beach", primaryCategory: "beach" }), { fetcher });
+    expect(calls).toBe(0);
+    expect(r.usedWeb).toBe(false);
+    expect(r.ranking.webAuthority).toBeUndefined();
+  });
+});
+
 describe("rankCandidate cache", () => {
   beforeEach(() => resetWebSearchCache());
 
