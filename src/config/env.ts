@@ -221,6 +221,10 @@ const EnvSchema = z.object({
   SERPER_API_KEY: z.string().optional(),
   /** Optional Bing Image Search API key for places visualizer image search. */
   BING_SEARCH_API_KEY: z.string().optional(),
+  /** Reddit app-only OAuth (script app) for the undiscovered Reddit discovery channel. */
+  REDDIT_CLIENT_ID: z.string().optional(),
+  REDDIT_CLIENT_SECRET: z.string().optional(),
+  REDDIT_USER_AGENT: z.string().optional(),
   /** Separate guard for staging-only Firestore writes from State Content Factory. */
   STATE_CONTENT_FACTORY_ALLOW_STAGING_WRITES: z.string().optional(),
   /** When true, allows production inventory writes with explicit confirmation phrase. */

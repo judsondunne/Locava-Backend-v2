@@ -72,6 +72,10 @@ const APP_HARD_JUNK_REJECTS = new Set([
   "missing_town_context",
   "forum_or_discussion_page",
   "thumbnail_too_small",
+  "monochrome_or_vintage",
+  "likely_text_overlay",
+  "low_resolution",
+  "extreme_aspect_ratio",
 ]);
 
 function toExternalAsset(

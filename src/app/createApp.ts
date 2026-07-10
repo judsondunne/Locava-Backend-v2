@@ -153,6 +153,7 @@ import { registerV2UnexploredRouteTilesRoutes } from "../routes/v2/unexplored-ro
 import { registerV2UnexploredSpotTilesRoutes } from "../routes/v2/unexplored-spot-tiles.routes.js";
 import { registerV2UndiscoveredMapLayerRoutes } from "../routes/v2/undiscovered-map-layer.routes.js";
 import { registerV2UndiscoveredPhotoSearchRoutes } from "../routes/v2/undiscovered-photo-search.routes.js";
+import { registerUndiscoveredDashboardRoutes } from "../routes/admin/undiscovered-dashboard.routes.js";
 import { registerV2InventoryTilesRoutes } from "../routes/v2/inventory-tiles.routes.js";
 import { registerV2InventorySpotDetailRoutes } from "../routes/v2/inventory-spot-detail.routes.js";
 import { registerV2InventoryRouteDetailRoutes } from "../routes/v2/inventory-route-detail.routes.js";
@@ -874,6 +875,9 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerInternalHealthDashboardRoutes);
   app.register(registerPlacesVisualizerRoutes);
   app.register(registerAdminRoutes);
+  app.register(async (instance) => {
+    await registerUndiscoveredDashboardRoutes(instance, env);
+  });
   app.register(registerPublicExpoPushRoutes);
   app.register(registerPublicPbfCopierRoutes);
   if (isLocalDevIdentityModeEnabled()) {
