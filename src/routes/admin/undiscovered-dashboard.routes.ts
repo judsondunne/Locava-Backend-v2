@@ -40,6 +40,13 @@ const ScanAreaBodySchema = z.object({
     northLat: z.number(),
   }),
   maxRawObjectsScanned: z.number().int().positive().max(2_000_000).optional(),
+  /**
+   * Scan mode. `locava_filtered` (default) runs the Locava classifier and keeps
+   * real destinations only — validated on the Quechee slice it kept 28 named
+   * places (gorge trails, state park, lake) vs raw's 112 incl. shops/solar farms.
+   * `raw_osm` remains available for coverage debugging.
+   */
+  mode: z.enum(["locava_filtered", "raw_osm"]).default("locava_filtered"),
 });
 
 /** Summarize the most recent PBF full-run for the live scraping metrics. */
@@ -212,7 +219,7 @@ export async function registerUndiscoveredDashboardRoutes(
       const scan = await scanPbfViewportPreview({
         pbfPath: VERMONT_PBF_PATH,
         bbox: body.bbox,
-        mode: "raw_osm",
+        mode: body.mode,
         maxRawObjectsScanned: body.maxRawObjectsScanned,
       });
       const filtered = runPbfCopierV2Pipeline({ rawItems: scan.items });
