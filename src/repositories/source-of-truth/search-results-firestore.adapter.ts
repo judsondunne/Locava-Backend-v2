@@ -1,13 +1,19 @@
 import { FieldPath, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import {
   type SearchActivityIntent,
-  extractResidualTokens,
   normalizeSearchText,
   parseSearchQueryIntent,
   resolveStateNameFromAny,
 } from "../../lib/search-query-intent.js";
 import { searchPlacesIndexService } from "../../services/surfaces/search-places-index.service.js";
 import { getFirestoreSourceClient } from "./firestore-client.js";
+import { embedQuery, isEmbeddingEnabled } from "../../services/search/post-embedding.service.js";
+import {
+  activityMatchScore,
+  blendedSemanticScore,
+  distanceMiles,
+  textMatchScore
+} from "./search-ranking-math.js";
 
 export type FirestoreSearchResultCandidate = {
   postId: string;
@@ -43,7 +49,7 @@ export type FirestoreSearchResultsPage = {
   debug?: Record<string, unknown>;
 };
 
-type SearchablePost = {
+export type SearchablePost = {
   postId: string;
   userId: string;
   userHandle: string;
@@ -513,6 +519,180 @@ export class SearchResultsFirestoreAdapter {
         : {}),
     };
   }
+
+  /**
+   * Hybrid semantic search (rankingVersion "semantic_v1"): unions ANN neighbors (Firestore
+   * `findNearest` over the post `embedding` vector) with lexical/activity + recency candidates, then
+   * blends `semantic · lexical · activity-prior · geo-decay · quality` into a single ranking. Geo is a
+   * smooth decay (never a hard cutoff), so location-scoped or rural queries degrade gracefully instead
+   * of returning empty. Returns `null` when semantic search is unavailable (no provider, or the query
+   * could not be embedded) so the caller can fall back to the lexical `searchResultsPage`.
+   */
+  async semanticSearchResultsPage(input: {
+    viewerId: string;
+    query: string;
+    cursorOffset: number;
+    limit: number;
+    lat: number | null;
+    lng: number | null;
+    includeDebug?: boolean;
+  }): Promise<FirestoreSearchResultsPage | null> {
+    if (!this.db || !isEmbeddingEnabled()) return null;
+    const { query, cursorOffset, limit, lat, lng, includeDebug = false } = input;
+    const safeLimit = Math.max(1, Math.min(limit, 12));
+    const cursorSafe = Math.max(0, Math.floor(cursorOffset));
+
+    const queryVector = await embedQuery(query);
+    if (!queryVector) return null; // provider hiccup / empty query → caller falls back to lexical.
+
+    const intent = parseSearchQueryIntent(query, (normalizedQuery) => resolveIntentPlace(normalizedQuery));
+    const viewerCoords =
+      typeof lat === "number" && Number.isFinite(lat) && typeof lng === "number" && Number.isFinite(lng)
+        ? { lat, lng }
+        : null;
+
+    const annLimit = Math.min(1000, Math.max(120, cursorSafe + safeLimit + 120));
+    const collected = new Map<string, SearchablePost>();
+    const semanticDistanceById = new Map<string, number>();
+    let queryCount = 0;
+    let readCount = 0;
+
+    // Semantic source: ANN neighbors. Pre-filter by state region when the query is state-scoped
+    // (requires the composite vector index); otherwise search the whole corpus.
+    const stateRegionId = intent.location?.stateRegionId
+      ? String(intent.location.stateRegionId).trim() || null
+      : null;
+    let annBase: FirebaseFirestore.Query = this.db.collection("posts");
+    if (stateRegionId) annBase = annBase.where("stateRegionId", "==", stateRegionId);
+    try {
+      const annSnap = await withTimeout(
+        annBase
+          .findNearest({
+            vectorField: "embedding",
+            queryVector,
+            limit: annLimit,
+            distanceMeasure: "COSINE",
+            distanceResultField: "vectorDistance",
+          })
+          .get(),
+        SearchResultsFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+        "search-results-firestore-findNearest"
+      );
+      queryCount += 1;
+      readCount += annSnap.docs.length;
+      for (const doc of annSnap.docs) {
+        if (!collected.has(doc.id)) collected.set(doc.id, mapDoc(doc));
+        const distance = Number((doc.data() as { vectorDistance?: unknown }).vectorDistance);
+        if (Number.isFinite(distance)) semanticDistanceById.set(doc.id, distance);
+      }
+    } catch {
+      // If the vector index is missing/unavailable, fall back to lexical rather than erroring.
+      return null;
+    }
+
+    // Lexical recall source: keep the current activity-tag path as a recall booster (exact/proper-noun
+    // matches embeddings handle poorly), plus a small recency pool.
+    const lexicalFetches: Array<Promise<QueryDocumentSnapshot[]>> = [];
+    const activityKeys =
+      intent.activity?.queryActivities?.map((v) => String(v ?? "").trim().toLowerCase()).filter(Boolean) ?? [];
+    for (const activity of activityKeys.slice(0, 2)) {
+      lexicalFetches.push(
+        withTimeout(
+          this.db
+            .collection("posts")
+            .where("activities", "array-contains", activity)
+            .orderBy("time", "desc")
+            .select(...POST_SELECT_FIELDS)
+            .limit(MAX_PER_QUERY)
+            .get()
+            .then((snap) => snap.docs),
+          SearchResultsFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+          "search-results-firestore-semantic-activity"
+        ).catch(() => [])
+      );
+    }
+    lexicalFetches.push(
+      withTimeout(
+        this.db
+          .collection("posts")
+          .orderBy("time", "desc")
+          .select(...POST_SELECT_FIELDS)
+          .limit(120)
+          .get()
+          .then((snap) => snap.docs),
+        SearchResultsFirestoreAdapter.FIRESTORE_TIMEOUT_MS,
+        "search-results-firestore-semantic-recent"
+      ).catch(() => [])
+    );
+    const lexicalSettled = await Promise.all(lexicalFetches);
+    for (const docs of lexicalSettled) {
+      queryCount += 1;
+      readCount += docs.length;
+      for (const doc of docs) {
+        if (!collected.has(doc.id)) collected.set(doc.id, mapDoc(doc));
+      }
+    }
+
+    const candidates = [...collected.values()];
+    const ranked = candidates
+      .map((post) => ({
+        postId: post.postId,
+        rank: -blendedSemanticScore(post, {
+          query,
+          activity: intent.activity,
+          semanticDistance: semanticDistanceById.get(post.postId),
+          viewerCoords,
+        }),
+        userId: post.userId,
+        userHandle: post.userHandle,
+        userName: post.userName,
+        userPic: post.userPic,
+        activities: post.activities,
+        title: post.title,
+        thumbUrl: resolveBestCoverUrl(post),
+        displayPhotoLink: resolveBestCoverUrl(post),
+        mediaType: post.mediaType,
+        likeCount: post.likeCount,
+        commentCount: post.commentCount,
+        updatedAtMs: post.updatedAtMs,
+        rawPost: post as unknown as Record<string, unknown>,
+        sourcePost: post as unknown as Record<string, unknown>,
+        assets: post.assets,
+        address: post.address,
+        lat: post.lat,
+        lng: post.lng,
+      }))
+      // Drop posts with no cover image (parity with discovery ranking) and no usable signal.
+      .filter((row) => row.thumbUrl.length > 0)
+      .sort((a, b) => a.rank - b.rank || a.postId.localeCompare(b.postId));
+
+    if (cursorSafe >= ranked.length) {
+      return { items: [], hasMore: false, nextCursor: null, queryCount, readCount };
+    }
+    const endExclusive = Math.min(ranked.length, cursorSafe + safeLimit);
+    return {
+      items: ranked.slice(cursorSafe, endExclusive),
+      hasMore: endExclusive < ranked.length,
+      nextCursor: endExclusive < ranked.length ? `cursor:${endExclusive}` : null,
+      queryCount,
+      readCount,
+      ...(includeDebug
+        ? {
+            debug: {
+              rankingVersion: "semantic_v1",
+              rawQuery: query,
+              normalizedQuery: intent.normalizedQuery,
+              annCandidateCount: semanticDistanceById.size,
+              rawCandidateCount: collected.size,
+              rankedPoolCount: ranked.length,
+              stateRegionPrefilter: stateRegionId,
+              cursorOffset: cursorSafe,
+              pagingMode: "bounded_pool_offset_v1",
+            } satisfies Record<string, unknown>,
+          }
+        : {}),
+    };
+  }
 }
 
 function resolveBestCoverUrl(post: SearchablePost): string {
@@ -574,34 +754,6 @@ function mapDoc(doc: QueryDocumentSnapshot): SearchablePost {
   };
 }
 
-function activityMatchScore(post: SearchablePost, activity: SearchActivityIntent | null): number {
-  if (!activity) return 0;
-  const postActivities = post.activities.map((value) => normalizeSearchText(value).replace(/\s+/g, ""));
-  let score = 0;
-  for (const queryActivity of activity.queryActivities) {
-    const key = normalizeSearchText(queryActivity).replace(/\s+/g, "");
-    if (postActivities.some((candidate) => candidate === key || candidate.includes(key) || key.includes(candidate))) {
-      score += 32;
-    }
-  }
-  if (score === 0 && postActivities.length > 20) {
-    return -40;
-  }
-  return score;
-}
-
-function textMatchScore(post: SearchablePost, query: string): number {
-  const normalizedQuery = normalizeSearchText(query);
-  const residual = extractResidualTokens(query);
-  const corpus = normalizeSearchText(`${post.title} ${post.caption} ${post.description}`);
-  let score = 0;
-  if (normalizedQuery && corpus.includes(normalizedQuery)) score += 18;
-  for (const token of residual) {
-    if (corpus.includes(token)) score += 8;
-  }
-  return score;
-}
-
 function locationMatchScore(
   post: SearchablePost,
   location: { cityRegionId: string | null; stateRegionId: string | null } | null,
@@ -661,11 +813,6 @@ function computeDistanceScore(
   return -6;
 }
 
-function distanceMiles(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
-  const dx = a.lat - b.lat;
-  const dy = a.lng - b.lng;
-  return Math.sqrt(dx * dx + dy * dy) * 69;
-}
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   const timeoutPromise = new Promise<T>((_resolve, reject) => {

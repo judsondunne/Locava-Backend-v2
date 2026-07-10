@@ -399,6 +399,16 @@ export type MasterPostV2 = {
   compatibility: MasterPostCompatibilityV2;
   legacy: MasterPostLegacyV2;
   audit: MasterPostAuditV2;
+  /**
+   * Semantic-search embedding freshness metadata. The embedding vector itself is persisted at the
+   * Firestore document-root field `embedding` as a Firestore Vector (queried server-side via
+   * `findNearest`) and is intentionally excluded from this read-model. `embeddingPending` mirrors the
+   * `imageVariantsPending` async pattern: set true at finalize, cleared by the embedding worker.
+   */
+  embeddingModel?: string | null;
+  embeddingVersion?: number | null;
+  embeddingPending?: boolean;
+  embeddedAt?: string | null;
 };
 
 export type CanonicalizationResult = {

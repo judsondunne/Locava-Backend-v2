@@ -31,6 +31,7 @@ import { registerPlacesVisualizerRoutes } from "../routes/dashboard/places-visua
 import { registerInternalHealthDashboardRoutes } from "../routes/internal/health-dashboard.routes.js";
 import { registerInternalOpsRoutes } from "../routes/internal/internal-ops.routes.js";
 import { registerUserChatsCollectionsPurgeRoutes } from "../routes/internal/user-chats-collections-purge.routes.js";
+import { registerPostEmbeddingWorkerRoutes } from "../routes/internal/post-embedding-worker.routes.js";
 import { registerReelsMvpPublisherRoutes } from "../admin/reelsMvpPublisher/reelsMvpPublisher.routes.js";
 import { registerPostSingleVideoRepairRoutes } from "../admin/postSingleVideoRepair/postSingleVideoRepair.routes.js";
 import { registerSeedLikesRoutes } from "../admin/seedLikes/seedLikes.routes.js";
@@ -861,6 +862,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerVideoProcessorRoutes);
   app.register(registerInternalOpsRoutes);
   app.register(registerUserChatsCollectionsPurgeRoutes);
+  app.register(registerPostEmbeddingWorkerRoutes);
   app.register(registerReelsMvpPublisherRoutes);
   app.register(registerWikimediaMvpDevRoutes);
   app.register(registerWikimediaCommonsByDateDevRoutes);

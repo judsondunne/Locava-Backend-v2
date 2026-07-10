@@ -197,6 +197,9 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
     base.imageProcessingStatus = input.assembled.imageVariantsPending ? "pending" : "completed";
   }
 
+  // Semantic-search: mark the post as awaiting its embedding (cleared by the embedding worker/backfill).
+  base.embeddingPending = true;
+
   return base;
 }
 

@@ -47,6 +47,7 @@ import {
   enqueueVideoProcessingCloudTask,
   triggerVideoProcessingSynchronously
 } from "../posting/video-processing-cloud-task.service.js";
+import { enqueuePostEmbeddingCloudTask } from "../search/post-embedding-cloud-task.service.js";
 import { searchPlacesIndexService } from "../surfaces/search-places-index.service.js";
 import { XP_REWARDS } from "../surfaces/achievements-core.js";
 import { postingAchievementsService } from "./posting-achievements.service.js";
@@ -1794,6 +1795,22 @@ export class PostingMutationService {
             });
           }
         }
+      }
+    }
+
+    // Semantic-search: enqueue an embedding job for newly created posts (async, best-effort — the
+    // backfill job remains the coverage backstop when the queue/worker is unconfigured).
+    if (createdNewPost) {
+      const embedResult = await enqueuePostEmbeddingCloudTask({
+        postId,
+        userId: input.effectiveUserId,
+        correlationId: input.sessionId
+      });
+      if (!embedResult.ok) {
+        console.warn("[posting.finalize] post_embedding_task_not_enqueued", {
+          postId,
+          reason: embedResult.reason
+        });
       }
     }
 
