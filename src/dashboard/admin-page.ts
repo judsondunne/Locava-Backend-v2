@@ -21,6 +21,10 @@ export function renderAdminPage(): string {
     <h1>Locava Backend V2 Diagnostics</h1>
     <p>Internal dashboard for route visibility, diagnostics, and curl-equivalent test triggering.</p>
     <p>
+      <a href="/admin/instagram-reel-setup" style="color:#db2777; text-decoration:none; font-weight:600;">Instagram reel pipeline setup</a>
+      ·
+      <a href="/admin/instagram-downloader" style="color:#e11d48; text-decoration:none; font-weight:600;">Instagram downloader MVP</a>
+      ·
       <a href="/admin/wiki-curation" style="color:#93c5fd; text-decoration:none;">Wiki spot curation (AI dry review)</a>
       ·
       <a href="/admin/search-autofill-lab" style="color:#93c5fd; text-decoration:none;">Search autofill lab</a>

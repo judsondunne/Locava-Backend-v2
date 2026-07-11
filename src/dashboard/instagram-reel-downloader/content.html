@@ -1,0 +1,56 @@
+<div class="shell">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-icon">IG</div>
+      <div>
+        <h1>Instagram reel downloader</h1>
+        <p class="sub">Paste Reels JSON or URLs → resolve → download MP4. No user upload.</p>
+      </div>
+    </div>
+    <nav class="nav-links">
+      <a class="chip" href="/admin/instagram-reel-setup">Setup guide</a>
+      <a class="chip" href="/admin">Admin</a>
+    </nav>
+  </header>
+
+  <section class="panel">
+    <h2>Input</h2>
+    <p class="hint">
+      Paste <strong>Reels JSON</strong> from the Chrome extension, or one <code>instagram.com/…/reel/…</code> URL per line.
+    </p>
+    <textarea id="input" spellcheck="false" placeholder='{"version":1,"reels":[{"url":"https://www.instagram.com/reel/SHORTCODE/"}]}'></textarea>
+
+    <details>
+      <summary>Session cookies (optional — if resolves fail)</summary>
+      <textarea id="cookies" rows="4" spellcheck="false" placeholder='[{"domain":".instagram.com","name":"sessionid","value":"…"}]'></textarea>
+    </details>
+
+    <div class="actions">
+      <button type="button" class="btn-primary" id="fetchBtn">Fetch all reels</button>
+      <button type="button" class="btn-secondary" id="downloadAllBtn" disabled>Download all resolved</button>
+      <button type="button" class="btn-secondary" id="probeBtn">Check Cobalt</button>
+    </div>
+    <div class="status" id="status" aria-live="polite"></div>
+    <div class="probe" id="probeOut" hidden></div>
+  </section>
+
+  <section class="panel">
+    <h2>Results</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Shortcode</th>
+            <th>Status</th>
+            <th>Method</th>
+            <th>Caption</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows">
+          <tr><td colspan="5" class="empty">Fetch reels to see results here.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

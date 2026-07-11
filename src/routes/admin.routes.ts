@@ -12,11 +12,17 @@ import { renderOpenStreetMapPbfCopierV2Page } from "../dashboard/openstreetmap-p
 import { renderPbfPhotoAssetPreviewPage } from "../dashboard/pbf-photo-asset-preview.js";
 import { renderOpenStreetMapVermontOffroadImportPage } from "../dashboard/openstreetmap-vermont-offroad-import.js";
 import { renderUndiscoveredScrapingDashboardPage } from "../dashboard/undiscovered-scraping-dashboard.js";
+import { renderInstagramReelSetupPage } from "../dashboard/instagram-reel-setup.js";
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
   app.get("/admin", async (_request, reply) => {
     reply.type("text/html; charset=utf-8");
     return reply.send(renderAdminPage());
+  });
+
+  app.get("/admin/instagram-reel-setup", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return reply.send(renderInstagramReelSetupPage());
   });
 
   // Consolidated single dashboard. The old dashboard-v1 URL redirects here.

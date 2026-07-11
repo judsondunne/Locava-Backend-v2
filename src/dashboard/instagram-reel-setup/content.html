@@ -1,0 +1,409 @@
+    <div class="layout">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-icon">IG</div>
+          <h1>Reel pipeline</h1>
+        </div>
+        <p class="sub">
+          End-to-end guide: Chrome extension → Backendv2 downloader → Cobalt → MP4 downloads.
+        </p>
+        <nav aria-label="On this page">
+          <ul class="toc">
+            <li><a href="#overview">What you’re building</a></li>
+            <li><a href="#architecture">How it fits together</a></li>
+            <li><a href="#extension-install">1 · Install extension</a></li>
+            <li><a href="#extension-use">2 · Collect reel URLs</a></li>
+            <li><a href="#cobalt-setup">3 · Set up Cobalt</a></li>
+            <li><a href="#cobalt-verify">4 · Verify Cobalt</a></li>
+            <li><a href="#admin-downloader">5 · Admin downloader</a></li>
+            <li><a href="#download-clips">6 · Download clips</a></li>
+            <li><a href="#env-vars">Environment variables</a></li>
+            <li><a href="#troubleshooting">Troubleshooting</a></li>
+          </ul>
+        </nav>
+        <div class="quick-links">
+          <a class="btn-link primary" href="/admin/instagram-downloader">Open downloader ↗</a>
+          <a class="btn-link" href="https://github.com/imputnet/cobalt" target="_blank" rel="noopener">Cobalt repo ↗</a>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="hero">
+          <div class="hero-badge">Locava Backendv2 · internal docs</div>
+          <h2>Instagram reel download pipeline</h2>
+          <p class="hero-lead">
+            Collect reel URLs from an Instagram profile in Chrome, paste into the Backendv2 admin downloader,
+            resolve direct MP4 links (yt-dlp → Cobalt → scrape fallbacks), and download locally.
+          </p>
+          <div class="component-grid">
+            <div class="component-card ext">
+              <div class="tag">Chrome extension</div>
+              <h3>instagram-reel-link-extension</h3>
+              <p>Scrolls reels grids, builds Reels JSON with captions + comment snippets.</p>
+            </div>
+            <div class="component-card web">
+              <div class="tag">Backendv2</div>
+              <h3>Admin downloader + APIs</h3>
+              <p>Batch resolve, optional session cookies, browser MP4 download — all native to Backendv2.</p>
+            </div>
+            <div class="component-card cobalt">
+              <div class="tag">Cobalt</div>
+              <h3>Self-hosted resolver</h3>
+              <p>Local instance at <code>127.0.0.1:9000</code> — fallback when yt-dlp fails.</p>
+            </div>
+          </div>
+        </header>
+
+        <div class="quickstart">
+          <h3>⚡ Quick start (local dev)</h3>
+          <ol>
+            <li>Load <code>instagram-reel-link-extension/</code> in Chrome (Developer mode → Load unpacked).</li>
+            <li>Start <strong>Backendv2</strong>: <code>cd "Locava Backendv2" && npm run dev</code> (port 8080).</li>
+            <li>Run <strong>Cobalt</strong> on port 9000 and install <strong>yt-dlp</strong> on the same machine.</li>
+            <li>Open <a href="/admin/instagram-downloader"><strong>/admin/instagram-downloader</strong></a> → paste Reels JSON → <strong>Fetch all reels</strong> → download MP4s.</li>
+          </ol>
+        </div>
+
+        <section id="overview">
+          <h3><span class="section-num">·</span> What you’re building</h3>
+          <p>Three pieces power this workflow:</p>
+          <table>
+            <thead>
+              <tr><th>Component</th><th>Path</th><th>Role</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><span class="pill ext">Extension</span></td>
+                <td><code>instagram-reel-link-extension/</code></td>
+                <td>MV3 Chrome extension — scrolls <code>a[href*="/reel/"]</code> on Instagram, fetches per-reel captions, exports Reels JSON.</td>
+              </tr>
+              <tr>
+                <td><span class="pill web">Backendv2</span></td>
+                <td><code>Locava Backendv2/src/dashboard/instagram-reel-downloader/</code></td>
+                <td>Admin UI + native resolve/file APIs — paste Reels JSON or URLs, optional cookies, batch resolve, download MP4.</td>
+              </tr>
+              <tr>
+                <td><span class="pill cobalt">Cobalt</span></td>
+                <td>External (self-hosted)</td>
+                <td>Called from <code>src/lib/instagram-reel/resolveCore.js</code> via <code>cobaltConfig.ts</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="architecture">
+          <h3><span class="section-num">·</span> How it fits together</h3>
+
+          <h4>Collect → resolve → download</h4>
+          <div class="flow-diagram">
+            <div class="flow-row">
+              <div class="flow-box highlight">Instagram profile/reels tab</div>
+              <span class="flow-arrow">→</span>
+              <div class="flow-box">Chrome extension scrolls grid</div>
+              <span class="flow-arrow">→</span>
+              <div class="flow-box">Reels JSON (urls + captions)</div>
+            </div>
+            <div class="flow-row">
+              <div class="flow-box">Admin downloader paste</div>
+              <span class="flow-arrow">→</span>
+              <div class="flow-box">POST /admin/instagram-downloader/api/resolve</div>
+              <span class="flow-arrow">→</span>
+              <div class="flow-box">yt-dlp → Cobalt → scrape</div>
+              <span class="flow-arrow">→</span>
+              <div class="flow-box">MP4 download</div>
+            </div>
+          </div>
+
+          <h4>Resolve order</h4>
+          <table>
+            <thead>
+              <tr><th>Session cookies pasted?</th><th>Order</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>No</strong></td>
+                <td>remote resolver (if set) → <strong>yt-dlp</strong> → <strong>Cobalt</strong> → scrape → GraphQL/embed</td>
+              </tr>
+              <tr>
+                <td><strong>Yes</strong></td>
+                <td>remote resolver → <strong>yt-dlp</strong> → scrape → <strong>Cobalt last</strong> (Cobalt ignores browser cookies)</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>Backendv2 API routes</h4>
+          <pre>GET  /admin/instagram-downloader/api/probe   — Cobalt env probe
+POST /admin/instagram-downloader/api/resolve — resolve reel → videoUrl
+POST /admin/instagram-downloader/api/file    — proxy CDN MP4 for browser download</pre>
+          <p class="hint">
+            Cobalt and yt-dlp run on the <strong>Backendv2 host</strong>. Resolve logic lives in
+            <code>src/lib/instagram-reel/</code> — no external app required.
+          </p>
+        </section>
+
+        <section id="extension-install">
+          <h3><span class="section-num">1</span> Install the Chrome extension</h3>
+          <p>Source: <code>Locava-Master/instagram-reel-link-extension/</code> — manifest v3, name <strong>Locava Instagram reels</strong>.</p>
+
+          <ol class="steps">
+            <li>Open Chrome → <code>chrome://extensions/</code></li>
+            <li>Enable <strong>Developer mode</strong> (top-right toggle).</li>
+            <li>Click <strong>Load unpacked</strong> and select the folder containing <code>manifest.json</code>:
+              <pre>Locava-Master/instagram-reel-link-extension/</pre>
+            </li>
+            <li>Pin <strong>Locava Instagram reels</strong> to your toolbar.</li>
+            <li>Stay logged into Instagram in the same Chrome profile — the extension uses your tab session for caption fetches.</li>
+          </ol>
+
+          <div class="card info">
+            <strong>Content script:</strong> <code>content-script.js</code> runs on <code>instagram.com</code> and sends
+            live profile stats (followers, following, posts) to the popup via <code>background.js</code>.
+          </div>
+        </section>
+
+        <section id="extension-use">
+          <h3><span class="section-num">2</span> Collect reel URLs</h3>
+
+          <ol class="steps">
+            <li>Open an Instagram profile or reels tab, e.g. <code>https://www.instagram.com/someuser/reels/</code></li>
+            <li>Click the extension icon. The popup shows live stats scraped from the page.</li>
+            <li>Optionally set <strong>Max reels</strong> (blank = all visible after scrolling).</li>
+            <li>Click <strong>Get reel links</strong>. The extension:
+              <ul>
+                <li>Injects <code>collectReelLinksInPage()</code> — finds every <code>a[href*="/reel/"]</code>, scrolls until 3 stale rounds</li>
+                <li>Fetches each reel page (~480ms apart) for <code>og:description</code>, caption JSON, comment snippets</li>
+                <li>Builds Reels JSON in the textarea via <code>buildReelsJsonDoc()</code></li>
+              </ul>
+            </li>
+            <li>Click <strong>Copy JSON</strong> — paste into <a href="/admin/instagram-downloader">/admin/instagram-downloader</a>. Or <strong>Copy links only</strong> for URL-per-line mode.</li>
+          </ol>
+
+          <h4>Reels JSON shape</h4>
+          <pre>{
+  "version": 1,
+  "source": "locava-instagram-extension",
+  "username": "handle",
+  "pageUrl": "https://www.instagram.com/handle/reels/",
+  "collectedAt": "2026-07-11T…",
+  "reels": [
+    {
+      "url": "https://www.instagram.com/handle/reel/SHORTCODE/",
+      "shortcode": "SHORTCODE",
+      "titleOrCaption": "Caption text…",
+      "commentsPreview": [{ "text": "Nice!" }]
+    }
+  ]
+}</pre>
+
+          <h4>Session cookies (optional)</h4>
+          <p>
+            Paste a JSON array exported from your browser into the admin downloader (or extension popup).
+            Sent as <code>cookies</code> in resolve requests — helps when server IP is rate-limited.
+          </p>
+          <pre>[{"domain":".instagram.com","name":"sessionid","value":"…"}, {"domain":".instagram.com","name":"csrftoken","value":"…"}]</pre>
+          <p class="hint">Never commit cookie JSON.</p>
+        </section>
+
+        <section id="cobalt-setup">
+          <h3><span class="section-num">3</span> Set up Cobalt</h3>
+          <p>Backendv2 reads Cobalt config from <code>src/lib/instagram-reel/cobaltConfig.ts</code>. Default: <code>http://127.0.0.1:9000</code>.</p>
+
+          <ol class="steps">
+            <li>
+              <strong>Clone and run Cobalt</strong> — follow
+              <a href="https://github.com/imputnet/cobalt" target="_blank" rel="noopener">imputnet/cobalt</a> docs:
+              <pre>git clone https://github.com/imputnet/cobalt.git
+cd cobalt
+docker compose up -d
+<span class="cmt"># API listens on port 9000 by default</span></pre>
+            </li>
+            <li>
+              <strong>Add Instagram cookies to Cobalt</strong> (strongly recommended):
+              <pre><span class="cmt"># In Cobalt docker-compose / environment:</span>
+COOKIE_PATH=./cookies.json</pre>
+            </li>
+            <li><strong>Optional outbound proxy:</strong> <code>API_EXTERNAL_PROXY=http://user:pass@proxy:port</code></li>
+            <li>
+              <strong>Point Backendv2 at Cobalt</strong> (only if not on localhost:9000):
+              <pre><span class="cmt"># Locava Backendv2/.env</span>
+COBALT_INSTANCE_URL=http://127.0.0.1:9000
+COBALT_API_KEY=your-api-key   <span class="cmt"># optional</span></pre>
+            </li>
+            <li>
+              <strong>Install yt-dlp on the Backendv2 machine</strong> (tried before Cobalt):
+              <pre>brew install yt-dlp
+YTDLP_PATH=/usr/local/bin/yt-dlp
+YTDLP_COOKIES_FILE=/path/to/instagram-cookies.txt</pre>
+            </li>
+          </ol>
+
+          <h4>What Backendv2 sends to Cobalt</h4>
+          <pre>POST {COBALT_BASE}/
+Content-Type: application/json
+
+{
+  "url": "https://www.instagram.com/reel/SHORTCODE/",
+  "videoQuality": "max",
+  "downloadMode": "auto"
+}</pre>
+          <p class="hint">Use canonical <code>https://www.instagram.com/reel/{code}/</code> URLs — profile-prefixed URLs often return <code>error.api.fetch.empty</code>.</p>
+        </section>
+
+        <section id="cobalt-verify">
+          <h3><span class="section-num">4</span> Verify Cobalt is working</h3>
+          <p>Run these checks in order. Replace <code>SHORTCODE</code> with a real public reel. Backendv2 default port is 8080.</p>
+
+          <div class="verify-grid">
+            <div class="verify-card">
+              <div class="label">Step 1 · Cobalt direct</div>
+              <pre>curl -s -X POST http://127.0.0.1:9000/ \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://www.instagram.com/reel/SHORTCODE/","videoQuality":"max","downloadMode":"auto"}'</pre>
+              <div class="expect">✓ status: tunnel, redirect, success, or picker</div>
+            </div>
+            <div class="verify-card">
+              <div class="label">Step 2 · Backendv2 probe</div>
+              <pre>curl -s http://127.0.0.1:8080/admin/instagram-downloader/api/probe</pre>
+              <div class="expect">✓ cobaltBase, cobaltSource, envFiles in response</div>
+            </div>
+            <div class="verify-card">
+              <div class="label">Step 3 · Resolve a reel</div>
+              <pre>curl -s -X POST http://127.0.0.1:8080/admin/instagram-downloader/api/resolve \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://www.instagram.com/reel/SHORTCODE/"}'</pre>
+              <div class="expect">✓ ok: true + videoUrl + method field</div>
+            </div>
+            <div class="verify-card">
+              <div class="label">Step 4 · Admin UI probe button</div>
+              <pre>Open http://127.0.0.1:8080/admin/instagram-downloader
+Click "Check Cobalt"</pre>
+              <div class="expect">✓ Cobalt base URL shown in probe panel</div>
+            </div>
+          </div>
+
+          <div class="card ok">
+            <strong>All green?</strong> Cobalt responds, Backendv2 probe shows your instance URL, a test shortcode resolves with <code>ok: true</code>.
+          </div>
+
+          <ul class="checklist">
+            <li>Cobalt container running on port 9000</li>
+            <li><code>COOKIE_PATH</code> set on Cobalt with valid Instagram cookies</li>
+            <li>Backendv2 running with Cobalt URL configured in <code>.env</code></li>
+            <li>yt-dlp installed on Backendv2 host</li>
+            <li>Test reel resolves via curl</li>
+          </ul>
+        </section>
+
+        <section id="admin-downloader">
+          <h3><span class="section-num">5</span> Admin Instagram downloader</h3>
+          <p>
+            <a href="/admin/instagram-downloader"><code>/admin/instagram-downloader</code></a> — paste JSON/URLs, optional cookies, fetch + download MP4.
+            Native resolve APIs on Backendv2. No Firebase, no Wasabi, no user attach.
+          </p>
+
+          <h4>Workflow</h4>
+          <ol class="steps">
+            <li>Paste <strong>Reels JSON</strong> from the extension (or one reel URL per line).</li>
+            <li>If resolves fail, expand <strong>Session cookies (optional)</strong> and paste browser cookie JSON.</li>
+            <li>Click <strong>Fetch all reels</strong> — sequential resolve, 3400ms spacing (900ms with cookies), 5 auto-retries.</li>
+            <li>Review results table (status, method, caption).</li>
+            <li>Download per-row or use <strong>Download all resolved</strong>.</li>
+          </ol>
+
+          <h4>How cookies are processed (server-side)</h4>
+          <p>From <code>instagramCookieHelpers.js</code>: filters to <code>instagram.com</code> domains, builds <code>Cookie</code> header, writes temp Netscape <code>cookies.txt</code> for yt-dlp (deleted after each request).</p>
+        </section>
+
+        <section id="download-clips">
+          <h3><span class="section-num">6</span> Download Instagram clips</h3>
+
+          <h4>A · Admin downloader (recommended)</h4>
+          <ol>
+            <li>Paste Reels JSON or URLs into <a href="/admin/instagram-downloader">/admin/instagram-downloader</a></li>
+            <li>Optional: paste session cookies</li>
+            <li>Click <strong>Fetch all reels</strong></li>
+            <li>Download per-row or batch — files save as <code>instagram-{shortcode}.mp4</code></li>
+          </ol>
+
+          <h4>B · Direct API</h4>
+          <p>After resolve returns <code>videoUrl</code>, download via <code>POST /admin/instagram-downloader/api/file</code> with the CDN URL and optional <code>sourceUrl</code> / <code>shortcode</code> for muxed audio.</p>
+
+          <div class="card">
+            <strong>Rate limits:</strong> Space resolves 3.4s apart (0.9s with session cookies). Split batches over 45 URLs if you see 429s.
+          </div>
+        </section>
+
+        <section id="env-vars">
+          <h3><span class="section-num">·</span> Environment variables</h3>
+
+          <h4>Locava Backendv2 <span class="pill web">Fastify</span></h4>
+          <table>
+            <thead><tr><th>Variable</th><th>Default</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>COBALT_INSTANCE_URL</code> / <code>COBALT_URL</code></td><td><code>http://127.0.0.1:9000</code></td><td>Cobalt API base</td></tr>
+              <tr><td><code>COBALT_API_KEY</code></td><td>—</td><td>Cobalt auth header</td></tr>
+              <tr><td><code>YTDLP_PATH</code></td><td><code>yt-dlp</code></td><td>yt-dlp binary</td></tr>
+              <tr><td><code>YTDLP_COOKIES_FILE</code></td><td>—</td><td>Netscape cookies.txt on server</td></tr>
+              <tr><td><code>INSTAGRAM_DISABLE_YTDLP=1</code></td><td>—</td><td>Skip yt-dlp</td></tr>
+              <tr><td><code>INSTAGRAM_DISABLE_GRAPHQL=1</code></td><td>—</td><td>Skip GraphQL/embed fallbacks</td></tr>
+              <tr><td><code>INSTAGRAM_RESOLVE_DEBUG=1</code></td><td>—</td><td>Verbose resolve logging</td></tr>
+              <tr><td><code>INSTAGRAM_REMOTE_RESOLVER_URL</code></td><td>—</td><td>Optional external resolve worker</td></tr>
+            </tbody>
+          </table>
+
+          <h4>Cobalt instance <span class="pill cobalt">self-hosted</span></h4>
+          <table>
+            <thead><tr><th>Variable</th><th>Purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>COOKIE_PATH</code></td><td>Instagram cookies for Cobalt fetches</td></tr>
+              <tr><td><code>API_EXTERNAL_PROXY</code></td><td>Outbound proxy when server IP is blocked</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section id="troubleshooting">
+          <h3><span class="section-num">·</span> Troubleshooting</h3>
+          <table>
+            <thead><tr><th>Symptom</th><th>Fix</th></tr></thead>
+            <tbody>
+              <tr><td><code>error.api.fetch.empty</code></td><td>Set Cobalt <code>COOKIE_PATH</code>; paste cookies in admin; set <code>YTDLP_COOKIES_FILE</code></td></tr>
+              <tr><td>Probe failed</td><td>Ensure Backendv2 is running (<code>npm run dev</code>) and Cobalt is on port 9000</td></tr>
+              <tr><td>429 / rate limited</td><td>Paste session cookies; smaller batches; increase delay between resolves</td></tr>
+              <tr><td>Empty captions in JSON</td><td>Stay logged into Instagram in Chrome when collecting</td></tr>
+              <tr><td>Download returns HTML not video</td><td>Re-resolve — CDN URLs expire; use file API with <code>sourceUrl</code> for muxed fallback</td></tr>
+            </tbody>
+          </table>
+        </section>
+
+        <footer>
+          Served from <strong>Locava Backendv2</strong> at <code>/admin/instagram-reel-setup</code>.
+          Downloader: <a href="/admin/instagram-downloader">/admin/instagram-downloader</a>.
+        </footer>
+      </main>
+    </div>
+
+    <script>
+      (function () {
+        var tocLinks = document.querySelectorAll(".toc a");
+        var sections = document.querySelectorAll("section[id]");
+        function updateActive() {
+          var scrollY = window.scrollY + 120;
+          var current = "";
+          sections.forEach(function (sec) {
+            if (sec.offsetTop <= scrollY) current = sec.id;
+          });
+          tocLinks.forEach(function (a) {
+            a.classList.toggle("active", a.getAttribute("href") === "#" + current);
+          });
+        }
+        window.addEventListener("scroll", updateActive, { passive: true });
+        updateActive();
+        tocLinks.forEach(function (a) {
+          a.addEventListener("click", function (e) {
+            e.preventDefault();
+            var t = document.querySelector(a.getAttribute("href"));
+            if (t) t.scrollIntoView({ behavior: "smooth", block: "start" });
+          });
+        });
+      })();
+    </script>

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/lib/instagram-reel && cp src/lib/instagram-reel/*.js dist/lib/instagram-reel/",
     "start": "node dist/server.js",
     "test": "npm run test:deterministic",
     "test:watch": "vitest",
