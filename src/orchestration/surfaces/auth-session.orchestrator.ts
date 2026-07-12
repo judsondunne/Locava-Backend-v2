@@ -303,14 +303,16 @@ export class AuthSessionOrchestrator {
     this.scheduleDetached("collections-and-saved", 6_000, async () => {
       await this.collectionsAdapter.listViewerCollections({
         viewerId: viewer.viewerId,
-        limit: 10
+        // Match CollectionsListQuerySchema default so first collections open hits prewarm.
+        limit: 20
       });
       await this.collectionsAdapter.ensureDefaultSavedCollection(viewer.viewerId);
       const page = await this.collectionsAdapter.listCollectionPostIds({
         viewerId: viewer.viewerId,
         collectionId: `saved-${viewer.viewerId}`,
         cursor: null,
-        limit: 8
+        // Match CollectionsSavedQuerySchema default (12).
+        limit: 12
       });
       await this.feedService.loadPostCardSummaryBatch(viewer.viewerId, page.items.map((item) => item.postId));
     });

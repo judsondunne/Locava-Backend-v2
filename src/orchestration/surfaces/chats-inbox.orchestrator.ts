@@ -12,17 +12,18 @@ export class ChatsInboxOrchestrator {
 
   async run(input: { viewerId: string; cursor: string | null; limit: number }): Promise<ChatsInboxResponse> {
     const cursorPart = input.cursor ?? "start";
-    // Repair group-linked chat participants (real Firestore only). Skipped under Vitest to preserve inbox DB budgets.
-    if (!input.cursor && process.env.VITEST !== "true") {
-      await dedupeInFlight(`groups:sync-linked-chats:${input.viewerId}`, () =>
-        groupsRepository.syncViewerIntoLinkedGroupChats(input.viewerId),
-      ).catch(() => undefined);
-    }
     const cacheKey = buildCacheKey("list", ["chats-inbox-v1", input.viewerId, cursorPart, String(input.limit)]);
     const cached = await globalCache.get<ChatsInboxResponse>(cacheKey);
     if (cached) {
       recordCacheHit();
       return cached;
+    }
+    // Repair group-linked chat participants only on cache miss (avoid up to ~24 reads on warm inbox).
+    // Skipped under Vitest to preserve inbox DB budgets.
+    if (!input.cursor && process.env.VITEST !== "true") {
+      await dedupeInFlight(`groups:sync-linked-chats:${input.viewerId}`, () =>
+        groupsRepository.syncViewerIntoLinkedGroupChats(input.viewerId),
+      ).catch(() => undefined);
     }
     recordCacheMiss();
     const page = await this.service.loadInboxPage(input);

@@ -92,3 +92,13 @@ Deferred (not in this branch): CDN/media infra, Following cursor migration, god-
 | D3 | Notifications list: parallel viewer-doc sync + page query | notifications.repository.test |
 | D4 | Profile bootstrap: hoist badgePromise with other fetches | profile-bootstrap.orchestrator.test |
 | D5 | `.env.example` docs for batch playback + map + mixes 150 | env example |
+
+### Phase E (continued)
+
+| ID | Change | Proof |
+|----|--------|-------|
+| E1 | Invalidate `profile-grid-page-v5` alongside v2 on post delete/complete/follow | `entity-invalidation.profile-grid-v5.test.ts` |
+| E2 | Auth-session collections prewarm 10→20 / saved 8→12 (match contract defaults) | auth-session orchestrator |
+| E3 | Profile bootstrap collections preview 4→6, achievements 6→8 | profile-bootstrap orchestrator |
+| E4 | Chats inbox: cache-first before group-linked chat sync | `chats-inbox.orchestrator.test.ts` |
+| E5 | Map marker thumbnails: richer resolution + skip video URLs; select `posterUrl` | `map-markers-thumbnail.test.ts` |

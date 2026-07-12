@@ -22,8 +22,8 @@ const PROFILE_TABS = [
   { id: "map", enabled: true },
 ] as const;
 
-const COLLECTIONS_PREVIEW_LIMIT = 4;
-const ACHIEVEMENTS_PREVIEW_LIMIT = 6;
+const COLLECTIONS_PREVIEW_LIMIT = 6;
+const ACHIEVEMENTS_PREVIEW_LIMIT = 8;
 const BOOTSTRAP_GRID_PREVIEW_CAP = 6;
 
 function compactGridPreviewItem<T extends Record<string, unknown>>(item: T): T {
