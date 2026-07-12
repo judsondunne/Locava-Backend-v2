@@ -55,3 +55,18 @@ Deferred (not this branch unless trivial and proven safe):
 - No new route policy budget regressions on changed surfaces (or intentional documented improvements)
 - Response shapes remain backward-compatible for Locava-Native
 - Each commit is independently revertible
+
+
+## Status (2026-07-12)
+
+Phase A + Phase B implemented on `cursor/perf-maintainability-hardening-df59`.
+
+Proven with vitest:
+- render-standardized-batch getAll chunking
+- profile bootstrap postsCount aliases
+- comments countHint clamp
+- feed card instantPlaybackReady / posterPresent
+- posts-detail LOCAVA_BATCH_PLAYBACK_MAX_ITEMS
+- search-home skip empty firstPost probes
+
+Deferred (not in this branch): CDN/media infra, Following cursor migration, god-file splits, Redis coherence.

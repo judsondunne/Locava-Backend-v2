@@ -129,7 +129,7 @@ export class SearchHomeV1Service {
         const userSummary = summaryMap.get(c.userId);
         if (!userSummary) return null;
         const firstPost =
-          firstPostProbeUserIds.has(c.userId)
+          firstPostProbeUserIds.has(c.userId) && (userSummary.postCount ?? 0) > 0
             ? await this.postsRepo
                 .listRecentPostsByUserId(c.userId, 1)
                 .then((rows) => {

@@ -268,6 +268,26 @@ describe("posts detail orchestrator missing author hardening", () => {
     ).toBe(true);
   });
 
+  it("playback batch respects LOCAVA_BATCH_PLAYBACK_MAX_ITEMS without native changes", async () => {
+    const prev = process.env.LOCAVA_BATCH_PLAYBACK_MAX_ITEMS;
+    process.env.LOCAVA_BATCH_PLAYBACK_MAX_ITEMS = "8";
+    try {
+      const service = buildService();
+      const orchestrator = new PostsDetailOrchestrator(service);
+      const out = await orchestrator.runBatch({
+        viewerId: "viewer-1",
+        postIds: ["p1", "p2", "p3", "p4", "p5", "p6", "p7", "p8", "p9"],
+        reason: "prefetch",
+        hydrationMode: "playback",
+      });
+      expect(out.found).toHaveLength(8);
+      expect(out.missing).toEqual(["p9"]);
+    } finally {
+      if (prev === undefined) delete process.env.LOCAVA_BATCH_PLAYBACK_MAX_ITEMS;
+      else process.env.LOCAVA_BATCH_PLAYBACK_MAX_ITEMS = prev;
+    }
+  });
+
   it("playback batch upgrades incomplete post_card_cache via source-of-truth when media is missing", async () => {
     const loadPostDetail = vi.fn(async (postId: string) => ({
       postId,

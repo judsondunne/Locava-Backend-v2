@@ -904,17 +904,27 @@ export class PostsDetailOrchestrator {
     const unique = [...new Set(ordered)];
     const mode = resolveBatchDetailMode(input);
     if (input.hydrationMode === "card" || input.hydrationMode === "playback") {
-      return this.runBatchLightweight(
-        {
-          viewerId: input.viewerId,
-          postIds: input.postIds,
-          reason: input.reason,
-          hydrationMode: input.hydrationMode,
-          mode,
-          surface: input.surface ?? null,
-        },
-        unique,
-        startedAt
+      const dedupeKey = [
+        "posts-detail-batch-light",
+        input.viewerId,
+        input.hydrationMode,
+        input.reason,
+        input.surface ?? "",
+        unique.join(","),
+      ].join(":");
+      return dedupeInFlight(dedupeKey, () =>
+        this.runBatchLightweight(
+          {
+            viewerId: input.viewerId,
+            postIds: input.postIds,
+            reason: input.reason,
+            hydrationMode: input.hydrationMode,
+            mode,
+            surface: input.surface ?? null,
+          },
+          unique,
+          startedAt
+        )
       );
     }
     const found: Array<{ postId: string; detail: PostsDetailResponse }> = [];
@@ -1093,7 +1103,11 @@ export class PostsDetailOrchestrator {
     debugDurationMs: number;
     itemStatuses?: Array<{ postId: string; status: BatchItemStatus; selectedSource: string }>;
   }> {
-    const MAX_BATCH = input.hydrationMode === "playback" ? 5 : 15;
+    const playbackMaxRaw = Number(process.env.LOCAVA_BATCH_PLAYBACK_MAX_ITEMS ?? "5");
+    const playbackMaxItems = Number.isFinite(playbackMaxRaw)
+      ? Math.min(15, Math.max(1, Math.floor(playbackMaxRaw)))
+      : 5;
+    const MAX_BATCH = input.hydrationMode === "playback" ? playbackMaxItems : 15;
     const cappedIds = unique.slice(0, MAX_BATCH);
     const missingFromCap = unique.slice(MAX_BATCH);
     const serviceWithBatch = this.service as FeedService & {

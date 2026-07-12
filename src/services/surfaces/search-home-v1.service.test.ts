@@ -80,4 +80,77 @@ describe("search home v1 service", () => {
     expect(result.diagnostics.activityMixCount).toBe(1);
     expect(result.diagnostics.postsPerMix).toEqual([2]);
   });
+
+  it("skips firstPost Firestore probes when suggested user postCount is 0", async () => {
+    const listRecentPostsByUserId = vi.fn(async () => [{ postId: "should-not-load" }]);
+    const service = new SearchHomeV1Service() as any;
+    service.suggested = {
+      getSuggestionsForUser: vi.fn(async () => ({
+        users: [
+          { userId: "u-empty", isFollowing: false, reason: "suggested" },
+          { userId: "u-with-posts", isFollowing: false, reason: "suggested" },
+        ],
+        sourceBreakdown: {},
+        generatedAt: Date.now(),
+        sourceDiagnostics: [],
+      })),
+    };
+    service.usersRepo = {
+      loadUserSummaries: vi.fn(async () =>
+        new Map([
+          [
+            "u-empty",
+            {
+              userId: "u-empty",
+              handle: "empty",
+              name: "Empty",
+              profilePic: null,
+              bio: null,
+              followerCount: 0,
+              followingCount: 0,
+              postCount: 0,
+            },
+          ],
+          [
+            "u-with-posts",
+            {
+              userId: "u-with-posts",
+              handle: "poster",
+              name: "Poster",
+              profilePic: null,
+              bio: null,
+              followerCount: 1,
+              followingCount: 1,
+              postCount: 3,
+            },
+          ],
+        ]),
+      ),
+    };
+    service.postsRepo = { listRecentPostsByUserId };
+    service.searchMixes = {
+      bootstrap: vi.fn(async () => ({ mixes: [] })),
+    };
+    const warmWaitSpy = vi.spyOn(mixesRepository, "listFromPoolWithWarmWait").mockResolvedValue({
+      posts: [] as never,
+      readCount: 0,
+      source: "test",
+      poolLimit: 600,
+      poolState: "warm",
+      poolBuiltAt: Date.now(),
+      poolBuildLatencyMs: 0,
+      poolBuildReadCount: 0,
+      servedStale: false,
+      servedEmptyWarming: false,
+    });
+
+    try {
+      const result = await service.build("viewer-a");
+      expect(listRecentPostsByUserId).toHaveBeenCalledTimes(1);
+      expect(listRecentPostsByUserId).toHaveBeenCalledWith("u-with-posts", 1);
+      expect(result.suggestedUsers.find((u: { user: { userId: string } }) => u.user.userId === "u-empty")?.firstPost).toBeNull();
+    } finally {
+      warmWaitSpy.mockRestore();
+    }
+  });
 });
