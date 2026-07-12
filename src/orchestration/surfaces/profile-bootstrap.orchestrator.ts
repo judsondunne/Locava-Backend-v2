@@ -385,6 +385,11 @@ export class ProfileBootstrapOrchestrator {
           followingCount,
           numFollowers: followersCount,
           numFollowing: followingCount,
+          // Native aliases — keep posts count on first paint even if a client
+          // reads profile/stats instead of firstRender.counts.
+          postsCount: postsCountEffective,
+          postCount: postsCountEffective,
+          numPosts: postsCountEffective,
           bio: header.bio ?? undefined,
           isOwnProfile: relationship.isSelf,
         },
@@ -402,6 +407,9 @@ export class ProfileBootstrapOrchestrator {
           followingCount,
           numFollowers: followersCount,
           numFollowing: followingCount,
+          postsCount: postsCountEffective,
+          postCount: postsCountEffective,
+          numPosts: postsCountEffective,
         },
         relationship,
         tabs: [...PROFILE_TABS],

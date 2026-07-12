@@ -638,16 +638,22 @@ export class CommentsRepository {
     const hasMore = start + items.length < all.length;
     const tail = items[items.length - 1];
     const nextCursor = hasMore && tail ? encodeCursor({ id: tail.commentId, createdAtMs: tail.createdAtMs }) : null;
+    const visibleCount = all.length;
+    // When no visible rows exist, never inflate page.count from a stale post-doc
+    // counter (or soft-deleted-only wires). Native treats countHint vs empty rows
+    // as a contract mismatch; keep the flag for ops but align the displayed count.
+    const effectiveCount =
+      visibleCount > 0 ? Math.max(visibleCount, loaded.debug.countHint) : 0;
     return {
       cursorIn: input.cursor,
       items,
-      totalCount: Math.max(all.length, loaded.debug.countHint),
+      totalCount: effectiveCount,
       hasMore,
       nextCursor,
       sourceDebug: {
         ...loaded.debug,
         returnedRows: items.length,
-        contractMismatch: loaded.debug.countHint > 0 && all.length === 0
+        contractMismatch: loaded.debug.countHint > 0 && visibleCount === 0
       }
     };
   }

@@ -32,6 +32,7 @@ type MixPool = {
 
 const DEFAULT_REFRESH_MS = 300_000;
 const DEFAULT_MAX_STALE_MS = 10 * 60_000;
+/** Keep in sync with docs/superpowers/plans/2026-07-08-mixes-read-reduction.md Task 1 + mainDeploy.sh */
 const DEFAULT_MAX_DOCS = 150;
 const DEFAULT_COLD_START_DOCS = 80;
 const DEFAULT_SNAPSHOT_PATH = path.join(process.cwd(), "state", "mixes-preview-snapshot.json");

@@ -209,9 +209,10 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
       entityCacheKeys.profileHeaderCanonical(ownerUserId),
-      ...[6, 12, 18].map((previewLimit) =>
-        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
-      ),
+      ...[6, 12, 18].flatMap((previewLimit) => [
+        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)]),
+        buildCacheKey("list", ["profile-grid-preview-v5", ownerUserId, String(previewLimit)]),
+      ]),
       ...[6, 8, 12, 24].map((limit) =>
         buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)])
       )
@@ -280,9 +281,10 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
       entityCacheKeys.profileHeaderCanonical(ownerUserId),
-      ...[6, 12, 18].map((previewLimit) =>
-        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
-      ),
+      ...[6, 12, 18].flatMap((previewLimit) => [
+        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)]),
+        buildCacheKey("list", ["profile-grid-preview-v5", ownerUserId, String(previewLimit)]),
+      ]),
       ...[6, 8, 12, 24].map((limit) =>
         buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)])
       )
@@ -426,12 +428,14 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     buildCacheKey("entity", ["profile-header-v1", userId]),
     buildCacheKey("entity", ["profile-header-v1", viewerId])
   ];
-  const profileGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>
-    buildCacheKey("list", ["profile-grid-preview-v1", userId, String(previewLimit)])
-  );
-  const selfGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>
-    buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)])
-  );
+  const profileGridPreviewKeys: string[] = [6, 12, 18].flatMap((previewLimit) => [
+    buildCacheKey("list", ["profile-grid-preview-v1", userId, String(previewLimit)]),
+    buildCacheKey("list", ["profile-grid-preview-v5", userId, String(previewLimit)]),
+  ]);
+  const selfGridPreviewKeys: string[] = [6, 12, 18].flatMap((previewLimit) => [
+    buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)]),
+    buildCacheKey("list", ["profile-grid-preview-v5", viewerId, String(previewLimit)]),
+  ]);
   const profileGridPageStartKeys: string[] = [6, 8, 12, 24].map((limit) =>
     buildCacheKey("list", ["profile-grid-page-v2", viewerId, userId, "start", String(limit)])
   );
@@ -549,6 +553,7 @@ function derivePostingVisibilityRouteKeys(viewerId: string): string[] {
   }
   for (const previewLimit of [4, 6]) {
     keys.add(buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)]));
+    keys.add(buildCacheKey("list", ["profile-grid-preview-v5", viewerId, String(previewLimit)]));
   }
 
   for (const limit of [6, 8, 12, 24]) {
