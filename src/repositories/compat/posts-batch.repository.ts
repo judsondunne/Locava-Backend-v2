@@ -1,4 +1,3 @@
-import { FieldPath } from "firebase-admin/firestore";
 import { incrementDbOps } from "../../observability/request-context.js";
 import { getFirestoreSourceClient } from "../source-of-truth/firestore-client.js";
 import { SourceOfTruthRequiredError } from "../source-of-truth/strict-mode.js";
@@ -7,6 +6,39 @@ export type CompatPostCard = Record<string, unknown> & {
   id: string;
   postId: string;
 };
+
+const COMPAT_POST_FIELD_MASK = [
+  "userId",
+  "ownerId",
+  "userHandle",
+  "userName",
+  "userPic",
+  "title",
+  "caption",
+  "description",
+  "activities",
+  "thumbUrl",
+  "displayPhotoLink",
+  "photoLink",
+  "mediaType",
+  "likeCount",
+  "likesCount",
+  "commentCount",
+  "commentsCount",
+  "updatedAtMs",
+  "createdAtMs",
+  "time",
+  "lat",
+  "lng",
+  "long",
+  "stateRegionId",
+  "cityRegionId",
+  "privacy",
+  "deleted",
+  "isDeleted",
+  "archived",
+  "hidden",
+] as const;
 
 export class CompatPostsBatchRepository {
   private readonly db = getFirestoreSourceClient();
@@ -24,49 +56,28 @@ export class CompatPostsBatchRepository {
     );
     if (unique.length === 0) return [];
 
+    const chunkSize = 30;
+    const chunks: string[][] = [];
+    for (let i = 0; i < unique.length; i += chunkSize) {
+      chunks.push(unique.slice(i, i + chunkSize));
+    }
+
+    const chunkSnaps = await Promise.all(
+      chunks.map(async (chunk) => {
+        const refs = chunk.map((id) => db.collection("posts").doc(id));
+        incrementDbOps("queries", 1);
+        const snaps = await db.getAll(...refs, {
+          fieldMask: [...COMPAT_POST_FIELD_MASK],
+        });
+        incrementDbOps("reads", snaps.length);
+        return snaps;
+      }),
+    );
+
     const rows: CompatPostCard[] = [];
-    for (let i = 0; i < unique.length; i += 10) {
-      const chunk = unique.slice(i, i + 10);
-      const snap = await db
-        .collection("posts")
-        .where(FieldPath.documentId(), "in", chunk)
-        .select(
-          FieldPath.documentId(),
-          "userId",
-          "ownerId",
-          "userHandle",
-          "userName",
-          "userPic",
-          "title",
-          "caption",
-          "description",
-          "activities",
-          "thumbUrl",
-          "displayPhotoLink",
-          "photoLink",
-          "mediaType",
-          "likeCount",
-          "likesCount",
-          "commentCount",
-          "commentsCount",
-          "updatedAtMs",
-          "createdAtMs",
-          "time",
-          "lat",
-          "lng",
-          "long",
-          "stateRegionId",
-          "cityRegionId",
-          "privacy",
-          "deleted",
-          "isDeleted",
-          "archived",
-          "hidden"
-        )
-        .get();
-      incrementDbOps("queries", 1);
-      incrementDbOps("reads", snap.docs.length);
-      for (const doc of snap.docs) {
+    for (const snaps of chunkSnaps) {
+      for (const doc of snaps) {
+        if (!doc.exists) continue;
         const data = (doc.data() ?? {}) as Record<string, unknown>;
         const privacy = String(data.privacy ?? "public").toLowerCase();
         if (
@@ -86,4 +97,3 @@ export class CompatPostsBatchRepository {
     return unique.map((id) => byId.get(id)).filter(Boolean) as CompatPostCard[];
   }
 }
-

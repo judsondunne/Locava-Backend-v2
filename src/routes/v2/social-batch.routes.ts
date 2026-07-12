@@ -3,10 +3,11 @@ import { buildViewerContext } from "../../auth/viewer-context.js";
 import { socialBatchContract, SocialBatchQuerySchema } from "../../contracts/surfaces/social-batch.contract.js";
 import { canUseV2Surface } from "../../flags/cutover.js";
 import { failure, success } from "../../lib/response.js";
-import { setRouteName, incrementDbOps } from "../../observability/request-context.js";
+import { setRouteName } from "../../observability/request-context.js";
 import { CompatPostsBatchOrchestrator } from "../../orchestration/compat/posts-batch.orchestrator.js";
 import { mutationStateRepository } from "../../repositories/mutations/mutation-state.repository.js";
 import { countPostLikesSubcollectionBatch } from "../../repositories/surfaces/post-likes-subcollection-count.js";
+import { batchResolveViewerHasLiked } from "../../repositories/surfaces/viewer-liked-subcollection-exists.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
 function parsePostIdsFromQuery(raw: Record<string, unknown>): string[] {
@@ -48,24 +49,14 @@ export async function registerV2SocialBatchRoutes(app: FastifyInstance): Promise
     }
 
     const db = getFirestoreSourceClient();
-    const viewerLikedByPostId = new Map<string, boolean>();
-    const [postsBatchResult, likeByPostId] = await Promise.all([
+    const [postsBatchResult, likeByPostId, viewerLikedByPostId] = await Promise.all([
       postsBatch.run({ postIds: unique }),
       db && unique.length > 0
         ? countPostLikesSubcollectionBatch(db, unique)
         : Promise.resolve(new Map<string, number>()),
-      (async () => {
-        if (!db || unique.length === 0) return;
-        const viewerLikeRefs = unique.map((postId) =>
-          db.collection("posts").doc(postId).collection("likes").doc(viewer.viewerId)
-        );
-        const viewerLikeSnaps = await db.getAll(...viewerLikeRefs);
-        incrementDbOps("reads", viewerLikeSnaps.filter((snap) => snap.exists).length);
-        incrementDbOps("queries", 1);
-        unique.forEach((postId, index) => {
-          viewerLikedByPostId.set(postId, viewerLikeSnaps[index]?.exists === true);
-        });
-      })(),
+      db && unique.length > 0
+        ? batchResolveViewerHasLiked(db, viewer.viewerId, unique)
+        : Promise.resolve(new Map<string, boolean>()),
     ]);
     const posts = postsBatchResult.posts;
     const byId = new Map(posts.map((p) => [String((p as any).postId ?? (p as any).id ?? ""), p]));

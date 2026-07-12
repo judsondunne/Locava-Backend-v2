@@ -131,3 +131,11 @@ Deferred (not in this branch): CDN/media infra, Following cursor migration, god-
 | H6 | Search-home firstPost: 1 batched `userId in` query | `search-home-v1.service.test.ts` |
 
 See `docs/performance/2026-07-12-phase-h-numerical-evidence.md`.
+
+### Phase I (social-batch + detail scale)
+
+| ID | Change | Proof |
+|----|--------|-------|
+| I1 | Cache viewer-liked existence for social-batch (20s TTL) | `viewer-liked-subcollection-exists.cache.test.ts` — warm 1→0 queries |
+| I2 | Compat posts-batch: field-masked `getAll` chunks of 30 | `posts-batch.repository.test.ts` — 45 ids → 2 calls (was 5) |
+| I3 | Feed detail: reuse likes-count cache helper | feed-detail adapter + likes cache tests |

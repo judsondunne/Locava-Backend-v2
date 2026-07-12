@@ -4,6 +4,8 @@ import { readMaybeMillis } from "./post-firestore-projection.js";
 import { normalizeLetterboxHintsFromFirestorePost } from "../../lib/feed/normalizeLetterboxHintsFromPost.js";
 import { buildSafeDisplayTextBlock } from "../../lib/posts/displayText.js";
 import { mergePersistedRouteFieldsIntoRecord } from "../../lib/posts/claimed-route-post.js";
+import { countPostLikesSubcollection } from "../surfaces/post-likes-subcollection-count.js";
+import { incrementDbOps } from "../../observability/request-context.js";
 
 export type FirestoreFeedDetailBundle = {
   post: {
@@ -269,12 +271,17 @@ export class FeedDetailFirestoreAdapter {
   ): Promise<{ likeCount: number; commentCount: number; additionalReads: number }> {
     const commentCountFromPost = resolveCommentCount(postData);
     const postRef = this.db!.collection("posts").doc(postId);
-    const [likesAgg, commentsAgg] = await Promise.all([
-      postRef.collection("likes").count().get(),
-      commentCountFromPost > 0 ? null : postRef.collection("comments").count().get(),
+    const [likeCount, commentsAgg] = await Promise.all([
+      countPostLikesSubcollection(this.db!, postId),
+      commentCountFromPost > 0
+        ? Promise.resolve(null)
+        : (async () => {
+            incrementDbOps("queries", 1);
+            return postRef.collection("comments").count().get();
+          })(),
     ]);
     return {
-      likeCount: normalizeCounter(likesAgg?.data().count),
+      likeCount,
       commentCount: commentCountFromPost > 0 ? commentCountFromPost : normalizeCounter(commentsAgg?.data().count),
       additionalReads: 1 + (commentCountFromPost > 0 ? 0 : 1),
     };

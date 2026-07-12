@@ -64,6 +64,10 @@ export const entityCacheKeys = {
   viewerPostState(viewerId: string, postId: string): string {
     return `post:${postId}:viewer:${viewerId}:state`;
   },
+  /** Viewer like-subdoc existence (social-batch / detail); invalidated on like/unlike. */
+  viewerLikedExists(viewerId: string, postId: string): string {
+    return `post:${postId}:viewer:${viewerId}:likedExists:v1`;
+  },
   userFollowCounts(userId: string): string {
     return `user:${userId}:followCounts:v1`;
   }

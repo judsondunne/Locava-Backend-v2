@@ -16,6 +16,15 @@ Senior constraint: keep `/v2` contracts stable; prefer cache + field masks + bat
 | Comments embedded probe | Post doc payload | full `.get()` | **field-masked `getAll`** | comments-list repository tests |
 | Chats peer summaries | User `getAll` | unmasked, chunks of 10 | **field-masked, chunks of 30** | chats repository path |
 
+## Phase I additions
+
+| Surface | Metric | Before | After | Proof |
+|---------|--------|--------|-------|-------|
+| Viewer-liked (30 posts, warm) | `getAll` queries | 1 | **0** (−100%) | `viewer-liked-subcollection-exists.cache.test.ts` |
+| Compat posts-batch (45 ids) | Firestore user fetches | 5× where-in | **2× masked getAll** (−60%) | `posts-batch.repository.test.ts` |
+| Compat posts-batch (60 ids) | Queries | 6 | **2** (−67%) | same chunking math |
+| Post detail like count (warm) | Aggregate queries | 1 | **0** (shared H1 cache) | likes cache + feed-detail adapter |
+
 ## Why these scale
 
 - Warm like-count cache removes the largest per-feed query multiplier under concurrent scrollers without changing authoritative counting.
