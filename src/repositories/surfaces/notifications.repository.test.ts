@@ -283,26 +283,29 @@ describe("notifications repository", () => {
         }
       ]
     }));
-    const userLookupGet = vi.fn(async () => ({
-      docs: [
+    const getAll = vi.fn(async (...args: unknown[]) => {
+      const maybeOpts = args[args.length - 1] as { fieldMask?: string[] };
+      expect(maybeOpts.fieldMask).toEqual(expect.arrayContaining(["name", "handle", "profilePic"]));
+      return [
         {
           id: "actor-4",
+          exists: true,
           data: () => ({
             name: "Actor Four",
             handle: "actorfour",
             profilePic: "https://example.com/actor-4.jpg"
           })
         }
-      ]
-    }));
+      ];
+    });
     const db = {
+      getAll,
       collection: (name: string) => {
         if (name !== "users") throw new Error(`unexpected_collection:${name}`);
         const topLevel = {
-          where: () => ({
-            get: userLookupGet
-          }),
-          doc: (_viewerId: string) => ({
+          doc: (id: string) => ({
+            id,
+            path: `users/${id}`,
             collection: (sub: string) => {
               if (sub !== "notifications") throw new Error(`unexpected_subcollection:${sub}`);
               const query = {
@@ -335,7 +338,7 @@ describe("notifications repository", () => {
       limit: 10
     });
 
-    expect(userLookupGet).toHaveBeenCalledTimes(1);
+    expect(getAll).toHaveBeenCalledTimes(1);
     expect(page.items[0]).toMatchObject({
       actorId: "actor-4",
       actor: {

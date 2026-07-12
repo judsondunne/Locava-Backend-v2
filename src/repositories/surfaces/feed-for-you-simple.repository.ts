@@ -796,17 +796,31 @@ export class FeedForYouSimpleRepository {
     const startedAt = Date.now();
     const ordered = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
     if (ordered.length === 0) return [];
-    const refs = ordered.map((postId) => this.db!.collection("posts").doc(postId));
-    incrementDbOps("queries", 1);
-    const snaps = await this.db.getAll(...refs);
-    incrementDbOps("reads", snaps.length);
+    const chunkSize = 30;
+    const chunks: string[][] = [];
+    for (let i = 0; i < ordered.length; i += chunkSize) {
+      chunks.push(ordered.slice(i, i + chunkSize));
+    }
+    const chunkSnaps = await Promise.all(
+      chunks.map(async (chunk) => {
+        const refs = chunk.map((postId) => this.db!.collection("posts").doc(postId));
+        incrementDbOps("queries", 1);
+        const snaps = await this.db!.getAll(...refs, {
+          fieldMask: [...SIMPLE_FEED_SELECT_FIELDS],
+        });
+        incrementDbOps("reads", snaps.length);
+        return snaps;
+      }),
+    );
     accumulateSurfaceTiming("feed_simple_query_candidates_by_id_ms", Date.now() - startedAt);
     const mappedById = new Map<string, SimpleFeedCandidate>();
-    for (const snap of snaps) {
-      if (!snap.exists) continue;
-      const raw = (snap.data() ?? {}) as Record<string, unknown>;
-      const mapped = tryMapSimpleFeedCandidate("docId", snap.id, raw);
-      if ("candidate" in mapped) mappedById.set(snap.id, mapped.candidate);
+    for (const snaps of chunkSnaps) {
+      for (const snap of snaps) {
+        if (!snap.exists) continue;
+        const raw = (snap.data() ?? {}) as Record<string, unknown>;
+        const mapped = tryMapSimpleFeedCandidate("docId", snap.id, raw);
+        if ("candidate" in mapped) mappedById.set(snap.id, mapped.candidate);
+      }
     }
     const list = ordered.map((id) => mappedById.get(id)).filter((row): row is SimpleFeedCandidate => Boolean(row));
     await this.hydrateCandidateLikeCountsFromLikesSubcollection(list);

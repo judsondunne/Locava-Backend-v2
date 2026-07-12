@@ -11,11 +11,24 @@ type CommentDoc = Record<string, unknown>;
 
 function buildDb(post: PostDoc, subcollection: CommentDoc[] = []) {
   return {
+    async getAll(ref: { id?: string; get?: () => Promise<unknown> }, _opts?: unknown) {
+      if (ref && typeof ref.get === "function") {
+        return [await ref.get()];
+      }
+      return [
+        {
+          exists: true,
+          id: typeof ref?.id === "string" ? ref.id : "post-with-comments",
+          data: () => ({ id: ref?.id, ...post }),
+        },
+      ];
+    },
     collection(name: string) {
       expect(name).toBe("posts");
       return {
         doc(postId: string) {
           return {
+            id: postId,
             async get() {
               return {
                 exists: true,

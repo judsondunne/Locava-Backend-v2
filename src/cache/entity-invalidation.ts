@@ -135,7 +135,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       entityCacheKeys.postSocial(postId),
       entityCacheKeys.postCard(postId),
       entityCacheKeys.postDetail(postId),
-      entityCacheKeys.viewerPostState(viewerId, postId)
+      entityCacheKeys.viewerPostState(viewerId, postId),
+      entityCacheKeys.likesSubcollectionCount(postId),
     ];
     await deleteEntityCacheKeys(entityKeys);
     unlinkPostFromAuthorIndex(postId);
@@ -162,6 +163,7 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         "post.card",
         "post.detail",
         "post.viewer_state",
+        "post.likes_count",
         "route.detail",
         ...(collectionsRouteKeys.length > 0 ? ["route.collections_saved"] : [])
       ],
@@ -176,7 +178,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       entityCacheKeys.postSocial(postId),
       entityCacheKeys.postCard(postId),
       entityCacheKeys.postDetail(postId),
-      entityCacheKeys.viewerPostState(viewerId, postId)
+      entityCacheKeys.viewerPostState(viewerId, postId),
+      entityCacheKeys.likesSubcollectionCount(postId),
     ];
     await deleteEntityCacheKeys(entityKeys);
     unlinkPostFromAuthorIndex(postId);
@@ -260,7 +263,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       entityCacheKeys.postSocial(postId),
       entityCacheKeys.postCard(postId),
       entityCacheKeys.postDetail(postId),
-      entityCacheKeys.viewerPostState(viewerId, postId)
+      entityCacheKeys.viewerPostState(viewerId, postId),
+      entityCacheKeys.likesSubcollectionCount(postId),
     ];
     await deleteEntityCacheKeys(entityKeys);
     const targetedRouteCacheKeys = [

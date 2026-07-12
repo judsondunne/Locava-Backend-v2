@@ -466,35 +466,61 @@ export class NotificationsRepository {
     return { cursorIn: input.cursor, items, hasMore, nextCursor, unreadCount, degraded: false, fallbacks: [] };
   }
 
+  private static readonly SENDER_FIELD_MASK = [
+    "name",
+    "displayName",
+    "firstName",
+    "lastName",
+    "fullName",
+    "handle",
+    "username",
+    "profilePic",
+    "profilePicture",
+    "photoURL",
+    "photo",
+  ] as const;
+
   private async loadUsersById(userIds: string[]): Promise<Map<string, DocumentData>> {
     const db = this.ensureDb();
     const unique = [...new Set(userIds.filter((v) => v.length > 0 && v !== "system"))];
     const result = new Map<string, DocumentData>();
     const ttlMs = 25_000;
-    const cachedPairs = await Promise.all(
-      unique.map(async (id) => ({ id, row: await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id)) }))
-    );
     const missing: string[] = [];
-    for (const { id, row } of cachedPairs) {
-      if (row !== undefined) {
+    for (const id of unique) {
+      const full = await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id));
+      if (full !== undefined) {
         recordEntityCacheHit();
-        result.set(id, row);
-      } else missing.push(id);
+        result.set(id, full);
+        continue;
+      }
+      const lean = await globalCache.get<DocumentData>(entityCacheKeys.userSenderFields(id));
+      if (lean !== undefined) {
+        recordEntityCacheHit();
+        result.set(id, lean);
+        continue;
+      }
+      missing.push(id);
     }
     if (missing.length === 0) return result;
 
     const chunks: string[][] = [];
-    for (let i = 0; i < missing.length; i += 10) chunks.push(missing.slice(i, i + 10));
+    for (let i = 0; i < missing.length; i += 30) chunks.push(missing.slice(i, i + 30));
     incrementDbOps("queries", chunks.length);
     const snaps = await Promise.all(
-      chunks.map((chunk) => db.collection("users").where(FieldPath.documentId(), "in", chunk).get())
+      chunks.map((chunk) =>
+        db.getAll(...chunk.map((id) => db.collection("users").doc(id)), {
+          fieldMask: [...NotificationsRepository.SENDER_FIELD_MASK],
+        }),
+      ),
     );
-    for (const snap of snaps) {
-      incrementDbOps("reads", snap.docs.length);
-      for (const doc of snap.docs) {
-        const data = doc.data();
+    for (const docs of snaps) {
+      incrementDbOps("reads", docs.reduce((sum, doc) => sum + (doc.exists ? 1 : 0), 0));
+      for (const doc of docs) {
+        if (!doc.exists) continue;
+        const data = (doc.data() ?? {}) as DocumentData;
         result.set(doc.id, data);
-        void globalCache.set(entityCacheKeys.userFirestoreDoc(doc.id), data, ttlMs);
+        // Never write field-masked payloads into userFirestoreDoc (would poison full-doc consumers).
+        void globalCache.set(entityCacheKeys.userSenderFields(doc.id), data, ttlMs);
       }
     }
     return result;
@@ -503,13 +529,17 @@ export class NotificationsRepository {
   private async loadCachedUsersById(userIds: string[]): Promise<Map<string, DocumentData>> {
     const unique = [...new Set(userIds.filter((v) => v.length > 0 && v !== "system"))];
     const result = new Map<string, DocumentData>();
-    const cachedPairs = await Promise.all(
-      unique.map(async (id) => ({ id, row: await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id)) }))
-    );
-    for (const { id, row } of cachedPairs) {
-      if (row !== undefined) {
+    for (const id of unique) {
+      const full = await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id));
+      if (full !== undefined) {
         recordEntityCacheHit();
-        result.set(id, row);
+        result.set(id, full);
+        continue;
+      }
+      const lean = await globalCache.get<DocumentData>(entityCacheKeys.userSenderFields(id));
+      if (lean !== undefined) {
+        recordEntityCacheHit();
+        result.set(id, lean);
       }
     }
     return result;

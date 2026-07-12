@@ -118,3 +118,16 @@ Deferred (not in this branch): CDN/media infra, Following cursor migration, god-
 | ID | Change | Proof |
 |----|--------|-------|
 | G1 | Search results: overlap/skip `loadTopActivities` unless mixes requested | `search.service.test.ts` |
+
+### Phase H (scale reads — numerical)
+
+| ID | Change | Proof |
+|----|--------|-------|
+| H1 | Cache likes-subcollection aggregate counts (20s TTL); invalidate on like/unlike | `post-likes-subcollection-count.cache.test.ts` — warm 30→0 queries |
+| H2 | For You by-id: field-mask + chunk-30 `getAll` | `feed-for-you-simple.by-id-mask.test.ts` |
+| H3 | Notifications actors: field-masked `getAll` (no `userFirestoreDoc` poison) | `notifications.actors-mask.test.ts` |
+| H4 | Chats peer summaries: field mask + chunk 30 | chats repository |
+| H5 | Comments embedded probe: field-masked post `getAll` | comments-list repository tests |
+| H6 | Search-home firstPost: 1 batched `userId in` query | `search-home-v1.service.test.ts` |
+
+See `docs/performance/2026-07-12-phase-h-numerical-evidence.md`.

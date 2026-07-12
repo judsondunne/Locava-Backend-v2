@@ -17,6 +17,7 @@ describe("search home v1 service", () => {
       loadUserSummaries: vi.fn(async () => new Map()),
     };
     service.postsRepo = {
+      listRecentFirstPostsByUserIds: vi.fn(async () => new Map()),
       listRecentPostsByUserId: vi.fn(async () => []),
     };
     service.searchMixes = {
@@ -82,6 +83,11 @@ describe("search home v1 service", () => {
   });
 
   it("skips firstPost Firestore probes when suggested user postCount is 0", async () => {
+    const listRecentFirstPostsByUserIds = vi.fn(async (ids: string[]) => {
+      const out = new Map<string, Array<{ postId: string }>>();
+      for (const id of ids) out.set(id, [{ postId: `post-for-${id}` }]);
+      return out;
+    });
     const listRecentPostsByUserId = vi.fn(async () => [{ postId: "should-not-load" }]);
     const service = new SearchHomeV1Service() as any;
     service.suggested = {
@@ -127,7 +133,7 @@ describe("search home v1 service", () => {
         ]),
       ),
     };
-    service.postsRepo = { listRecentPostsByUserId };
+    service.postsRepo = { listRecentFirstPostsByUserIds, listRecentPostsByUserId };
     service.searchMixes = {
       bootstrap: vi.fn(async () => ({ mixes: [] })),
     };
@@ -146,8 +152,10 @@ describe("search home v1 service", () => {
 
     try {
       const result = await service.build("viewer-a");
-      expect(listRecentPostsByUserId).toHaveBeenCalledTimes(1);
-      expect(listRecentPostsByUserId).toHaveBeenCalledWith("u-with-posts", 1);
+      // Numerical: 1 batched query for probe users with posts, 0 N×1 probes.
+      expect(listRecentFirstPostsByUserIds).toHaveBeenCalledTimes(1);
+      expect(listRecentFirstPostsByUserIds).toHaveBeenCalledWith(["u-with-posts"], 1);
+      expect(listRecentPostsByUserId).not.toHaveBeenCalled();
       expect(result.suggestedUsers.find((u: { user: { userId: string } }) => u.user.userId === "u-empty")?.firstPost).toBeNull();
     } finally {
       warmWaitSpy.mockRestore();
@@ -173,6 +181,7 @@ describe("search home v1 service", () => {
       loadUserSummaries: vi.fn(async () => new Map()),
     };
     service.postsRepo = {
+      listRecentFirstPostsByUserIds: vi.fn(async () => new Map()),
       listRecentPostsByUserId: vi.fn(async () => []),
     };
     service.searchMixes = {

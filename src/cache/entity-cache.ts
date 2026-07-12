@@ -17,8 +17,19 @@ export const entityCacheKeys = {
   postSocial(postId: string): string {
     return `post:${postId}:social`;
   },
+  /** Authoritative likes-subcollection aggregate count (short TTL; invalidated on like/unlike). */
+  likesSubcollectionCount(postId: string): string {
+    return `post:${postId}:likesSubCount:v1`;
+  },
   userSummary(userId: string): string {
     return `user:${userId}:summary`;
+  },
+  /**
+   * Lean sender fields for notifications actor hydration.
+   * Must not share `userFirestoreDoc` — field-masked payloads must not poison full-doc cache.
+   */
+  userSenderFields(userId: string): string {
+    return `user:${userId}:senderFields:v1`;
   },
   /**
    * Canonical profile header for `/v2/profiles/:id/bootstrap` — **must not** share `userSummary`,

@@ -453,9 +453,19 @@ export class CommentsRepository {
     rawEngagementCommentCount: number;
   }> {
     incrementDbOps("queries", 1);
-    const snap = await this.db!.collection("posts").doc(postId).get();
+    const [snap] = await this.db!.getAll(this.db!.collection("posts").doc(postId), {
+      fieldMask: [
+        "comments",
+        "commentsPreview",
+        "engagementPreview",
+        "latestCommentPreview",
+        "commentCount",
+        "commentsCount",
+        "engagement",
+      ],
+    });
     incrementDbOps("reads", 1);
-    if (!snap.exists) {
+    if (!snap?.exists) {
       return {
         comments: [],
         commentsPreview: [],
