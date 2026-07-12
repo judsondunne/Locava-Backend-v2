@@ -10,7 +10,8 @@
  *   - this module MUST NOT mutate Firestore state
  *
  * Behaviour:
- *   - Reads `posts/{postId}` documents in parallel (with a small concurrency cap)
+ *   - Reads `posts/{postId}` documents via Firestore `getAll` in bounded chunks
+ *     (one RTT per chunk instead of N concurrent `.get()` calls)
  *   - Sanitises each doc via `standardizePostDocForRender` BEFORE Zod parse so
  *     production data-quality drift on optional/mirror fields cannot reject
  *     a perfectly renderable post (this is the fix for the profile_grid
@@ -51,7 +52,8 @@ export type RenderStandardizedBatchInput = {
 };
 
 const MAX_BATCH = 50;
-const MAX_CONCURRENCY = 16;
+/** Bounded getAll chunks; full MAX_BATCH (50) is two RTTs max. */
+const GET_ALL_CHUNK_SIZE = 30;
 
 type CandidateDoc = {
   postId: string;
@@ -72,15 +74,42 @@ function dedupePostIds(ids: readonly string[]): string[] {
   return out;
 }
 
-async function readPostDoc(
-  postId: string
-): Promise<CandidateDoc> {
+/**
+ * Batch-read post docs with Firestore getAll in bounded chunks.
+ * Preserves input order. Missing docs are returned as exists=false.
+ */
+async function readPostDocsBatch(postIds: readonly string[]): Promise<CandidateDoc[]> {
+  if (postIds.length === 0) return [];
   const db = getFirestoreSourceClient();
-  if (!db) return { postId, data: null, exists: false };
-  incrementDbOps("reads", 1);
-  const snap = await db.collection("posts").doc(postId).get();
-  if (!snap.exists) return { postId, data: null, exists: false };
-  return { postId, data: snap.data() as Record<string, unknown>, exists: true };
+  if (!db) {
+    return postIds.map((postId) => ({ postId, data: null, exists: false }));
+  }
+
+  const byId = new Map<string, CandidateDoc>();
+  for (let i = 0; i < postIds.length; i += GET_ALL_CHUNK_SIZE) {
+    const chunk = postIds.slice(i, i + GET_ALL_CHUNK_SIZE);
+    const refs = chunk.map((id) => db.collection("posts").doc(id));
+    // getAll is not a "query" in Firestore billing terms, but we keep dbOps
+    // consistent with feed.repository / other getAll call sites.
+    incrementDbOps("queries", 1);
+    const snaps = await db.getAll(...refs);
+    incrementDbOps("reads", snaps.length);
+    for (const snap of snaps) {
+      if (!snap.exists) {
+        byId.set(snap.id, { postId: snap.id, data: null, exists: false });
+        continue;
+      }
+      byId.set(snap.id, {
+        postId: snap.id,
+        data: snap.data() as Record<string, unknown>,
+        exists: true,
+      });
+    }
+  }
+
+  return postIds.map(
+    (postId) => byId.get(postId) ?? { postId, data: null, exists: false },
+  );
 }
 
 async function readBlockedAuthorsForViewer(viewerId: string): Promise<Set<string>> {
@@ -120,27 +149,6 @@ function isPostVisibleToViewer(
     }
   }
   return { visible: true };
-}
-
-async function mapWithConcurrency<T, R>(
-  items: readonly T[],
-  concurrency: number,
-  fn: (item: T) => Promise<R>
-): Promise<R[]> {
-  if (items.length === 0) return [];
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-  const workers = new Array(Math.min(concurrency, items.length))
-    .fill(null)
-    .map(async () => {
-      while (true) {
-        const i = cursor++;
-        if (i >= items.length) return;
-        results[i] = await fn(items[i]!);
-      }
-    });
-  await Promise.all(workers);
-  return results;
 }
 
 function logSanitized(
@@ -234,7 +242,7 @@ export async function handleRenderStandardizedBatch(
 
   const blockedAuthorIds = await readBlockedAuthorsForViewer(input.viewerId);
 
-  const docs = await mapWithConcurrency(dedupedIds, MAX_CONCURRENCY, readPostDoc);
+  const docs = await readPostDocsBatch(dedupedIds);
 
   for (const candidate of docs) {
     if (!candidate.exists || candidate.data == null) {
