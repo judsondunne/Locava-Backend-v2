@@ -6,10 +6,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let fakeDb: {
   collection: (name: string) => unknown;
-  getAll: (...refs: Array<{ id: string; path: string }>) => Promise<unknown[]>;
+  getAll: (...args: unknown[]) => Promise<unknown[]>;
 } | null = null;
-let getAllCalls: Array<string[]> = [];
+let getAllCalls: Array<{ ids: string[]; fieldMask?: string[] }> = [];
 let postGetCalls = 0;
+let userDocs: Record<string, Record<string, unknown>> = {};
 
 vi.mock("../../../repositories/source-of-truth/firestore-client.js", () => ({
   getFirestoreSourceClient: () => fakeDb,
@@ -219,11 +220,14 @@ function buildDb(docsById: Record<string, Record<string, unknown> | null>) {
         return {
           doc(userId: string) {
             return {
+              id: userId,
+              path: `users/${userId}`,
               async get() {
+                const data = userDocs[userId] ?? { blockedUsers: [] };
                 return {
                   exists: true,
                   id: userId,
-                  data: () => ({ blockedUsers: [] }),
+                  data: () => data,
                 };
               },
             };
@@ -248,9 +252,23 @@ function buildDb(docsById: Record<string, Record<string, unknown> | null>) {
         },
       };
     },
-    async getAll(...refs: Array<{ id: string; path: string }>) {
-      getAllCalls.push(refs.map((r) => r.id));
+    async getAll(...args: unknown[]) {
+      const maybeOpts = args[args.length - 1];
+      const hasFieldMask =
+        maybeOpts &&
+        typeof maybeOpts === "object" &&
+        !("id" in (maybeOpts as object)) &&
+        "fieldMask" in (maybeOpts as object);
+      const refs = (hasFieldMask ? args.slice(0, -1) : args) as Array<{ id: string; path: string }>;
+      const fieldMask = hasFieldMask
+        ? ([...(maybeOpts as { fieldMask: string[] }).fieldMask] as string[])
+        : undefined;
+      getAllCalls.push({ ids: refs.map((r) => r.id), fieldMask });
       return refs.map((ref) => {
+        if (ref.path?.startsWith("users/")) {
+          const data = userDocs[ref.id] ?? { blockedUsers: [] };
+          return { exists: true, id: ref.id, data: () => data };
+        }
         const data = docsById[ref.id];
         if (data === undefined || data === null) {
           return { exists: false, id: ref.id, data: () => undefined };
@@ -267,6 +285,7 @@ describe("handleRenderStandardizedBatch getAll batching", () => {
     fakeDb = null;
     getAllCalls = [];
     postGetCalls = 0;
+    userDocs = {};
   });
 
   it("reads posts via getAll chunks (not per-doc .get) and preserves order", async () => {
@@ -287,9 +306,13 @@ describe("handleRenderStandardizedBatch getAll batching", () => {
     });
 
     expect(postGetCalls).toBe(0);
-    expect(getAllCalls).toHaveLength(2);
-    expect(getAllCalls[0]).toHaveLength(30);
-    expect(getAllCalls[1]).toHaveLength(5);
+    const postChunks = getAllCalls.filter((c) => !c.fieldMask);
+    const userChunks = getAllCalls.filter((c) => c.fieldMask?.includes("blockedUsers"));
+    expect(userChunks).toHaveLength(1);
+    expect(userChunks[0]?.ids).toEqual(["viewer-1"]);
+    expect(postChunks).toHaveLength(2);
+    expect(postChunks[0]?.ids).toHaveLength(30);
+    expect(postChunks[1]?.ids).toHaveLength(5);
     expect(result.missing).toEqual(["post_10"]);
     expect(result.posts).toHaveLength(34);
     expect(result.posts.map((p) => p.id ?? (p as { postId?: string }).postId)).toEqual(
@@ -333,7 +356,8 @@ describe("handleRenderStandardizedBatch getAll batching", () => {
     });
 
     expect(postGetCalls).toBe(0);
-    expect(getAllCalls).toHaveLength(1);
+    expect(getAllCalls.some((c) => c.fieldMask?.includes("blockedUsers"))).toBe(true);
+    expect(getAllCalls.some((c) => !c.fieldMask && c.ids.includes(publicId))).toBe(true);
     expect(result.posts).toHaveLength(1);
     expect(result.rejected).toEqual([
       {

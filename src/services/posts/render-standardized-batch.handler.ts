@@ -116,9 +116,12 @@ async function readBlockedAuthorsForViewer(viewerId: string): Promise<Set<string
   const db = getFirestoreSourceClient();
   const id = viewerId.trim();
   if (!db || !id) return new Set();
+  incrementDbOps("queries", 1);
   incrementDbOps("reads", 1);
-  const snap = await db.collection("users").doc(id).get();
-  if (!snap.exists) return new Set();
+  const [snap] = await db.getAll(db.collection("users").doc(id), {
+    fieldMask: ["blockedUsers"],
+  });
+  if (!snap?.exists) return new Set();
   const data = snap.data() as { blockedUsers?: unknown };
   if (!Array.isArray(data.blockedUsers)) return new Set();
   return new Set(data.blockedUsers.filter((v): v is string => typeof v === "string" && v.trim().length > 0));
@@ -240,9 +243,10 @@ export async function handleRenderStandardizedBatch(
     return RenderStandardizedBatchResponseSchema.parse({ posts, missing, rejected });
   }
 
-  const blockedAuthorIds = await readBlockedAuthorsForViewer(input.viewerId);
-
-  const docs = await readPostDocsBatch(dedupedIds);
+  const [blockedAuthorIds, docs] = await Promise.all([
+    readBlockedAuthorsForViewer(input.viewerId),
+    readPostDocsBatch(dedupedIds),
+  ]);
 
   for (const candidate of docs) {
     if (!candidate.exists || candidate.data == null) {

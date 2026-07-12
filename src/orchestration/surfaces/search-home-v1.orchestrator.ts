@@ -1,7 +1,8 @@
 import { getRequestContext } from "../../observability/request-context.js";
 import { MixPostsRepository } from "../../repositories/mixPosts.repository.js";
 import { globalCache } from "../../cache/global-cache.js";
-import { SearchHomeV1Service } from "../../services/surfaces/search-home-v1.service.js";
+import { dedupeInFlight } from "../../cache/in-flight-dedupe.js";
+import { SearchHomeV1Service, searchHomeV1CacheKeys } from "../../services/surfaces/search-home-v1.service.js";
 import {
   normalizeActivityTagForSearchHome,
   resolveSearchHomeV1ActivityAliases,
@@ -79,7 +80,8 @@ export class SearchHomeV1Orchestrator {
   async homeBootstrap(input: { viewerId: string; includeDebug: boolean; bypassCache?: boolean }) {
     const started = Date.now();
     const readsBefore = getRequestContext()?.dbOps.reads ?? 0;
-    const cacheKey = `search:home-bootstrap:v1:${input.viewerId}`;
+    // Must match searchHomeV1CacheKeys.homeFull — entity-invalidation deletes this key.
+    const cacheKey = searchHomeV1CacheKeys.homeFull(input.viewerId);
     const cacheEnabled = !input.bypassCache;
 
     if (cacheEnabled) {
@@ -92,9 +94,11 @@ export class SearchHomeV1Orchestrator {
       }
     }
 
-    const built = await this.service.build(input.viewerId, {
-      bypassSuggestedFriendsCache: Boolean(input.bypassCache),
-    });
+    const built = await dedupeInFlight(`search-home-bootstrap:${input.viewerId}`, () =>
+      this.service.build(input.viewerId, {
+        bypassSuggestedFriendsCache: Boolean(input.bypassCache),
+      })
+    );
     const data: HomeCore = {
       version: built.version,
       viewerId: built.viewerId,

@@ -70,3 +70,14 @@ Proven with vitest:
 - search-home skip empty firstPost probes
 
 Deferred (not in this branch): CDN/media infra, Following cursor migration, god-file splits, Redis coherence.
+
+
+### Phase C (continued)
+
+| ID | Change | Proof |
+|----|--------|-------|
+| C1 | Fix search-home cache key to `search:home:v1:{viewerId}` + cold-build dedupe | `search-home-v1.cache-key.test.ts` |
+| C2 | Parallel mix bootstrap with suggested friends | `search-home-v1.service.test.ts` parallel test |
+| C3 | Optional playback readiness fields on `PostCardSummarySchema` | `post-entities.contract.test.ts` |
+| C4 | Field mask on search-home user `getAll` | `search-home-v1-users.repository.test.ts` |
+| C5 | Parallel blockedUsers + posts getAll; mask `blockedUsers` | `render-standardized-batch.handler.test.ts` |

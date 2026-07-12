@@ -40,5 +40,37 @@ describe("post entities contracts", () => {
     expect(detail.carouselFitWidth).toBe(true);
     expect(detail.letterboxGradientTop).toBe("#23569a");
   });
+
+  it("accepts additive first-paint playback readiness fields on cards", () => {
+    const card = PostCardSummarySchema.parse({
+      postId: "post_video_1",
+      rankToken: "rank-v",
+      author: { userId: "u1", handle: "h1", name: "Name", pic: null },
+      title: null,
+      captionPreview: null,
+      firstAssetUrl: "https://example.com/poster.webp",
+      media: {
+        type: "video",
+        posterUrl: "https://example.com/poster.webp",
+        aspectRatio: 0.5625,
+        startupHint: "poster_then_preview",
+      },
+      social: { likeCount: 0, commentCount: 0 },
+      viewer: { liked: false, saved: false },
+      createdAtMs: 1,
+      updatedAtMs: 1,
+      instantPlaybackReady: true,
+      posterPresent: true,
+      playbackReady: true,
+      playbackUrlPresent: true,
+      hasVideo: true,
+      mediaStatus: "ready",
+      assetsReady: true,
+      playbackUrl: "https://example.com/startup720_faststart_avc.mp4",
+    });
+    expect(card.instantPlaybackReady).toBe(true);
+    expect(card.posterPresent).toBe(true);
+    expect(card.playbackReady).toBe(true);
+  });
 });
 

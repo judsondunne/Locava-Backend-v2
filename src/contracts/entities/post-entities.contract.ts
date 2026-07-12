@@ -153,7 +153,23 @@ export const PostCardSummarySchema = z.object({
   commentsPreview: z.array(EmbeddedCommentSchema).optional(),
   appPostAttached: z.boolean().optional(),
   appPostWireAssetCount: z.number().int().nonnegative().optional(),
-  wireDeclaredMediaAssetCount: z.number().int().nonnegative().optional()
+  wireDeclaredMediaAssetCount: z.number().int().nonnegative().optional(),
+  /** Additive first-paint playback signals (native skip-batch / readiness). */
+  mediaStatus: z.enum(["processing", "ready", "failed"]).optional(),
+  assetsReady: z.boolean().optional(),
+  posterReady: z.boolean().optional(),
+  posterPresent: z.boolean().optional(),
+  playbackReady: z.boolean().optional(),
+  playbackUrlPresent: z.boolean().optional(),
+  hasVideo: z.boolean().optional(),
+  instantPlaybackReady: z.boolean().optional(),
+  videoProcessingStatus: z.string().optional(),
+  playbackUrl: z.string().url().nullable().optional(),
+  fallbackVideoUrl: z.string().url().nullable().optional(),
+  posterUrl: z.string().url().nullable().optional(),
+  width: z.number().nullable().optional(),
+  height: z.number().nullable().optional(),
+  aspectRatio: z.number().nullable().optional()
 }).merge(PostEnvelopeFieldsSchema).passthrough();
 
 export const PostDetailAssetSchema = z.object({

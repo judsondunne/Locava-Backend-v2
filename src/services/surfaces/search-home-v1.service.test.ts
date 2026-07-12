@@ -153,4 +153,67 @@ describe("search home v1 service", () => {
       warmWaitSpy.mockRestore();
     }
   });
+
+  it("starts mix bootstrap in parallel with suggested friends (does not wait for suggestions first)", async () => {
+    let suggestionsStarted = false;
+    let mixStartedBeforeSuggestionsResolved = false;
+    let resolveSuggestions: ((value: unknown) => void) | null = null;
+
+    const service = new SearchHomeV1Service() as any;
+    service.suggested = {
+      getSuggestionsForUser: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            suggestionsStarted = true;
+            resolveSuggestions = resolve;
+          }),
+      ),
+    };
+    service.usersRepo = {
+      loadUserSummaries: vi.fn(async () => new Map()),
+    };
+    service.postsRepo = {
+      listRecentPostsByUserId: vi.fn(async () => []),
+    };
+    service.searchMixes = {
+      bootstrap: vi.fn(async () => {
+        if (suggestionsStarted && resolveSuggestions) {
+          mixStartedBeforeSuggestionsResolved = true;
+        }
+        return { mixes: [] };
+      }),
+    };
+    const warmWaitSpy = vi.spyOn(mixesRepository, "listFromPoolWithWarmWait").mockResolvedValue({
+      posts: [] as never,
+      readCount: 0,
+      source: "test",
+      poolLimit: 600,
+      poolState: "warm",
+      poolBuiltAt: new Date().toISOString(),
+      poolBuildLatencyMs: 0,
+      poolBuildReadCount: 0,
+      servedStale: false,
+      servedEmptyWarming: false,
+    });
+
+    try {
+      const pending = service.build("viewer-parallel");
+      // Allow microtasks so Promise.all kicks off all branches.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(service.searchMixes.bootstrap).toHaveBeenCalled();
+      expect(mixStartedBeforeSuggestionsResolved).toBe(true);
+      resolveSuggestions?.({
+        users: [],
+        sourceBreakdown: {},
+        generatedAt: Date.now(),
+        sourceDiagnostics: [],
+      });
+      const result = await pending;
+      expect(result.activityMixes).toEqual([]);
+      expect(result.suggestedUsers).toEqual([]);
+    } finally {
+      warmWaitSpy.mockRestore();
+    }
+  });
 });

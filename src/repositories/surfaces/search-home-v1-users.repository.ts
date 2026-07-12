@@ -26,6 +26,31 @@ function asString(v: unknown): string {
 export class SearchHomeV1UsersRepository {
   private readonly db = getFirestoreSourceClient();
 
+  /** Only fields consumed by SearchHomeV1UserSummary — keeps getAll payloads small. */
+  private static readonly USER_SUMMARY_FIELD_MASK = [
+    "name",
+    "displayName",
+    "handle",
+    "username",
+    "searchHandle",
+    "profilePic",
+    "photoURL",
+    "photo",
+    "userPic",
+    "bio",
+    "bioText",
+    "followerCount",
+    "followersCount",
+    "numFollowers",
+    "followers",
+    "followingCount",
+    "following",
+    "numFollowing",
+    "postCount",
+    "postsCount",
+    "numPosts",
+  ] as const;
+
   private requireDb() {
     if (!this.db) throw new SourceOfTruthRequiredError("search_home_v1_users_firestore_unavailable");
     return this.db;
@@ -44,7 +69,9 @@ export class SearchHomeV1UsersRepository {
     for (let i = 0; i < unique.length; i += chunkSize) {
       const chunk = unique.slice(i, i + chunkSize);
       const refs = chunk.map((id) => db.collection("users").doc(id));
-      const snaps = await db.getAll(...refs);
+      const snaps = await db.getAll(...refs, {
+        fieldMask: [...SearchHomeV1UsersRepository.USER_SUMMARY_FIELD_MASK],
+      });
       incrementDbOps("queries", 1);
       incrementDbOps("reads", snaps.length);
 
