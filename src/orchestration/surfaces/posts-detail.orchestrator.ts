@@ -904,10 +904,11 @@ export class PostsDetailOrchestrator {
     const unique = [...new Set(ordered)];
     const mode = resolveBatchDetailMode(input);
     if (input.hydrationMode === "card" || input.hydrationMode === "playback") {
+      const lightweightMode = input.hydrationMode;
       const dedupeKey = [
         "posts-detail-batch-light",
         input.viewerId,
-        input.hydrationMode,
+        lightweightMode,
         input.reason,
         input.surface ?? "",
         unique.join(","),
@@ -918,7 +919,7 @@ export class PostsDetailOrchestrator {
             viewerId: input.viewerId,
             postIds: input.postIds,
             reason: input.reason,
-            hydrationMode: input.hydrationMode,
+            hydrationMode: lightweightMode,
             mode,
             surface: input.surface ?? null,
           },

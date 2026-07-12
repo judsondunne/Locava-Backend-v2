@@ -137,7 +137,7 @@ describe("search home v1 service", () => {
       source: "test",
       poolLimit: 600,
       poolState: "warm",
-      poolBuiltAt: Date.now(),
+      poolBuiltAt: new Date().toISOString(),
       poolBuildLatencyMs: 0,
       poolBuildReadCount: 0,
       servedStale: false,
