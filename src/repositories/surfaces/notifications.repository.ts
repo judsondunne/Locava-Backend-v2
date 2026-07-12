@@ -1170,29 +1170,6 @@ export class NotificationsRepository {
     let cachedUnreadCount = await this.readCachedUnreadCount(input.viewerId);
     let cachedReadAll = await this.readCachedReadAllAtMs(input.viewerId);
 
-    if (bl?.syncUnreadFromViewerDoc === true && (cachedUnreadCount == null || !cachedReadAll.known)) {
-      incrementDbOps("queries", 1);
-      const userSnap = await db.collection("users").doc(input.viewerId).get();
-      incrementDbOps("reads", 1);
-      const ud = (userSnap.data() ?? {}) as Record<string, unknown>;
-      const u = pickUnreadCountFromUserDoc(ud);
-      if (u != null) {
-        cachedUnreadCount = u;
-        await globalCache.set(entityCacheKeys.notificationsUnreadCount(input.viewerId), u, 25_000);
-      }
-      const ra = pickReadAllAtMsFromUserDoc(ud);
-      if (ra != null) {
-        cachedReadAll = { value: ra, known: true };
-        await globalCache.set(entityCacheKeys.notificationsReadAllAt(input.viewerId), ra, 25_000);
-      }
-      const prevCached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId));
-      await globalCache.set(
-        entityCacheKeys.userFirestoreDoc(input.viewerId),
-        { ...(typeof prevCached === "object" && prevCached ? prevCached : {}), ...ud },
-        25_000,
-      );
-    }
-
     const coll = db.collection("users").doc(input.viewerId).collection("notifications");
     let pageQuery = coll
       .orderBy("timestamp", "desc")
@@ -1223,11 +1200,44 @@ export class NotificationsRepository {
       pageQuery = pageQuery.startAfter(parsedCursor.createdAtMs, parsedCursor.id);
     }
 
-    incrementDbOps("queries", 1);
+    const needsViewerSync =
+      bl?.syncUnreadFromViewerDoc === true && (cachedUnreadCount == null || !cachedReadAll.known);
+
+    let snapshot;
     const tParallel0 = performance.now();
-    const snapshot = await pageQuery.get();
+    if (needsViewerSync) {
+      // Viewer-doc unread sync is independent of the notifications page query.
+      incrementDbOps("queries", 2);
+      const userRef = db.collection("users").doc(input.viewerId);
+      const [pageSnap, userSnap] = await Promise.all([pageQuery.get(), userRef.get()]);
+      snapshot = pageSnap;
+      incrementDbOps("reads", snapshot.docs.length + 1);
+      const ud = (userSnap.data() ?? {}) as Record<string, unknown>;
+      const u = pickUnreadCountFromUserDoc(ud);
+      if (u != null) {
+        cachedUnreadCount = u;
+        await globalCache.set(entityCacheKeys.notificationsUnreadCount(input.viewerId), u, 25_000);
+      }
+      const ra = pickReadAllAtMsFromUserDoc(ud);
+      if (ra != null) {
+        cachedReadAll = { value: ra, known: true };
+        await globalCache.set(entityCacheKeys.notificationsReadAllAt(input.viewerId), ra, 25_000);
+      }
+      const prevCached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId));
+      await globalCache.set(
+        entityCacheKeys.userFirestoreDoc(input.viewerId),
+        { ...(typeof prevCached === "object" && prevCached ? prevCached : {}), ...ud },
+        25_000,
+      );
+    } else {
+      incrementDbOps("queries", 1);
+      snapshot = await pageQuery.get();
+      incrementDbOps("reads", snapshot.docs.length);
+    }
     const tParallel1 = performance.now();
-    incrementDbOps("reads", snapshot.docs.length);
+    void tParallel0;
+    void tParallel1;
+
     const fallbacks: string[] = [];
     if (!(bl?.syncUnreadFromViewerDoc === true) && (cachedUnreadCount == null || !cachedReadAll.known)) {
       this.queueViewerStateWarm(input.viewerId);

@@ -74,6 +74,8 @@ describe("v2 map markers route", () => {
       headers: { "x-viewer-id": "internal-viewer", "x-viewer-roles": "internal" }
     });
     expect(response.statusCode).toBe(200);
+    expect(response.headers["cache-control"]).toMatch(/private/);
+    expect(response.headers["cache-control"]).toMatch(/max-age=/);
     expect(fetchAllMock).toHaveBeenCalledWith({
       maxDocs: 5000,
       includeOpenPayload: true,

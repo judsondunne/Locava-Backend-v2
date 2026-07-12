@@ -68,6 +68,13 @@ describe("notifications repository", () => {
           doc: (_viewerId: string) => ({
             set: userSet,
             collection: (sub: string) => {
+              if (sub === "notificationMeta") {
+                return {
+                  doc: () => ({
+                    set: vi.fn(async () => undefined),
+                  }),
+                };
+              }
               if (sub !== "notifications") throw new Error(`unexpected_subcollection:${sub}`);
               return {
                 doc: (_notificationId: string) => notificationDocRef

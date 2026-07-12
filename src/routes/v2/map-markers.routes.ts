@@ -13,6 +13,18 @@ import { fetchUnexploredMapMarkerSummaries } from "../../services/map/unexplored
 const env = loadEnv();
 const adapter = new MapMarkersFirestoreAdapter();
 
+function applyMapMarkersHttpCache(
+  reply: { header: (name: string, value: string) => unknown },
+  opts: { ttlMs: number; isCursorPage: boolean; includeNonPublic: boolean },
+): void {
+  if (opts.isCursorPage || opts.includeNonPublic) {
+    reply.header("Cache-Control", "private, no-store");
+    return;
+  }
+  const maxAgeSec = Math.max(1, Math.floor(opts.ttlMs / 1000));
+  reply.header("Cache-Control", `private, max-age=${maxAgeSec}, must-revalidate`);
+}
+
 function ensureMarkerOpenPayload(marker: Record<string, unknown>): Record<string, unknown> {
   const existing = marker.openPayload;
   if (existing && typeof existing === "object") return existing as Record<string, unknown>;
@@ -133,10 +145,20 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       ) {
         request.log.info({ routeName: "map.markers.get", cacheSource: "revalidated_304" }, "map markers cache revalidated");
         reply.header("ETag", cached.etag);
+        applyMapMarkersHttpCache(reply, {
+          ttlMs: Math.max(env.MAP_MARKERS_CACHE_TTL_MS, 120_000),
+          isCursorPage,
+          includeNonPublic,
+        });
         return reply.status(304).send();
       }
       request.log.info({ routeName: "map.markers.get", cacheSource: "hit", count: cached.count }, "map markers cache hit");
       reply.header("ETag", cached.etag);
+      applyMapMarkersHttpCache(reply, {
+        ttlMs: Math.max(env.MAP_MARKERS_CACHE_TTL_MS, 120_000),
+        isCursorPage,
+        includeNonPublic,
+      });
       return success({
         ...cached,
         diagnostics: {
@@ -397,6 +419,11 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
       ) {
         request.log.info({ routeName: "map.markers.get", cacheSource: "revalidated_304" }, "map markers immediate revalidated");
         reply.header("ETag", payload.etag);
+        applyMapMarkersHttpCache(reply, {
+          ttlMs,
+          isCursorPage,
+          includeNonPublic,
+        });
         return reply.status(304).send();
       }
       request.log.info(
@@ -420,6 +447,11 @@ export async function registerV2MapMarkersRoutes(app: FastifyInstance): Promise<
 	        "map markers fetched"
 	      );
       reply.header("ETag", payload.etag);
+      applyMapMarkersHttpCache(reply, {
+        ttlMs,
+        isCursorPage,
+        includeNonPublic,
+      });
       return success(payload);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);

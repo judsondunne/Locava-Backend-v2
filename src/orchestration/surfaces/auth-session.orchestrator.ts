@@ -291,7 +291,7 @@ export class AuthSessionOrchestrator {
       await this.notificationsListOrchestrator.run({
         viewerId: viewer.viewerId,
         cursor: null,
-        limit: 10,
+        limit: 20,
         boundedList: {
           maxNotificationDocs: NOTIFICATIONS_LIST_MAX_DOCS,
           skipActorHydration: true,

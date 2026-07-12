@@ -280,6 +280,12 @@ export class ProfileBootstrapOrchestrator {
           };
         });
 
+    const badgePromise = (
+      includeTabPreviews
+        ? this.service.loadBadgeSummary(userId, debugSlowDeferredMs)
+        : Promise.resolve(null)
+    ).catch(() => null);
+
     const [headerRaw, relationshipRaw, gridPreviewLoaded, collectionsPreview, achievementsPreview, profileBadgeSummary] =
       await Promise.all([
         headerPromise,
@@ -296,7 +302,7 @@ export class ProfileBootstrapOrchestrator {
         gridPromise,
         collectionsPromise,
         achievementsPromise,
-        (includeTabPreviews ? this.service.loadBadgeSummary(userId, debugSlowDeferredMs) : Promise.resolve(null)).catch(() => null),
+        badgePromise,
       ]);
 
     const gridPreview = {

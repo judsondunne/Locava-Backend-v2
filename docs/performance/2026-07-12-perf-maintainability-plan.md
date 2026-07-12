@@ -81,3 +81,14 @@ Deferred (not in this branch): CDN/media infra, Following cursor migration, god-
 | C3 | Optional playback readiness fields on `PostCardSummarySchema` | `post-entities.contract.test.ts` |
 | C4 | Field mask on search-home user `getAll` | `search-home-v1-users.repository.test.ts` |
 | C5 | Parallel blockedUsers + posts getAll; mask `blockedUsers` | `render-standardized-batch.handler.test.ts` |
+
+
+### Phase D (continued)
+
+| ID | Change | Proof |
+|----|--------|-------|
+| D1 | Auth-session notifications prewarm limit 10→20 (match contract default) | auth-session orchestrator |
+| D2 | Map markers `Cache-Control` (private max-age / no-store for cursor/self) | map-markers.routes.test |
+| D3 | Notifications list: parallel viewer-doc sync + page query | notifications.repository.test |
+| D4 | Profile bootstrap: hoist badgePromise with other fetches | profile-bootstrap.orchestrator.test |
+| D5 | `.env.example` docs for batch playback + map + mixes 150 | env example |
