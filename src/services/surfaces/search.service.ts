@@ -175,6 +175,11 @@ export class SearchService {
         if (parsedIntent.nearMe && !(typeof lat === "number" && typeof lng === "number")) {
           fallbacks.push("near_me_viewer_location_unavailable");
         }
+        // Overlap top-activities with posts when mixes are requested and intent has no activity.
+        const topActivitiesPromise =
+          wantedTypes.has("mixes") && !(parsedIntent.activity?.queryActivities.length)
+            ? this.discoveryService.loadTopActivities(6).catch(() => [] as string[])
+            : Promise.resolve(null as string[] | null);
         const canUseFastPosts =
           this.discoveryService.isEnabled() &&
           process.env.FIRESTORE_TEST_MODE !== "emulator" &&
@@ -238,13 +243,10 @@ export class SearchService {
           .filter((row) => isUrl(String(row.media?.posterUrl ?? "")))
           .slice(0, limit);
 
-        const mixActivities = parsedIntent.activity?.queryActivities.length
-          ? parsedIntent.activity.queryActivities
-          : await this.discoveryService.loadTopActivities(6);
         const mixLocationText = parsedIntent.nearMe
           ? "near me"
           : parsedIntent.location?.displayText ?? null;
-        const [usersPage, collectionsSection] = await Promise.all([
+        const [usersPage, collectionsSection, topActivities] = await Promise.all([
           wantedTypes.has("users")
             ? this.usersService
                 .loadUsersPage({
@@ -263,7 +265,11 @@ export class SearchService {
                 limit
               })
             : Promise.resolve([]),
+          topActivitiesPromise,
         ]);
+        const mixActivities = parsedIntent.activity?.queryActivities.length
+          ? parsedIntent.activity.queryActivities
+          : (topActivities ?? []);
 
         const filteredCollections = Array.isArray(collectionsSection)
           ? collectionsSection.slice(0, limit).map((collection) => ({

@@ -112,3 +112,9 @@ Deferred (not in this branch): CDN/media infra, Following cursor migration, god-
 | F3 | For You Simple: field-mask `blockedUsers` read | `feed-for-you-simple.blocked-mask.test.ts` |
 | F4 | Feed bootstrap: overlap follow-nudge with candidates on following tab | feed-bootstrap orchestrator |
 | F5 | Social batch: parallel posts + like counts + viewer likes | social-batch routes test |
+
+### Phase G (continued)
+
+| ID | Change | Proof |
+|----|--------|-------|
+| G1 | Search results: overlap/skip `loadTopActivities` unless mixes requested | `search.service.test.ts` |

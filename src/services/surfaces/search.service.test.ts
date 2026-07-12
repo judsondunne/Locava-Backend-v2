@@ -55,6 +55,7 @@ describe("SearchService", () => {
       lng: null,
     });
     expect(repository.getSearchResultsPage).not.toHaveBeenCalled();
+    expect(discoveryStub.loadTopActivities).not.toHaveBeenCalled();
     expect(result.items).toHaveLength(1);
     expect(result.items[0]?.postId).toBe("post-1");
   });
@@ -231,5 +232,65 @@ describe("SearchService", () => {
         coverUri: "https://example.com/post-1.jpg",
       }),
     ]);
+    // Intent already has activities — do not hit top-activities cold path.
+    expect(discoveryStub.loadTopActivities).not.toHaveBeenCalled();
+  });
+
+  it("loads top activities only when mixes are requested without activity intent", async () => {
+    const repository = {
+      getSearchResultsPage: vi.fn(async () => ({
+        query: "explore",
+        cursorIn: null,
+        items: [],
+        hasMore: false,
+        nextCursor: null,
+      })),
+    } as unknown as ConstructorParameters<typeof SearchService>[0];
+    const service = new SearchService(repository);
+    const discoveryStub = {
+      isEnabled: vi.fn(() => false),
+      parseIntent: vi.fn(() => ({
+        activity: null,
+        location: null,
+        nearMe: false,
+      })),
+      searchPostsForQuery: vi.fn(async () => []),
+      loadTopActivities: vi.fn(async () => ["hiking", "swimming"]),
+      searchCollections: vi.fn(async () => []),
+      buildMixSpecsFromActivities: vi.fn((activities: string[]) =>
+        activities.map((activity) => ({
+          id: `mix_${activity}`,
+          title: activity,
+          subtitle: activity,
+          heroQuery: activity,
+          seeds: { primaryActivityId: activity },
+        })),
+      ),
+    };
+    (service as unknown as { discoveryService: typeof discoveryStub }).discoveryService = discoveryStub;
+
+    const withMixes = await service.loadResultsBundle({
+      viewerId: "viewer-1",
+      query: "explore",
+      cursor: null,
+      limit: 4,
+      lat: null,
+      lng: null,
+      wantedTypes: new Set(["mixes"]),
+    });
+    expect(discoveryStub.loadTopActivities).toHaveBeenCalledWith(6);
+    expect(withMixes.sections.mixes.items.length).toBeGreaterThan(0);
+
+    discoveryStub.loadTopActivities.mockClear();
+    await service.loadResultsBundle({
+      viewerId: "viewer-1",
+      query: "explore",
+      cursor: null,
+      limit: 4,
+      lat: null,
+      lng: null,
+      wantedTypes: new Set(["posts"]),
+    });
+    expect(discoveryStub.loadTopActivities).not.toHaveBeenCalled();
   });
 });
