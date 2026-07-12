@@ -819,10 +819,12 @@ export class FeedForYouSimpleRepository {
     const id = viewerId.trim();
     if (!id) return { blocked: new Set(), readCount: 0 };
     incrementDbOps("queries", 1);
-    const doc = await this.db.collection("users").doc(id).get();
-    incrementDbOps("reads", doc.exists ? 1 : 0);
+    const [doc] = await this.db.getAll(this.db.collection("users").doc(id), {
+      fieldMask: ["blockedUsers"],
+    });
+    incrementDbOps("reads", doc?.exists ? 1 : 0);
     accumulateSurfaceTiming("feed_simple_query_blocked_authors_ms", Date.now() - startedAt);
-    if (!doc.exists) return { blocked: new Set(), readCount: 1 };
+    if (!doc?.exists) return { blocked: new Set(), readCount: 1 };
     const data = doc.data() as { blockedUsers?: unknown };
     const blocked = new Set<string>(
       Array.isArray(data.blockedUsers) ? data.blockedUsers.filter((v): v is string => typeof v === "string" && v.trim().length > 0) : []

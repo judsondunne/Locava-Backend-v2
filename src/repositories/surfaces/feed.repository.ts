@@ -834,7 +834,14 @@ export class FeedRepository {
 
   async getAuthorSummariesByUserIds(authorUserIds: string[]): Promise<FeedBootstrapCandidateRecord["author"][]> {
     const unique = [...new Set(authorUserIds.map((id) => id.trim()).filter(Boolean))];
-    return Promise.all(unique.map((authorUserId) => this.getAuthorSummary(authorUserId)));
+    const loaded = await this.loadUserSummaries(unique);
+    return unique.map((authorUserId) => {
+      const summary = loaded.get(authorUserId);
+      if (!summary) {
+        throw new SourceOfTruthRequiredError("feed_author_firestore");
+      }
+      return summary;
+    });
   }
 
   async getSocialSummary(postId: string): Promise<FeedBootstrapCandidateRecord["social"]> {
@@ -1043,19 +1050,41 @@ export class FeedRepository {
     });
   }
 
+  /** Only fields consumed by FirestoreUserSummary — keeps getAll payloads small. */
+  private static readonly AUTHOR_SUMMARY_FIELD_MASK = [
+    "handle",
+    "name",
+    "displayName",
+    "profilePic",
+    "profilePicture",
+    "photo",
+  ] as const;
+
   private async loadUserSummaries(userIds: string[]): Promise<Map<string, FirestoreUserSummary>> {
     const unique = [...new Set(userIds.map((id) => id.trim()).filter(Boolean))];
     const out = new Map<string, FirestoreUserSummary>();
     if (!this.db || unique.length === 0) return out;
 
-    const chunkSize = 50;
+    const chunkSize = 30;
+    const chunks: string[][] = [];
     for (let i = 0; i < unique.length; i += chunkSize) {
-      const chunk = unique.slice(i, i + chunkSize);
-      const refs = chunk.map((id) => this.db!.collection("users").doc(id));
-      // getAll does not count as a "query" in Firestore, but we keep dbOps consistent with other codepaths.
-      incrementDbOps("queries", 1);
-      const snaps = await this.db.getAll(...refs);
-      incrementDbOps("reads", snaps.length);
+      chunks.push(unique.slice(i, i + chunkSize));
+    }
+
+    const chunkResults = await Promise.all(
+      chunks.map(async (chunk) => {
+        const refs = chunk.map((id) => this.db!.collection("users").doc(id));
+        // getAll does not count as a "query" in Firestore, but we keep dbOps consistent with other codepaths.
+        incrementDbOps("queries", 1);
+        const snaps = await this.db!.getAll(...refs, {
+          fieldMask: [...FeedRepository.AUTHOR_SUMMARY_FIELD_MASK],
+        });
+        incrementDbOps("reads", snaps.length);
+        return snaps;
+      }),
+    );
+
+    for (const snaps of chunkResults) {
       for (const snap of snaps) {
         if (!snap.exists) continue;
         const d = (snap.data() ?? {}) as Record<string, unknown>;

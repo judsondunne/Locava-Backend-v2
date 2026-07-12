@@ -63,6 +63,33 @@ export class FeedBootstrapOrchestrator {
     }
     recordCacheMiss();
 
+    const fallbacks: string[] = [];
+    let sessionHints: { recommendationPath: "for_you_light"; staleAfterMs: number } | null = null;
+    let followNudge:
+      | {
+          shouldShow: boolean;
+          followingCount: number;
+          cooldownMs: number;
+          suggestedUsers: UserSuggestionSummary[];
+        }
+      | null = null;
+
+    // Follow nudge is independent of candidates — overlap I/O on following tab.
+    const followNudgePromise =
+      tab === "following" && viewer.viewerId !== "anonymous"
+        ? this.buildFollowNudge(viewer.viewerId)
+            .then((nudge) => {
+              followNudge = nudge;
+            })
+            .catch((error) => {
+              fallbacks.push("follow_nudge_failed");
+              recordFallback("follow_nudge_failed");
+              if (error instanceof TimeoutError) {
+                recordTimeout("feed.bootstrap.follow_nudge");
+              }
+            })
+        : Promise.resolve();
+
     const candidates = await this.getCachedOrLoad(
       buildCacheKey("list", [
         "feed-candidates-v1",
@@ -77,17 +104,6 @@ export class FeedBootstrapOrchestrator {
       () => this.service.loadBootstrapCandidates(viewer.viewerId, limit, { tab, lat, lng, radiusKm }),
       8_000
     );
-
-    const fallbacks: string[] = [];
-    let sessionHints: { recommendationPath: "for_you_light"; staleAfterMs: number } | null = null;
-    let followNudge:
-      | {
-          shouldShow: boolean;
-          followingCount: number;
-          cooldownMs: number;
-          suggestedUsers: UserSuggestionSummary[];
-        }
-      | null = null;
 
     if (debugSlowDeferredMs > 0) {
       try {
@@ -117,17 +133,7 @@ export class FeedBootstrapOrchestrator {
       });
     }
 
-    if (tab === "following" && viewer.viewerId !== "anonymous") {
-      try {
-        followNudge = await this.buildFollowNudge(viewer.viewerId);
-      } catch (error) {
-        fallbacks.push("follow_nudge_failed");
-        recordFallback("follow_nudge_failed");
-        if (error instanceof TimeoutError) {
-          recordTimeout("feed.bootstrap.follow_nudge");
-        }
-      }
-    }
+    await followNudgePromise;
 
     const response: FeedBootstrapResponse = {
       routeName: "feed.bootstrap.get",

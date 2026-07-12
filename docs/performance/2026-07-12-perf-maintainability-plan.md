@@ -102,3 +102,13 @@ Deferred (not in this branch): CDN/media infra, Following cursor migration, god-
 | E3 | Profile bootstrap collections preview 4→6, achievements 6→8 | profile-bootstrap orchestrator |
 | E4 | Chats inbox: cache-first before group-linked chat sync | `chats-inbox.orchestrator.test.ts` |
 | E5 | Map marker thumbnails: richer resolution + skip video URLs; select `posterUrl` | `map-markers-thumbnail.test.ts` |
+
+### Phase F (continued)
+
+| ID | Change | Proof |
+|----|--------|-------|
+| F1 | Feed author summaries: single batched `getAll` + field mask + parallel chunks | `feed.repository.author-batch.test.ts` |
+| F2 | Auth-session collections prewarm: parallel list + ensure-default | auth-session orchestrator |
+| F3 | For You Simple: field-mask `blockedUsers` read | `feed-for-you-simple.blocked-mask.test.ts` |
+| F4 | Feed bootstrap: overlap follow-nudge with candidates on following tab | feed-bootstrap orchestrator |
+| F5 | Social batch: parallel posts + like counts + viewer likes | social-batch routes test |

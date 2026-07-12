@@ -47,23 +47,28 @@ export async function registerV2SocialBatchRoutes(app: FastifyInstance): Promise
       return success({ routeName: "social.batch.get", items: [] });
     }
 
-    const posts = (await postsBatch.run({ postIds: unique })).posts;
-    const byId = new Map(posts.map((p) => [String((p as any).postId ?? (p as any).id ?? ""), p]));
     const db = getFirestoreSourceClient();
-    const likeByPostId =
-      db && unique.length > 0 ? await countPostLikesSubcollectionBatch(db, unique) : new Map<string, number>();
     const viewerLikedByPostId = new Map<string, boolean>();
-    if (db && unique.length > 0) {
-      const viewerLikeRefs = unique.map((postId) =>
-        db.collection("posts").doc(postId).collection("likes").doc(viewer.viewerId)
-      );
-      const viewerLikeSnaps = await db.getAll(...viewerLikeRefs);
-      incrementDbOps("reads", viewerLikeSnaps.filter((snap) => snap.exists).length);
-      incrementDbOps("queries", 1);
-      unique.forEach((postId, index) => {
-        viewerLikedByPostId.set(postId, viewerLikeSnaps[index]?.exists === true);
-      });
-    }
+    const [postsBatchResult, likeByPostId] = await Promise.all([
+      postsBatch.run({ postIds: unique }),
+      db && unique.length > 0
+        ? countPostLikesSubcollectionBatch(db, unique)
+        : Promise.resolve(new Map<string, number>()),
+      (async () => {
+        if (!db || unique.length === 0) return;
+        const viewerLikeRefs = unique.map((postId) =>
+          db.collection("posts").doc(postId).collection("likes").doc(viewer.viewerId)
+        );
+        const viewerLikeSnaps = await db.getAll(...viewerLikeRefs);
+        incrementDbOps("reads", viewerLikeSnaps.filter((snap) => snap.exists).length);
+        incrementDbOps("queries", 1);
+        unique.forEach((postId, index) => {
+          viewerLikedByPostId.set(postId, viewerLikeSnaps[index]?.exists === true);
+        });
+      })(),
+    ]);
+    const posts = postsBatchResult.posts;
+    const byId = new Map(posts.map((p) => [String((p as any).postId ?? (p as any).id ?? ""), p]));
 
     const items = unique
       .map((postId) => {
