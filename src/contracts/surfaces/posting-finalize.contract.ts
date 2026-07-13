@@ -64,9 +64,9 @@ export const PostingFinalizeBodySchema = z.object({
   recordings: z.array(z.unknown()).optional(),
   /**
    * Timeline editor project (reel mode): serialized multi-track edit state (clips,
-   * trims, text, audio) persisted on the post for server-side composition and for the
-   * client to reconstruct the reel. Its presence marks the post as a reel. Bounded so
-   * the finalize doc stays comfortably under the Firestore 1MB document limit.
+   * trims, text, audio) persisted on the post so the client can reconstruct/play the reel
+   * (and for a future server-side compositor — none exists yet). Its presence marks the
+   * post as a reel. Bounded so the finalize doc stays under the Firestore 1MB limit.
    */
   editProject: z
     .record(z.string(), z.unknown())

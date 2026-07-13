@@ -22,6 +22,7 @@ import { resolveFinalImageAssetForPost } from "../posting/resolveFinalImageAsset
 import {
   buildNativePostDocument,
   validateNativePostDocumentForWrite,
+  isPublishableLocation,
   type NativePostGeoBlock,
   type NativePostUserSnapshot
 } from "../posting/buildPostDocument.js";
@@ -1488,6 +1489,11 @@ export class PostingMutationService {
     const postId = `post_${createHash("sha1").update(`${input.viewerId}:${input.idempotencyKey}`).digest("hex").slice(0, 16)}`;
     const lat = normalizeNumber(input.lat);
     const lng = normalizeNumber(input.long);
+    // P-09: never publish a post to Null Island (0,0) — reject missing/invalid coordinates so
+    // the post never appears as a bogus map marker at the equator.
+    if (!isPublishableLocation(lat, lng)) {
+      throw new Error("publish_validation_missing_location");
+    }
     const activities = input.activities.map((value) => String(value ?? "").trim()).filter(Boolean);
     const enrichedRecordings = await this.postingAudioService.enrichRecordingsForPublish(input.recordings);
     const assembled = assemblePostAssetsFromStagedItems(postId, input.stagedItems);
