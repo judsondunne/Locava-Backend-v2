@@ -42,8 +42,9 @@ export type BuildNativePostDocumentInput = {
   recordings: unknown[];
   /**
    * Reel-mode timeline editor project (clips, trims, text, audio). When present the post
-   * is a reel: it is persisted for server-side composition / client reconstruction and
-   * the document is flagged with `reel: true` so it surfaces in reel feeds.
+   * is a reel: it is persisted so the client can reconstruct and play the reel (and for a
+   * future server-side compositor — none exists yet), and the document is flagged with
+   * `reel: true` so it surfaces in reel feeds.
    */
   editProject?: Record<string, unknown>;
   assembled: AssembledPostAssets;
@@ -57,6 +58,19 @@ export type BuildNativePostDocumentInput = {
 function settingTypeFromActivities(activities: string[]): string {
   const joined = activities.join(" ");
   return /gym|museum|mall|studio|indoor/i.test(joined) ? "indoor" : "outdoor";
+}
+
+/**
+ * P-09: A publishable post must have a real location. Missing/invalid coordinates coerce to
+ * (0,0) upstream (`normalizeNumber`), which would drop the post onto Null Island in the Gulf
+ * of Guinea and pollute the map. Reject those so the client can prompt for a location instead
+ * of silently writing a null-island marker.
+ */
+export function isPublishableLocation(lat: number, lng: number): boolean {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+  if (lat === 0 && lng === 0) return false;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  return true;
 }
 
 export function buildNativePostDocument(input: BuildNativePostDocumentInput): Record<string, unknown> {
@@ -159,9 +173,9 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
   };
 
   // Reel classification: a post built from a timeline editor project is a reel. Persist
-  // the project (for server-side composition / client reconstruction) and set the top-level
-  // `reel` flag that reel feeds query on (`where("reel","==",true)`); downstream
-  // normalization derives `classification.reel` from this flag.
+  // the project (so the client can reconstruct/play the reel — server-side composition is
+  // not yet implemented) and set the top-level `reel` flag that reel feeds query on
+  // (`where("reel","==",true)`); downstream normalization derives `classification.reel`.
   const isReel =
     input.editProject != null &&
     typeof input.editProject === "object" &&

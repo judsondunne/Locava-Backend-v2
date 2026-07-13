@@ -1,6 +1,6 @@
 import { Timestamp } from "firebase-admin/firestore";
 import { describe, expect, it } from "vitest";
-import { buildNativePostDocument, type BuildNativePostDocumentInput } from "./buildPostDocument.js";
+import { buildNativePostDocument, isPublishableLocation, type BuildNativePostDocumentInput } from "./buildPostDocument.js";
 
 function makeBaseInput(
   overrides: Partial<BuildNativePostDocumentInput> = {},
@@ -165,5 +165,23 @@ describe("buildNativePostDocument", () => {
     const post = buildNativePostDocument(makeBaseInput({ editProject: {} }));
     expect(post.reel).toBeUndefined();
     expect(post.editProject).toBeUndefined();
+  });
+});
+
+describe("isPublishableLocation (P-09)", () => {
+  it("rejects Null Island and invalid coordinates", () => {
+    expect(isPublishableLocation(0, 0)).toBe(false);
+    expect(isPublishableLocation(Number.NaN, -122)).toBe(false);
+    expect(isPublishableLocation(37.77, Number.POSITIVE_INFINITY)).toBe(false);
+    expect(isPublishableLocation(91, 10)).toBe(false);
+    expect(isPublishableLocation(10, 181)).toBe(false);
+  });
+
+  it("accepts real coordinates", () => {
+    expect(isPublishableLocation(37.77, -122.42)).toBe(true);
+    expect(isPublishableLocation(-33.86, 151.2)).toBe(true);
+    // A real point with a zero on one axis is still valid.
+    expect(isPublishableLocation(0, -122.42)).toBe(true);
+    expect(isPublishableLocation(51.5, 0)).toBe(true);
   });
 });
