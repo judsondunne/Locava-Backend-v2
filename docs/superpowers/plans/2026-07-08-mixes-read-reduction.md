@@ -18,7 +18,7 @@ Cloud Run via `--env-vars-file`. Mixes read-reduction defaults are baked into th
 
 ```
 MIXES_POOL_REFRESH_MS=300000
-MIXES_POOL_MAX_DOCS=200
+MIXES_POOL_MAX_DOCS=150
 MIXES_POOL_COLD_START_DOCS=80
 WARMER_FULL_BACKOFF_MS=600000
 ```

@@ -81,12 +81,15 @@ type CompactCardSeed = {
   mediaStatus?: "processing" | "ready" | "failed";
   assetsReady?: boolean;
   posterReady?: boolean;
+  posterPresent?: boolean;
   playbackReady?: boolean;
   playbackUrlPresent?: boolean;
   playbackUrl?: string | null;
   fallbackVideoUrl?: string | null;
   posterUrl?: string | null;
   hasVideo?: boolean;
+  instantPlaybackReady?: boolean;
+  videoProcessingStatus?: string | null;
   aspectRatio?: number | null;
   width?: number | null;
   height?: number | null;
@@ -185,12 +188,15 @@ export type FeedCardDTO = {
   mediaStatus?: "processing" | "ready" | "failed";
   assetsReady?: boolean;
   posterReady?: boolean;
+  posterPresent?: boolean;
   playbackReady?: boolean;
   playbackUrlPresent?: boolean;
   playbackUrl?: string | null;
   fallbackVideoUrl?: string | null;
   posterUrl?: string | null;
   hasVideo?: boolean;
+  instantPlaybackReady?: boolean;
+  videoProcessingStatus?: string | null;
   aspectRatio?: number | null;
   width?: number | null;
   height?: number | null;
@@ -994,12 +1000,17 @@ export function toFeedCardDTO(seed: CompactCardSeed): FeedCardDTO {
     ...(seed.mediaStatus ? { mediaStatus: seed.mediaStatus } : {}),
     ...(typeof seed.assetsReady === "boolean" ? { assetsReady: seed.assetsReady } : {}),
     ...(typeof seed.posterReady === "boolean" ? { posterReady: seed.posterReady } : {}),
+    ...(typeof seed.posterPresent === "boolean" ? { posterPresent: seed.posterPresent } : {}),
     ...(typeof seed.playbackReady === "boolean" ? { playbackReady: seed.playbackReady } : {}),
     ...(typeof seed.playbackUrlPresent === "boolean" ? { playbackUrlPresent: seed.playbackUrlPresent } : {}),
     ...(typeof seed.playbackUrl === "string" ? { playbackUrl: seed.playbackUrl } : {}),
     ...(typeof seed.fallbackVideoUrl === "string" ? { fallbackVideoUrl: seed.fallbackVideoUrl } : {}),
     ...(typeof seed.posterUrl === "string" ? { posterUrl: seed.posterUrl } : {}),
     ...(typeof seed.hasVideo === "boolean" ? { hasVideo: seed.hasVideo } : {}),
+    ...(typeof seed.instantPlaybackReady === "boolean" ? { instantPlaybackReady: seed.instantPlaybackReady } : {}),
+    ...(typeof seed.videoProcessingStatus === "string" && seed.videoProcessingStatus.trim()
+      ? { videoProcessingStatus: seed.videoProcessingStatus.trim() }
+      : {}),
     ...(cleanNumber(seed.aspectRatio) != null ? { aspectRatio: cleanNumber(seed.aspectRatio) } : {}),
     ...(cleanNumber(seed.width) != null ? { width: cleanNumber(seed.width) } : {}),
     ...(cleanNumber(seed.height) != null ? { height: cleanNumber(seed.height) } : {}),

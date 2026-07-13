@@ -17,6 +17,7 @@ describe("search home v1 service", () => {
       loadUserSummaries: vi.fn(async () => new Map()),
     };
     service.postsRepo = {
+      listRecentFirstPostsByUserIds: vi.fn(async () => new Map()),
       listRecentPostsByUserId: vi.fn(async () => []),
     };
     service.searchMixes = {
@@ -79,5 +80,149 @@ describe("search home v1 service", () => {
     expect(result.activityMixes[0]?.posts[0]?.id).toBe("p1");
     expect(result.diagnostics.activityMixCount).toBe(1);
     expect(result.diagnostics.postsPerMix).toEqual([2]);
+  });
+
+  it("skips firstPost Firestore probes when suggested user postCount is 0", async () => {
+    const listRecentFirstPostsByUserIds = vi.fn(async (ids: string[]) => {
+      const out = new Map<string, Array<{ postId: string }>>();
+      for (const id of ids) out.set(id, [{ postId: `post-for-${id}` }]);
+      return out;
+    });
+    const listRecentPostsByUserId = vi.fn(async () => [{ postId: "should-not-load" }]);
+    const service = new SearchHomeV1Service() as any;
+    service.suggested = {
+      getSuggestionsForUser: vi.fn(async () => ({
+        users: [
+          { userId: "u-empty", isFollowing: false, reason: "suggested" },
+          { userId: "u-with-posts", isFollowing: false, reason: "suggested" },
+        ],
+        sourceBreakdown: {},
+        generatedAt: Date.now(),
+        sourceDiagnostics: [],
+      })),
+    };
+    service.usersRepo = {
+      loadUserSummaries: vi.fn(async () =>
+        new Map([
+          [
+            "u-empty",
+            {
+              userId: "u-empty",
+              handle: "empty",
+              name: "Empty",
+              profilePic: null,
+              bio: null,
+              followerCount: 0,
+              followingCount: 0,
+              postCount: 0,
+            },
+          ],
+          [
+            "u-with-posts",
+            {
+              userId: "u-with-posts",
+              handle: "poster",
+              name: "Poster",
+              profilePic: null,
+              bio: null,
+              followerCount: 1,
+              followingCount: 1,
+              postCount: 3,
+            },
+          ],
+        ]),
+      ),
+    };
+    service.postsRepo = { listRecentFirstPostsByUserIds, listRecentPostsByUserId };
+    service.searchMixes = {
+      bootstrap: vi.fn(async () => ({ mixes: [] })),
+    };
+    const warmWaitSpy = vi.spyOn(mixesRepository, "listFromPoolWithWarmWait").mockResolvedValue({
+      posts: [] as never,
+      readCount: 0,
+      source: "test",
+      poolLimit: 600,
+      poolState: "warm",
+      poolBuiltAt: new Date().toISOString(),
+      poolBuildLatencyMs: 0,
+      poolBuildReadCount: 0,
+      servedStale: false,
+      servedEmptyWarming: false,
+    });
+
+    try {
+      const result = await service.build("viewer-a");
+      // Numerical: 1 batched query for probe users with posts, 0 N×1 probes.
+      expect(listRecentFirstPostsByUserIds).toHaveBeenCalledTimes(1);
+      expect(listRecentFirstPostsByUserIds).toHaveBeenCalledWith(["u-with-posts"], 1);
+      expect(listRecentPostsByUserId).not.toHaveBeenCalled();
+      expect(result.suggestedUsers.find((u: { user: { userId: string } }) => u.user.userId === "u-empty")?.firstPost).toBeNull();
+    } finally {
+      warmWaitSpy.mockRestore();
+    }
+  });
+
+  it("starts mix bootstrap in parallel with suggested friends (does not wait for suggestions first)", async () => {
+    let suggestionsStarted = false;
+    let mixStartedBeforeSuggestionsResolved = false;
+    let resolveSuggestions: ((value: unknown) => void) | null = null;
+
+    const service = new SearchHomeV1Service() as any;
+    service.suggested = {
+      getSuggestionsForUser: vi.fn(
+        () =>
+          new Promise((resolve) => {
+            suggestionsStarted = true;
+            resolveSuggestions = resolve;
+          }),
+      ),
+    };
+    service.usersRepo = {
+      loadUserSummaries: vi.fn(async () => new Map()),
+    };
+    service.postsRepo = {
+      listRecentFirstPostsByUserIds: vi.fn(async () => new Map()),
+      listRecentPostsByUserId: vi.fn(async () => []),
+    };
+    service.searchMixes = {
+      bootstrap: vi.fn(async () => {
+        if (suggestionsStarted && resolveSuggestions) {
+          mixStartedBeforeSuggestionsResolved = true;
+        }
+        return { mixes: [] };
+      }),
+    };
+    const warmWaitSpy = vi.spyOn(mixesRepository, "listFromPoolWithWarmWait").mockResolvedValue({
+      posts: [] as never,
+      readCount: 0,
+      source: "test",
+      poolLimit: 600,
+      poolState: "warm",
+      poolBuiltAt: new Date().toISOString(),
+      poolBuildLatencyMs: 0,
+      poolBuildReadCount: 0,
+      servedStale: false,
+      servedEmptyWarming: false,
+    });
+
+    try {
+      const pending = service.build("viewer-parallel");
+      // Allow microtasks so Promise.all kicks off all branches.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(service.searchMixes.bootstrap).toHaveBeenCalled();
+      expect(mixStartedBeforeSuggestionsResolved).toBe(true);
+      resolveSuggestions?.({
+        users: [],
+        sourceBreakdown: {},
+        generatedAt: Date.now(),
+        sourceDiagnostics: [],
+      });
+      const result = await pending;
+      expect(result.activityMixes).toEqual([]);
+      expect(result.suggestedUsers).toEqual([]);
+    } finally {
+      warmWaitSpy.mockRestore();
+    }
   });
 });

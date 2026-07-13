@@ -796,17 +796,31 @@ export class FeedForYouSimpleRepository {
     const startedAt = Date.now();
     const ordered = [...new Set(postIds.map((id) => id.trim()).filter(Boolean))];
     if (ordered.length === 0) return [];
-    const refs = ordered.map((postId) => this.db!.collection("posts").doc(postId));
-    incrementDbOps("queries", 1);
-    const snaps = await this.db.getAll(...refs);
-    incrementDbOps("reads", snaps.length);
+    const chunkSize = 30;
+    const chunks: string[][] = [];
+    for (let i = 0; i < ordered.length; i += chunkSize) {
+      chunks.push(ordered.slice(i, i + chunkSize));
+    }
+    const chunkSnaps = await Promise.all(
+      chunks.map(async (chunk) => {
+        const refs = chunk.map((postId) => this.db!.collection("posts").doc(postId));
+        incrementDbOps("queries", 1);
+        const snaps = await this.db!.getAll(...refs, {
+          fieldMask: [...SIMPLE_FEED_SELECT_FIELDS],
+        });
+        incrementDbOps("reads", snaps.length);
+        return snaps;
+      }),
+    );
     accumulateSurfaceTiming("feed_simple_query_candidates_by_id_ms", Date.now() - startedAt);
     const mappedById = new Map<string, SimpleFeedCandidate>();
-    for (const snap of snaps) {
-      if (!snap.exists) continue;
-      const raw = (snap.data() ?? {}) as Record<string, unknown>;
-      const mapped = tryMapSimpleFeedCandidate("docId", snap.id, raw);
-      if ("candidate" in mapped) mappedById.set(snap.id, mapped.candidate);
+    for (const snaps of chunkSnaps) {
+      for (const snap of snaps) {
+        if (!snap.exists) continue;
+        const raw = (snap.data() ?? {}) as Record<string, unknown>;
+        const mapped = tryMapSimpleFeedCandidate("docId", snap.id, raw);
+        if ("candidate" in mapped) mappedById.set(snap.id, mapped.candidate);
+      }
     }
     const list = ordered.map((id) => mappedById.get(id)).filter((row): row is SimpleFeedCandidate => Boolean(row));
     await this.hydrateCandidateLikeCountsFromLikesSubcollection(list);
@@ -819,10 +833,12 @@ export class FeedForYouSimpleRepository {
     const id = viewerId.trim();
     if (!id) return { blocked: new Set(), readCount: 0 };
     incrementDbOps("queries", 1);
-    const doc = await this.db.collection("users").doc(id).get();
-    incrementDbOps("reads", doc.exists ? 1 : 0);
+    const [doc] = await this.db.getAll(this.db.collection("users").doc(id), {
+      fieldMask: ["blockedUsers"],
+    });
+    incrementDbOps("reads", doc?.exists ? 1 : 0);
     accumulateSurfaceTiming("feed_simple_query_blocked_authors_ms", Date.now() - startedAt);
-    if (!doc.exists) return { blocked: new Set(), readCount: 1 };
+    if (!doc?.exists) return { blocked: new Set(), readCount: 1 };
     const data = doc.data() as { blockedUsers?: unknown };
     const blocked = new Set<string>(
       Array.isArray(data.blockedUsers) ? data.blockedUsers.filter((v): v is string => typeof v === "string" && v.trim().length > 0) : []

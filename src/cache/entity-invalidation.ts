@@ -135,7 +135,9 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       entityCacheKeys.postSocial(postId),
       entityCacheKeys.postCard(postId),
       entityCacheKeys.postDetail(postId),
-      entityCacheKeys.viewerPostState(viewerId, postId)
+      entityCacheKeys.viewerPostState(viewerId, postId),
+      entityCacheKeys.viewerLikedExists(viewerId, postId),
+      entityCacheKeys.likesSubcollectionCount(postId),
     ];
     await deleteEntityCacheKeys(entityKeys);
     unlinkPostFromAuthorIndex(postId);
@@ -162,6 +164,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
         "post.card",
         "post.detail",
         "post.viewer_state",
+        "post.viewer_liked",
+        "post.likes_count",
         "route.detail",
         ...(collectionsRouteKeys.length > 0 ? ["route.collections_saved"] : [])
       ],
@@ -176,7 +180,9 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       entityCacheKeys.postSocial(postId),
       entityCacheKeys.postCard(postId),
       entityCacheKeys.postDetail(postId),
-      entityCacheKeys.viewerPostState(viewerId, postId)
+      entityCacheKeys.viewerPostState(viewerId, postId),
+      entityCacheKeys.viewerLikedExists(viewerId, postId),
+      entityCacheKeys.likesSubcollectionCount(postId),
     ];
     await deleteEntityCacheKeys(entityKeys);
     unlinkPostFromAuthorIndex(postId);
@@ -209,12 +215,14 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
       entityCacheKeys.profileHeaderCanonical(ownerUserId),
-      ...[6, 12, 18].map((previewLimit) =>
-        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
-      ),
-      ...[6, 8, 12, 24].map((limit) =>
-        buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)])
-      )
+      ...[6, 12, 18].flatMap((previewLimit) => [
+        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)]),
+        buildCacheKey("list", ["profile-grid-preview-v5", ownerUserId, String(previewLimit)]),
+      ]),
+      ...[6, 8, 12, 24].flatMap((limit) => [
+        buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)]),
+        buildCacheKey("list", ["profile-grid-page-v5", viewerId, ownerUserId, "start", String(limit)]),
+      ])
     ];
     await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));
     invalidatedKeys.push(...profileRouteKeys);
@@ -258,7 +266,8 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
       entityCacheKeys.postSocial(postId),
       entityCacheKeys.postCard(postId),
       entityCacheKeys.postDetail(postId),
-      entityCacheKeys.viewerPostState(viewerId, postId)
+      entityCacheKeys.viewerPostState(viewerId, postId),
+      entityCacheKeys.likesSubcollectionCount(postId),
     ];
     await deleteEntityCacheKeys(entityKeys);
     const targetedRouteCacheKeys = [
@@ -280,12 +289,14 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     const profileRouteKeys = [
       buildCacheKey("entity", ["profile-header-v1", ownerUserId]),
       entityCacheKeys.profileHeaderCanonical(ownerUserId),
-      ...[6, 12, 18].map((previewLimit) =>
-        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)])
-      ),
-      ...[6, 8, 12, 24].map((limit) =>
-        buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)])
-      )
+      ...[6, 12, 18].flatMap((previewLimit) => [
+        buildCacheKey("list", ["profile-grid-preview-v1", ownerUserId, String(previewLimit)]),
+        buildCacheKey("list", ["profile-grid-preview-v5", ownerUserId, String(previewLimit)]),
+      ]),
+      ...[6, 8, 12, 24].flatMap((limit) => [
+        buildCacheKey("list", ["profile-grid-page-v2", viewerId, ownerUserId, "start", String(limit)]),
+        buildCacheKey("list", ["profile-grid-page-v5", viewerId, ownerUserId, "start", String(limit)]),
+      ])
     ];
     await Promise.all(profileRouteKeys.map((key) => globalCache.del(key)));
     invalidatedKeys.push(...profileRouteKeys, ...taggedProfileRouteKeys);
@@ -426,18 +437,22 @@ export async function invalidateEntitiesForMutation(input: MutationInvalidationI
     buildCacheKey("entity", ["profile-header-v1", userId]),
     buildCacheKey("entity", ["profile-header-v1", viewerId])
   ];
-  const profileGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>
-    buildCacheKey("list", ["profile-grid-preview-v1", userId, String(previewLimit)])
-  );
-  const selfGridPreviewKeys: string[] = [6, 12, 18].map((previewLimit) =>
-    buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)])
-  );
-  const profileGridPageStartKeys: string[] = [6, 8, 12, 24].map((limit) =>
-    buildCacheKey("list", ["profile-grid-page-v2", viewerId, userId, "start", String(limit)])
-  );
-  const selfGridPageStartKeys: string[] = [6, 8, 12, 24].map((limit) =>
-    buildCacheKey("list", ["profile-grid-page-v2", viewerId, viewerId, "start", String(limit)])
-  );
+  const profileGridPreviewKeys: string[] = [6, 12, 18].flatMap((previewLimit) => [
+    buildCacheKey("list", ["profile-grid-preview-v1", userId, String(previewLimit)]),
+    buildCacheKey("list", ["profile-grid-preview-v5", userId, String(previewLimit)]),
+  ]);
+  const selfGridPreviewKeys: string[] = [6, 12, 18].flatMap((previewLimit) => [
+    buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)]),
+    buildCacheKey("list", ["profile-grid-preview-v5", viewerId, String(previewLimit)]),
+  ]);
+  const profileGridPageStartKeys: string[] = [6, 8, 12, 24].flatMap((limit) => [
+    buildCacheKey("list", ["profile-grid-page-v2", viewerId, userId, "start", String(limit)]),
+    buildCacheKey("list", ["profile-grid-page-v5", viewerId, userId, "start", String(limit)]),
+  ]);
+  const selfGridPageStartKeys: string[] = [6, 8, 12, 24].flatMap((limit) => [
+    buildCacheKey("list", ["profile-grid-page-v2", viewerId, viewerId, "start", String(limit)]),
+    buildCacheKey("list", ["profile-grid-page-v5", viewerId, viewerId, "start", String(limit)]),
+  ]);
   const affectedPostIds = getKnownPostIdsForAuthor(userId, input.affectedAuthorPostLimit ?? 48);
   const viewerStateKeys = affectedPostIds.map((postId) => entityCacheKeys.viewerPostState(viewerId, postId));
   const relationshipKeys = [
@@ -549,10 +564,12 @@ function derivePostingVisibilityRouteKeys(viewerId: string): string[] {
   }
   for (const previewLimit of [4, 6]) {
     keys.add(buildCacheKey("list", ["profile-grid-preview-v1", viewerId, String(previewLimit)]));
+    keys.add(buildCacheKey("list", ["profile-grid-preview-v5", viewerId, String(previewLimit)]));
   }
 
   for (const limit of [6, 8, 12, 24]) {
     keys.add(buildCacheKey("list", ["profile-grid-page-v2", viewerId, viewerId, "start", String(limit)]));
+    keys.add(buildCacheKey("list", ["profile-grid-page-v5", viewerId, viewerId, "start", String(limit)]));
   }
 
   for (const limit of [20, 120, 240, 400]) {

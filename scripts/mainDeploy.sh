@@ -255,7 +255,7 @@ if (!env.GCP_PROJECT_ID && env.GOOGLE_CLOUD_PROJECT) {
 // Mixes read-reduction (July 2026): ship tuned defaults on Cloud Run unless overridden in layered .env.
 const mixesPoolDefaults = {
   MIXES_POOL_REFRESH_MS: "300000",
-  MIXES_POOL_MAX_DOCS: "200",
+  MIXES_POOL_MAX_DOCS: "150",
   MIXES_POOL_COLD_START_DOCS: "80",
   WARMER_FULL_BACKOFF_MS: "600000",
 };

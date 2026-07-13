@@ -168,6 +168,15 @@ const chatsFeedService = new FeedService(new FeedRepository());
 
 export class ChatsRepository {
   private readonly db = getFirestoreSourceClient();
+
+  /** Only fields consumed by chat participant UserSummary — keep getAll payloads small. */
+  private static readonly CHAT_USER_SUMMARY_FIELD_MASK = [
+    "handle",
+    "name",
+    "displayName",
+    "profilePic",
+    "photo",
+  ] as const;
   private readonly clientMessageIndex = new Map<string, string>();
   private readonly seededConversationsByViewer = new Map<string, ConversationRecord[]>();
   private readonly seededMessagesByConversation = new Map<string, MessageRecord[]>();
@@ -290,9 +299,13 @@ export class ChatsRepository {
 
     const chunks: string[][] = [];
     const missingIds = [...missing];
-    for (let i = 0; i < missingIds.length; i += 10) chunks.push(missingIds.slice(i, i + 10));
+    for (let i = 0; i < missingIds.length; i += 30) chunks.push(missingIds.slice(i, i + 30));
     const snaps = await Promise.all(
-      chunks.map((chunk) => this.db!.getAll(...chunk.map((id) => this.db!.collection("users").doc(id))))
+      chunks.map((chunk) =>
+        this.db!.getAll(...chunk.map((id) => this.db!.collection("users").doc(id)), {
+          fieldMask: [...ChatsRepository.CHAT_USER_SUMMARY_FIELD_MASK],
+        }),
+      ),
     );
     const fetchedForViewerIndex: Record<string, { handle: string; name: string | null; pic: string | null }> = {};
     for (const docs of snaps) {

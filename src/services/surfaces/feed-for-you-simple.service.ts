@@ -1112,8 +1112,9 @@ export class FeedForYouSimpleService {
     diag.noCursorRequest = noCursorRequest;
     diag.repeatedFromRecentCount = servedRecentFilteredCount;
     diag.firstPaintCardReadyCount = finalItems.length;
-    diag.detailBatchRequiredForFirstPaint = false;
+    // Wire skip-batch signal from first-visible playback diagnostics (do not hardcode false).
     applyFirstPaintPlaybackDiagnostics(finalItems, diag);
+    diag.detailBatchRequiredForFirstPaint = Boolean(diag.firstVisibleNeedsDetailBeforePlay);
     diag.returnedPostIds = finalItems.map((c) => c.postId);
     diag.durableServedWriteStatus = seenWriteAttempted ? (deferredWritesQueued > 0 ? "deferred" : seenWriteSucceeded ? "ok" : "error") : "skipped";
     diag.reelReturnedCount = returnedReelCount;

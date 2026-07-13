@@ -22,8 +22,8 @@ const PROFILE_TABS = [
   { id: "map", enabled: true },
 ] as const;
 
-const COLLECTIONS_PREVIEW_LIMIT = 4;
-const ACHIEVEMENTS_PREVIEW_LIMIT = 6;
+const COLLECTIONS_PREVIEW_LIMIT = 6;
+const ACHIEVEMENTS_PREVIEW_LIMIT = 8;
 const BOOTSTRAP_GRID_PREVIEW_CAP = 6;
 
 function compactGridPreviewItem<T extends Record<string, unknown>>(item: T): T {
@@ -280,6 +280,12 @@ export class ProfileBootstrapOrchestrator {
           };
         });
 
+    const badgePromise = (
+      includeTabPreviews
+        ? this.service.loadBadgeSummary(userId, debugSlowDeferredMs)
+        : Promise.resolve(null)
+    ).catch(() => null);
+
     const [headerRaw, relationshipRaw, gridPreviewLoaded, collectionsPreview, achievementsPreview, profileBadgeSummary] =
       await Promise.all([
         headerPromise,
@@ -296,7 +302,7 @@ export class ProfileBootstrapOrchestrator {
         gridPromise,
         collectionsPromise,
         achievementsPromise,
-        (includeTabPreviews ? this.service.loadBadgeSummary(userId, debugSlowDeferredMs) : Promise.resolve(null)).catch(() => null),
+        badgePromise,
       ]);
 
     const gridPreview = {
@@ -385,6 +391,11 @@ export class ProfileBootstrapOrchestrator {
           followingCount,
           numFollowers: followersCount,
           numFollowing: followingCount,
+          // Native aliases — keep posts count on first paint even if a client
+          // reads profile/stats instead of firstRender.counts.
+          postsCount: postsCountEffective,
+          postCount: postsCountEffective,
+          numPosts: postsCountEffective,
           bio: header.bio ?? undefined,
           isOwnProfile: relationship.isSelf,
         },
@@ -402,6 +413,9 @@ export class ProfileBootstrapOrchestrator {
           followingCount,
           numFollowers: followersCount,
           numFollowing: followingCount,
+          postsCount: postsCountEffective,
+          postCount: postsCountEffective,
+          numPosts: postsCountEffective,
         },
         relationship,
         tabs: [...PROFILE_TABS],

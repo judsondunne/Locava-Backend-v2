@@ -102,19 +102,35 @@ export class SearchHomeV1Service {
     const startedSuggestedMs = Date.now();
     const readsBeforeSuggested = getRequestContext()?.dbOps.reads ?? 0;
     const suggestedFriendsLimit = 18;
-    const suggestions = await this.suggested
-      .getSuggestionsForUser(viewerId, {
-        surface: "search",
-        limit: suggestedFriendsLimit,
-        excludeAlreadyFollowing: true,
-        excludeBlocked: true,
-        bypassCache: Boolean(opts?.bypassSuggestedFriendsCache),
-      })
-      .catch(() => ({
-        users: [],
-        sourceBreakdown: {},
-        generatedAt: Date.now(),
-      }));
+
+    // Mix bootstrap + pool warm-wait are independent of suggested-users work.
+    // Run them in parallel to cut cold search-home wall-clock without adding reads.
+    const [suggestions, mixBootstrap, mixPool] = await Promise.all([
+      this.suggested
+        .getSuggestionsForUser(viewerId, {
+          surface: "search",
+          limit: suggestedFriendsLimit,
+          excludeAlreadyFollowing: true,
+          excludeBlocked: true,
+          bypassCache: Boolean(opts?.bypassSuggestedFriendsCache),
+        })
+        .catch(() => ({
+          users: [] as Awaited<ReturnType<SuggestedFriendsService["getSuggestionsForUser"]>>["users"],
+          sourceBreakdown: {},
+          generatedAt: Date.now(),
+        })),
+      this.searchMixes
+        .bootstrap({
+          viewerId,
+          viewerCoords: null,
+          limitGeneral: 8,
+          includeDebug: false,
+        })
+        .catch(() => ({ mixes: [] as Awaited<ReturnType<SearchMixesServiceV2["bootstrap"]>>["mixes"] })),
+      mixesRepository
+        .listFromPoolWithWarmWait({ timeoutMs: 520 })
+        .catch(() => ({ posts: [] as Array<Record<string, unknown>> })),
+    ]);
 
     const candidates = suggestions.users
       .filter((u) => u.userId && u.userId !== viewerId && !u.isFollowing)
@@ -124,20 +140,19 @@ export class SearchHomeV1Service {
     const userIds = candidates.map((c) => c.userId);
     const summaryMap = await this.usersRepo.loadUserSummaries(userIds).catch(() => new Map<string, SearchHomeV1UserSummary>());
 
+    const probeIds = candidates
+      .filter((c) => firstPostProbeUserIds.has(c.userId) && (summaryMap.get(c.userId)?.postCount ?? 0) > 0)
+      .map((c) => c.userId);
+    const firstPostsByUser = probeIds.length
+      ? await this.postsRepo.listRecentFirstPostsByUserIds(probeIds, 1).catch(() => new Map())
+      : new Map<string, Array<Record<string, unknown>>>();
+
     const suggestedUsersRaw = await Promise.all(
       candidates.map(async (c) => {
         const userSummary = summaryMap.get(c.userId);
         if (!userSummary) return null;
-        const firstPost =
-          firstPostProbeUserIds.has(c.userId)
-            ? await this.postsRepo
-                .listRecentPostsByUserId(c.userId, 1)
-                .then((rows) => {
-                  const top = rows[0];
-                  return top ? firstPostFromRow(top as Record<string, unknown>) : null;
-                })
-                .catch(() => null)
-            : null;
+        const top = firstPostsByUser.get(c.userId)?.[0] ?? null;
+        const firstPost = top ? firstPostFromRow(top as Record<string, unknown>) : null;
         return {
           user: userSummary,
           firstPost,
@@ -167,19 +182,10 @@ export class SearchHomeV1Service {
       // logging must never fail bootstrap
     }
 
-    const mixBootstrap = await this.searchMixes
-      .bootstrap({
-        viewerId,
-        viewerCoords: null,
-        limitGeneral: 8,
-        includeDebug: false,
-      })
-      .catch(() => ({ mixes: [] as Awaited<ReturnType<SearchMixesServiceV2["bootstrap"]>>["mixes"] }));
-    // Wait briefly for the shared mixes pool cold-start (same instance as mixes routes) so first search open is not empty.
-    const mixPool = await mixesRepository
-      .listFromPoolWithWarmWait({ timeoutMs: 520 })
-      .catch(() => ({ posts: [] as Array<Record<string, unknown>> }));
-    const activityMixes = await this.buildActivityMixes(mixBootstrap.mixes, mixPool.posts as Array<Record<string, unknown>>);
+    const activityMixes = await this.buildActivityMixes(
+      mixBootstrap.mixes,
+      mixPool.posts as Array<Record<string, unknown>>,
+    );
     try {
       console.info("[search.bootstrap.section_summary]", {
         viewerId,

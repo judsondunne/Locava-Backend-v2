@@ -136,6 +136,7 @@ const MAP_MARKER_SELECT_FIELDS = [
   "ownerId",
   "thumbUrl",
   "displayPhotoLink",
+  "posterUrl",
   "photoLink",
   "photoLinks2",
   "photoLinks3",
@@ -608,9 +609,9 @@ function project(
     const visibility = normalizeText(data.visibility ?? data.privacy);
     if (!options.includeNonPublic && !isEligibleVisibility(visibility)) continue;
     const ownerId = normalizeText(data.ownerId ?? data.userId);
-    const thumbnailUrl = normalizeText(data.displayPhotoLink) ?? normalizeText(data.photoLink) ?? normalizeText(data.thumbUrl);
+    const thumbnailUrl = resolveMarkerThumbnailUrl(data);
     const thumbKey = normalizeText((data as { thumbKey?: unknown }).thumbKey);
-    const media = inferMedia(data);
+    const media = inferMedia(data, thumbnailUrl);
     markers.push({
       id: doc.id,
       postId: doc.id,
@@ -720,10 +721,98 @@ function readMillis(value: unknown): number | null {
   return null;
 }
 
-function inferMedia(data: Record<string, unknown>): { hasPhoto: boolean; hasVideo: boolean } {
+function isLikelyVideoUrl(url: string): boolean {
+  return /\.(mp4|m3u8|mov|webm)(\?|#|$)/i.test(url);
+}
+
+function firstImageLikeUrl(candidates: Array<string | null | undefined>): string | null {
+  for (const c of candidates) {
+    const t = normalizeText(c);
+    if (!t) continue;
+    if (isLikelyVideoUrl(t)) continue;
+    return t;
+  }
+  return null;
+}
+
+/**
+ * Resolve a pin thumbnail from already-selected Firestore fields.
+ * Prefer display/thumb mirrors, then asset posters (skip video URLs).
+ */
+export function resolveMarkerThumbnailUrl(data: Record<string, unknown>): string | null {
+  const direct =
+    normalizeText(data.displayPhotoLink) ??
+    normalizeText(data.thumbUrl) ??
+    normalizeText((data as { posterUrl?: unknown }).posterUrl);
+  if (direct && !isLikelyVideoUrl(direct)) return direct;
+
+  if (typeof data.photoLink === "string" && data.photoLink.includes(",")) {
+    const first = data.photoLink
+      .split(",")
+      .map((v) => v.trim())
+      .find((v) => v.length > 0 && !isLikelyVideoUrl(v));
+    if (first) return first;
+  }
+  const singlePhoto = normalizeText(data.photoLink);
+  if (singlePhoto && !isLikelyVideoUrl(singlePhoto)) return singlePhoto;
+
+  if (Array.isArray(data.assets)) {
+    for (const asset of data.assets) {
+      if (!asset || typeof asset !== "object") continue;
+      const a = asset as Record<string, unknown>;
+      const fromAsset = firstImageLikeUrl([
+        typeof a.poster === "string" ? a.poster : null,
+        typeof a.thumbnail === "string" ? a.thumbnail : null,
+        typeof a.thumbUrl === "string" ? a.thumbUrl : null,
+        typeof a.original === "string" ? a.original : null,
+      ]);
+      if (fromAsset) return fromAsset;
+      const image = a.image;
+      if (image && typeof image === "object") {
+        const img = image as Record<string, unknown>;
+        const fromImage = firstImageLikeUrl([
+          typeof img.thumbnailUrl === "string" ? img.thumbnailUrl : null,
+          typeof img.displayUrl === "string" ? img.displayUrl : null,
+        ]);
+        if (fromImage) return fromImage;
+      }
+      const video = a.video;
+      if (video && typeof video === "object") {
+        const v = video as Record<string, unknown>;
+        const fromVideo = firstImageLikeUrl([
+          typeof v.posterUrl === "string" ? v.posterUrl : null,
+          typeof v.posterHighUrl === "string" ? v.posterHighUrl : null,
+          typeof v.thumbnailUrl === "string" ? v.thumbnailUrl : null,
+        ]);
+        if (fromVideo) return fromVideo;
+      }
+    }
+  }
+
+  for (const key of ["photoLinks2", "photoLinks3"] as const) {
+    const raw = data[key];
+    if (typeof raw !== "string" || !raw.trim()) continue;
+    const token = raw
+      .split(",")
+      .map((v) => v.trim())
+      .find((v) => v.length > 0 && !isLikelyVideoUrl(v));
+    if (token) return token;
+  }
+  return null;
+}
+
+function inferMedia(
+  data: Record<string, unknown>,
+  thumbnailUrl: string | null = null,
+): { hasPhoto: boolean; hasVideo: boolean } {
   const mediaType = normalizeText(data.mediaType)?.toLowerCase();
   const hasVideo = mediaType === "video";
-  const hasPhoto = Boolean(normalizeText(data.displayPhotoLink) ?? normalizeText(data.photoLink) ?? normalizeText(data.thumbUrl));
+  const hasPhoto = Boolean(
+    thumbnailUrl ??
+      normalizeText(data.displayPhotoLink) ??
+      normalizeText(data.photoLink) ??
+      normalizeText(data.thumbUrl),
+  );
   return { hasPhoto, hasVideo };
 }
 

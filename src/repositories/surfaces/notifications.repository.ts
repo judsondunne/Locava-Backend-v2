@@ -466,35 +466,61 @@ export class NotificationsRepository {
     return { cursorIn: input.cursor, items, hasMore, nextCursor, unreadCount, degraded: false, fallbacks: [] };
   }
 
+  private static readonly SENDER_FIELD_MASK = [
+    "name",
+    "displayName",
+    "firstName",
+    "lastName",
+    "fullName",
+    "handle",
+    "username",
+    "profilePic",
+    "profilePicture",
+    "photoURL",
+    "photo",
+  ] as const;
+
   private async loadUsersById(userIds: string[]): Promise<Map<string, DocumentData>> {
     const db = this.ensureDb();
     const unique = [...new Set(userIds.filter((v) => v.length > 0 && v !== "system"))];
     const result = new Map<string, DocumentData>();
     const ttlMs = 25_000;
-    const cachedPairs = await Promise.all(
-      unique.map(async (id) => ({ id, row: await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id)) }))
-    );
     const missing: string[] = [];
-    for (const { id, row } of cachedPairs) {
-      if (row !== undefined) {
+    for (const id of unique) {
+      const full = await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id));
+      if (full !== undefined) {
         recordEntityCacheHit();
-        result.set(id, row);
-      } else missing.push(id);
+        result.set(id, full);
+        continue;
+      }
+      const lean = await globalCache.get<DocumentData>(entityCacheKeys.userSenderFields(id));
+      if (lean !== undefined) {
+        recordEntityCacheHit();
+        result.set(id, lean);
+        continue;
+      }
+      missing.push(id);
     }
     if (missing.length === 0) return result;
 
     const chunks: string[][] = [];
-    for (let i = 0; i < missing.length; i += 10) chunks.push(missing.slice(i, i + 10));
+    for (let i = 0; i < missing.length; i += 30) chunks.push(missing.slice(i, i + 30));
     incrementDbOps("queries", chunks.length);
     const snaps = await Promise.all(
-      chunks.map((chunk) => db.collection("users").where(FieldPath.documentId(), "in", chunk).get())
+      chunks.map((chunk) =>
+        db.getAll(...chunk.map((id) => db.collection("users").doc(id)), {
+          fieldMask: [...NotificationsRepository.SENDER_FIELD_MASK],
+        }),
+      ),
     );
-    for (const snap of snaps) {
-      incrementDbOps("reads", snap.docs.length);
-      for (const doc of snap.docs) {
-        const data = doc.data();
+    for (const docs of snaps) {
+      incrementDbOps("reads", docs.reduce((sum, doc) => sum + (doc.exists ? 1 : 0), 0));
+      for (const doc of docs) {
+        if (!doc.exists) continue;
+        const data = (doc.data() ?? {}) as DocumentData;
         result.set(doc.id, data);
-        void globalCache.set(entityCacheKeys.userFirestoreDoc(doc.id), data, ttlMs);
+        // Never write field-masked payloads into userFirestoreDoc (would poison full-doc consumers).
+        void globalCache.set(entityCacheKeys.userSenderFields(doc.id), data, ttlMs);
       }
     }
     return result;
@@ -503,13 +529,17 @@ export class NotificationsRepository {
   private async loadCachedUsersById(userIds: string[]): Promise<Map<string, DocumentData>> {
     const unique = [...new Set(userIds.filter((v) => v.length > 0 && v !== "system"))];
     const result = new Map<string, DocumentData>();
-    const cachedPairs = await Promise.all(
-      unique.map(async (id) => ({ id, row: await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id)) }))
-    );
-    for (const { id, row } of cachedPairs) {
-      if (row !== undefined) {
+    for (const id of unique) {
+      const full = await globalCache.get<DocumentData>(entityCacheKeys.userFirestoreDoc(id));
+      if (full !== undefined) {
         recordEntityCacheHit();
-        result.set(id, row);
+        result.set(id, full);
+        continue;
+      }
+      const lean = await globalCache.get<DocumentData>(entityCacheKeys.userSenderFields(id));
+      if (lean !== undefined) {
+        recordEntityCacheHit();
+        result.set(id, lean);
       }
     }
     return result;
@@ -1170,29 +1200,6 @@ export class NotificationsRepository {
     let cachedUnreadCount = await this.readCachedUnreadCount(input.viewerId);
     let cachedReadAll = await this.readCachedReadAllAtMs(input.viewerId);
 
-    if (bl?.syncUnreadFromViewerDoc === true && (cachedUnreadCount == null || !cachedReadAll.known)) {
-      incrementDbOps("queries", 1);
-      const userSnap = await db.collection("users").doc(input.viewerId).get();
-      incrementDbOps("reads", 1);
-      const ud = (userSnap.data() ?? {}) as Record<string, unknown>;
-      const u = pickUnreadCountFromUserDoc(ud);
-      if (u != null) {
-        cachedUnreadCount = u;
-        await globalCache.set(entityCacheKeys.notificationsUnreadCount(input.viewerId), u, 25_000);
-      }
-      const ra = pickReadAllAtMsFromUserDoc(ud);
-      if (ra != null) {
-        cachedReadAll = { value: ra, known: true };
-        await globalCache.set(entityCacheKeys.notificationsReadAllAt(input.viewerId), ra, 25_000);
-      }
-      const prevCached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId));
-      await globalCache.set(
-        entityCacheKeys.userFirestoreDoc(input.viewerId),
-        { ...(typeof prevCached === "object" && prevCached ? prevCached : {}), ...ud },
-        25_000,
-      );
-    }
-
     const coll = db.collection("users").doc(input.viewerId).collection("notifications");
     let pageQuery = coll
       .orderBy("timestamp", "desc")
@@ -1223,11 +1230,44 @@ export class NotificationsRepository {
       pageQuery = pageQuery.startAfter(parsedCursor.createdAtMs, parsedCursor.id);
     }
 
-    incrementDbOps("queries", 1);
+    const needsViewerSync =
+      bl?.syncUnreadFromViewerDoc === true && (cachedUnreadCount == null || !cachedReadAll.known);
+
+    let snapshot;
     const tParallel0 = performance.now();
-    const snapshot = await pageQuery.get();
+    if (needsViewerSync) {
+      // Viewer-doc unread sync is independent of the notifications page query.
+      incrementDbOps("queries", 2);
+      const userRef = db.collection("users").doc(input.viewerId);
+      const [pageSnap, userSnap] = await Promise.all([pageQuery.get(), userRef.get()]);
+      snapshot = pageSnap;
+      incrementDbOps("reads", snapshot.docs.length + 1);
+      const ud = (userSnap.data() ?? {}) as Record<string, unknown>;
+      const u = pickUnreadCountFromUserDoc(ud);
+      if (u != null) {
+        cachedUnreadCount = u;
+        await globalCache.set(entityCacheKeys.notificationsUnreadCount(input.viewerId), u, 25_000);
+      }
+      const ra = pickReadAllAtMsFromUserDoc(ud);
+      if (ra != null) {
+        cachedReadAll = { value: ra, known: true };
+        await globalCache.set(entityCacheKeys.notificationsReadAllAt(input.viewerId), ra, 25_000);
+      }
+      const prevCached = await globalCache.get<Record<string, unknown>>(entityCacheKeys.userFirestoreDoc(input.viewerId));
+      await globalCache.set(
+        entityCacheKeys.userFirestoreDoc(input.viewerId),
+        { ...(typeof prevCached === "object" && prevCached ? prevCached : {}), ...ud },
+        25_000,
+      );
+    } else {
+      incrementDbOps("queries", 1);
+      snapshot = await pageQuery.get();
+      incrementDbOps("reads", snapshot.docs.length);
+    }
     const tParallel1 = performance.now();
-    incrementDbOps("reads", snapshot.docs.length);
+    void tParallel0;
+    void tParallel1;
+
     const fallbacks: string[] = [];
     if (!(bl?.syncUnreadFromViewerDoc === true) && (cachedUnreadCount == null || !cachedReadAll.known)) {
       this.queueViewerStateWarm(input.viewerId);

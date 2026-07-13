@@ -64,11 +64,17 @@ function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
   assetsReady?: boolean;
   playbackReady?: boolean;
   posterReady?: boolean;
+  posterPresent?: boolean;
   hasVideo?: boolean;
+  instantPlaybackReady?: boolean;
+  videoProcessingStatus?: string;
+  width?: number;
+  height?: number;
+  aspectRatio?: number;
 } {
   if (candidate.mediaType !== "video") return {};
   const a0 = candidate.assets[0];
-  if (!a0) return { hasVideo: true };
+  if (!a0) return { hasVideo: true, instantPlaybackReady: candidate.instantPlaybackReady === true };
   const variants = simpleCandidateVideoVariants(a0);
   const postLike: Record<string, unknown> = {
     mediaType: "video",
@@ -96,7 +102,15 @@ function augmentSimpleFeedVideoPlayback(candidate: SimpleFeedCandidate): {
     ...(candidate.assetsReady === true ? { assetsReady: true } : {}),
     playbackReady: Boolean(sel.playbackUrl) || candidate.instantPlaybackReady === true,
     posterReady: posterOk,
+    posterPresent: posterOk,
     hasVideo: true,
+    instantPlaybackReady: candidate.instantPlaybackReady === true,
+    ...(candidate.videoProcessingStatus ? { videoProcessingStatus: candidate.videoProcessingStatus } : {}),
+    ...(typeof a0.width === "number" && Number.isFinite(a0.width) ? { width: a0.width } : {}),
+    ...(typeof a0.height === "number" && Number.isFinite(a0.height) ? { height: a0.height } : {}),
+    ...(typeof a0.aspectRatio === "number" && Number.isFinite(a0.aspectRatio)
+      ? { aspectRatio: a0.aspectRatio }
+      : {}),
   };
 }
 

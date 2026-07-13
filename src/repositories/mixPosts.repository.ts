@@ -187,6 +187,34 @@ export class MixPostsRepository {
     return this.sortByTimeDescIdDesc(rows.filter(isVisiblePost)).slice(0, safe);
   }
 
+  /**
+   * Batch first-post probe for search-home suggested users.
+   * One `userId in (...)` query instead of N per-user queries (Firestore `in` max 10).
+   */
+  async listRecentFirstPostsByUserIds(
+    userIds: string[],
+    limitPerUser = 1,
+  ): Promise<Map<string, MixPostRow[]>> {
+    const unique = [...new Set(userIds.map((id) => String(id ?? "").trim()).filter(Boolean))].slice(0, 10);
+    const out = new Map<string, MixPostRow[]>();
+    if (unique.length === 0) return out;
+    const perUser = Math.max(1, Math.min(4, Math.floor(limitPerUser)));
+    const fetchLimit = Math.min(40, Math.max(unique.length * Math.max(4, perUser), unique.length));
+    const rows = await this.runQuery((db) =>
+      db.collection("posts").where("userId", "in", unique).limit(fetchLimit),
+    );
+    const ranked = this.sortByTimeDescIdDesc(rows.filter(isVisiblePost));
+    for (const row of ranked) {
+      const uid = String(row.userId ?? "").trim();
+      if (!uid) continue;
+      const bucket = out.get(uid) ?? [];
+      if (bucket.length >= perUser) continue;
+      bucket.push(row);
+      out.set(uid, bucket);
+    }
+    return out;
+  }
+
   async loadRecentPool(limit = 420): Promise<MixPostRow[]> {
     const safe = Math.max(60, Math.min(900, Math.floor(limit)));
     // Single query: recency only. Visibility filtering is done in-memory via runQuery().

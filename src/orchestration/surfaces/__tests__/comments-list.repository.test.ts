@@ -11,11 +11,24 @@ type CommentDoc = Record<string, unknown>;
 
 function buildDb(post: PostDoc, subcollection: CommentDoc[] = []) {
   return {
+    async getAll(ref: { id?: string; get?: () => Promise<unknown> }, _opts?: unknown) {
+      if (ref && typeof ref.get === "function") {
+        return [await ref.get()];
+      }
+      return [
+        {
+          exists: true,
+          id: typeof ref?.id === "string" ? ref.id : "post-with-comments",
+          data: () => ({ id: ref?.id, ...post }),
+        },
+      ];
+    },
     collection(name: string) {
       expect(name).toBe("posts");
       return {
         doc(postId: string) {
           return {
+            id: postId,
             async get() {
               return {
                 exists: true,
@@ -102,9 +115,31 @@ describe("comments list repository source resolution", () => {
     const page = await list({ commentCount: 1, comments: [] });
 
     expect(page.items).toHaveLength(0);
-    expect(page.totalCount).toBe(1);
+    // Displayed count must match visible rows; stale post-doc counters stay in debug only.
+    expect(page.totalCount).toBe(0);
+    expect(page.sourceDebug.countHint).toBe(1);
     expect(page.sourceDebug.contractMismatch).toBe(true);
     expect(page.sourceDebug.sourceUsed).toBe("none");
+  });
+
+  it("clamps totalCount to 0 when only soft-deleted comments remain", async () => {
+    const page = await list({
+      commentCount: 1,
+      comments: [
+        {
+          id: "deleted-1",
+          content: "gone",
+          userId: "user-1",
+          userName: "User One",
+          createdAtMs: 1_775_933_114_148,
+          deletedAt: "2026-04-11T19:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(page.items).toHaveLength(0);
+    expect(page.totalCount).toBe(0);
+    expect(page.sourceDebug.contractMismatch).toBe(true);
   });
 
   it("returns preview rows when only commentsPreview exists", async () => {

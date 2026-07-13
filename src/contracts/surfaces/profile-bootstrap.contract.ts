@@ -164,6 +164,9 @@ export const ProfileBootstrapResponseSchema = z.object({
       followingCount: z.number().int().nonnegative(),
       numFollowers: z.number().int().nonnegative(),
       numFollowing: z.number().int().nonnegative(),
+      postsCount: z.number().int().nonnegative(),
+      postCount: z.number().int().nonnegative(),
+      numPosts: z.number().int().nonnegative(),
       bio: z.string().optional(),
       isOwnProfile: z.boolean()
     }),
@@ -180,7 +183,10 @@ export const ProfileBootstrapResponseSchema = z.object({
       followersCount: z.number().int().nonnegative(),
       followingCount: z.number().int().nonnegative(),
       numFollowers: z.number().int().nonnegative(),
-      numFollowing: z.number().int().nonnegative()
+      numFollowing: z.number().int().nonnegative(),
+      postsCount: z.number().int().nonnegative(),
+      postCount: z.number().int().nonnegative(),
+      numPosts: z.number().int().nonnegative()
     }),
     relationship: z.object({
       isSelf: z.boolean(),

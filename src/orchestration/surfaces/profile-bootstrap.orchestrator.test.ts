@@ -86,6 +86,12 @@ describe("profile bootstrap orchestrator", () => {
     expect(payload.firstRender.profile.followingCount).toBe(9);
     expect(payload.firstRender.counts.followersCount).toBe(13);
     expect(payload.firstRender.counts.followingCount).toBe(9);
+    expect(payload.firstRender.profile.postsCount).toBe(payload.firstRender.counts.posts);
+    expect(payload.firstRender.profile.postCount).toBe(payload.firstRender.counts.posts);
+    expect(payload.firstRender.profile.numPosts).toBe(payload.firstRender.counts.posts);
+    expect(payload.firstRender.stats.postsCount).toBe(payload.firstRender.counts.posts);
+    expect(payload.firstRender.stats.postCount).toBe(payload.firstRender.counts.posts);
+    expect(payload.firstRender.stats.numPosts).toBe(payload.firstRender.counts.posts);
     expect(payload.summary.profilePic).toBe("https://cdn.example.com/u-1.jpg");
     expect(payload.firstRender.gridPreview.items).toHaveLength(1);
     expect(payload.firstRender.collectionsPreview.items).toHaveLength(1);
