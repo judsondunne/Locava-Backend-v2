@@ -30,6 +30,8 @@ export class PostingFinalizeOrchestrator {
     tags?: Array<Record<string, unknown>>;
     texts?: unknown[];
     recordings?: unknown[];
+    /** Reel-mode timeline editor project; persisted on the post and marks it as a reel. */
+    editProject?: Record<string, unknown>;
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
     legendStageId?: string;

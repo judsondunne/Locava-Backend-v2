@@ -176,6 +176,7 @@ export class PostingMutationService {
     tags?: Array<Record<string, unknown>>;
     texts?: unknown[];
     recordings?: unknown[];
+    editProject?: Record<string, unknown>;
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
     legendStageId?: string;
@@ -1164,6 +1165,7 @@ export class PostingMutationService {
     tags?: Array<Record<string, unknown>>;
     texts?: unknown[];
     recordings?: unknown[];
+    editProject?: Record<string, unknown>;
     displayPhotoBase64?: string;
     videoPostersBase64?: Array<string | null>;
     authorizationHeader?: string;
@@ -1303,6 +1305,7 @@ export class PostingMutationService {
       tags: Array.isArray(input.tags) ? input.tags : [],
       texts: Array.isArray(input.texts) ? input.texts : [],
       recordings: Array.isArray(input.recordings) ? input.recordings : [],
+      editProject: input.editProject,
       stagedItems,
       authorSnapshot: effectiveAuthor.authorSnapshot,
       adminPostOverrideAudit: effectiveAuthor.adminPostOverrideAudit,
@@ -1410,6 +1413,7 @@ export class PostingMutationService {
     tags: Array<Record<string, unknown>>;
     texts: unknown[];
     recordings: unknown[];
+    editProject?: Record<string, unknown>;
     stagedItems: Array<{
       index: number;
       assetType: "photo" | "video";
@@ -1558,6 +1562,7 @@ export class PostingMutationService {
       tags: input.tags,
       texts: input.texts,
       recordings: enrichedRecordings,
+      editProject: input.editProject,
       assembled,
       geo,
       carouselFitWidth: gradientPick.carouselFitWidth,
@@ -2090,6 +2095,7 @@ export class PostingMutationService {
     long?: number | string;
     address?: string;
     privacy?: string;
+    editProject?: Record<string, unknown>;
   }, effectiveAuthor: ResolvedEffectivePostAuthor): Promise<string> {
     const db = getFirestoreSourceClient();
     const postId = `post_${createHash("sha1").update(`${input.viewerId}:${input.idempotencyKey}`).digest("hex").slice(0, 10)}`;
@@ -2180,6 +2186,14 @@ export class PostingMutationService {
           }
         : undefined,
     };
+    if (
+      input.editProject != null &&
+      typeof input.editProject === "object" &&
+      Object.keys(input.editProject).length > 0
+    ) {
+      postDoc.reel = true;
+      postDoc.editProject = input.editProject;
+    }
     await db.collection("posts").doc(postId).set(postDoc, { merge: true });
     await db.collection("users").doc(effectiveAuthor.effectiveUserId).collection("posts").doc(postId).set({
       postId,

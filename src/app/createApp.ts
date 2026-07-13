@@ -44,6 +44,7 @@ import { registerTestRoutes } from "../routes/test.routes.js";
 import { registerV2AuthBootstrapRoutes } from "../routes/v2/auth-bootstrap.routes.js";
 import { registerV2AdminCheckRoutes } from "../routes/v2/admin-check.routes.js";
 import { registerV2AdminStagedReelsRoutes } from "../routes/v2/admin-staged-reels.routes.js";
+import { registerV2ReelTemplatesRoutes } from "../routes/v2/reel-templates.routes.js";
 import { registerV2AuthMutationRoutes } from "../routes/v2/auth-mutations.routes.js";
 import { registerV2AuthPushTokenRoutes } from "../routes/v2/auth-push-token.routes.js";
 import { registerProfilePictureUploadRoutes } from "../routes/v2/profile-picture-upload.routes.js";
@@ -725,6 +726,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2AuthBootstrapRoutes);
   app.register(registerV2AdminCheckRoutes);
   app.register(registerV2AdminStagedReelsRoutes);
+  app.register(registerV2ReelTemplatesRoutes);
   app.register(registerV2AuthMutationRoutes);
   app.register(registerV2AuthPushTokenRoutes);
   app.register(registerV2AnalyticsEventsRoutes);

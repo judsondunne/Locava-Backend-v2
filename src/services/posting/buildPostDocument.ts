@@ -40,6 +40,12 @@ export type BuildNativePostDocumentInput = {
   tags: Array<Record<string, unknown>>;
   texts: unknown[];
   recordings: unknown[];
+  /**
+   * Reel-mode timeline editor project (clips, trims, text, audio). When present the post
+   * is a reel: it is persisted for server-side composition / client reconstruction and
+   * the document is flagged with `reel: true` so it surfaces in reel feeds.
+   */
+  editProject?: Record<string, unknown>;
   assembled: AssembledPostAssets;
   geo: NativePostGeoBlock;
   /** When omitted, defaults to fit-width + neutral placeholder letterbox (legacy finalize behavior). */
@@ -151,6 +157,19 @@ export function buildNativePostDocument(input: BuildNativePostDocumentInput): Re
         ? input.letterboxGradients
         : [{ top: "#1f2937", bottom: "#111827" }]
   };
+
+  // Reel classification: a post built from a timeline editor project is a reel. Persist
+  // the project (for server-side composition / client reconstruction) and set the top-level
+  // `reel` flag that reel feeds query on (`where("reel","==",true)`); downstream
+  // normalization derives `classification.reel` from this flag.
+  const isReel =
+    input.editProject != null &&
+    typeof input.editProject === "object" &&
+    Object.keys(input.editProject).length > 0;
+  if (isReel) {
+    base.reel = true;
+    base.editProject = input.editProject;
+  }
 
   if (input.assembled.hasVideo) {
     base.posterReady = Boolean(posterUrl);
