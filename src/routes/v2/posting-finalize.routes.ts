@@ -46,6 +46,7 @@ export async function registerV2PostingFinalizeRoutes(app: FastifyInstance): Pro
         tags: body.tags,
         texts: body.texts,
         recordings: body.recordings,
+        editProject: body.editProject,
         displayPhotoBase64: body.displayPhotoBase64,
         videoPostersBase64: body.videoPostersBase64,
         legendStageId: body.legendStageId,

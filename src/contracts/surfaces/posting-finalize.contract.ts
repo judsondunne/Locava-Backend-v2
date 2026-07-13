@@ -62,6 +62,18 @@ export const PostingFinalizeBodySchema = z.object({
   tags: z.array(z.record(z.string(), z.unknown())).optional(),
   texts: z.array(z.unknown()).optional(),
   recordings: z.array(z.unknown()).optional(),
+  /**
+   * Timeline editor project (reel mode): serialized multi-track edit state (clips,
+   * trims, text, audio) persisted on the post for server-side composition and for the
+   * client to reconstruct the reel. Its presence marks the post as a reel. Bounded so
+   * the finalize doc stays comfortably under the Firestore 1MB document limit.
+   */
+  editProject: z
+    .record(z.string(), z.unknown())
+    .refine((v) => JSON.stringify(v).length <= 512_000, {
+      message: "editProject_too_large",
+    })
+    .optional(),
   displayPhotoBase64: z.string().max(DISPLAY_PHOTO_B64_MAX).optional(),
   videoPostersBase64: z.array(z.string().max(VIDEO_POSTER_B64_MAX_EACH).nullable()).max(VIDEO_POSTER_SLOTS).optional(),
   /** Optional: legends staged preview id to commit after post creation. */
