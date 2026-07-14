@@ -144,6 +144,14 @@
       "queryScope": "COLLECTION",
       "fields": [
         { "fieldPath": "reel", "order": "ASCENDING" },
+        { "fieldPath": "createdAtMs", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "posts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "reel", "order": "ASCENDING" },
         { "fieldPath": "moderatorTier", "order": "ASCENDING" },
         { "fieldPath": "time", "order": "DESCENDING" },
         { "fieldPath": "__name__", "order": "DESCENDING" }

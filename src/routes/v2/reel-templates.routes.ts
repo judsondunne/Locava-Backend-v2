@@ -76,13 +76,20 @@ export async function registerV2ReelTemplatesRoutes(app: FastifyInstance): Promi
     const limit = query.limit ?? REEL_TEMPLATES_DEFAULT_LIMIT;
     const db = getFirebaseAdminFirestore();
 
-    // Equality-only query uses the automatic single-field index on `reel` (no composite
-    // index / deploy required). We fetch a bounded pool, then filter + sort in memory.
-    const snapshot = await db
-      .collection("posts")
-      .where("reel", "==", true)
-      .limit(REEL_TEMPLATES_SCAN_LIMIT)
-      .get();
+    // Prefer Firestore orderBy(createdAtMs desc) so the scanned pool is actually recent
+    // as the reel corpus grows. Falls back to equality-only + in-memory sort if the
+    // composite index (reel + createdAtMs) is not yet deployed.
+    const posts = db.collection("posts");
+    let snapshot;
+    try {
+      snapshot = await posts
+        .where("reel", "==", true)
+        .orderBy("createdAtMs", "desc")
+        .limit(REEL_TEMPLATES_SCAN_LIMIT)
+        .get();
+    } catch {
+      snapshot = await posts.where("reel", "==", true).limit(REEL_TEMPLATES_SCAN_LIMIT).get();
+    }
 
     const templates = snapshot.docs
       .map((doc) => doc.data() as Record<string, unknown>)

@@ -42,7 +42,7 @@ export const reelTemplatesListContract = defineContract({
   response: ReelTemplatesListResponseSchema
 });
 
-/** Upper bound of reel docs scanned per request (equality-only query, sorted in memory). */
-export const REEL_TEMPLATES_SCAN_LIMIT = 80;
+/** Upper bound of reel docs scanned per request (ordered by createdAtMs desc). */
+export const REEL_TEMPLATES_SCAN_LIMIT = 120;
 /** Default number of templates returned. */
 export const REEL_TEMPLATES_DEFAULT_LIMIT = 30;
