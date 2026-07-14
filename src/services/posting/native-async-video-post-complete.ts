@@ -85,6 +85,7 @@ const PRESERVE_TOP_LEVEL_KEYS = new Set([
   "idempotencyKey",
   "settingType",
   "reel",
+  "editProject",
   "isBoosted",
   "showLikes",
   "showComments",

@@ -38,8 +38,15 @@ function firstString(...values: unknown[]): string {
 }
 
 function isPublicReel(doc: Record<string, unknown>): boolean {
-  const privacy = String(doc.privacy ?? "public").toLowerCase();
-  return privacy === "public" || privacy === "everyone" || privacy === "";
+  const privacy = String(doc.privacy ?? "public").toLowerCase().trim();
+  // Native posts persist "Public Spot" / "Friends Spot" / "Secret Spot".
+  // Accept both normalized tokens and the historical "public"/"everyone" values.
+  return (
+    privacy === "public" ||
+    privacy === "everyone" ||
+    privacy === "" ||
+    privacy === "public spot"
+  );
 }
 
 function firstVideoAsset(doc: Record<string, unknown>): { original?: string; poster?: string } | null {
