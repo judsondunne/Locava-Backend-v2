@@ -388,17 +388,55 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
     });
   };
 
+  // Firestore batch commits intermittently stall >60s (DEADLINE_EXCEEDED /
+  // UNAVAILABLE) under tile-doc contention in dense areas. One stalled batch
+  // must not abort a multi-thousand-doc run — retry the batch with backoff.
+  const RETRYABLE_COMMIT_ERROR = /DEADLINE_EXCEEDED|UNAVAILABLE|RESOURCE_EXHAUSTED|ABORTED/;
+  // A gRPC call can hang without ever settling (observed: 17h stall on one route
+  // batch) — race every batch against a hard client-side timeout so hangs become
+  // retryable errors instead of freezing the run forever.
+  const BATCH_HARD_TIMEOUT_MS = 120_000;
+  const withHardTimeout = <T>(fn: () => Promise<T>): Promise<T> =>
+    new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`client_batch_timeout DEADLINE_EXCEEDED after ${BATCH_HARD_TIMEOUT_MS / 1000}s (local watchdog)`)),
+        BATCH_HARD_TIMEOUT_MS,
+      );
+      fn().then(
+        (value) => { clearTimeout(timer); resolve(value); },
+        (error) => { clearTimeout(timer); reject(error); },
+      );
+    });
+  const withCommitRetries = async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      try {
+        return await withHardTimeout(fn);
+      } catch (error) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        if (!RETRYABLE_COMMIT_ERROR.test(message) || attempt === 5) throw error;
+        const delayMs = Math.min(2000 * 2 ** (attempt - 1), 30_000);
+        await emitProgress("spots", 0, 0, `${label}: retry ${attempt}/4 in ${delayMs / 1000}s after ${message.slice(0, 80)}`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+    throw lastError;
+  };
+
   try {
     assertPbfCopierCollectionTarget("unexploredSpots");
     await emitProgress("spots", 0, spotBatchCount, `Writing ${deduped.spots.length} spots in ${spotBatchCount} batch(es)…`);
     for (let i = 0; i < deduped.spots.length; i += PREVIEW_WRITE_BATCH_SIZE) {
       const batch = deduped.spots.slice(i, i + PREVIEW_WRITE_BATCH_SIZE);
       if (batch.length === 0) continue;
-      const result = await writeUnexploredSpotsWithTileIndex({
-        spots: batch,
-        runId: writeRunId,
-        writeOptions,
-      });
+      const result = await withCommitRetries(`Spot batch ${Math.floor(i / PREVIEW_WRITE_BATCH_SIZE) + 1}`, () =>
+        writeUnexploredSpotsWithTileIndex({
+          spots: batch,
+          runId: writeRunId,
+          writeOptions,
+        }),
+      );
       spotsWritten += result.spotsWritten;
       tilesWritten += result.tilesWritten;
       await emitProgress(
@@ -410,22 +448,28 @@ export async function executePbfV2Write(input: PbfV2WriteInput): Promise<PbfV2Wr
     }
 
     assertPbfCopierCollectionTarget("unexploredRoutes");
-    await emitProgress("routes", 0, routeBatchCount, `Writing ${deduped.routes.length} routes in ${routeBatchCount} batch(es)…`);
-    for (let i = 0; i < deduped.routes.length; i += PREVIEW_WRITE_BATCH_SIZE) {
-      const batch = deduped.routes.slice(i, i + PREVIEW_WRITE_BATCH_SIZE);
+    // Routes fan out to many fat tile docs (long trails touch hundreds of tiles
+    // across z10–15), so they write in much smaller groups than spots.
+    const ROUTE_WRITE_BATCH_SIZE = 5;
+    const routeBatchCountSmall = Math.ceil(deduped.routes.length / ROUTE_WRITE_BATCH_SIZE) || 0;
+    await emitProgress("routes", 0, routeBatchCountSmall, `Writing ${deduped.routes.length} routes in ${routeBatchCountSmall} batch(es)…`);
+    for (let i = 0; i < deduped.routes.length; i += ROUTE_WRITE_BATCH_SIZE) {
+      const batch = deduped.routes.slice(i, i + ROUTE_WRITE_BATCH_SIZE);
       if (batch.length === 0) continue;
-      const result = await writeUnexploredRoutesWithTileIndex({
-        routes: batch,
-        runId: writeRunId,
-        writeOptions,
-      });
+      const result = await withCommitRetries(`Route batch ${Math.floor(i / ROUTE_WRITE_BATCH_SIZE) + 1}`, () =>
+        writeUnexploredRoutesWithTileIndex({
+          routes: batch,
+          runId: writeRunId,
+          writeOptions,
+        }),
+      );
       routesWritten += result.routesWritten;
       tilesWritten += result.tilesWritten;
       await emitProgress(
         "routes",
-        Math.floor(i / PREVIEW_WRITE_BATCH_SIZE) + 1,
-        routeBatchCount,
-        `Route batch ${Math.floor(i / PREVIEW_WRITE_BATCH_SIZE) + 1}/${routeBatchCount}: +${result.routesWritten} docs, +${result.tilesWritten} tiles`
+        Math.floor(i / ROUTE_WRITE_BATCH_SIZE) + 1,
+        routeBatchCountSmall,
+        `Route batch ${Math.floor(i / ROUTE_WRITE_BATCH_SIZE) + 1}/${routeBatchCountSmall}: +${result.routesWritten} docs, +${result.tilesWritten} tiles`
       );
     }
   } catch (error) {
