@@ -12,6 +12,8 @@ export type FinalizeStagedAssetInput = {
   posterKey?: string;
   posterUrl?: string;
   imagePublicReady?: boolean;
+  /** Optional client-known duration (e.g. composed reel) until encoder probe repairs. */
+  durationSec?: number;
 };
 
 export type AssembledPostAssets = {
@@ -31,12 +33,18 @@ function buildVideoAssetWithPlaceholders(input: {
   id: string;
   originalUrl: string;
   posterUrl: string;
+  durationSec?: number;
 }): Record<string, unknown> {
   const { id, originalUrl, posterUrl } = input;
   const aspectRatio = 0.5625;
   const width = 720;
   const height = 1280;
-  const durationSec = 0;
+  const durationSec =
+    typeof input.durationSec === "number" &&
+    Number.isFinite(input.durationSec) &&
+    input.durationSec > 0
+      ? input.durationSec
+      : 0;
   const orientation = aspectRatio < 1 ? "portrait" : "landscape";
   const poster = posterUrl.trim() || originalUrl;
 
@@ -152,7 +160,8 @@ export function assemblePostAssetsFromStagedItems(
       const row = buildVideoAssetWithPlaceholders({
         id,
         originalUrl,
-        posterUrl
+        posterUrl,
+        durationSec: item.durationSec
       });
       assets.push(row);
       if (!primaryDisplayUrl) primaryDisplayUrl = posterUrl;

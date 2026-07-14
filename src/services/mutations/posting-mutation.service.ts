@@ -70,7 +70,13 @@ type FinalizeStagedItem = {
   originalUrl?: string;
   posterKey?: string;
   posterUrl?: string;
+  durationSec?: number;
 };
+
+function optionalPositiveDurationSec(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined;
+  return value;
+}
 
 function trimAuthorField(v: unknown): string {
   if (typeof v !== "string") return "";
@@ -1260,6 +1266,7 @@ export class PostingMutationService {
           if (!probed.ok) {
             throw new Error(probed.error || "storage_probe_failed");
           }
+          const durationSec = optionalPositiveDurationSec(item.durationSec);
           return {
             index: item.index,
             assetType,
@@ -1267,7 +1274,8 @@ export class PostingMutationService {
             originalKey: item.originalKey,
             originalUrl: item.originalUrl,
             ...(item.posterKey ? { posterKey: item.posterKey } : {}),
-            ...(item.posterUrl ? { posterUrl: item.posterUrl } : {})
+            ...(item.posterUrl ? { posterUrl: item.posterUrl } : {}),
+            ...(durationSec != null ? { durationSec } : {})
           };
         }
         if (assetType === "photo") {
@@ -1310,6 +1318,7 @@ export class PostingMutationService {
         if (!probed.ok) {
           throw new Error(probed.error || "storage_probe_failed");
         }
+        const durationSec = optionalPositiveDurationSec(item.durationSec);
         return {
           index: item.index,
           assetType,
@@ -1317,7 +1326,8 @@ export class PostingMutationService {
           originalKey: finalized.originalKey,
           originalUrl: finalized.originalUrl,
           ...(finalized.posterKey ? { posterKey: finalized.posterKey } : {}),
-          ...(finalized.posterUrl ? { posterUrl: finalized.posterUrl } : {})
+          ...(finalized.posterUrl ? { posterUrl: finalized.posterUrl } : {}),
+          ...(durationSec != null ? { durationSec } : {})
         };
       }));
     void input.authorizationHeader;
@@ -1458,6 +1468,8 @@ export class PostingMutationService {
       originalUrl?: string;
       posterKey?: string;
       posterUrl?: string;
+      durationSec?: number;
+      imagePublicReady?: boolean;
     }>;
     finalizeCarouselFitWidth?: boolean;
     finalizeLetterboxGradients?: Array<{ top: string; bottom: string; source?: string }>;

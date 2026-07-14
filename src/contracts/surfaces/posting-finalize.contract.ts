@@ -43,7 +43,9 @@ export const PostingFinalizeBodySchema = z.object({
         originalKey: z.string().min(4).max(256).optional(),
         originalUrl: z.string().url().optional(),
         posterKey: z.string().min(4).max(256).optional(),
-        posterUrl: z.string().url().optional()
+        posterUrl: z.string().url().optional(),
+        /** Client-known duration (composed reels). Used until encoder probe repairs. */
+        durationSec: z.coerce.number().finite().positive().max(3600).optional()
       })
     )
     .max(20)

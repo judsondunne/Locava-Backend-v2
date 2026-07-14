@@ -16,6 +16,7 @@ export class PostingFinalizeOrchestrator {
       originalUrl?: string;
       posterKey?: string;
       posterUrl?: string;
+      durationSec?: number;
     }>;
     idempotencyKey: string;
     mediaCount: number;

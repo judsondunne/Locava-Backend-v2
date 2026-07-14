@@ -77,11 +77,28 @@ describe("native post document (finalize parity)", () => {
     const asset = (doc.assets as Record<string, unknown>[])[0] as {
       variants: Record<string, string>;
       original: string;
+      durationSec: number;
     };
     expect(asset.variants.main720).toBeUndefined();
     expect(asset.variants.main720Avc).toBeUndefined();
     expect(asset.variants.poster).toBe("https://cdn.example.com/poster.jpg");
+    expect(asset.durationSec).toBe(0);
     expect(doc.playbackLabStatus).toBe("queued");
+  });
+
+  it("seeds video durationSec from client-known composed duration on finalize", () => {
+    const assembled = assemblePostAssetsFromStagedItems("post_fixture_reel", [
+      {
+        index: 0,
+        assetType: "video",
+        assetId: "video_reel_0",
+        originalUrl: "https://cdn.example.com/reel.mp4",
+        posterUrl: "https://cdn.example.com/reel-poster.jpg",
+        durationSec: 12.5
+      }
+    ]);
+    const asset = assembled.assets[0] as { durationSec: number };
+    expect(asset.durationSec).toBe(12.5);
   });
 
   it("writes explicit carousel + letterbox gradient overrides when provided", () => {
