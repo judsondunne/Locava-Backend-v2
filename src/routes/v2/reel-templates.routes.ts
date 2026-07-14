@@ -10,6 +10,7 @@ import { canUseV2Surface } from "../../flags/cutover.js";
 import { getFirebaseAdminFirestore } from "../../lib/firebase-admin.js";
 import { failure, success } from "../../lib/response.js";
 import { setRouteName } from "../../observability/request-context.js";
+import { isEligibleReelTemplateSource } from "./reel-templates.eligibility.js";
 
 function toEpochMs(value: unknown): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -95,6 +96,7 @@ export async function registerV2ReelTemplatesRoutes(app: FastifyInstance): Promi
       .map((doc) => doc.data() as Record<string, unknown>)
       .filter((doc) => {
         if (!isPublicReel(doc)) return false;
+        if (!isEligibleReelTemplateSource(doc)) return false;
         const editProject = doc.editProject;
         return (
           editProject != null &&
