@@ -17,6 +17,7 @@ import { buildCityRegionId, buildStateRegionId } from "../../lib/search-query-in
 import { normalizeCanonicalPostLocation } from "../../lib/location/post-location-normalizer.js";
 import { readWasabiConfigFromEnv } from "../storage/wasabi-config.js";
 import { buildFinalizedSessionAssetPlan } from "../storage/wasabi-presign.service.js";
+import { assertUploadedObjectKeysPresent } from "../storage/assertUploadedObjectKeysPresent.js";
 import { assemblePostAssetsFromStagedItems } from "../posting/assemblePostAssets.js";
 import { resolveFinalImageAssetForPost } from "../posting/resolveFinalImageAssetForPost.js";
 import {
@@ -1091,9 +1092,29 @@ export class PostingMutationService {
     return dedupeInFlight(`posting:media:uploaded:${input.viewerId}:${input.mediaId}`, async () => {
       return (
       withConcurrencyLimit("posting-media-mark-uploaded", 10, () =>
-        withMutationLock(`posting-media:${input.viewerId}:${input.mediaId}`, () =>
-          postingMutationRepository.markMediaUploaded(input)
-        )
+        withMutationLock(`posting-media:${input.viewerId}:${input.mediaId}`, async () => {
+          const existing = await postingMutationRepository.getMediaStatus({
+            viewerId: input.viewerId,
+            mediaId: input.mediaId
+          });
+          if (existing.state !== "uploaded" && existing.state !== "ready") {
+            const key =
+              (typeof input.uploadedObjectKey === "string" && input.uploadedObjectKey.trim()) ||
+              (typeof existing.expectedObjectKey === "string" && existing.expectedObjectKey.trim()) ||
+              "";
+            if (key) {
+              const storageCfg = readWasabiConfigFromEnv();
+              if (!storageCfg) {
+                throw new Error("object_storage_unavailable");
+              }
+              const probed = await assertUploadedObjectKeysPresent(storageCfg, [key]);
+              if (!probed.ok) {
+                throw new Error(probed.error || "storage_probe_failed");
+              }
+            }
+          }
+          return postingMutationRepository.markMediaUploaded(input);
+        })
       )
       );
     });
@@ -1228,7 +1249,17 @@ export class PostingMutationService {
         if (assetType !== "photo" && assetType !== "video") {
           throw new Error(`publish_missing_asset_type_for_index_${item.index}`);
         }
+        if (!storageCfg) {
+          throw new Error("object_storage_unavailable");
+        }
         if (item.originalKey && item.originalUrl && assetType === "video") {
+          const probed = await assertUploadedObjectKeysPresent(storageCfg, [
+            item.originalKey,
+            item.posterKey
+          ]);
+          if (!probed.ok) {
+            throw new Error(probed.error || "storage_probe_failed");
+          }
           return {
             index: item.index,
             assetType,
@@ -1238,9 +1269,6 @@ export class PostingMutationService {
             ...(item.posterKey ? { posterKey: item.posterKey } : {}),
             ...(item.posterUrl ? { posterUrl: item.posterUrl } : {})
           };
-        }
-        if (!storageCfg) {
-          throw new Error("object_storage_unavailable");
         }
         if (assetType === "photo") {
           const resolved = await resolveFinalImageAssetForPost({
@@ -1275,6 +1303,13 @@ export class PostingMutationService {
           assetType,
           mediaRow?.clientMediaKey ?? null
         );
+        const probed = await assertUploadedObjectKeysPresent(storageCfg, [
+          mediaRow?.expectedObjectKey ?? finalized.originalKey,
+          finalized.posterKey
+        ]);
+        if (!probed.ok) {
+          throw new Error(probed.error || "storage_probe_failed");
+        }
         return {
           index: item.index,
           assetType,

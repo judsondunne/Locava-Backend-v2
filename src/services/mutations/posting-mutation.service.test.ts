@@ -17,6 +17,10 @@ vi.mock("../posting/video-processing-cloud-task.service.js", () => ({
   triggerVideoProcessingSynchronously: triggerVideoProcessingSynchronouslyMock
 }));
 
+vi.mock("../storage/assertUploadedObjectKeysPresent.js", () => ({
+  assertUploadedObjectKeysPresent: vi.fn().mockResolvedValue({ ok: true, presentKeys: [] })
+}));
+
 const finalizePostingMock = vi.fn();
 const listSessionMediaMock = vi.fn();
 const markOperationCompletedMock = vi.fn();
@@ -89,6 +93,10 @@ describe("PostingMutationService finalize parity", () => {
     process.env.NODE_ENV = "development";
     process.env.LEGACY_MONOLITH_PROXY_BASE_URL = "http://legacy.test";
     process.env.POSTING_VIDEO_SYNC_FASTSTART_ENABLED = "0";
+    process.env.WASABI_ACCESS_KEY_ID = "test-ak";
+    process.env.WASABI_SECRET_ACCESS_KEY = "test-sk";
+    process.env.WASABI_BUCKET_NAME = "test-bucket";
+    process.env.WASABI_ENDPOINT = "https://s3.example.com";
     await globalCache.del(entityCacheKeys.userFirestoreDoc("viewer-1"));
     await globalCache.del(entityCacheKeys.userSummary("viewer-1"));
   });
