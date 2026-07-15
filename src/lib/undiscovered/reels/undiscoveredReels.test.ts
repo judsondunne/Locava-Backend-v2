@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildReelAttribution } from "./buildReelAttribution.js";
+import { extractInstagramOwner } from "./extractInstagramOwner.js";
 import { extractReelLocation, parseExtraction, type GeminiJsonCaller } from "./extractReelLocation.js";
 import { matchReelToSpot, scoreNameMatch, type SpotCandidate } from "./matchReelToSpot.js";
 import { assembleUndiscoveredReel, resolveReelLocation } from "./assembleUndiscoveredReel.js";
@@ -25,6 +26,36 @@ describe("buildReelAttribution", () => {
     const a = buildReelAttribution({ shortcode: "x", caption: "", ownerUsername: "@stowe.adventures" } as CollectedReelInput);
     expect(a.profileUrl).toBe("https://www.instagram.com/stowe.adventures/");
     expect(a.fullName).toBeNull();
+  });
+  it("authoritative owner wins over misaligned pasted fields (the bug fix)", () => {
+    // Pasted input had a handle and a name from different sources (mismatched).
+    const a = buildReelAttribution(
+      { shortcode: "x", caption: "", ownerUsername: "wrong_handle", ownerFullName: "Wrong Name" } as CollectedReelInput,
+      { username: "vt_falls", fullName: "Vermont Waterfalls", profilePicUrl: "https://p/real.jpg", profileUrl: "https://www.instagram.com/vt_falls/" },
+    );
+    expect(a.username).toBe("vt_falls");
+    expect(a.fullName).toBe("Vermont Waterfalls");
+    expect(a.profileUrl).toBe("https://www.instagram.com/vt_falls/");
+  });
+});
+
+describe("extractInstagramOwner", () => {
+  it("pulls username + name + avatar as one matched set from IG media", () => {
+    const owner = extractInstagramOwner({
+      owner: { username: "greenmtn_explorer", full_name: "Green Mountain Explorer", profile_pic_url: "https://p/g.jpg" },
+    });
+    expect(owner).toEqual({
+      username: "greenmtn_explorer",
+      fullName: "Green Mountain Explorer",
+      profilePicUrl: "https://p/g.jpg",
+      profileUrl: "https://www.instagram.com/greenmtn_explorer/",
+    });
+  });
+  it("handles the xdt_shortcode_media nesting and returns null when empty", () => {
+    const nested = extractInstagramOwner({ data: { xdt_shortcode_media: { owner: { username: "vt_x", full_name: "VT X" } } } });
+    expect(nested?.username).toBe("vt_x");
+    expect(extractInstagramOwner({ owner: {} })).toBeNull();
+    expect(extractInstagramOwner(null)).toBeNull();
   });
 });
 

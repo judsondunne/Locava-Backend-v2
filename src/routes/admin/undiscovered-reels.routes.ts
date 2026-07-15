@@ -7,6 +7,7 @@ import {
 } from "../../contracts/surfaces/undiscovered-reels.contract.js";
 import { runReelGeolocation } from "../../lib/undiscovered/reels/runReelGeolocation.js";
 import type { SpotCandidate } from "../../lib/undiscovered/reels/matchReelToSpot.js";
+import { extractInstagramOwner } from "../../lib/undiscovered/reels/extractInstagramOwner.js";
 import { geminiGenerateContentJson } from "../../admin/wikiCuration/geminiGenerateContent.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
@@ -92,6 +93,9 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
       model: process.env.UNDISCOVERED_REELS_GEMINI_MODEL?.trim() || "gemini-flash-latest",
       geminiCaller: geminiGenerateContentJson,
       loadSpotCandidates,
+      // Authoritative creator from the reel's own IG owner object (username +
+      // name + avatar as one matched set), when the export included one.
+      fetchCreator: async (reel) => (reel.ownerRaw ? extractInstagramOwner(reel.ownerRaw) : null),
     });
 
     let written = 0;

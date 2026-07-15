@@ -103,6 +103,9 @@ function normalizeReels(raw){
       ownerUsername: r.ownerUsername || r.username || r.owner && r.owner.username || null,
       ownerFullName: r.ownerFullName || r.fullName || r.owner && r.owner.full_name || null,
       ownerProfilePicUrl: r.ownerProfilePicUrl || r.profilePicUrl || r.owner && r.owner.profile_pic_url || null,
+      // Pass the raw owner/media object through so the backend can extract the
+      // authoritative creator (username + name + avatar as one matched set).
+      ownerRaw: (r.owner && typeof r.owner === 'object') ? r.owner : (r.node || r.media || null),
     };
   }).filter(r => r.shortcode);
 }

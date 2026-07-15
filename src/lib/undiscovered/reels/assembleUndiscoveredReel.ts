@@ -1,5 +1,6 @@
 import type {
   CollectedReelInput,
+  ReelCreator,
   ReelLocation,
   UndiscoveredReel,
 } from "../../../contracts/surfaces/undiscovered-reels.contract.js";
@@ -54,6 +55,8 @@ export function assembleUndiscoveredReel(input: {
   extraction: ReelLocationExtraction;
   match: SpotMatch | null;
   region: string;
+  /** Authoritative creator from Instagram's owner object; wins over input fields. */
+  authoritativeCreator?: Partial<ReelCreator> | null;
   nowIso?: string;
 }): UndiscoveredReel {
   const now = input.nowIso ?? new Date().toISOString();
@@ -69,7 +72,7 @@ export function assembleUndiscoveredReel(input: {
     caption: input.reel.caption ?? "",
     videoUrl: input.reel.videoUrl ?? null,
     thumbnailUrl: input.reel.thumbnailUrl ?? null,
-    creator: buildReelAttribution(input.reel),
+    creator: buildReelAttribution(input.reel, input.authoritativeCreator),
     location: resolveReelLocation(input.extraction, input.match),
     reviewStatus: "candidate",
     createdAt: now,

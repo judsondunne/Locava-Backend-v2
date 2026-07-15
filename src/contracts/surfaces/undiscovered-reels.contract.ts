@@ -65,6 +65,8 @@ export const CollectedReelInputSchema = z.object({
   ownerUsername: z.string().nullable().optional(),
   ownerFullName: z.string().nullable().optional(),
   ownerProfilePicUrl: z.string().nullable().optional(),
+  /** Raw IG owner/media object (if the export included one) — the authoritative creator source. */
+  ownerRaw: z.record(z.unknown()).optional(),
 });
 export type CollectedReelInput = z.infer<typeof CollectedReelInputSchema>;
 

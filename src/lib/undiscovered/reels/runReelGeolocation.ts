@@ -1,5 +1,6 @@
 import type {
   CollectedReelInput,
+  ReelCreator,
   UndiscoveredReel,
 } from "../../../contracts/surfaces/undiscovered-reels.contract.js";
 import { assembleUndiscoveredReel } from "./assembleUndiscoveredReel.js";
@@ -17,6 +18,8 @@ export type ReelGeolocationDeps = {
   geminiCaller?: GeminiJsonCaller;
   /** Load spot candidates near an AI-extracted place name (route supplies Firestore-backed impl). */
   loadSpotCandidates: (extractedName: string) => Promise<SpotCandidate[]>;
+  /** Resolve the authoritative IG creator for a reel (wins over pasted top-level fields). */
+  fetchCreator?: (reel: CollectedReelInput) => Promise<Partial<ReelCreator> | null>;
 };
 
 export type ReelGeolocationSummary = {
@@ -47,7 +50,15 @@ export async function runReelGeolocation(
     });
     const candidates = extraction.placeName ? await deps.loadSpotCandidates(extraction.placeName) : [];
     const match = matchReelToSpot(extraction.placeName, candidates);
-    const record = assembleUndiscoveredReel({ reel, extraction, match, region });
+    let authoritativeCreator: Partial<ReelCreator> | null = null;
+    if (deps.fetchCreator) {
+      try {
+        authoritativeCreator = await deps.fetchCreator(reel);
+      } catch {
+        authoritativeCreator = null; // best-effort — fall back to pasted fields
+      }
+    }
+    const record = assembleUndiscoveredReel({ reel, extraction, match, region, authoritativeCreator });
     records.push(record);
 
     if (record.location.source === "spot_match") counts.spotMatched += 1;
