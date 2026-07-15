@@ -653,7 +653,9 @@ export async function writePbfV2FullRunChunks(input: {
     updatedAt: new Date().toISOString(),
   };
 
-  if (!dryRun && writeResult.written > 0) {
+  // Only mark chunks consumed on a clean write — a partial failure previously
+  // marked everything written, making the run unresumable.
+  if (!dryRun && writeResult.written > 0 && writeResult.errors.length === 0) {
     for (const chunk of pending) {
       if (!run.writtenChunkIds.includes(chunk.chunkId)) {
         run.writtenChunkIds.push(chunk.chunkId);
