@@ -26,6 +26,15 @@ function geminiApiKey(): string {
   return "";
 }
 
+/**
+ * Server-owned IG session: set INSTAGRAM_COOKIE_HEADER in .env once and every
+ * fetch (dashboard, script, cron) authenticates automatically. A cookie passed
+ * in the request body still wins, so per-run overrides remain possible.
+ */
+function instagramCookieHeader(fromBody?: string): string | undefined {
+  return fromBody?.trim() || process.env.INSTAGRAM_COOKIE_HEADER?.trim() || undefined;
+}
+
 /** Firestore-backed spot-candidate loader (prefix query on displayName, both collections). */
 function makeLoadSpotCandidates(db: FirestoreDb | null) {
   const cache = new Map<string, SpotCandidate[]>();
@@ -110,6 +119,7 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
       ok: true,
       geminiConfigured: Boolean(geminiKey),
       firestoreEnabled: Boolean(getFirestoreSourceClient()),
+      instagramSessionConfigured: Boolean(instagramCookieHeader()),
       collection: "undiscoveredReels",
     });
   });
@@ -126,7 +136,7 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
       region: body.region,
       apiKey,
       db: getFirestoreSourceClient(),
-      cookieHeader: body.instagramCookieHeader,
+      cookieHeader: instagramCookieHeader(body.instagramCookieHeader),
       resolveCreators: body.resolveCreators,
       write: body.write,
     });
@@ -143,6 +153,7 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
       return reply.status(400).send(failure("gemini_key_missing", "Set a Gemini API key in .env for AI location extraction."));
     }
     const db = getFirestoreSourceClient();
+    const cookieHeader = instagramCookieHeader(body.instagramCookieHeader);
 
     // Resolve which spots to hunt reels for: explicit list, else top-N by name.
     let spotNames = body.spotNames ?? [];
@@ -163,7 +174,7 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
     const allReels: CollectedReelInput[] = [];
     const seen = new Set<string>();
     for (const name of spotNames) {
-      const reels = await fetchReelsForSpot(name, { cookieHeader: body.instagramCookieHeader });
+      const reels = await fetchReelsForSpot(name, { cookieHeader });
       perSpot[name] = reels.length;
       for (const r of reels) {
         if (seen.has(r.shortcode)) continue;
@@ -177,7 +188,7 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
         spotsSearched: spotNames.length,
         reelsFound: 0,
         perSpot,
-        note: body.instagramCookieHeader
+        note: cookieHeader
           ? "No reels returned — Instagram may be rate-limiting, or no reels mention these spots yet."
           : "No reels returned — Instagram hashtag pages need a logged-in session cookie to respond from a server.",
       });
@@ -187,7 +198,7 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
       region: body.region,
       apiKey,
       db,
-      cookieHeader: body.instagramCookieHeader,
+      cookieHeader,
       resolveCreators: true,
       write: body.write,
     });

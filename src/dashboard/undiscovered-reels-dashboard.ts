@@ -172,7 +172,7 @@ $('run').onclick = async () => {
 
 $('fetchRun').onclick = async () => {
   const cookie = $('igCookie').value.trim();
-  if(!cookie){ setStatus('Auto-fetch needs an Instagram session cookie (expand the field under the JSON panel). Instagram blocks anonymous server requests.','err'); return; }
+  if(!cookie && !SERVER_HAS_IG_SESSION){ setStatus('Auto-fetch needs an Instagram session: set INSTAGRAM_COOKIE_HEADER in .env (one-time) or paste a cookie in the field under the JSON panel.','err'); return; }
   const spotNames = $('fetchSpots').value.split('\\n').map(s=>s.trim()).filter(Boolean);
   const write = $('fetchWriteToggle').checked;
   try{
@@ -182,7 +182,7 @@ $('fetchRun').onclick = async () => {
       region:'VT', write,
       topN: Math.max(1, Math.min(50, parseInt($('fetchTopN').value,10)||10)),
       spotNames: spotNames.length ? spotNames : undefined,
-      instagramCookieHeader: cookie,
+      instagramCookieHeader: cookie || undefined,
     })});
     if(d.reelsFound===0){ setStatus('Searched '+d.spotsSearched+' spot(s) — '+(d.note||'no reels found.'),'err'); renderRows([]); return; }
     renderStats(d.counts); renderRows(d.records);
@@ -200,10 +200,13 @@ $('sample').onclick = () => {
   ], null, 2);
 };
 
+let SERVER_HAS_IG_SESSION = false;
 api('/health').then(d=>{
+  SERVER_HAS_IG_SESSION = Boolean(d.instagramSessionConfigured);
   const parts=[];
   parts.push('Gemini '+(d.geminiConfigured?'✓':'✗ (set GEMINI_API_KEY)'));
   parts.push('Firestore '+(d.firestoreEnabled?'✓':'✗'));
+  parts.push('IG session '+(SERVER_HAS_IG_SESSION?'✓ (server .env)':'✗ (paste cookie or set INSTAGRAM_COOKIE_HEADER)'));
   setStatus('Pipeline ready — '+parts.join(' · '), d.geminiConfigured?'ok':'err');
 }).catch(e=>setStatus('Health check failed: '+e.message,'err'));
 </script>
