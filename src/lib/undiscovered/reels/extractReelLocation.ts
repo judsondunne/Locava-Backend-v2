@@ -71,7 +71,7 @@ export async function extractReelLocation(
   const caller = opts.caller ?? geminiGenerateContentJson;
   const result = await caller({
     apiKey: opts.apiKey,
-    model: opts.model ?? "gemini-2.5-flash",
+    model: opts.model ?? "gemini-flash-latest",
     systemInstruction: SYSTEM_INSTRUCTION,
     userText: `Caption:\n"""${clean.slice(0, 1200)}"""`,
     temperature: 0.1,

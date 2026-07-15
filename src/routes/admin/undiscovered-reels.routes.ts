@@ -10,9 +10,13 @@ import type { SpotCandidate } from "../../lib/undiscovered/reels/matchReelToSpot
 import { geminiGenerateContentJson } from "../../admin/wikiCuration/geminiGenerateContent.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
-/** Gemini key from the shell/.env (same source wiki-curation uses; not on typed AppEnv). */
+/** Gemini key from the shell/.env — accepts any of the repo's Gemini key vars. */
 function geminiApiKey(): string {
-  return (process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GEMINI_API_KEY?.trim() || "").trim();
+  for (const name of ["GEMINI_API_KEY", "GOOGLE_GEMINI_API_KEY", "PHOTOQA_GEMINI_API_KEY", "PBF_ASSET_GEMINI_API_KEY"]) {
+    const v = process.env[name]?.trim();
+    if (v) return v;
+  }
+  return "";
 }
 
 /**
@@ -83,7 +87,9 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
 
     const summary = await runReelGeolocation(body.reels, body.region, {
       apiKey,
-      model: process.env.WIKI_SPOT_CURATION_GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+      // gemini-flash-latest auto-tracks the current flash model (the pinned 2.5
+      // id is retired for new API keys).
+      model: process.env.UNDISCOVERED_REELS_GEMINI_MODEL?.trim() || "gemini-flash-latest",
       geminiCaller: geminiGenerateContentJson,
       loadSpotCandidates,
     });
