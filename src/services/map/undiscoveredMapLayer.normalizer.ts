@@ -15,6 +15,7 @@ import {
   resolveMapLayerEmoji,
 } from "../../lib/map/mapLayerActivityEmoji.js";
 import { isUndiscoveredFirestoreMapEligible } from "../../lib/map/undiscoveredFirestoreEligibility.js";
+import { resolveUndiscoveredLayerThumbnailUrl } from "../../lib/map/resolveUndiscoveredLayerThumbnailUrl.js";
 import { resolveRouteMapPresentation } from "../../lib/map/pbfCopierDashboardMapPresentation.js";
 const ROUTE_WIRE_POINT_CAP = 500;
 
@@ -134,6 +135,7 @@ export function normalizeUnexploredSpotDoc(
     (typeof data.displayName === "string" && data.displayName) ||
     (typeof data.title === "string" && data.title) ||
     id;
+  const thumbnailUrl = resolveUndiscoveredLayerThumbnailUrl(data);
   const feature: MapLayerPointFeature = {
     id,
     layerKind: "undiscovered",
@@ -148,6 +150,7 @@ export function normalizeUnexploredSpotDoc(
     category: typeof data.category === "string" ? data.category : activities[0],
     activities,
     publicMapEligible: true,
+    ...(thumbnailUrl ? { thumbnailUrl } : {}),
     osm: readOsmMeta(data),
     detailRef: { type: "unexploredSpot", id },
     updatedAt: readUpdatedAt(data),

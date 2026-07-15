@@ -92,6 +92,32 @@ describe("undiscoveredMapLayer.normalizer", () => {
     expect(features[0]?.featureKind).toBe("route");
   });
 
+  it("includes photoSearch thumbnail on point feature", () => {
+    const { feature } = normalizeUnexploredSpotDoc({
+      id: "spot_thumb",
+      publicMapEligible: true,
+      mapReadiness: "ready",
+      lat: 43.54,
+      lng: -72.4,
+      displayName: "Scenic View",
+      photoSearch: {
+        results: [{ thumbnailUrl: "https://cdn.example.com/spot.jpg" }],
+      },
+    });
+    expect(feature?.thumbnailUrl).toBe("https://cdn.example.com/spot.jpg");
+  });
+
+  it("omits thumbnail when doc has no image", () => {
+    const { feature } = normalizeUnexploredSpotDoc({
+      id: "spot_plain",
+      publicMapEligible: true,
+      mapReadiness: "ready",
+      lat: 43.54,
+      lng: -72.4,
+    });
+    expect(feature?.thumbnailUrl).toBeUndefined();
+  });
+
   it("drops invalid coordinates", () => {
     const { feature, reason } = normalizeUnexploredSpotDoc({
       id: "bad",

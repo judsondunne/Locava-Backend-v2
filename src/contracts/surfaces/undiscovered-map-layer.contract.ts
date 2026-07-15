@@ -46,6 +46,8 @@ export const MapLayerPointFeatureSchema = z.object({
   category: z.string().optional(),
   activities: z.array(z.string()).optional(),
   publicMapEligible: z.boolean(),
+  /** Round map pin photo when cached web search or uploaded media exists. */
+  thumbnailUrl: z.string().url().optional(),
   osm: MapLayerOsmMetaSchema.optional(),
   detailRef: MapLayerDetailRefSchema,
   updatedAt: z.union([z.string(), z.number()]).optional(),
