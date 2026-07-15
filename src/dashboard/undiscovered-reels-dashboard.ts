@@ -54,6 +54,17 @@ export function renderUndiscoveredReelsDashboardPage(): string {
     <div id="statusBar">Checking pipeline…</div>
 
     <div class="panel">
+      <h2>Auto-fetch reels by spot</h2>
+      <p class="muted" style="margin-top:0">Pull reels straight from Instagram that mention your spots — no pasting. Leave the box empty to auto-pull the top spots from Firestore, or list spot names (one per line). Needs a session cookie below (Instagram blocks anonymous server requests).</p>
+      <textarea id="fetchSpots" style="min-height:80px" placeholder="Warren Falls&#10;Texas Falls&#10;Quechee Gorge"></textarea>
+      <div style="margin-top:10px">
+        <label>Top-N if empty <input type="number" id="fetchTopN" value="10" min="1" max="50" style="width:64px;padding:6px;border-radius:6px;border:1px solid #334155;background:#020617;color:#e2e8f0"/></label>
+        <label><input type="checkbox" id="fetchWriteToggle"/> Write to production <code>undiscoveredReels</code></label>
+        <button id="fetchRun">Fetch &amp; geolocate</button>
+      </div>
+    </div>
+
+    <div class="panel">
       <h2>Collected reels (JSON)</h2>
       <p class="muted" style="margin-top:0">Array of reels. Accepts the extension's export or a simple shape: <code>[{"shortcode":"Cx..","caption":"..","ownerUsername":"..","ownerFullName":"..","ownerProfilePicUrl":"..","videoUrl":"..","thumbnailUrl":".."}]</code></p>
       <textarea id="reelsJson" placeholder='[{"shortcode":"Cx001","caption":"Warren Falls swimming hole in Vermont","ownerUsername":"vt_hiker"}]'></textarea>
@@ -157,6 +168,27 @@ $('run').onclick = async () => {
     setStatus((write?('Wrote '+d.written+' of '):'Previewed ')+d.counts.total+' reels — '+d.counts.spotMatched+' matched to spots.','ok');
   }catch(e){ setStatus('Failed: '+e.message,'err'); }
   finally{ $('run').disabled=false; }
+};
+
+$('fetchRun').onclick = async () => {
+  const cookie = $('igCookie').value.trim();
+  if(!cookie){ setStatus('Auto-fetch needs an Instagram session cookie (expand the field under the JSON panel). Instagram blocks anonymous server requests.','err'); return; }
+  const spotNames = $('fetchSpots').value.split('\\n').map(s=>s.trim()).filter(Boolean);
+  const write = $('fetchWriteToggle').checked;
+  try{
+    $('fetchRun').disabled=true;
+    setStatus('Fetching reels from Instagram'+(spotNames.length?(' for '+spotNames.length+' spot(s)'):' for top spots')+'…');
+    const d = await api('/fetch-by-spots',{method:'POST',body:JSON.stringify({
+      region:'VT', write,
+      topN: Math.max(1, Math.min(50, parseInt($('fetchTopN').value,10)||10)),
+      spotNames: spotNames.length ? spotNames : undefined,
+      instagramCookieHeader: cookie,
+    })});
+    if(d.reelsFound===0){ setStatus('Searched '+d.spotsSearched+' spot(s) — '+(d.note||'no reels found.'),'err'); renderRows([]); return; }
+    renderStats(d.counts); renderRows(d.records);
+    setStatus('Found '+d.reelsFound+' reel(s) across '+d.spotsSearched+' spot(s) — '+d.counts.spotMatched+' matched to spots'+(write?(', wrote '+d.written):'')+'.','ok');
+  }catch(e){ setStatus('Fetch failed: '+e.message,'err'); }
+  finally{ $('fetchRun').disabled=false; }
 };
 
 $('sample').onclick = () => {

@@ -80,3 +80,14 @@ export const GeolocateReelsBodySchema = z.object({
   /** Optional IG session cookie header — makes live creator resolution reliable from datacenter IPs. */
   instagramCookieHeader: z.string().optional(),
 });
+
+export const FetchBySpotsBodySchema = z.object({
+  region: z.string().default("VT"),
+  /** Spot names to fetch reels for. If omitted, the top-N spots by name are pulled from Firestore. */
+  spotNames: z.array(z.string().min(2)).max(50).optional(),
+  /** When spotNames omitted, how many spots to auto-pull. */
+  topN: z.number().int().min(1).max(50).default(10),
+  /** IG session cookie header — required for IG hashtag pages to return anything from a server. */
+  instagramCookieHeader: z.string().optional(),
+  write: z.boolean().default(false),
+});
