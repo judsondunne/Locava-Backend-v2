@@ -75,4 +75,8 @@ export const GeolocateReelsBodySchema = z.object({
   reels: z.array(CollectedReelInputSchema).min(1).max(200),
   /** When false, compute records but don't write to Firestore (dry run). */
   write: z.boolean().default(false),
+  /** Live-fetch the authoritative creator from Instagram when the reel lacks an owner object. */
+  resolveCreators: z.boolean().default(true),
+  /** Optional IG session cookie header — makes live creator resolution reliable from datacenter IPs. */
+  instagramCookieHeader: z.string().optional(),
 });

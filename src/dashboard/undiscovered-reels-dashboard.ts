@@ -58,10 +58,16 @@ export function renderUndiscoveredReelsDashboardPage(): string {
       <p class="muted" style="margin-top:0">Array of reels. Accepts the extension's export or a simple shape: <code>[{"shortcode":"Cx..","caption":"..","ownerUsername":"..","ownerFullName":"..","ownerProfilePicUrl":"..","videoUrl":"..","thumbnailUrl":".."}]</code></p>
       <textarea id="reelsJson" placeholder='[{"shortcode":"Cx001","caption":"Warren Falls swimming hole in Vermont","ownerUsername":"vt_hiker"}]'></textarea>
       <div style="margin-top:10px">
+        <label><input type="checkbox" id="resolveToggle" checked/> Verify creators via Instagram</label>
         <label><input type="checkbox" id="writeToggle"/> Write to production <code>undiscoveredReels</code></label>
         <button id="run">Geolocate reels</button>
         <button class="secondary" id="sample">Load sample</button>
       </div>
+      <details style="margin-top:10px">
+        <summary class="muted" style="cursor:pointer">Instagram session cookie (optional — needed for reliable creator verification from a server)</summary>
+        <input id="igCookie" type="text" placeholder="sessionid=...; csrftoken=...; ds_user_id=..." style="width:100%;margin-top:8px;padding:8px;border-radius:6px;border:1px solid #334155;background:#020617;color:#e2e8f0;font-family:ui-monospace,monospace;font-size:12px;box-sizing:border-box"/>
+        <p class="muted" style="margin:6px 0 0">Without cookies, Instagram blocks anonymous requests — creators then come from the pasted data. Paste a logged-in session cookie header to verify against IG.</p>
+      </details>
     </div>
 
     <div class="panel">
@@ -142,7 +148,11 @@ $('run').onclick = async () => {
   const write = $('writeToggle').checked;
   try{
     $('run').disabled=true; setStatus((write?'Geolocating + writing ':'Geolocating ')+reels.length+' reel(s) via AI…');
-    const d = await api('/geolocate',{method:'POST',body:JSON.stringify({region:'VT',write,reels})});
+    const d = await api('/geolocate',{method:'POST',body:JSON.stringify({
+      region:'VT', write, reels,
+      resolveCreators: $('resolveToggle').checked,
+      instagramCookieHeader: $('igCookie').value.trim() || undefined,
+    })});
     renderStats(d.counts); renderRows(d.records);
     setStatus((write?('Wrote '+d.written+' of '):'Previewed ')+d.counts.total+' reels — '+d.counts.spotMatched+' matched to spots.','ok');
   }catch(e){ setStatus('Failed: '+e.message,'err'); }

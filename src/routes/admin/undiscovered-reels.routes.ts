@@ -8,6 +8,7 @@ import {
 import { runReelGeolocation } from "../../lib/undiscovered/reels/runReelGeolocation.js";
 import type { SpotCandidate } from "../../lib/undiscovered/reels/matchReelToSpot.js";
 import { extractInstagramOwner } from "../../lib/undiscovered/reels/extractInstagramOwner.js";
+import { fetchInstagramMediaOwner } from "../../lib/instagram-reel/instagramGraphqlResolve.js";
 import { geminiGenerateContentJson } from "../../admin/wikiCuration/geminiGenerateContent.js";
 import { getFirestoreSourceClient } from "../../repositories/source-of-truth/firestore-client.js";
 
@@ -93,9 +94,17 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
       model: process.env.UNDISCOVERED_REELS_GEMINI_MODEL?.trim() || "gemini-flash-latest",
       geminiCaller: geminiGenerateContentJson,
       loadSpotCandidates,
-      // Authoritative creator from the reel's own IG owner object (username +
-      // name + avatar as one matched set), when the export included one.
-      fetchCreator: async (reel) => (reel.ownerRaw ? extractInstagramOwner(reel.ownerRaw) : null),
+      // Authoritative creator: (1) the reel's own IG owner object if the export
+      // carried one; else (2) live-fetch it from Instagram by shortcode. Both
+      // give username + name + avatar as one matched set, verified against IG.
+      fetchCreator: async (reel) => {
+        if (reel.ownerRaw) return extractInstagramOwner(reel.ownerRaw);
+        if (!body.resolveCreators) return null;
+        const owner = await fetchInstagramMediaOwner(reel.shortcode, {
+          extraCookieHeader: body.instagramCookieHeader,
+        });
+        return owner ? extractInstagramOwner({ owner }) : null;
+      },
     });
 
     let written = 0;
