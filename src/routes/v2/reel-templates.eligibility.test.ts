@@ -55,9 +55,15 @@ describe("isEligibleReelTemplateSource", () => {
     ).toBe(false);
   });
 
-  it("rejects processing / failed / deleted lifecycle", () => {
+  it("rejects processing / failed / deleted lifecycle when media is not ready yet", () => {
     expect(
-      isEligibleReelTemplateSource(readyReel({ lifecycle: { status: "processing" } }))
+      isEligibleReelTemplateSource(
+        readyReel({
+          lifecycle: { status: "processing" },
+          mediaStatus: "processing",
+          videoProcessingStatus: "pending",
+        })
+      )
     ).toBe(false);
     expect(isEligibleReelTemplateSource(readyReel({ lifecycle: { status: "failed" } }))).toBe(
       false
@@ -65,5 +71,17 @@ describe("isEligibleReelTemplateSource", () => {
     expect(isEligibleReelTemplateSource(readyReel({ lifecycle: { status: "deleted" } }))).toBe(
       false
     );
+  });
+
+  it("accepts stale lifecycle.processing when media gates already report ready", () => {
+    expect(
+      isEligibleReelTemplateSource(
+        readyReel({
+          lifecycle: { status: "processing" },
+          mediaStatus: "ready",
+          videoProcessingStatus: "completed"
+        })
+      )
+    ).toBe(true);
   });
 });

@@ -2019,7 +2019,13 @@ export class PostingMutationService {
       posterPresent: readiness.posterPresent,
       ...(readiness.posterUrl ? { posterUrl: readiness.posterUrl } : {}),
       videoProcessingStatus: "completed",
-      videoProcessingProgress: FieldValue.delete()
+      videoProcessingProgress: FieldValue.delete(),
+      lifecycle: {
+        ...(post.lifecycle && typeof post.lifecycle === "object" && !Array.isArray(post.lifecycle)
+          ? (post.lifecycle as Record<string, unknown>)
+          : {}),
+        status: "active"
+      }
     });
     console.info("[video.processing.completed]", {
       postId,

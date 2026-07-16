@@ -60,7 +60,15 @@ export function isEligibleReelTemplateSource(doc: Record<string, unknown>): bool
   if (doc.posterReady === false || doc.posterPresent === false) return false;
 
   const life = lifecycleStatus(doc);
-  if (life === "processing" || life === "failed" || life === "deleted") return false;
+  if (life === "failed" || life === "deleted") return false;
+  // Stale lifecycle.metadata: finalize sets lifecycle.status=processing while media fields
+  // can already be ready (profile/map playback). Trust media gates when they say completed.
+  if (
+    life === "processing" &&
+    (mediaStatus !== "ready" || videoProcessingStatus !== "completed")
+  ) {
+    return false;
+  }
 
   const video = firstVideoAsset(doc);
   const posterUrl = firstString(
