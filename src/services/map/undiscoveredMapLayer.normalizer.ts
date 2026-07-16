@@ -100,6 +100,26 @@ function isRouteLikeSpot(data: Record<string, unknown>): boolean {
   return false;
 }
 
+/** Only surface a pin photo when the match is genuinely confident (matches the backfill floor). */
+const MIN_DISPLAY_PHOTO_CONFIDENCE = 45;
+
+/**
+ * Best verified photo thumbnail from a doc's cached web-image search, or
+ * undefined. Requires status "ready", an accepted result, and a confidence at
+ * or above the display floor so weak/wrong matches never render on the map.
+ */
+export function readDocThumbnail(data: Record<string, unknown>): string | undefined {
+  const ps = data.photoSearch as { status?: string; results?: Array<Record<string, unknown>> } | undefined;
+  if (!ps || ps.status !== "ready" || !Array.isArray(ps.results)) return undefined;
+  for (const r of ps.results) {
+    if (r.validationStatus !== "accepted") continue;
+    if (Number(r.confidence ?? 0) < MIN_DISPLAY_PHOTO_CONFIDENCE) continue;
+    const url = (typeof r.thumbnailUrl === "string" && r.thumbnailUrl) || (typeof r.imageUrl === "string" && r.imageUrl);
+    if (url) return url;
+  }
+  return undefined;
+}
+
 export function normalizeUnexploredSpotDoc(
   data: Record<string, unknown>,
 ): { feature: MapLayerPointFeature | null; reason: NormalizeDropReason | null } {
@@ -148,6 +168,7 @@ export function normalizeUnexploredSpotDoc(
     category: typeof data.category === "string" ? data.category : activities[0],
     activities,
     publicMapEligible: true,
+    thumbnailUrl: readDocThumbnail(data),
     osm: readOsmMeta(data),
     detailRef: { type: "unexploredSpot", id },
     updatedAt: readUpdatedAt(data),
