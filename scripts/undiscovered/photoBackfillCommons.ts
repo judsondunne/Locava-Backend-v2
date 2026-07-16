@@ -25,9 +25,11 @@ const flagVal = (name: string, def: number): number => {
   return i >= 0 && args[i + 1] ? Number(args[i + 1]) : def;
 };
 const MAX = flagVal("--max", Infinity);
-const CONCURRENCY = Math.max(1, Math.min(6, flagVal("--concurrency", 4)));
+// Wikimedia etiquette: serialized requests with real pacing — concurrency >1
+// gets the whole run 429'd (observed live).
+const CONCURRENCY = Math.max(1, Math.min(2, flagVal("--concurrency", 1)));
 const RADIUS = flagVal("--radius", 400);
-const PACE_MS = flagVal("--pace", 250);
+const PACE_MS = flagVal("--pace", 700);
 
 const OUTDOOR_CATEGORIES = new Set([
   "waterfall", "water", "wateraccess", "beach", "view", "hiking", "nature",

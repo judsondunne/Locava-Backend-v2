@@ -32,10 +32,20 @@ export type CommonsDeps = {
 const COMMONS_API = "https://commons.wikimedia.org/w/api.php";
 const DEFAULT_UA = "LocavaBackend/1.0 (undiscovered spots photo backfill)";
 
+/**
+ * Wikimedia asks clients to slow down on 429 rather than hammer on — retry with
+ * escalating backoff before giving up.
+ */
 async function defaultHttpGetJson(url: string, userAgent: string): Promise<unknown> {
-  const res = await fetch(url, { headers: { "User-Agent": userAgent } });
-  if (!res.ok) throw new Error(`commons_${res.status}`);
-  return res.json();
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, { headers: { "User-Agent": userAgent } });
+    if (res.ok) return res.json();
+    if (res.status === 429 && attempt < 3) {
+      await new Promise((r) => setTimeout(r, 5_000 * (attempt + 1)));
+      continue;
+    }
+    throw new Error(`commons_${res.status}`);
+  }
 }
 
 /** Distance → confidence: closer geotag = stronger evidence it's the place. */
