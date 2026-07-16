@@ -34,7 +34,7 @@ export const UndiscoveredPhotoSearchCacheSchema = z.object({
   version: z.literal(1),
   status: z.enum(["ready", "empty", "failed", "refreshing"]),
   query: z.string(),
-  provider: z.enum(["serper", "bing", "mock", "none"]),
+  provider: z.enum(["serper", "bing", "wikimedia", "mock", "none"]),
   validator: z.enum(["none", "metadata_v3", "metadata_v4"]),
   fetchedAt: z.string(),
   expiresAt: z.string(),

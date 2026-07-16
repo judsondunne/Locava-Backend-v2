@@ -36,7 +36,12 @@ const BUDGET = flagVal("--budget", 45000);
 // Only keep photos whose match confidence clears this floor — weak matches
 // (e.g. a spot pulling a job-listing or news thumbnail) are downgraded to empty
 // so the map never shows a wrong image.
-const MIN_CONFIDENCE = flagVal("--min-confidence", 60);
+const MIN_CONFIDENCE = flagVal("--min-confidence", 45);
+// Re-search docs whose cache is "empty" (e.g. after a purge or a stricter-floor
+// run). Ready docs are always skipped.
+const INCLUDE_EMPTY = args.includes("--include-empty");
+// Also backfill unexploredRoutes (named trails match well on hiking sites).
+const INCLUDE_ROUTES = args.includes("--routes");
 // Restrict to outdoor, reel/photo-worthy categories by default; --all-categories
 // to search everything (restaurants, shops, etc. — usually low value).
 const ALL_CATEGORIES = args.includes("--all-categories");
@@ -56,34 +61,43 @@ const { loadEnv } = await import("../../src/config/env.js");
 const { getFirestoreSourceClient } = await import("../../src/repositories/source-of-truth/firestore-client.js");
 const { searchPlaceWebImagesForUndiscovered } = await import("../../src/services/undiscovered/undiscoveredPhotoSearch.service.js");
 
-type PendingSpot = { id: string; name: string; town?: string; state: string; lat: number; lng: number };
+type PendingSpot = { collection: "unexploredSpots" | "unexploredRoutes"; id: string; name: string; town?: string; state: string; lat: number; lng: number };
 
-async function loadSpotsMissingPhotos(db: FirebaseFirestore.Firestore): Promise<{ pending: PendingSpot[]; scanned: number; alreadyDone: number }> {
+async function loadDocsMissingPhotos(db: FirebaseFirestore.Firestore): Promise<{ pending: PendingSpot[]; scanned: number; alreadyDone: number }> {
   const pending: PendingSpot[] = [];
-  let scanned = 0, alreadyDone = 0, lastId: string | null = null;
-  for (;;) {
-    let q = db.collection("unexploredSpots")
-      .select("displayName", "category", "lat", "lng", "location", "photoSearch")
-      .orderBy("__name__").limit(1000);
-    if (lastId) q = q.startAfter(lastId);
-    const snap = await q.get();
-    if (snap.empty) break;
-    for (const doc of snap.docs) {
-      scanned++;
-      const d = doc.data() as Record<string, any>;
-      if (d.photoSearch) { alreadyDone++; continue; } // resume: already searched
-      if (!ALL_CATEGORIES && !OUTDOOR_CATEGORIES.has(String(d.category ?? ""))) continue; // skip low-value categories
-      const lat = Number(d.lat ?? d.location?.lat);
-      const lng = Number(d.lng ?? d.location?.lng);
-      const name = String(d.displayName ?? "");
-      if (!Number.isFinite(lat) || !Number.isFinite(lng) || name.length < 2) continue;
-      pending.push({ id: doc.id, name, town: d.location?.city, state: d.location?.state ?? "VT", lat, lng });
+  let scanned = 0, alreadyDone = 0;
+  const collections: Array<"unexploredSpots" | "unexploredRoutes"> = INCLUDE_ROUTES
+    ? ["unexploredSpots", "unexploredRoutes"]
+    : ["unexploredSpots"];
+  for (const collection of collections) {
+    let lastId: string | null = null;
+    for (;;) {
+      let q = db.collection(collection)
+        .select("displayName", "category", "lat", "lng", "long", "location", "displayCenter", "centroid", "routeAnchor", "photoSearch")
+        .orderBy("__name__").limit(1000);
+      if (lastId) q = q.startAfter(lastId);
+      const snap = await q.get();
+      if (snap.empty) break;
+      for (const doc of snap.docs) {
+        scanned++;
+        const d = doc.data() as Record<string, any>;
+        const status = d.photoSearch?.status as string | undefined;
+        // resume: skip searched docs — unless it's an "empty" cache and
+        // --include-empty asked us to give those another shot.
+        if (d.photoSearch && !(INCLUDE_EMPTY && status === "empty")) { alreadyDone++; continue; }
+        if (collection === "unexploredSpots" && !ALL_CATEGORIES && !OUTDOOR_CATEGORIES.has(String(d.category ?? ""))) continue;
+        const lat = Number(d.lat ?? d.location?.lat ?? d.displayCenter?.lat ?? d.centroid?.lat ?? d.routeAnchor?.latitude);
+        const lng = Number(d.lng ?? d.long ?? d.location?.lng ?? d.location?.long ?? d.displayCenter?.lng ?? d.centroid?.lng ?? d.routeAnchor?.longitude);
+        const name = String(d.displayName ?? "");
+        if (!Number.isFinite(lat) || !Number.isFinite(lng) || name.length < 2) continue;
+        pending.push({ collection, id: doc.id, name, town: d.location?.city, state: d.location?.state ?? "VT", lat, lng });
+      }
+      lastId = snap.docs[snap.docs.length - 1]?.id ?? null;
+      if (snap.size < 1000) break;
+      process.stdout.write(`\r  scanning ${collection}… ${scanned} scanned, ${pending.length} need photos`);
     }
-    lastId = snap.docs[snap.docs.length - 1]?.id ?? null;
-    if (snap.size < 1000) break;
-    process.stdout.write(`\r  scanning… ${scanned} scanned, ${pending.length} still need photos`);
+    process.stdout.write("\n");
   }
-  process.stdout.write("\n");
   return { pending, scanned, alreadyDone };
 }
 
@@ -94,7 +108,7 @@ async function main(): Promise<void> {
   if (!process.env.SERPER_API_KEY?.trim() && !DRY_RUN) throw new Error("SERPER_API_KEY not set in .env");
 
   console.log(`Scanning unexploredSpots for missing photos${ALL_CATEGORIES ? " (all categories)" : " (outdoor categories only)"}…`);
-  const { pending, scanned, alreadyDone } = await loadSpotsMissingPhotos(db);
+  const { pending, scanned, alreadyDone } = await loadDocsMissingPhotos(db);
   console.log(`Scanned ${scanned} spots — ${alreadyDone} already have photos, ${pending.length} eligible need backfill (min confidence ${MIN_CONFIDENCE}).`);
 
   if (DRY_RUN) {
@@ -115,7 +129,7 @@ async function main(): Promise<void> {
         const result = await searchPlaceWebImagesForUndiscovered({
           env,
           viewerId: `photo-backfill-${workerId}-${idx % 50}`,
-          body: { id: s.id, collection: "unexploredSpots", name: s.name, town: s.town, state: s.state, lat: s.lat, long: s.lng },
+          body: { id: s.id, collection: s.collection, name: s.name, town: s.town, state: s.state, lat: s.lat, long: s.lng },
         });
         if (result.ok) {
           const status = (result.response as { cacheStatus?: string }).cacheStatus ?? "?";
@@ -127,12 +141,12 @@ async function main(): Promise<void> {
             if (strong.length === items.length) {
               ready++;
             } else if (strong.length > 0) {
-              await db.collection("unexploredSpots").doc(s.id).update({
+              await db.collection(s.collection).doc(s.id).update({
                 "photoSearch.results": strong, "photoSearch.resultCount": strong.length,
               });
               ready++;
             } else {
-              await db.collection("unexploredSpots").doc(s.id).update({
+              await db.collection(s.collection).doc(s.id).update({
                 "photoSearch.results": [], "photoSearch.resultCount": 0, "photoSearch.status": "empty",
               });
               empty++;
