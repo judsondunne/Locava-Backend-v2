@@ -36,7 +36,7 @@ const BUDGET = flagVal("--budget", 45000);
 // Only keep photos whose match confidence clears this floor — weak matches
 // (e.g. a spot pulling a job-listing or news thumbnail) are downgraded to empty
 // so the map never shows a wrong image.
-const MIN_CONFIDENCE = flagVal("--min-confidence", 45);
+const MIN_CONFIDENCE = flagVal("--min-confidence", 60);
 // Restrict to outdoor, reel/photo-worthy categories by default; --all-categories
 // to search everything (restaurants, shops, etc. — usually low value).
 const ALL_CATEGORIES = args.includes("--all-categories");

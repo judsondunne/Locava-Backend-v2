@@ -101,7 +101,7 @@ function isRouteLikeSpot(data: Record<string, unknown>): boolean {
 }
 
 /** Only surface a pin photo when the match is genuinely confident (matches the backfill floor). */
-const MIN_DISPLAY_PHOTO_CONFIDENCE = 45;
+const MIN_DISPLAY_PHOTO_CONFIDENCE = 60;
 
 /**
  * Best verified photo thumbnail from a doc's cached web-image search, or

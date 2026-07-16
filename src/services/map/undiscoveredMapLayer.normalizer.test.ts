@@ -56,7 +56,7 @@ describe("undiscoveredMapLayer.normalizer", () => {
   });
 
   it("readDocThumbnail falls back to imageUrl when thumbnailUrl is absent", () => {
-    expect(readDocThumbnail({ photoSearch: photoSearch("ready", [{ confidence: 50, validationStatus: "accepted", imageUrl: "https://cdn/full.jpg" }]) })).toBe("https://cdn/full.jpg");
+    expect(readDocThumbnail({ photoSearch: photoSearch("ready", [{ confidence: 65, validationStatus: "accepted", imageUrl: "https://cdn/full.jpg" }]) })).toBe("https://cdn/full.jpg");
   });
 
   it("drops hidden or non-public spots", () => {
