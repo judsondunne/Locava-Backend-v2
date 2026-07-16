@@ -43,11 +43,15 @@ export async function runReelGeolocation(
 
   for (const reel of reels) {
     counts.total += 1;
-    const extraction = await extractReelLocation(reel.caption ?? "", {
-      apiKey: deps.apiKey,
-      model: deps.model,
-      caller: deps.geminiCaller,
-    });
+    // When the place is already known (hashtag-sourced), skip the AI call — it's
+    // both slower and less reliable than the spot we deliberately fetched from.
+    const extraction = reel.knownPlaceName
+      ? { placeName: reel.knownPlaceName, latGuess: null, lngGuess: null, activity: null, confidence: 1 }
+      : await extractReelLocation(reel.caption ?? "", {
+          apiKey: deps.apiKey,
+          model: deps.model,
+          caller: deps.geminiCaller,
+        });
     const candidates = extraction.placeName ? await deps.loadSpotCandidates(extraction.placeName) : [];
     const match = matchReelToSpot(extraction.placeName, candidates);
     let authoritativeCreator: Partial<ReelCreator> | null = null;

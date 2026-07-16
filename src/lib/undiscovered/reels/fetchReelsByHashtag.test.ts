@@ -67,6 +67,27 @@ describe("parseHashtagWebInfo", () => {
     expect(parseHashtagWebInfo({})).toEqual([]);
     expect(parseHashtagWebInfo({ data: {} })).toEqual([]);
   });
+
+  it("extracts clips from fill_items and one_by_two_item.clips containers", () => {
+    // Mirrors IG's real layout: a featured clip in one_by_two_item.clips.items
+    // plus a grid in fill_items — neither is the plain `medias[]` array.
+    const payload = {
+      data: {
+        top: {
+          sections: [
+            {
+              layout_content: {
+                one_by_two_item: { clips: { items: [{ media: clip("Cx100", "featured Warren Falls") }] } },
+                fill_items: [{ media: clip("Cx101", "grid Warren Falls") }],
+              },
+            },
+          ],
+        },
+        recent: { sections: [] },
+      },
+    };
+    expect(parseHashtagWebInfo(payload).map((r) => r.shortcode).sort()).toEqual(["Cx100", "Cx101"]);
+  });
 });
 
 describe("filterReelsByCaption", () => {
@@ -81,6 +102,13 @@ describe("filterReelsByCaption", () => {
   it("is punctuation-insensitive", () => {
     const reels = parseHashtagWebInfo(makeWebInfo([clip("Cx1", "hiked to Devils Gulch")]));
     expect(filterReelsByCaption(reels, "Devil's Gulch")).toHaveLength(1);
+  });
+
+  it("matches the collapsed hashtag form (#warrenfalls)", () => {
+    const reels = parseHashtagWebInfo(
+      makeWebInfo([clip("Cx1", "#warrenfalls #vermont"), clip("Cx2", "just a walk")]),
+    );
+    expect(filterReelsByCaption(reels, "Warren Falls").map((r) => r.shortcode)).toEqual(["Cx1"]);
   });
 });
 

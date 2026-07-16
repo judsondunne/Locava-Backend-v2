@@ -30,6 +30,30 @@ export function spotNameToHashtags(name: string): string[] {
   return [...tags];
 }
 
+/**
+ * Collect every `media` object in a section, regardless of layout. IG's
+ * tags/web_info nests media three ways: `layout_content.medias[]` (media_grid
+ * sections), `layout_content.fill_items[]`, and
+ * `layout_content.one_by_two_item.clips.items[]` (the featured reel).
+ */
+function collectSectionMedia(section: unknown): Array<Record<string, unknown>> {
+  const lc = (section as { layout_content?: Record<string, unknown> })?.layout_content;
+  if (!lc) return [];
+  const out: Array<Record<string, unknown>> = [];
+  const pushFrom = (arr: unknown) => {
+    if (!Array.isArray(arr)) return;
+    for (const entry of arr) {
+      const media = (entry as { media?: Record<string, unknown> })?.media ?? (entry as Record<string, unknown>);
+      if (media && typeof media === "object") out.push(media);
+    }
+  };
+  pushFrom(lc.medias);
+  pushFrom(lc.fill_items);
+  const clipItems = (lc.one_by_two_item as { clips?: { items?: unknown[] } })?.clips?.items;
+  pushFrom(clipItems);
+  return out;
+}
+
 /** Parse IG's tags/web_info payload into collected reels (shortcode + caption + owner). */
 export function parseHashtagWebInfo(payload: unknown): CollectedReelInput[] {
   const data = (payload as { data?: Record<string, unknown> })?.data;
@@ -40,13 +64,9 @@ export function parseHashtagWebInfo(payload: unknown): CollectedReelInput[] {
     const sections = (data[bucket] as { sections?: unknown[] })?.sections;
     if (!Array.isArray(sections)) continue;
     for (const section of sections) {
-      const medias = (section as { layout_content?: { medias?: unknown[] } })?.layout_content?.medias;
-      if (!Array.isArray(medias)) continue;
-      for (const entry of medias) {
-        const media = (entry as { media?: Record<string, unknown> })?.media;
-        if (!media) continue;
+      for (const media of collectSectionMedia(section)) {
         const code = typeof media.code === "string" ? media.code : "";
-        // Reels/clips only (product_type: "clips") — skip photos.
+        // Reels/clips only (product_type: "clips") — skip photo posts/carousels.
         const isClip = media.product_type === "clips" || media.media_type === 2;
         if (!code || !isClip || seen.has(code)) continue;
         seen.add(code);
@@ -67,11 +87,25 @@ export function parseHashtagWebInfo(payload: unknown): CollectedReelInput[] {
   return out;
 }
 
-/** Keep only reels whose caption actually mentions the spot (the plan's requirement). */
+/** Collapse to lowercase alphanumerics so "Warren Falls" matches "#warrenfalls". */
+function collapse(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * Keep only reels whose caption mentions the spot. Matches both the spaced form
+ * ("warren falls") and the collapsed/hashtag form ("#warrenfalls") — captions
+ * on hashtag pages overwhelmingly use the hashtag, so requiring the spaced form
+ * alone drops most genuinely on-topic reels.
+ */
 export function filterReelsByCaption(reels: CollectedReelInput[], spotName: string): CollectedReelInput[] {
-  const needle = spotName.toLowerCase().replace(/['’.]/g, "").trim();
-  if (!needle) return [];
-  return reels.filter((r) => (r.caption ?? "").toLowerCase().replace(/['’.]/g, "").includes(needle));
+  const spaced = spotName.toLowerCase().replace(/['’.]/g, "").trim();
+  const collapsed = collapse(spotName);
+  if (!collapsed) return [];
+  return reels.filter((r) => {
+    const cap = (r.caption ?? "").toLowerCase().replace(/['’.]/g, "");
+    return cap.includes(spaced) || collapse(r.caption ?? "").includes(collapsed);
+  });
 }
 
 async function defaultHttpGetJson(url: string, headers: Record<string, string>): Promise<unknown> {
@@ -89,16 +123,25 @@ export async function fetchReelsForSpot(
   deps: HashtagFetchDeps = {},
 ): Promise<CollectedReelInput[]> {
   const httpGetJson = deps.httpGetJson ?? defaultHttpGetJson;
-  const headers: Record<string, string> = {
-    "User-Agent":
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "X-IG-App-ID": IG_APP_ID,
-    Accept: "*/*",
-    ...(deps.cookieHeader ? { Cookie: deps.cookieHeader } : {}),
-  };
   const collected: CollectedReelInput[] = [];
   const seen = new Set<string>();
   for (const tag of spotNameToHashtags(spotName)) {
+    // IG's private web API enforces a Sec-Fetch policy: the request must look
+    // like a same-origin XHR from instagram.com, or it 400s ("SecFetch Policy
+    // violation"). Node's fetch omits these, so we set them explicitly, with a
+    // Referer matching the tag's explore page.
+    const headers: Record<string, string> = {
+      "User-Agent":
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+      "X-IG-App-ID": IG_APP_ID,
+      "X-Requested-With": "XMLHttpRequest",
+      Accept: "*/*",
+      Referer: `https://www.instagram.com/explore/tags/${encodeURIComponent(tag)}/`,
+      "Sec-Fetch-Site": "same-origin",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Dest": "empty",
+      ...(deps.cookieHeader ? { Cookie: deps.cookieHeader } : {}),
+    };
     try {
       const payload = await httpGetJson(
         `https://www.instagram.com/api/v1/tags/web_info/?tag_name=${encodeURIComponent(tag)}`,

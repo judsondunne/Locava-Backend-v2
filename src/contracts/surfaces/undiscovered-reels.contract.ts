@@ -67,6 +67,12 @@ export const CollectedReelInputSchema = z.object({
   ownerProfilePicUrl: z.string().nullable().optional(),
   /** Raw IG owner/media object (if the export included one) — the authoritative creator source. */
   ownerRaw: z.record(z.unknown()).optional(),
+  /**
+   * When the reel's place is already known (e.g. fetched from that spot's own
+   * hashtag), the pipeline uses this directly and skips AI extraction — faster
+   * and more accurate than re-deriving the place from the caption.
+   */
+  knownPlaceName: z.string().optional(),
 });
 export type CollectedReelInput = z.infer<typeof CollectedReelInputSchema>;
 

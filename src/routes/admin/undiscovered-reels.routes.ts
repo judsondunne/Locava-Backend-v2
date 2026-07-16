@@ -52,7 +52,9 @@ function makeLoadSpotCandidates(db: FirestoreDb | null) {
           .collection(collection)
           .orderBy("displayName")
           .startAt(token)
-          .endAt(`${token}`)
+          //  is the highest BMP private-use code point — this makes the
+          // range a true prefix match ("Warren" → "Warren Falls", etc.).
+          .endAt(`${token}`)
           .limit(30)
           .get();
         for (const doc of snap.docs) {
@@ -179,7 +181,9 @@ export async function registerUndiscoveredReelsRoutes(app: FastifyInstance): Pro
       for (const r of reels) {
         if (seen.has(r.shortcode)) continue;
         seen.add(r.shortcode);
-        allReels.push(r);
+        // We fetched this reel from `name`'s hashtag, so the place is known —
+        // the pipeline uses this and skips AI extraction.
+        allReels.push({ ...r, knownPlaceName: name });
       }
     }
 
