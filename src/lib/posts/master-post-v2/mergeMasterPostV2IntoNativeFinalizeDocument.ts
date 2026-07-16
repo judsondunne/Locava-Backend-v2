@@ -82,5 +82,17 @@ export function mergeMasterPostV2IntoNativeFinalizeDocument(
   for (const key of MASTER_TOP_LEVEL_KEYS) {
     firestoreWrite[key] = canonical[key] as unknown;
   }
+  const editProject = nativePostDoc.editProject;
+  if (
+    editProject != null &&
+    typeof editProject === "object" &&
+    !Array.isArray(editProject) &&
+    Object.keys(editProject as Record<string, unknown>).length > 0
+  ) {
+    firestoreWrite.editProject = editProject;
+  }
+  if (nativePostDoc.reel === true) {
+    firestoreWrite.reel = true;
+  }
   return { firestoreWrite, canonical, validation };
 }

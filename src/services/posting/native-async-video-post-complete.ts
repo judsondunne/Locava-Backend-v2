@@ -1,6 +1,6 @@
 import { FieldValue, Timestamp, type Firestore } from "firebase-admin/firestore";
 import type { DocumentReference } from "firebase-admin/firestore";
-import { compactCanonicalPostForLiveWrite } from "../../lib/posts/master-post-v2/compactCanonicalPostV2.js";
+import { compactCanonicalPostForLiveWrite, nonEmptyEditProjectRecord } from "../../lib/posts/master-post-v2/compactCanonicalPostV2.js";
 import { encodeFirestoreTimestampsInPostWrite } from "../../lib/posts/master-post-v2/encodeFirestoreTimestampsInPostWrite.js";
 import { normalizeMasterPostV2, type NormalizeMasterPostV2Options } from "../../lib/posts/master-post-v2/normalizeMasterPostV2.js";
 import { validateMasterPostV2 } from "../../lib/posts/master-post-v2/validateMasterPostV2.js";
@@ -158,6 +158,13 @@ export async function writeCompactLivePostAfterNativeVideoProcessing(input: {
       if (k in snapshotRaw && snapshotRaw[k] !== undefined) {
         live[k] = snapshotRaw[k];
       }
+    }
+    const preservedEditProject =
+      nonEmptyEditProjectRecord(live.editProject) ??
+      nonEmptyEditProjectRecord(snapshotRaw.editProject) ??
+      nonEmptyEditProjectRecord(workingPost.editProject);
+    if (preservedEditProject) {
+      live.editProject = preservedEditProject;
     }
     live.postId = postId;
     live.id = postId;

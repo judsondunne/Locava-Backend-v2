@@ -290,4 +290,51 @@ describe("mergeMasterPostV2IntoNativeFinalizeDocument", () => {
     const v = validateMasterPostV2(canonical);
     expect(v.blockingErrors.length).toBe(0);
   });
+
+  it("persists editProject and reel on finalize firestoreWrite for timeline reels", () => {
+    const postId = "post_merge_reel_ep";
+    const assembled = assemblePostAssetsFromStagedItems(postId, [
+      {
+        index: 0,
+        assetType: "video",
+        assetId: "v0",
+        originalUrl: "https://cdn.example.com/raw.mp4",
+        posterUrl: "https://cdn.example.com/poster.jpg",
+      },
+    ]);
+    const editProject = {
+      version: 1,
+      tracks: [{ id: "t1", type: "media", clips: [] }],
+    };
+    const postDoc = buildNativePostDocument({
+      postId,
+      effectiveUserId: "user_1",
+      viewerId: "user_1",
+      sessionId: "ups_reel",
+      stagedSessionId: "ps_reel",
+      idempotencyKey: "idem_reel",
+      nowMs,
+      nowTs,
+      user: { handle: "h", name: "N", profilePic: "https://cdn.example.com/p.jpg" },
+      title: "Trail reel",
+      content: "c",
+      activities: ["hiking"],
+      lat: 43.7,
+      lng: -72.3,
+      address: "VT",
+      privacy: "Public Spot",
+      tags: [],
+      texts: [],
+      recordings: [],
+      editProject,
+      assembled,
+      geo,
+      carouselFitWidth: false,
+      letterboxGradients: [],
+    });
+    validateNativePostDocumentForWrite(postDoc);
+    const { firestoreWrite } = mergeMasterPostV2IntoNativeFinalizeDocument(postDoc, { now: new Date(nowMs) });
+    expect(firestoreWrite.reel).toBe(true);
+    expect(firestoreWrite.editProject).toEqual(editProject);
+  });
 });

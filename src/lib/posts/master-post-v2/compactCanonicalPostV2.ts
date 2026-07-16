@@ -12,6 +12,13 @@ import {
 import type { FastStartAssetNeeds } from "./videoFastStartRepair.js";
 import { evaluatePosterRepairNeed, type PosterRepairReason } from "./posterRepair.js";
 
+/** Non-empty reel timeline project for Inspiration / reel-templates (top-level Firestore field). */
+export function nonEmptyEditProjectRecord(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length > 0 ? record : null;
+}
+
 export type VideoPlaybackIssue = {
   assetId: string;
   selectedReason: string | null;
@@ -849,6 +856,11 @@ export function compactCanonicalPostForLiveWrite(input: {
   m("posterUrl", canonical.compatibility.posterUrl ?? rawBefore.posterUrl);
   m("fallbackVideoUrl", canonical.compatibility.fallbackVideoUrl);
   m("mediaType", canonical.compatibility.mediaType);
+
+  const editProject = nonEmptyEditProjectRecord(rawBefore.editProject);
+  if (editProject) {
+    livePost.editProject = editProject;
+  }
 
   Object.assign(livePost, mirrors);
 

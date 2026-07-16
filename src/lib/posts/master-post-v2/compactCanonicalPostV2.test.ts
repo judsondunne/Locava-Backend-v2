@@ -806,6 +806,21 @@ describe("evaluatePostRebuildReadiness / video skip gate", () => {
     expect(issue).not.toBeNull();
     expect(issue!.summary).toMatch(/fallback_original_or_main/);
   });
+
+  it("preserves top-level editProject from rawBefore through compaction", () => {
+    const canonical = baseCanonical({ classification: { ...baseCanonical().classification, reel: true } });
+    const editProject = {
+      version: 1,
+      tracks: [{ id: "t1", type: "media", clips: [{ clipId: "c1", type: "video", startMs: 0, durationMs: 3000 }] }],
+    };
+    const { livePost } = compactCanonicalPostForLiveWrite({
+      canonical,
+      rawBefore: { reel: true, editProject },
+      postId: "post_reel_edit",
+    });
+    expect(livePost.editProject).toEqual(editProject);
+    expect(livePost.reel).toBe(true);
+  });
 });
 
 describe("isCompactCanonicalPostV2", () => {

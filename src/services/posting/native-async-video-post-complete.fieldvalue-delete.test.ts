@@ -125,6 +125,10 @@ describe("native-async-video-post-complete — FieldValue.delete regression", ()
     const ORIGINAL = "https://cdn.example.com/o.mp4";
     const STARTUP_720 = "https://cdn.example.com/startup720_faststart_avc.mp4";
     const POSTER = "https://cdn.example.com/poster.jpg";
+    const editProject = {
+      version: 1,
+      tracks: [{ id: "t1", type: "media", clips: [{ clipId: "c1", type: "video", startMs: 0, durationMs: 5000 }] }],
+    };
     const workingPost = {
       id: "post_x",
       postId: "post_x",
@@ -132,7 +136,9 @@ describe("native-async-video-post-complete — FieldValue.delete regression", ()
       lifecycle: { status: "active", createdAtMs: Date.now(), createdAt: new Date().toISOString() },
       author: { userId: "u" },
       text: { title: "t", searchableText: "t" },
-      classification: { mediaKind: "video", visibility: "public", source: "user", reel: false, isBoosted: false },
+      classification: { mediaKind: "video", visibility: "public", source: "user", reel: true, isBoosted: false },
+      reel: true,
+      editProject,
       mediaType: "video",
       assetsReady: true,
       videoProcessingStatus: "completed",
@@ -173,7 +179,7 @@ describe("native-async-video-post-complete — FieldValue.delete regression", ()
       db,
       postRef: postRef as unknown as Parameters<typeof writeCompactLivePostAfterNativeVideoProcessing>[0]["postRef"],
       postId: "post_x",
-      snapshotRaw: { ...workingPost },
+      snapshotRaw: { ...workingPost, editProject },
       workingPost,
       playbackLabDiagnosticsAssets: {},
     });
@@ -191,5 +197,7 @@ describe("native-async-video-post-complete — FieldValue.delete regression", ()
     if (!result.ok) {
       expect(result.error).not.toMatch(/FieldValue\.delete\(\)/);
     }
+    const replacePayload = replaceCall?.payload as Record<string, unknown>;
+    expect(replacePayload?.editProject).toEqual(editProject);
   });
 });
