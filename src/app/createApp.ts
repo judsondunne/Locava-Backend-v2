@@ -154,6 +154,7 @@ import { registerV2MapMarkersRoutes } from "../routes/v2/map-markers.routes.js";
 import { registerV2UnexploredRouteTilesRoutes } from "../routes/v2/unexplored-route-tiles.routes.js";
 import { registerV2UnexploredSpotTilesRoutes } from "../routes/v2/unexplored-spot-tiles.routes.js";
 import { registerV2UndiscoveredMapLayerRoutes } from "../routes/v2/undiscovered-map-layer.routes.js";
+import { registerV2UndiscoveredReelsMapRoutes } from "../routes/v2/undiscovered-reels-map.routes.js";
 import { registerV2UndiscoveredPhotoSearchRoutes } from "../routes/v2/undiscovered-photo-search.routes.js";
 import { registerUndiscoveredDashboardRoutes } from "../routes/admin/undiscovered-dashboard.routes.js";
 import { registerUndiscoveredReelsRoutes } from "../routes/admin/undiscovered-reels.routes.js";
@@ -850,6 +851,7 @@ export function createApp(overrides?: Partial<AppEnv>): FastifyInstance {
   app.register(registerV2UnexploredSpotTilesRoutes);
   app.register(registerV2UnexploredRouteTilesRoutes);
   app.register(registerV2UndiscoveredMapLayerRoutes);
+  app.register(registerV2UndiscoveredReelsMapRoutes);
   app.register(async (instance) => {
     await registerV2UndiscoveredPhotoSearchRoutes(instance, env);
   });
