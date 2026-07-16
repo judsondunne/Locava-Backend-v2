@@ -315,6 +315,21 @@ export async function resolveInstagramPublicGraphql(shortcode, log, opts = {}) {
         media?.owner?.profile_pic_url ||
         null;
 
+      const owner = media?.owner
+        ? {
+            username: media.owner.username || null,
+            full_name: media.owner.full_name || null,
+            profile_pic_url: media.owner.profile_pic_url || null,
+          }
+        : null;
+
+      // Owner-only callers (creator attribution) want the authoritative poster
+      // even for reels we won't download — return as soon as we have it.
+      if (opts.ownerOnly && owner) {
+        log.push({ step: "ig_graphql", ok: true, attempt, ownerOnly: true });
+        return { owner, method: "ig_graphql" };
+      }
+
       if (videoUrl) {
         log.push({
           step: "ig_graphql",
@@ -326,6 +341,7 @@ export async function resolveInstagramPublicGraphql(shortcode, log, opts = {}) {
           videoUrl,
           thumbnailUrl: thumb || null,
           title: null,
+          owner,
           method: "ig_graphql",
         };
       }
@@ -415,4 +431,20 @@ export async function resolveInstagramEmbedScrape(shortcode, log) {
 function truncate(u) {
   if (!u) return "";
   return u.length > 120 ? `${u.slice(0, 120)}…` : u;
+}
+
+/**
+ * Fetch the authoritative Instagram creator (owner) for a reel by shortcode.
+ * Reuses the public GraphQL path in owner-only mode. Best-effort — returns null
+ * when Instagram gates the request (login/throttle) unless session cookies are
+ * supplied via opts.extraCookieHeader. Never throws.
+ */
+export async function fetchInstagramMediaOwner(shortcode, opts = {}) {
+  const log = [];
+  try {
+    const res = await resolveInstagramPublicGraphql(shortcode, log, { ...opts, ownerOnly: true });
+    return res?.owner ?? null;
+  } catch {
+    return null;
+  }
 }

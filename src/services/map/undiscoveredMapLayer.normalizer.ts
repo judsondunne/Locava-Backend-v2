@@ -100,6 +100,33 @@ function isRouteLikeSpot(data: Record<string, unknown>): boolean {
   return false;
 }
 
+/**
+ * Display floor for pin photos. 45 keeps verified outdoor photos (alltrails,
+ * tourism, Commons-geotagged) eligible; 60 empirically leaves only exact-name
+ * business listings — the wrong trade for nature spots. Commons geosearch
+ * results score 55–75 by distance, so location-verified photos rank first.
+ */
+const MIN_DISPLAY_PHOTO_CONFIDENCE = 45;
+
+/**
+ * Best verified photo thumbnail from a doc's cached web-image search, or
+ * undefined. Requires status "ready", an accepted result, and a confidence at
+ * or above the display floor; picks the highest-confidence survivor.
+ */
+export function readDocThumbnail(data: Record<string, unknown>): string | undefined {
+  const ps = data.photoSearch as { status?: string; results?: Array<Record<string, unknown>> } | undefined;
+  if (!ps || ps.status !== "ready" || !Array.isArray(ps.results)) return undefined;
+  let best: { url: string; confidence: number } | null = null;
+  for (const r of ps.results) {
+    if (r.validationStatus !== "accepted") continue;
+    const confidence = Number(r.confidence ?? 0);
+    if (confidence < MIN_DISPLAY_PHOTO_CONFIDENCE) continue;
+    const url = (typeof r.thumbnailUrl === "string" && r.thumbnailUrl) || (typeof r.imageUrl === "string" && r.imageUrl);
+    if (url && (!best || confidence > best.confidence)) best = { url, confidence };
+  }
+  return best?.url;
+}
+
 export function normalizeUnexploredSpotDoc(
   data: Record<string, unknown>,
 ): { feature: MapLayerPointFeature | null; reason: NormalizeDropReason | null } {
@@ -148,6 +175,7 @@ export function normalizeUnexploredSpotDoc(
     category: typeof data.category === "string" ? data.category : activities[0],
     activities,
     publicMapEligible: true,
+    thumbnailUrl: readDocThumbnail(data),
     osm: readOsmMeta(data),
     detailRef: { type: "unexploredSpot", id },
     updatedAt: readUpdatedAt(data),

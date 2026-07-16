@@ -12,6 +12,7 @@ import { renderOpenStreetMapPbfCopierV2Page } from "../dashboard/openstreetmap-p
 import { renderPbfPhotoAssetPreviewPage } from "../dashboard/pbf-photo-asset-preview.js";
 import { renderOpenStreetMapVermontOffroadImportPage } from "../dashboard/openstreetmap-vermont-offroad-import.js";
 import { renderUndiscoveredScrapingDashboardPage } from "../dashboard/undiscovered-scraping-dashboard.js";
+import { renderUndiscoveredReelsDashboardPage } from "../dashboard/undiscovered-reels-dashboard.js";
 import { renderInstagramReelSetupPage } from "../dashboard/instagram-reel-setup.js";
 
 export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
@@ -38,6 +39,11 @@ export async function registerAdminRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/admin/undiscovered/dashboard-v1", async (_request, reply) => {
     return reply.redirect("/admin/undiscovered/scraping", 302);
+  });
+
+  app.get("/admin/undiscovered/reels", async (_request, reply) => {
+    reply.type("text/html; charset=utf-8");
+    return reply.send(renderUndiscoveredReelsDashboardPage());
   });
 
   app.get("/admin/wiki-curation", async (_request, reply) => {

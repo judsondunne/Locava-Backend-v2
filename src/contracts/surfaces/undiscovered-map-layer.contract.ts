@@ -46,6 +46,8 @@ export const MapLayerPointFeatureSchema = z.object({
   category: z.string().optional(),
   activities: z.array(z.string()).optional(),
   publicMapEligible: z.boolean(),
+  /** Verified web-search photo for the map pin — present only when a confident match exists. */
+  thumbnailUrl: z.string().optional(),
   osm: MapLayerOsmMetaSchema.optional(),
   detailRef: MapLayerDetailRefSchema,
   updatedAt: z.union([z.string(), z.number()]).optional(),
