@@ -48,6 +48,14 @@ export const UndiscoveredReelSchema = z.object({
   thumbnailUrl: z.string().nullable(),
   creator: ReelCreatorSchema,
   location: ReelLocationSchema,
+  /** Instagram engagement — nullable when IG didn't return it for this reel. */
+  engagement: z.object({
+    playCount: z.number().nullable(),
+    likeCount: z.number().nullable(),
+    commentCount: z.number().nullable(),
+  }),
+  /** 0–100+ quality score (log-scaled views + engagement rate). Higher = show first. */
+  qualityScore: z.number(),
   /** Review status mirrors the spot workflow so reels can be curated the same way. */
   reviewStatus: z.enum(["candidate", "approved", "rejected", "published"]).default("candidate"),
   createdAt: z.string(),
@@ -73,6 +81,10 @@ export const CollectedReelInputSchema = z.object({
    * and more accurate than re-deriving the place from the caption.
    */
   knownPlaceName: z.string().optional(),
+  /** Instagram engagement signals used for quality ranking. */
+  playCount: z.number().optional(),
+  likeCount: z.number().optional(),
+  commentCount: z.number().optional(),
 });
 export type CollectedReelInput = z.infer<typeof CollectedReelInputSchema>;
 

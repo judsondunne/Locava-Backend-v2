@@ -1,4 +1,5 @@
 import type { CollectedReelInput } from "../../../contracts/surfaces/undiscovered-reels.contract.js";
+import { filterAndRankReels, type ReelQualityOptions } from "./reelQuality.js";
 
 /**
  * Automatic reel acquisition by hashtag.
@@ -15,6 +16,8 @@ const IG_APP_ID = "936619743392459";
 export type HashtagFetchDeps = {
   cookieHeader?: string;
   httpGetJson?: (url: string, headers: Record<string, string>) => Promise<unknown>;
+  /** Quality controls applied after caption filtering (promo drop, view floor, top-N). */
+  quality?: ReelQualityOptions;
 };
 
 /** Derive candidate hashtags from a spot name. e.g. "Warren Falls" → warrenfalls, warrenfallsvt. */
@@ -72,6 +75,7 @@ export function parseHashtagWebInfo(payload: unknown): CollectedReelInput[] {
         seen.add(code);
         const caption = ((media.caption as { text?: string })?.text ?? "").toString();
         const user = (media.user as Record<string, unknown>) ?? {};
+        const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
         out.push({
           shortcode: code,
           caption,
@@ -80,6 +84,9 @@ export function parseHashtagWebInfo(payload: unknown): CollectedReelInput[] {
           ownerFullName: (user.full_name as string) ?? null,
           ownerProfilePicUrl: (user.profile_pic_url as string) ?? null,
           ownerRaw: { owner: user },
+          playCount: num(media.play_count) ?? num(media.ig_play_count) ?? num(media.view_count),
+          likeCount: num(media.like_count),
+          commentCount: num(media.comment_count),
         });
       }
     }
@@ -156,5 +163,8 @@ export async function fetchReelsForSpot(
       // one failing tag doesn't sink the spot — others may still return
     }
   }
-  return filterReelsByCaption(collected, spotName);
+  // Keep only reels that mention the spot, then apply quality controls (drop
+  // promos/ads, rank by engagement, keep the best per spot).
+  const onTopic = filterReelsByCaption(collected, spotName);
+  return filterAndRankReels(onTopic, deps.quality ?? { dropPromos: true, topN: 12 });
 }

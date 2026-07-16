@@ -7,6 +7,7 @@ import type {
 import { buildReelAttribution } from "./buildReelAttribution.js";
 import type { ReelLocationExtraction } from "./extractReelLocation.js";
 import type { SpotMatch } from "./matchReelToSpot.js";
+import { scoreReelQuality } from "./reelQuality.js";
 
 /**
  * Assemble the final undiscoveredReels record from the pipeline outputs.
@@ -74,6 +75,12 @@ export function assembleUndiscoveredReel(input: {
     thumbnailUrl: input.reel.thumbnailUrl ?? null,
     creator: buildReelAttribution(input.reel, input.authoritativeCreator),
     location: resolveReelLocation(input.extraction, input.match),
+    engagement: {
+      playCount: input.reel.playCount ?? null,
+      likeCount: input.reel.likeCount ?? null,
+      commentCount: input.reel.commentCount ?? null,
+    },
+    qualityScore: scoreReelQuality(input.reel),
     reviewStatus: "candidate",
     createdAt: now,
     updatedAt: now,

@@ -33,6 +33,17 @@ const flagVal = (name: string, def: number): number => {
 const MAX_SPOTS = flagVal("--max", Infinity);
 const CONCURRENCY = Math.max(1, Math.min(12, flagVal("--concurrency", 6)));
 const BUDGET = flagVal("--budget", 45000);
+// Only keep photos whose match confidence clears this floor — weak matches
+// (e.g. a spot pulling a job-listing or news thumbnail) are downgraded to empty
+// so the map never shows a wrong image.
+const MIN_CONFIDENCE = flagVal("--min-confidence", 45);
+// Restrict to outdoor, reel/photo-worthy categories by default; --all-categories
+// to search everything (restaurants, shops, etc. — usually low value).
+const ALL_CATEGORIES = args.includes("--all-categories");
+const OUTDOOR_CATEGORIES = new Set([
+  "waterfall", "water", "wateraccess", "beach", "view", "hiking", "nature",
+  "conservation", "park", "quarries", "historical",
+]);
 
 // Lift the in-process guards BEFORE the budget module first reads them (it reads
 // process.env live on each call). Rotating viewers keeps us under the per-viewer
@@ -52,7 +63,7 @@ async function loadSpotsMissingPhotos(db: FirebaseFirestore.Firestore): Promise<
   let scanned = 0, alreadyDone = 0, lastId: string | null = null;
   for (;;) {
     let q = db.collection("unexploredSpots")
-      .select("displayName", "lat", "lng", "location", "photoSearch")
+      .select("displayName", "category", "lat", "lng", "location", "photoSearch")
       .orderBy("__name__").limit(1000);
     if (lastId) q = q.startAfter(lastId);
     const snap = await q.get();
@@ -61,6 +72,7 @@ async function loadSpotsMissingPhotos(db: FirebaseFirestore.Firestore): Promise<
       scanned++;
       const d = doc.data() as Record<string, any>;
       if (d.photoSearch) { alreadyDone++; continue; } // resume: already searched
+      if (!ALL_CATEGORIES && !OUTDOOR_CATEGORIES.has(String(d.category ?? ""))) continue; // skip low-value categories
       const lat = Number(d.lat ?? d.location?.lat);
       const lng = Number(d.lng ?? d.location?.lng);
       const name = String(d.displayName ?? "");
@@ -81,9 +93,9 @@ async function main(): Promise<void> {
   if (!db) throw new Error("Firestore not enabled");
   if (!process.env.SERPER_API_KEY?.trim() && !DRY_RUN) throw new Error("SERPER_API_KEY not set in .env");
 
-  console.log("Scanning unexploredSpots for missing photos…");
+  console.log(`Scanning unexploredSpots for missing photos${ALL_CATEGORIES ? " (all categories)" : " (outdoor categories only)"}…`);
   const { pending, scanned, alreadyDone } = await loadSpotsMissingPhotos(db);
-  console.log(`Scanned ${scanned} spots — ${alreadyDone} already have photos, ${pending.length} need backfill.`);
+  console.log(`Scanned ${scanned} spots — ${alreadyDone} already have photos, ${pending.length} eligible need backfill (min confidence ${MIN_CONFIDENCE}).`);
 
   if (DRY_RUN) {
     console.log(`\nDRY RUN — would spend up to ${Math.min(pending.length, BUDGET)} Serper credits (budget ${BUDGET}). Re-run without --dry-run.`);
@@ -107,8 +119,27 @@ async function main(): Promise<void> {
         });
         if (result.ok) {
           const status = (result.response as { cacheStatus?: string }).cacheStatus ?? "?";
-          if (status === "hit" || status === "miss" || status === "refreshed") ready++;
-          else empty++;
+          if (status === "hit" || status === "miss" || status === "refreshed") {
+            // Enforce the confidence floor: drop weak results; if none survive,
+            // mark the doc empty so a wrong image never renders.
+            const items = ((result.response as { items?: Array<{ confidence?: number | null }> }).items ?? []);
+            const strong = items.filter((it) => (it.confidence ?? 0) >= MIN_CONFIDENCE);
+            if (strong.length === items.length) {
+              ready++;
+            } else if (strong.length > 0) {
+              await db.collection("unexploredSpots").doc(s.id).update({
+                "photoSearch.results": strong, "photoSearch.resultCount": strong.length,
+              });
+              ready++;
+            } else {
+              await db.collection("unexploredSpots").doc(s.id).update({
+                "photoSearch.results": [], "photoSearch.resultCount": 0, "photoSearch.status": "empty",
+              });
+              empty++;
+            }
+          } else {
+            empty++;
+          }
         } else {
           failed++;
           if (result.code === "budget_exceeded" || result.code === "provider_budget_exceeded") { budgetHit = true; }
